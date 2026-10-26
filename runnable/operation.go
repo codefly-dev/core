@@ -152,6 +152,11 @@ type OperationSpec struct {
 	// Recovery is how an uncertain outcome is resolved, as declared:
 	// RECOVERY_UNKNOWN reads as RECOVERY_RECEIPT (EffectiveRecovery).
 	Recovery basev0.RunnableExecution_Recovery
+	// Declared says the owner wrote the codefly.runnable.v0.operation option;
+	// false is an operation derived by default from its authority policy. It
+	// is the derivation's account of itself, for a generator to report, and is
+	// never delivered: a policy is the same policy whoever wrote it.
+	Declared bool
 	// RequiredScopeSlots are the owner's holes in its authority: resource kinds
 	// and actions whose exact resource ids only the installing composition
 	// knows. A spec carrying one is not yet a policy a binding may deliver;
@@ -299,6 +304,7 @@ func OperationForMethod(files *protoregistry.Files, method protoreflect.MethodDe
 	if declaredErr != nil {
 		return nil, true, declaredErr
 	}
+	spec.Declared = true
 	if spec.Tool == nil {
 		spec.Tool = DefaultTool(method, spec.EffectiveRecovery(), authority)
 		if err = spec.Validate(); err != nil {
@@ -490,6 +496,7 @@ func (s *OperationSpec) authority() authoritySpec {
 		invokeScopes:       s.InvokeScopes,
 		lookupScopes:       s.LookupScopes,
 		requiredScopeSlots: s.RequiredScopeSlots,
+		submitted:          s.Completion == basev0.RunnableExecution_COMPLETION_SUBMIT,
 	}
 }
 
@@ -519,6 +526,11 @@ type authoritySpec struct {
 	lookupScopes []*basev0.WorkScopeV1
 	// requiredScopeSlots exists only while an owner declaration awaits selection.
 	requiredScopeSlots []*runnablev0.ScopeSlot
+	// submitted is an operation answering COMPLETION_SUBMIT, whose answer is
+	// learnable only through its receipt. It keeps lookup scopes required until
+	// a runtime mints a receipt lookup under the invoke scopes: installed with
+	// none today, it would generate and install and never recover.
+	submitted bool
 }
 
 func (a authoritySpec) validate() error {
@@ -531,7 +543,7 @@ func (a authoritySpec) validate() error {
 	if err := a.validateScopes("invoke_scopes", a.invokeScopes); err != nil {
 		return err
 	}
-	if len(a.lookupScopes) == 0 {
+	if len(a.lookupScopes) == 0 && !a.submitted {
 		// Identity-bound under the invoke scopes (see authoritySpec).
 		return nil
 	}

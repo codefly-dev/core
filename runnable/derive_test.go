@@ -271,10 +271,17 @@ func TestTheRuntimeInstallsBothDerivedForms(t *testing.T) {
 	}
 }
 
+// workContext is a context owned by owner through the named actors; an actor
+// spelled "principal/agent" carries an agent id.
 func workContext(owner string, actors ...string) *basev0.WorkContextV1 {
 	wc := &basev0.WorkContextV1{OwnerPrincipalId: owner}
 	for _, actor := range actors {
-		wc.ActorChain = append(wc.ActorChain, &basev0.WorkActorV1{PrincipalId: actor, PrincipalKind: "agent"})
+		principal, agent, _ := strings.Cut(actor, "/")
+		hop := &basev0.WorkActorV1{PrincipalId: principal, PrincipalKind: "agent"}
+		if agent != "" {
+			hop.AgentId = proto.String(agent)
+		}
+		wc.ActorChain = append(wc.ActorChain, hop)
 	}
 	return wc
 }
@@ -286,37 +293,40 @@ func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
 	read := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"read"}}}
 	identityBound := &runnablev0.Operation{InvokeScopes: write, Recovery: basev0.RunnableExecution_RECOVERY_RECEIPT}
 
-	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin"))
+	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin/answer-agent", "runtime-worker"))
 	require.NoError(t, err)
 	require.Equal(t, "ana", recorded.GetOwnerPrincipalId())
-	require.Equal(t, "robin", recorded.GetActingPrincipalId())
-	alone, err := runnable.ReceiptIdentityOf(workContext("ana"))
-	require.NoError(t, err)
-	require.Equal(t, "ana", alone.GetActingPrincipalId(), "no delegation: the owner acts")
+	require.Len(t, recorded.GetActors(), 2)
+	require.Equal(t, "answer-agent", recorded.GetActors()[0].GetAgentId())
+	caller := func(actors ...string) *basev0.WorkContextV1 { return workContext("ana", actors...) }
+	chain := []string{"robin/answer-agent", "runtime-worker"}
 
-	require.NoError(t, runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "robin"), write))
+	require.NoError(t, runnable.AdmitReceiptLookup(identityBound, recorded, caller(chain...), write))
 	for name, refused := range map[string]func() error{
 		"another person in the tenant": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("bob", "robin"), write)
+			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("bob", chain...), write)
 		},
-		"the same person through another agent": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "other-agent"), write)
+		"another agent at an intermediate hop": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, caller("other-agent", "runtime-worker"), write)
+		},
+		"another agent sharing the principal": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, caller("robin/other-agent", "runtime-worker"), write)
 		},
 		"the same person acting directly": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana"), write)
+			return runnable.AdmitReceiptLookup(identityBound, recorded, caller(), write)
 		},
 		"the caller no longer holding the invoke scopes": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "robin"), read)
+			return runnable.AdmitReceiptLookup(identityBound, recorded, caller(chain...), read)
 		},
 		"a receipt recording no identity": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, nil, workContext("ana", "robin"), write)
+			return runnable.AdmitReceiptLookup(identityBound, nil, caller(chain...), write)
 		},
 		"a recomputed read, which keeps no receipt": func() error {
-			return runnable.AdmitReceiptLookup(&runnablev0.Operation{InvokeScopes: read, Recovery: basev0.RunnableExecution_RECOVERY_RECOMPUTE}, recorded, workContext("ana", "robin"), read)
+			return runnable.AdmitReceiptLookup(&runnablev0.Operation{InvokeScopes: read, Recovery: basev0.RunnableExecution_RECOVERY_RECOMPUTE}, recorded, caller(chain...), read)
 		},
 		"declared lookup scopes the caller does not hold": func() error {
 			declared := &runnablev0.Operation{InvokeScopes: write, LookupScopes: read}
-			return runnable.AdmitReceiptLookup(declared, recorded, workContext("ana", "robin"), write)
+			return runnable.AdmitReceiptLookup(declared, recorded, caller(chain...), write)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -350,4 +360,47 @@ func TestDerivedNamesAreBoundedDeterministically(t *testing.T) {
 	require.Equal(t, bounded, runnable.BoundedName(long, 64, "_"))
 	require.NotEqual(t, bounded, runnable.BoundedName(long+"s", 64, "_"))
 	require.Equal(t, "Short", runnable.BoundedName("Short", 64, "_"))
+}
+
+// A guarded invocation replays a committed response only to the identity it
+// was recorded for; any other caller is refused as a conflict carrying no
+// content (r100 M-B).
+func TestAReceiptIsReplayedOnlyToTheCallerThatMadeIt(t *testing.T) {
+	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin/answer-agent"))
+	require.NoError(t, err)
+	require.NoError(t, runnable.AdmitReceiptReplay(recorded, workContext("ana", "robin/answer-agent")))
+	for _, other := range []*basev0.WorkContextV1{
+		workContext("bob", "robin/answer-agent"),
+		workContext("ana", "robin/other-agent"),
+		workContext("ana"),
+		{},
+	} {
+		err := runnable.AdmitReceiptReplay(recorded, other)
+		require.ErrorIs(t, err, runnable.ErrReceiptConflict)
+		require.NotContains(t, err.Error(), "ana", "a conflict says nothing of whose receipt it is")
+	}
+	require.ErrorIs(t, runnable.AdmitReceiptReplay(nil, workContext("ana")), runnable.ErrReceiptConflict)
+}
+
+// A submitted operation's answer is learnable only through its receipt, so it
+// keeps lookup scopes required until a runtime mints a lookup under invoke
+// (r100 m-C), at declaration and at install.
+func TestASubmittedOperationKeepsItsLookupScopes(t *testing.T) {
+	declared := declaredOperation()
+	declared.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+	declared.LookupScopes = nil
+	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "lookup_scopes")
+
+	pkgDeclared := ownerHandlerPackage(t)
+	pkgDeclared.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	pkgDeclared.Execution.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+	pkg, err := runnable.PreparePackage(pkgDeclared)
+	require.NoError(t, err)
+	binding := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
+	binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+	binding.Authority.LookupScopes = nil
+	_, err = runnable.PrepareBinding(binding, pkg)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
 }

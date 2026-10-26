@@ -36,6 +36,7 @@ func fullSpec() *OperationSpec {
 		Tool:               &runnablev0.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION},
 		RequiredScopeSlots: []*runnablev0.ScopeSlot{{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true}},
 		Recovery:           basev0.RunnableExecution_RECOVERY_RECEIPT,
+		Declared:           true,
 	}
 }
 
@@ -65,9 +66,10 @@ func TestPolicyRoundTripsEveryField(t *testing.T) {
 			"OperationSpec.Policy does not write Operation.%s; carry it on OperationSpec, write it in Policy and read it back in preparedPolicy", field.Name())
 	}
 	// Method and Codes are the binding's own — its operation spelling and the
-	// vocabulary its route implies. Every other spec field is one wire field.
-	require.Equal(t, fields.Len(), value.NumField()-2,
-		"OperationSpec and Operation disagree on the policy's fields: a spec field that is not Method or Codes is exactly one wire field, and the reverse")
+	// vocabulary its route implies — and Declared is the derivation's account
+	// of itself, never delivered. Every other spec field is one wire field.
+	require.Equal(t, fields.Len(), value.NumField()-3,
+		"OperationSpec and Operation disagree on the policy's fields: a spec field that is not Method, Codes or Declared is exactly one wire field, and the reverse")
 
 	binding := &runnablev0.PreparedBinding{
 		Operation: &runnablev0.PreparedOperation{Module: "owner", Service: "items", Endpoint: "rest", Spelling: spec.Method},

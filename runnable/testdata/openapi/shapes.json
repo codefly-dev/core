@@ -13,8 +13,7 @@
         "properties": {
           "label": {"type": "string"},
           "weight": {"type": "string", "format": "int64"}
-        },
-        "required": ["label", "weight"]
+        }
       },
       "Payload": {
         "type": "object",
@@ -27,8 +26,7 @@
           "tags": {"type": "array", "items": {"type": "string"}},
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}},
           "note": {"type": "string"}
-        },
-        "required": ["name", "count", "active", "tags", "items"]
+        }
       }
     }
   }

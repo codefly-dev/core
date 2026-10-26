@@ -59,11 +59,7 @@
           "cursor": {"type": "string", "format": "int64"},
           "contentType": {"type": "string"},
           "text": {"type": "string"}
-        },
-        "required": [
-          "origin", "container", "ref", "path", "revision", "commit",
-          "cursor", "contentType", "text"
-        ]
+        }
       },
       "ApplyTextResponse": {
         "type": "object",
@@ -75,11 +71,7 @@
           "minted": {"type": "boolean"},
           "skipped": {"type": "boolean"},
           "quarantined": {"type": "boolean"}
-        },
-        "required": [
-          "reference", "contentHash", "effectDigest",
-          "minted", "skipped", "quarantined"
-        ]
+        }
       }
     }
   }

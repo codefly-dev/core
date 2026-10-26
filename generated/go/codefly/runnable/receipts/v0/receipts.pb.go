@@ -194,20 +194,23 @@ func (*LookupResponse_Response) isLookupResponse_Outcome() {}
 func (*LookupResponse_Status) isLookupResponse_Outcome() {}
 
 // ReceiptIdentity is who made an effect, recorded with its receipt in the same
-// transaction that commits the effect, and compared on every lookup. It is the
-// verified Work Context's owner principal and its acting principal — the last
-// actor of its chain, or the owner when the chain is empty — because those are
-// the two a delegation can vary: the same person through another agent is
-// another caller, and the same agent for another person is too.
+// transaction that commits the effect, and compared whole on every lookup and
+// every replay. It is the verified Work Context's owner and its entire actor
+// chain, each hop by principal and agent, in order: the same person through
+// another agent — at any hop, not only the last — is another caller, two
+// agents sharing a principal are two callers, and the same agent for another
+// person is another caller too.
 type ReceiptIdentity struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// owner_principal_id is the Work Context's owner_principal_id.
 	OwnerPrincipalId string `protobuf:"bytes,1,opt,name=owner_principal_id,json=ownerPrincipalId,proto3" json:"owner_principal_id,omitempty"`
-	// acting_principal_id is the principal_id of the last actor in the Work
-	// Context's actor_chain, or owner_principal_id when the chain is empty.
-	ActingPrincipalId string `protobuf:"bytes,2,opt,name=acting_principal_id,json=actingPrincipalId,proto3" json:"acting_principal_id,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// owner_agent_id is the Work Context's owner_agent_id, empty unless the
+	// owner is an agent.
+	OwnerAgentId string `protobuf:"bytes,2,opt,name=owner_agent_id,json=ownerAgentId,proto3" json:"owner_agent_id,omitempty"`
+	// actors is the Work Context's actor_chain, first delegated hop first.
+	Actors        []*ReceiptActor `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReceiptIdentity) Reset() {
@@ -247,9 +250,71 @@ func (x *ReceiptIdentity) GetOwnerPrincipalId() string {
 	return ""
 }
 
-func (x *ReceiptIdentity) GetActingPrincipalId() string {
+func (x *ReceiptIdentity) GetOwnerAgentId() string {
 	if x != nil {
-		return x.ActingPrincipalId
+		return x.OwnerAgentId
+	}
+	return ""
+}
+
+func (x *ReceiptIdentity) GetActors() []*ReceiptActor {
+	if x != nil {
+		return x.Actors
+	}
+	return nil
+}
+
+// ReceiptActor is one hop of the chain a receipt records.
+type ReceiptActor struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// principal_id is the hop's principal_id.
+	PrincipalId string `protobuf:"bytes,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	// agent_id is the hop's agent_id, empty unless the hop is an agent.
+	AgentId       string `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReceiptActor) Reset() {
+	*x = ReceiptActor{}
+	mi := &file_codefly_runnable_receipts_v0_receipts_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReceiptActor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReceiptActor) ProtoMessage() {}
+
+func (x *ReceiptActor) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_receipts_v0_receipts_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReceiptActor.ProtoReflect.Descriptor instead.
+func (*ReceiptActor) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_receipts_v0_receipts_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReceiptActor) GetPrincipalId() string {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return ""
+}
+
+func (x *ReceiptActor) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
 	}
 	return ""
 }
@@ -265,10 +330,14 @@ const file_codefly_runnable_receipts_v0_receipts_proto_rawDesc = "" +
 	"\x0eLookupResponse\x12\x1c\n" +
 	"\bresponse\x18\x01 \x01(\fH\x00R\bresponse\x12,\n" +
 	"\x06status\x18\x02 \x01(\v2\x12.google.rpc.StatusH\x00R\x06statusB\t\n" +
-	"\aoutcome\"o\n" +
+	"\aoutcome\"\xa9\x01\n" +
 	"\x0fReceiptIdentity\x12,\n" +
-	"\x12owner_principal_id\x18\x01 \x01(\tR\x10ownerPrincipalId\x12.\n" +
-	"\x13acting_principal_id\x18\x02 \x01(\tR\x11actingPrincipalId2o\n" +
+	"\x12owner_principal_id\x18\x01 \x01(\tR\x10ownerPrincipalId\x12$\n" +
+	"\x0eowner_agent_id\x18\x02 \x01(\tR\fownerAgentId\x12B\n" +
+	"\x06actors\x18\x03 \x03(\v2*.codefly.runnable.receipts.v0.ReceiptActorR\x06actors\"L\n" +
+	"\fReceiptActor\x12!\n" +
+	"\fprincipal_id\x18\x01 \x01(\tR\vprincipalId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId2o\n" +
 	"\bReceipts\x12c\n" +
 	"\x06Lookup\x12+.codefly.runnable.receipts.v0.LookupRequest\x1a,.codefly.runnable.receipts.v0.LookupResponseB\x8c\x02\n" +
 	" com.codefly.runnable.receipts.v0B\rReceiptsProtoP\x01ZEgithub.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0\xa2\x02\x04CRRV\xaa\x02\x1cCodefly.Runnable.Receipts.V0\xca\x02\x1cCodefly\\Runnable\\Receipts\\V0\xe2\x02(Codefly\\Runnable\\Receipts\\V0\\GPBMetadata\xea\x02\x1fCodefly::Runnable::Receipts::V0b\x06proto3"
@@ -285,22 +354,24 @@ func file_codefly_runnable_receipts_v0_receipts_proto_rawDescGZIP() []byte {
 	return file_codefly_runnable_receipts_v0_receipts_proto_rawDescData
 }
 
-var file_codefly_runnable_receipts_v0_receipts_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_codefly_runnable_receipts_v0_receipts_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_codefly_runnable_receipts_v0_receipts_proto_goTypes = []any{
 	(*LookupRequest)(nil),   // 0: codefly.runnable.receipts.v0.LookupRequest
 	(*LookupResponse)(nil),  // 1: codefly.runnable.receipts.v0.LookupResponse
 	(*ReceiptIdentity)(nil), // 2: codefly.runnable.receipts.v0.ReceiptIdentity
-	(*status.Status)(nil),   // 3: google.rpc.Status
+	(*ReceiptActor)(nil),    // 3: codefly.runnable.receipts.v0.ReceiptActor
+	(*status.Status)(nil),   // 4: google.rpc.Status
 }
 var file_codefly_runnable_receipts_v0_receipts_proto_depIdxs = []int32{
-	3, // 0: codefly.runnable.receipts.v0.LookupResponse.status:type_name -> google.rpc.Status
-	0, // 1: codefly.runnable.receipts.v0.Receipts.Lookup:input_type -> codefly.runnable.receipts.v0.LookupRequest
-	1, // 2: codefly.runnable.receipts.v0.Receipts.Lookup:output_type -> codefly.runnable.receipts.v0.LookupResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	4, // 0: codefly.runnable.receipts.v0.LookupResponse.status:type_name -> google.rpc.Status
+	3, // 1: codefly.runnable.receipts.v0.ReceiptIdentity.actors:type_name -> codefly.runnable.receipts.v0.ReceiptActor
+	0, // 2: codefly.runnable.receipts.v0.Receipts.Lookup:input_type -> codefly.runnable.receipts.v0.LookupRequest
+	1, // 3: codefly.runnable.receipts.v0.Receipts.Lookup:output_type -> codefly.runnable.receipts.v0.LookupResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_receipts_v0_receipts_proto_init() }
@@ -318,7 +389,7 @@ func file_codefly_runnable_receipts_v0_receipts_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_runnable_receipts_v0_receipts_proto_rawDesc), len(file_codefly_runnable_receipts_v0_receipts_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

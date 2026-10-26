@@ -460,15 +460,23 @@ installation. Lookup scopes are optional, under one rule wherever they appear
 operation states its recovery. Declared, they are a read-only subset of the
 invoke scopes. Empty, a receipt is read under the invoke scopes and **only by
 the identity that made the effect**: a receipt records its Work Context's owner
-and acting principal (`codefly.runnable.receipts.v0.ReceiptIdentity`), and
-`runnable.AdmitReceiptLookup` admits a lookup only for that same owner and
-acting principal, holding the scopes the receipt is read under. That binding,
+and whole actor chain, each hop by principal and agent
+(`codefly.runnable.receipts.v0.ReceiptIdentity`), and
+`runnable.AdmitReceiptLookup` admits a lookup only for that same identity,
+holding the scopes the receipt is read under. A refused lookup answers
+NOT_FOUND exactly as an absent receipt does, its reason logged and never
+returned. The replay path is bound the same way: a guarded invocation
+presenting an effect id whose receipt was recorded for another identity is
+refused as a conflict carrying no content (`runnable.AdmitReceiptReplay`), so
+no caller is ever answered with another's committed response. That binding,
 not the spelling of the declaration, is what makes an empty list safe — which
 is why the rule cannot hang on whether `recovery` was written: the installed
 package carries only the recovery in effect. A module that contributes no
 `read` permission on a kind it writes can therefore still mint the mutation.
-A `RECOVERY_RECOMPUTE` operation has no receipt at all: no lookup scopes, no
-lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
+A `COMPLETION_SUBMIT` operation keeps its lookup scopes required: its answer is
+learnable only through its receipt, and no runtime mints a lookup under the
+invoke scopes yet. A `RECOVERY_RECOMPUTE` operation has no receipt at all: no
+lookup scopes, no lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
 own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
@@ -549,10 +557,14 @@ the same reason a type outside the profile is: the object closes
 anyway would hand back a contract silent about a key the owner marked mandatory.
 
 Reading the columns together says what a transcription has to spell, and the
-fixture pair is what enforces it. A proto3 field with implicit presence has a
-key that is always there, so it is `required` in the document; a message-typed
-or `optional` field has one that may be absent, so it is not. **The schema is
-the wire.** A member is named by its JSON name — lowerCamelCase, or the
+fixture pair is what enforces it. **Every key may be absent** except a
+required field's (proto2 `required`, editions `LEGACY_REQUIRED`), so only those
+are `required` in the document: proto3 JSON omits a field at its default — an
+empty string, 0, false, the zero enum value, an empty list or map — just as it
+omits an unset field with presence, and connect-go marshals that way
+(`protojson.MarshalOptions{}`). A contract that demanded such a key would
+refuse an ordinary answer — an empty page, a last page with no cursor — as an
+integrity failure after the effect committed. **The schema is the wire.** A member is named by its JSON name — lowerCamelCase, or the
 `json_name` the owner chose — which is the key a Connect server writes, and a
 64-bit integer is the decimal string proto3 JSON writes; protojson reads either
 name and either integer spelling, so a caller's input loses nothing. A

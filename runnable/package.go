@@ -498,7 +498,7 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	// facility of the binding to fix rather than a field path: an installation
 	// is refused here for the whole set, and "authority: value is required"
 	// does not say which binding in it.
-	if err := validateBindingAuthority(binding); err != nil {
+	if err := validateBindingAuthority(binding, pkg); err != nil {
 		return err
 	}
 	if err := validator.Validate(binding); err != nil {
@@ -551,7 +551,11 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 // Both derived forms install: a recomputed read carries no lookup scopes, and
 // a receipt operation may carry none, its receipt then read under its invoke
 // scopes by the identity that made the effect (authoritySpec).
-func validateBindingAuthority(binding *basev0.RunnableBinding) error {
+//
+// A submitted operation keeps its lookup scopes required: its answer is
+// learnable only through the receipt, and no runtime mints a lookup under the
+// invoke scopes yet.
+func validateBindingAuthority(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackage) error {
 	authority := binding.GetAuthority()
 	if authority == nil {
 		return fmt.Errorf("%w: binding on facility %s carries no authority; every facility calls under a Work Context, and an installation missing one anywhere is refused here rather than on the first call it cannot mint for",
@@ -562,6 +566,7 @@ func validateBindingAuthority(binding *basev0.RunnableBinding) error {
 		audience:     authority.GetAudience(),
 		invokeScopes: authority.GetInvokeScopes(),
 		lookupScopes: authority.GetLookupScopes(),
+		submitted:    pkg.GetExecution().GetCompletion() == basev0.RunnableExecution_COMPLETION_SUBMIT,
 	}.validate()
 }
 

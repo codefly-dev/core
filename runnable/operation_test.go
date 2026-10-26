@@ -113,7 +113,7 @@ func derivedIngestion(t *testing.T) (*basev0.RunnablePackage, *runnable.Operatio
 func TestPackageFromMethodIsByteStable(t *testing.T) {
 	pkg, _ := derivedIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
-	require.Equal(t, "fdfc6ac25ae0eb138d4f51dc255343de093ce3048c3262f8d5e0e61035027b19", pkg.GetDigest())
+	require.Equal(t, "4b72d393b3fb25284036185968438f3c24be98780660c7f994de896358d4878c", pkg.GetDigest())
 
 	again, _ := derivedIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -142,23 +142,23 @@ func TestPackageFromMethodReproducesTheHandWrittenOracle(t *testing.T) {
 		Contract: &basev0.RunnableContract{
 			Protocol: resources.RunnableServiceProtocolV1,
 			Input: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "origin", Type: basev0.RunnableField_STRING},
-				{Name: "container", Type: basev0.RunnableField_STRING},
-				{Name: "ref", Type: basev0.RunnableField_STRING},
-				{Name: "path", Type: basev0.RunnableField_STRING},
-				{Name: "revision", Type: basev0.RunnableField_STRING},
-				{Name: "commit", Type: basev0.RunnableField_STRING},
-				{Name: "cursor", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64},
-				{Name: "contentType", Type: basev0.RunnableField_STRING},
-				{Name: "text", Type: basev0.RunnableField_STRING},
+				{Name: "origin", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "container", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "ref", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "path", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "revision", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "commit", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "cursor", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+				{Name: "contentType", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "text", Type: basev0.RunnableField_STRING, Optional: true},
 			}},
 			Output: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "reference", Type: basev0.RunnableField_STRING},
-				{Name: "contentHash", Type: basev0.RunnableField_STRING},
-				{Name: "effectDigest", Type: basev0.RunnableField_STRING},
-				{Name: "minted", Type: basev0.RunnableField_BOOLEAN},
-				{Name: "skipped", Type: basev0.RunnableField_BOOLEAN},
-				{Name: "quarantined", Type: basev0.RunnableField_BOOLEAN},
+				{Name: "reference", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "contentHash", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "effectDigest", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "minted", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+				{Name: "skipped", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+				{Name: "quarantined", Type: basev0.RunnableField_BOOLEAN, Optional: true},
 			}},
 		},
 		Execution: &basev0.RunnableExecution{

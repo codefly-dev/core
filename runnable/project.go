@@ -123,18 +123,22 @@ func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []pr
 	if err != nil {
 		return nil, err
 	}
+	// Every key may be absent except a required field's. proto3 JSON omits a
+	// field at its default — "", 0, false, the zero enum, an empty list or map
+	// — exactly as it omits an unset field with presence (connect-go marshals
+	// with protojson.MarshalOptions{}), so a contract demanding such a key
+	// would refuse an ordinary answer as invalid after its effect committed.
+	// A proto2 required or editions LEGACY_REQUIRED field is always written,
+	// so its key stays present. A member of an authored oneof is its own key,
+	// and at most one of them is present.
+	optional := fd.Cardinality() != protoreflect.Required
 	if fd.IsList() {
 		// An element is present or the list is shorter, so the item carries
 		// neither the field's name nor its optionality.
-		return &basev0.RunnableField{Name: fd.JSONName(), Type: basev0.RunnableField_ARRAY, Items: value}, nil
+		return &basev0.RunnableField{Name: fd.JSONName(), Type: basev0.RunnableField_ARRAY, Items: value, Optional: optional}, nil
 	}
 	value.Name = fd.JSONName()
-	// A required field tracks presence but its key is never absent, so reading
-	// presence alone would mark proto2 required and editions LEGACY_REQUIRED
-	// fields omissible — the inverse of what they declare. A member of an
-	// authored oneof is its own key, and at most one of them is present, so
-	// each one is optional.
-	value.Optional = fd.HasPresence() && fd.Cardinality() != protoreflect.Required
+	value.Optional = optional
 	return value, nil
 }
 

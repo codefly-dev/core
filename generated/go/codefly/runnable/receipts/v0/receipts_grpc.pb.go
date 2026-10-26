@@ -38,10 +38,17 @@ const (
 //
 // A receipt belongs to the caller that made the effect. The owner records,
 // with every receipt, the ReceiptIdentity of the Work Context the effect was
-// made under, and a lookup is admitted only for that same identity — the same
-// owner principal and the same acting principal — so no other caller in the
-// tenant reads it, whatever scopes it holds and whatever effect id it
-// presents. On top of the identity, the presented context must cover the
+// made under — its owner and its whole actor chain — and a lookup is admitted
+// only for that same identity, so no other caller in the tenant reads it,
+// whatever scopes it holds and whatever effect id it presents.
+//
+// The same binding holds where a receipt is replayed rather than looked up. A
+// guarded invocation presenting an effect id whose receipt was recorded for
+// another identity is refused as a conflict, and the refusal carries no
+// content: neither the committed response nor any sign of whose it is. The
+// presenting caller's effect does not run, and it is never answered with
+// another caller's committed response as though it were its own.
+// runnable.AdmitReceiptReplay is that decision. On top of the identity, the presented context must cover the
 // operation's lookup_scopes, or, when the operation declares none, its
 // invoke_scopes: the receipt is then read with exactly the authority that made
 // the effect, never more. Binding those scopes to the operation named in the
@@ -55,6 +62,11 @@ type ReceiptsClient interface {
 	// as "the effect did not happen": a swept receipt is indistinguishable from
 	// one that never existed, which is why retention has to exceed the runtime's
 	// maximum recovery horizon.
+	//
+	// Every refusal is answered NOT_FOUND too, exactly as an absent receipt is:
+	// another identity, missing scopes, a method the context does not cover.
+	// The reason is logged by the server and never returned, so a refusal never
+	// confirms that another caller's effect exists.
 	Lookup(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (*LookupResponse, error)
 }
 
@@ -91,10 +103,17 @@ func (c *receiptsClient) Lookup(ctx context.Context, in *LookupRequest, opts ...
 //
 // A receipt belongs to the caller that made the effect. The owner records,
 // with every receipt, the ReceiptIdentity of the Work Context the effect was
-// made under, and a lookup is admitted only for that same identity — the same
-// owner principal and the same acting principal — so no other caller in the
-// tenant reads it, whatever scopes it holds and whatever effect id it
-// presents. On top of the identity, the presented context must cover the
+// made under — its owner and its whole actor chain — and a lookup is admitted
+// only for that same identity, so no other caller in the tenant reads it,
+// whatever scopes it holds and whatever effect id it presents.
+//
+// The same binding holds where a receipt is replayed rather than looked up. A
+// guarded invocation presenting an effect id whose receipt was recorded for
+// another identity is refused as a conflict, and the refusal carries no
+// content: neither the committed response nor any sign of whose it is. The
+// presenting caller's effect does not run, and it is never answered with
+// another caller's committed response as though it were its own.
+// runnable.AdmitReceiptReplay is that decision. On top of the identity, the presented context must cover the
 // operation's lookup_scopes, or, when the operation declares none, its
 // invoke_scopes: the receipt is then read with exactly the authority that made
 // the effect, never more. Binding those scopes to the operation named in the
@@ -108,6 +127,11 @@ type ReceiptsServer interface {
 	// as "the effect did not happen": a swept receipt is indistinguishable from
 	// one that never existed, which is why retention has to exceed the runtime's
 	// maximum recovery horizon.
+	//
+	// Every refusal is answered NOT_FOUND too, exactly as an absent receipt is:
+	// another identity, missing scopes, a method the context does not cover.
+	// The reason is logged by the server and never returned, so a refusal never
+	// confirms that another caller's effect exists.
 	Lookup(context.Context, *LookupRequest) (*LookupResponse, error)
 	mustEmbedUnimplementedReceiptsServer()
 }

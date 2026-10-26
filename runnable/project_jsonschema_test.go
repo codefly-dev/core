@@ -389,7 +389,7 @@ func TestBothProjectionsBoundTotalFields(t *testing.T) {
 			schemas = append(schemas, fmt.Sprintf(`"L%d":{"type":"object","additionalProperties":false,"properties":{%s}}`,
 				level, strings.Join(members, ",")))
 		}
-		schemas = append(schemas, fmt.Sprintf(`"L%d":`+object(`"leaf":{"type":"string"}`), levels))
+		schemas = append(schemas, fmt.Sprintf(`"L%d":{"type":"object","additionalProperties":false,"properties":{"leaf":{"type":"string"}}}`, levels))
 		return document(schemas...)
 	}
 

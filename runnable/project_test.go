@@ -1,7 +1,10 @@
 package runnable_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/dynamicpb"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -72,23 +75,25 @@ func TestProjectMessageCoversTheBoundedProfile(t *testing.T) {
 	require.NoError(t, err)
 
 	object := &basev0.RunnableField{Name: "nested", Type: basev0.RunnableField_OBJECT, Optional: true,
-		Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING}}}
+		Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING, Optional: true}}}
 	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-		{Name: "text", Type: basev0.RunnableField_STRING},
-		{Name: "flag", Type: basev0.RunnableField_BOOLEAN},
-		{Name: "i32", Type: basev0.RunnableField_INTEGER},
-		{Name: "i64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64},
-		{Name: "s32", Type: basev0.RunnableField_INTEGER},
-		{Name: "s64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64},
-		{Name: "sf32", Type: basev0.RunnableField_INTEGER},
-		{Name: "sf64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64},
-		{Name: "u32", Type: basev0.RunnableField_INTEGER},
-		{Name: "f32", Type: basev0.RunnableField_INTEGER},
+		{Name: "text", Type: basev0.RunnableField_STRING, Optional: true},
+		{Name: "flag", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+		{Name: "i32", Type: basev0.RunnableField_INTEGER, Optional: true},
+		{Name: "i64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "s32", Type: basev0.RunnableField_INTEGER, Optional: true},
+		{Name: "s64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "sf32", Type: basev0.RunnableField_INTEGER, Optional: true},
+		{Name: "sf64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "u32", Type: basev0.RunnableField_INTEGER, Optional: true},
+		{Name: "f32", Type: basev0.RunnableField_INTEGER, Optional: true},
 		object,
-		// An array's items carry neither the field's name nor its optionality.
-		{Name: "tags", Type: basev0.RunnableField_ARRAY, Items: &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
-		{Name: "many", Type: basev0.RunnableField_ARRAY, Items: &basev0.RunnableField{Type: basev0.RunnableField_OBJECT,
-			Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING}}}},
+		// Every key but a required field's may be absent (proto3 JSON omits
+		// defaults); an array's items carry neither the field's name nor its
+		// optionality.
+		{Name: "tags", Type: basev0.RunnableField_ARRAY, Optional: true, Items: &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
+		{Name: "many", Type: basev0.RunnableField_ARRAY, Optional: true, Items: &basev0.RunnableField{Type: basev0.RunnableField_OBJECT,
+			Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING, Optional: true}}}},
 		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
 	}}, schema), "projected %v", schema)
 
@@ -167,6 +172,8 @@ func TestProjectMessageProjectsByProtoJSON(t *testing.T) {
 			spec.name, spec.pkg = test.name+".proto", "fixture"
 			schema, err := projected(t, spec, "Root")
 			require.NoError(t, err)
+			// Every key may be absent: proto3 JSON omits a default value.
+			test.want.Optional = true
 			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{test.want}}, schema), "projected %v", schema)
 			// What projects is a contract that loads.
 			contract, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
@@ -269,4 +276,105 @@ func TestProjectMessageKeepsARequiredKeyPresent(t *testing.T) {
 		// proto2 optional does have an absent key.
 		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
 	}}, schema), "projected %v", schema)
+}
+
+// TestTheProjectionDescribesWhatConnectWrites marshals answers exactly as
+// connect-go does (protojson.MarshalOptions{}, which omits every default) and
+// holds each to the projected contract: a zero-valued answer writes no key at
+// all and must still conform, and a populated one writes only declared keys,
+// each of its declared type (r100 M-A).
+func TestTheProjectionDescribesWhatConnectWrites(t *testing.T) {
+	inner := message("Inner", scalar("label", 1, tString))
+	root := message("Root",
+		scalar("text", 1, tString),
+		scalar("flag", 2, tBool),
+		scalar("i32", 3, tInt32),
+		scalar("i64", 4, tInt64),
+		scalar("count", 5, tUint64),
+		scalar("ratio", 6, tDouble),
+		named("nested", 7, tMessage, ".fixture.Inner"),
+		repeated(scalar("tags", 8, tString)),
+		repeated(named("many", 9, tMessage, ".fixture.Inner")),
+	)
+	mapField("fixture", root, "labels", 10)
+	file := compile(t, fileSpec{name: "wire.proto", pkg: "fixture", messages: []*descriptorpb.DescriptorProto{inner, root}})
+	md := file.Messages().ByName("Root")
+	schema, err := runnable.ProjectMessage(md)
+	require.NoError(t, err)
+	contract := &basev0.RunnableField{Type: basev0.RunnableField_OBJECT, Fields: schema.GetFields()}
+
+	zero, err := protojson.MarshalOptions{}.Marshal(dynamicpb.NewMessage(md))
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(zero))
+	requireConforms(t, "zero", contract, decodeJSON(t, zero))
+
+	populated := dynamicpb.NewMessage(md)
+	set := func(name string, value protoreflect.Value) {
+		populated.Set(md.Fields().ByName(protoreflect.Name(name)), value)
+	}
+	set("text", protoreflect.ValueOfString("t"))
+	set("flag", protoreflect.ValueOfBool(true))
+	set("i32", protoreflect.ValueOfInt32(7))
+	set("i64", protoreflect.ValueOfInt64(7))
+	set("count", protoreflect.ValueOfUint64(7))
+	set("ratio", protoreflect.ValueOfFloat64(1.5))
+	nested := dynamicpb.NewMessage(file.Messages().ByName("Inner"))
+	nested.Set(nested.Descriptor().Fields().ByName("label"), protoreflect.ValueOfString("l"))
+	set("nested", protoreflect.ValueOfMessage(nested))
+	populated.Mutable(md.Fields().ByName("tags")).List().Append(protoreflect.ValueOfString("a"))
+	populated.Mutable(md.Fields().ByName("many")).List().Append(protoreflect.ValueOfMessage(nested))
+	populated.Mutable(md.Fields().ByName("labels")).Map().Set(protoreflect.ValueOfString("k").MapKey(), protoreflect.ValueOfString("v"))
+	wire, err := protojson.MarshalOptions{}.Marshal(populated)
+	require.NoError(t, err)
+	require.Equal(t, 10, requireConforms(t, "populated", contract, decodeJSON(t, wire)), "every field written and checked: %s", wire)
+}
+
+func decodeJSON(t *testing.T, data []byte) any {
+	t.Helper()
+	var value any
+	require.NoError(t, json.Unmarshal(data, &value))
+	return value
+}
+
+// requireConforms checks a JSON value against its contract field and counts
+// the members it checked: a missing non-optional key, an undeclared key or a
+// value of another type fails.
+func requireConforms(t *testing.T, at string, field *basev0.RunnableField, value any) int {
+	t.Helper()
+	switch field.GetType() {
+	case basev0.RunnableField_OBJECT:
+		object, ok := value.(map[string]any)
+		require.Truef(t, ok, "%s is %T, the contract says object", at, value)
+		checked := 0
+		for _, member := range field.GetFields() {
+			present, has := object[member.GetName()]
+			if !has {
+				require.Truef(t, member.GetOptional(), "%s.%s is absent and the contract requires it", at, member.GetName())
+				continue
+			}
+			requireConforms(t, at+"."+member.GetName(), member, present)
+			checked++
+		}
+		require.Lenf(t, object, checked, "%s carries keys the contract does not declare: %v", at, object)
+		return checked
+	case basev0.RunnableField_ARRAY:
+		items, ok := value.([]any)
+		require.Truef(t, ok, "%s is %T, the contract says array", at, value)
+		for i, item := range items {
+			requireConforms(t, fmt.Sprintf("%s[%d]", at, i), field.GetItems(), item)
+		}
+	case basev0.RunnableField_STRING:
+		_, ok := value.(string)
+		require.Truef(t, ok, "%s is %T, the contract says string", at, value)
+	case basev0.RunnableField_INTEGER, basev0.RunnableField_NUMBER:
+		_, ok := value.(float64)
+		require.Truef(t, ok, "%s is %T, the contract says %s", at, value, field.GetType())
+	case basev0.RunnableField_BOOLEAN:
+		_, ok := value.(bool)
+		require.Truef(t, ok, "%s is %T, the contract says boolean", at, value)
+	case basev0.RunnableField_JSON:
+	default:
+		t.Fatalf("%s has contract type %s", at, field.GetType())
+	}
+	return 1
 }
