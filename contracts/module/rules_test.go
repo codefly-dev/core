@@ -107,7 +107,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"namespace-declared-twice", "namespace-not-a-name", "namespaces-omitted",
 		"not-yaml", "null-in-a-bare-ceiling-action", "null-in-an-explicit-scope-action",
 		"null-key-hiding-a-subtree", "operation-admin", "operation-declared-twice",
-		"operation-delete", "operation-without-ceiling", "principal-upper-case",
+		"operation-delete", "operation-without-ceiling", "owner-aware", "owner-aware-string", "principal-upper-case",
 		"queue-declared-twice", "queue-not-a-name", "queues-omitted",
 		"resource-kind-from-endpoint-key", "resource-kind-literal",
 		"resource-kind-slot-with-default", "resource-kinds-without-audiences", "revision-fractional",

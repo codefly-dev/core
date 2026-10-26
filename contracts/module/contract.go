@@ -263,6 +263,11 @@ type Contract struct {
 	// Principal is the principal every credential the module mints is issued
 	// to: the module's own name.
 	Principal string `yaml:"principal"`
+	// OwnerAware declares that the module enforces resource-owner selectors
+	// in Work Context scopes. It is never inferred from roles or kinds; absent
+	// or false declares no owner-aware checking. Solutions must declare it to
+	// receive person capabilities from the authority.
+	OwnerAware bool `yaml:"owner_aware,omitempty"`
 	// Namespaces are the namespaces the module declares — the audit namespaces
 	// it emits under, which an operator binds to its principal.
 	Namespaces []string `yaml:"namespaces"`
@@ -747,6 +752,22 @@ func parse(data []byte, without string) (*Contract, error) {
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)
 	}
+	if without != ruleOwnerAwareBoolean {
+		mapping := wire.ReadMapping(tree.Content[0], func(key string, value *yaml.Node) (bool, error) {
+			if key == "owner_aware" {
+				for value.Kind == yaml.AliasNode {
+					value = value.Alias
+				}
+				if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool" {
+					return true, fmt.Errorf("%w: owner_aware must be a boolean (true or false), declaring whether the module enforces resource-owner selectors", ErrInvalid)
+				}
+			}
+			return true, nil
+		})
+		if mapping.Err != nil {
+			return nil, mapping.Err
+		}
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)
 	var contract Contract
@@ -770,6 +791,7 @@ func (contract *Contract) Validate() error { return contract.validate("") }
 // Resolved is a contract with every slot resolved to the value the composition
 // supplies, ready to be derived into a manifest's authority.
 type Resolved struct {
+	OwnerAware     bool
 	Principal      string
 	Namespaces     []string
 	Queues         []string
@@ -858,6 +880,7 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, err
 	}
 	resolved := &Resolved{
+		OwnerAware:     contract.OwnerAware,
 		Principal:      contract.Principal,
 		Namespaces:     slices.Clone(contract.Namespaces),
 		Queues:         slices.Clone(contract.Queues),
