@@ -145,8 +145,18 @@ type OperationSpec struct {
 	MaxOutputBytes uint64
 	// Completion is how the operation's answer arrives.
 	Completion basev0.RunnableExecution_Completion
-	// Tool is explicit optional exposure metadata, never a grant. Nil is hidden.
+	// Tool is how the operation is presented as a tool, never a grant. Every
+	// operation is a tool; a derivation fills this from the method when the
+	// owner wrote none (DefaultTool).
 	Tool *runnablev0.ToolExposure
+	// Recovery is how an uncertain outcome is resolved, as declared:
+	// RECOVERY_UNKNOWN reads as RECOVERY_RECEIPT (EffectiveRecovery).
+	Recovery basev0.RunnableExecution_Recovery
+	// Declared says the owner wrote the codefly.runnable.v0.operation option;
+	// false is an operation derived by default from its authority policy. It
+	// is the derivation's account of itself, for a generator to report, and is
+	// never delivered: a policy is the same policy whoever wrote it.
+	Declared bool
 	// RequiredScopeSlots are the owner's holes in its authority: resource kinds
 	// and actions whose exact resource ids only the installing composition
 	// knows. A spec carrying one is not yet a policy a binding may deliver;
@@ -171,6 +181,18 @@ type ServiceOwner struct {
 	// Agent is the owner's pinned service agent: a method an owner already
 	// publishes is built by the owner's own builder, never by a runnable agent.
 	Agent *basev0.Agent
+	// Audience is the trust boundary a derived operation's authority is
+	// minted for when the method carries no option naming one. Empty is the
+	// owner's module, which is the audience a module's hop admits.
+	Audience string
+}
+
+// audience is the trust boundary a default derivation mints for.
+func (o ServiceOwner) audience() string {
+	if o.Audience != "" {
+		return o.Audience
+	}
+	return o.Module
 }
 
 // OperationFromMethod reads and validates the operation option a method
@@ -238,11 +260,95 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		Completion:         declared.GetCompletion(),
 		Tool:               proto.CloneOf(declared.GetTool()),
 		RequiredScopeSlots: clonedSlots(declared.GetRequiredScopeSlots()),
+		Recovery:           declared.GetRecovery(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
 	return spec, nil
+}
+
+// OperationForMethod is the operation a method derives, and whether the owner
+// declared it with the operation option. Every method that declares its
+// authority policy is an operation, and so a tool, with no option at all: the
+// option overrides the default policy, and exclude keeps the method from every
+// caller but its own clients. A method declaring neither an option nor a
+// policy is ErrNotAnOperation; one whose default derivation is impossible is
+// ErrNotDerivable.
+func OperationForMethod(files *protoregistry.Files, method protoreflect.MethodDescriptor, audience string) (*OperationSpec, bool, error) {
+	if method == nil {
+		return nil, false, fmt.Errorf("%w: method descriptor is required", ErrInvalid)
+	}
+	options, _ := method.Options().(*descriptorpb.MethodOptions)
+	explicit := options != nil && proto.HasExtension(options, runnablev0.E_Operation)
+	if excluded(options) {
+		if explicit {
+			return nil, true, fmt.Errorf("%w: %s both declares an operation and excludes itself from derivation", ErrInvalid, method.FullName())
+		}
+		return nil, false, fmt.Errorf("%w: %s excludes itself", ErrNotAnOperation, method.FullName())
+	}
+	authority, err := AuthorityFromMethod(files, method)
+	if err != nil {
+		return nil, explicit, err
+	}
+	if !explicit {
+		if authority == nil {
+			return nil, false, fmt.Errorf("%w: %s declares no authority policy", ErrNotAnOperation, method.FullName())
+		}
+		if lookup := receiptLookupOf(method); lookup != "" {
+			return nil, false, fmt.Errorf("%w: %s is the receipt lookup of %s, which recovery calls and no person or agent does", ErrNotAnOperation, method.FullName(), lookup)
+		}
+		return defaultSpec(method, authority, audience)
+	}
+	spec, declaredErr := OperationFromMethod(method)
+	if declaredErr != nil {
+		return nil, true, declaredErr
+	}
+	spec.Declared = true
+	if spec.Tool == nil {
+		spec.Tool = DefaultTool(method, spec.EffectiveRecovery(), authority)
+		if err = spec.Validate(); err != nil {
+			return nil, true, err
+		}
+	}
+	return spec, true, nil
+}
+
+// defaultSpec is a default derivation, reporting it as not declared.
+func defaultSpec(method protoreflect.MethodDescriptor, authority *Authority, audience string) (*OperationSpec, bool, error) {
+	spec, err := DefaultOperation(method, authority, audience)
+	return spec, false, err
+}
+
+// receiptLookupOf names the operation a method is the receipt lookup of, or
+// empty: a method another operation of its service names as its
+// lookup_method, or one spelled Lookup<Op> beside a method <Op> of the same
+// service. A receipt lookup is structurally recovery's, so it is never derived
+// as an operation of its own — the one exclusion derivation makes without the
+// owner saying so. Who may reach every other operation is a matter of grants.
+func receiptLookupOf(method protoreflect.MethodDescriptor) string {
+	service, ok := method.Parent().(protoreflect.ServiceDescriptor)
+	if !ok {
+		return ""
+	}
+	full := FullMethodName(method)
+	methods := service.Methods()
+	for i := 0; i < methods.Len(); i++ {
+		sibling := methods.Get(i)
+		options, _ := sibling.Options().(*descriptorpb.MethodOptions)
+		if options == nil || !proto.HasExtension(options, runnablev0.E_Operation) {
+			continue
+		}
+		if declared, isOperation := proto.GetExtension(options, runnablev0.E_Operation).(*runnablev0.Operation); isOperation && declared.GetLookupMethod() == full {
+			return FullMethodName(sibling)
+		}
+	}
+	if operation, found := strings.CutPrefix(string(method.Name()), "Lookup"); found && operation != "" {
+		if sibling := methods.ByName(protoreflect.Name(operation)); sibling != nil {
+			return FullMethodName(sibling)
+		}
+	}
+	return ""
 }
 
 // validateLookupMethod ties the declared receipt lookup to a method that
@@ -336,7 +442,46 @@ func (s *OperationSpec) Validate() error {
 	if err := ValidateToolExposure(s.Tool); err != nil {
 		return err
 	}
+	if err := s.validateRecovery(); err != nil {
+		return err
+	}
 	return s.authority().validate()
+}
+
+// EffectiveRecovery is the recovery the operation runs under. Unset is
+// RECOVERY_RECEIPT: every operation declared before recovery could be stated
+// resolved an uncertain outcome by its receipt, and reading an unstated one
+// any other way could re-run an effect.
+func (s *OperationSpec) EffectiveRecovery() basev0.RunnableExecution_Recovery {
+	if s.Recovery == basev0.RunnableExecution_RECOVERY_UNKNOWN {
+		return basev0.RunnableExecution_RECOVERY_RECEIPT
+	}
+	return s.Recovery
+}
+
+// validateRecovery holds a recomputed operation to what makes re-running it
+// safe. A read has no effect to recover, so it has no receipt to read: lookup
+// scopes or a lookup method on one would be authority and a route nothing
+// uses. It answers in the call, because a submitted invocation's answer can be
+// lost and only a receipt recovers it. And its tool says it only reads: a
+// mutation presented as recomputable would be re-run on an uncertain outcome.
+func (s *OperationSpec) validateRecovery() error {
+	switch s.Recovery {
+	case basev0.RunnableExecution_RECOVERY_UNKNOWN, basev0.RunnableExecution_RECOVERY_RECEIPT:
+		return nil
+	case basev0.RunnableExecution_RECOVERY_RECOMPUTE:
+	default:
+		return fmt.Errorf("%w: %s declares recovery %s, which is not one core defines", ErrInvalid, s.Method, s.Recovery)
+	}
+	switch {
+	case len(s.LookupScopes) > 0 || s.LookupMethod != "":
+		return fmt.Errorf("%w: %s is recomputed and declares a receipt lookup; a read has no effect receipt to look up", ErrInvalid, s.Method)
+	case s.Completion != basev0.RunnableExecution_COMPLETION_CALL:
+		return fmt.Errorf("%w: %s is recomputed and does not answer in the call; %s requires %s", ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_SUBMIT, basev0.RunnableExecution_RECOVERY_RECEIPT)
+	case s.Tool != nil && s.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY:
+		return fmt.Errorf("%w: %s is recomputed and its tool declares %s; only a read is safe to re-run", ErrInvalid, s.Method, s.Tool.GetEffect())
+	}
+	return nil
 }
 
 // authority is the audience-and-scopes half of the policy, as the same rule
@@ -351,6 +496,7 @@ func (s *OperationSpec) authority() authoritySpec {
 		invokeScopes:       s.InvokeScopes,
 		lookupScopes:       s.LookupScopes,
 		requiredScopeSlots: s.RequiredScopeSlots,
+		submitted:          s.Completion == basev0.RunnableExecution_COMPLETION_SUBMIT,
 	}
 }
 
@@ -359,7 +505,18 @@ func (s *OperationSpec) authority() authoritySpec {
 // Fixed scopes are validated identically wherever they appear. A declaration
 // with required slots may defer nonempty scope lists until resolution. Delivered
 // policies refuse unresolved slots, and an installed binding's own authority
-// has no slots, so concrete authority always requires both scope lists.
+// has no slots, so concrete authority always requires invoke scopes.
+//
+// Lookup scopes are optional, under one rule wherever they appear — a
+// declaration, a prepared policy, an installed binding — whatever the
+// operation's recovery says or leaves unsaid. Empty, a receipt is read under
+// the invoke scopes and only by the identity that made the effect: a receipt
+// records its Work Context owner and acting principal, and AdmitReceiptLookup
+// admits a lookup for that same identity alone. That binding, not the
+// spelling of the declaration, is what makes an empty list safe, which is why
+// the rule cannot depend on whether recovery was stated: the installed package
+// carries only the recovery in effect. Declared, lookup scopes keep every rule
+// below — read-only, and inside the invoke scopes.
 type authoritySpec struct {
 	// subject names what the authority belongs to, for the error message: an
 	// operation spelling, or a binding's facility.
@@ -369,6 +526,11 @@ type authoritySpec struct {
 	lookupScopes []*basev0.WorkScopeV1
 	// requiredScopeSlots exists only while an owner declaration awaits selection.
 	requiredScopeSlots []*runnablev0.ScopeSlot
+	// submitted is an operation answering COMPLETION_SUBMIT, whose answer is
+	// learnable only through its receipt. It keeps lookup scopes required until
+	// a runtime mints a receipt lookup under the invoke scopes: installed with
+	// none today, it would generate and install and never recover.
+	submitted bool
 }
 
 func (a authoritySpec) validate() error {
@@ -380,6 +542,10 @@ func (a authoritySpec) validate() error {
 	}
 	if err := a.validateScopes("invoke_scopes", a.invokeScopes); err != nil {
 		return err
+	}
+	if len(a.lookupScopes) == 0 && !a.submitted {
+		// Identity-bound under the invoke scopes (see authoritySpec).
+		return nil
 	}
 	if err := a.validateScopes("lookup_scopes", a.lookupScopes); err != nil {
 		return err
@@ -494,7 +660,8 @@ func methodByFullName(files *protoregistry.Files, fullMethod string) (protorefle
 // Nothing here is authored twice: the contract is the projection of the
 // method's own messages, the implementation is the method itself reached on the
 // owner's endpoint, and the identity is the release the caller is generating.
-func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableLocation, owner ServiceOwner, fullMethod string) (*basev0.RunnablePackage, *OperationSpec, error) {
+func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableLocation, owner ServiceOwner, fullMethod string) (pkg *basev0.RunnablePackage, spec *OperationSpec, err error) {
+	var output *basev0.RunnableSchema
 	if location == nil || location.Identity == nil {
 		return nil, nil, fmt.Errorf("%w: the release identity a derived package carries is required", ErrInvalid)
 	}
@@ -502,23 +669,30 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 	if err != nil {
 		return nil, nil, err
 	}
-	spec, err := OperationFromMethod(method)
+	spec, explicit, err := OperationForMethod(files, method, owner.audience())
 	if err != nil {
 		return nil, nil, err
 	}
 	input, err := ProjectMessage(method.Input())
-	if err != nil {
-		return nil, nil, err
+	if err == nil {
+		var projected *basev0.RunnableSchema
+		if projected, err = ProjectMessage(method.Output()); err == nil {
+			output = projected
+		}
 	}
-	output, err := ProjectMessage(method.Output())
 	if err != nil {
+		if !explicit {
+			// An owner that asked for nothing is not refused for a payload it
+			// never offered as an operation's: the method stays a call.
+			return nil, nil, fmt.Errorf("%w: %w", ErrNotDerivable, err)
+		}
 		return nil, nil, err
 	}
 	identity, err := location.Identity.Proto()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: identity: %v", ErrInvalid, err)
 	}
-	pkg, err := PreparePackage(&basev0.RunnablePackage{
+	pkg, err = PreparePackage(&basev0.RunnablePackage{
 		Schema:   PackageSchemaV1,
 		Identity: identity,
 		Agent:    owner.Agent,
@@ -527,7 +701,7 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 			Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
 			Timeout:        durationpb.New(spec.TotalTimeout),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
-			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
+			Recovery:       spec.EffectiveRecovery(),
 			Completion:     spec.Completion,
 			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
 			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),

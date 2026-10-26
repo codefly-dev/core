@@ -196,5 +196,6 @@ func policySpec(spelling string, declared *runnablev0.Operation, codes CodeVocab
 		Completion:         declared.GetCompletion(),
 		Tool:               proto.CloneOf(declared.GetTool()),
 		RequiredScopeSlots: clonedSlots(declared.GetRequiredScopeSlots()),
+		Recovery:           declared.GetRecovery(),
 	}
 }

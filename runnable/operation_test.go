@@ -113,7 +113,7 @@ func derivedIngestion(t *testing.T) (*basev0.RunnablePackage, *runnable.Operatio
 func TestPackageFromMethodIsByteStable(t *testing.T) {
 	pkg, _ := derivedIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
-	require.Equal(t, "ee460290f91e2cad2d9e7efe6d740ba35ff5ec89b4395bbde1e8bd19bd8291a0", pkg.GetDigest())
+	require.Equal(t, "4b72d393b3fb25284036185968438f3c24be98780660c7f994de896358d4878c", pkg.GetDigest())
 
 	again, _ := derivedIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -124,6 +124,11 @@ func TestPackageFromMethodIsByteStable(t *testing.T) {
 // operation through a package its worker assembles by hand
 // (ingestrunnable.Package, printed by the worker's --describe-runnable), and
 // deriving it from the method descriptor has to land on the same bytes.
+//
+// The contract is spelled as the Connect wire carries it — JSON names, and a
+// 64-bit integer as a decimal string — where the hand-written package spelled
+// proto names and an integer; that is the one restatement, and it is the
+// wire's, not the owner's.
 //
 // The two inline payload bounds are the exception, and deliberately so: the
 // owner picked those numbers, nothing in the descriptor says them, and this
@@ -137,23 +142,23 @@ func TestPackageFromMethodReproducesTheHandWrittenOracle(t *testing.T) {
 		Contract: &basev0.RunnableContract{
 			Protocol: resources.RunnableServiceProtocolV1,
 			Input: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "origin", Type: basev0.RunnableField_STRING},
-				{Name: "container", Type: basev0.RunnableField_STRING},
-				{Name: "ref", Type: basev0.RunnableField_STRING},
-				{Name: "path", Type: basev0.RunnableField_STRING},
-				{Name: "revision", Type: basev0.RunnableField_STRING},
-				{Name: "commit", Type: basev0.RunnableField_STRING},
-				{Name: "cursor", Type: basev0.RunnableField_INTEGER},
-				{Name: "content_type", Type: basev0.RunnableField_STRING},
-				{Name: "text", Type: basev0.RunnableField_STRING},
+				{Name: "origin", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "container", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "ref", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "path", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "revision", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "commit", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "cursor", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+				{Name: "contentType", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "text", Type: basev0.RunnableField_STRING, Optional: true},
 			}},
 			Output: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "reference", Type: basev0.RunnableField_STRING},
-				{Name: "content_hash", Type: basev0.RunnableField_STRING},
-				{Name: "effect_digest", Type: basev0.RunnableField_STRING},
-				{Name: "minted", Type: basev0.RunnableField_BOOLEAN},
-				{Name: "skipped", Type: basev0.RunnableField_BOOLEAN},
-				{Name: "quarantined", Type: basev0.RunnableField_BOOLEAN},
+				{Name: "reference", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "contentHash", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "effectDigest", Type: basev0.RunnableField_STRING, Optional: true},
+				{Name: "minted", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+				{Name: "skipped", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+				{Name: "quarantined", Type: basev0.RunnableField_BOOLEAN, Optional: true},
 			}},
 		},
 		Execution: &basev0.RunnableExecution{
@@ -269,7 +274,6 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 		{"untrimmed audience", func(o *runnablev0.Operation) { o.Audience = " documents.ingestion " }, "audience"},
 		{"overlong audience", func(o *runnablev0.Operation) { o.Audience = strings.Repeat("a", runnable.MaxAudienceLength+1) }, "audience"},
 		{"no invoke scopes", func(o *runnablev0.Operation) { o.InvokeScopes = nil }, "declares no invoke_scopes and no required_scope_slots"},
-		{"no lookup scopes", func(o *runnablev0.Operation) { o.LookupScopes = nil }, "declares no lookup_scopes and no required_scope_slots"},
 		{"too many scopes", func(o *runnablev0.Operation) {
 			o.InvokeScopes = make([]*basev0.WorkScopeV1, 0, runnable.MaxScopes+1)
 			for i := range runnable.MaxScopes + 1 {
@@ -346,7 +350,9 @@ func TestPackageFromMethodRejectsAPayloadOutsideTheProfile(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := ingestion(declaredOperation())
-			spec.messages[test.message].Field = append(spec.messages[test.message].Field, scalar("size", 10, tUint64))
+			// A message reaching itself has no bounded shape.
+			self := ".documents.ingest.v1." + spec.messages[test.message].GetName()
+			spec.messages[test.message].Field = append(spec.messages[test.message].Field, named("size", 10, tMessage, self))
 			_, _, err := runnable.PackageFromMethod(registry(t, compile(t, spec)), ingestLocation(), ingestOwner(), applyText)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			require.ErrorContains(t, err, test.path)
@@ -431,11 +437,11 @@ func TestPackageFromMethodNamesTheOwnerServiceModule(t *testing.T) {
 }
 
 // TestPackageFromMethodRejectsAWellKnownPayload covers the payload itself, not
-// just its fields: a Timestamp reads as two integers and an Empty as an object
-// with no keys, either of which is a contract that misdescribes the wire.
+// just its fields: proto3 JSON carries a Timestamp as a string and a wrapper as
+// its value, neither of which is an object whose keys a contract names. Empty
+// is the exception, an object with no keys.
 func TestPackageFromMethodRejectsAWellKnownPayload(t *testing.T) {
 	for _, wellKnown := range []string{
-		".google.protobuf.Empty",
 		".google.protobuf.Timestamp",
 		".google.protobuf.Duration",
 		".google.protobuf.StringValue",

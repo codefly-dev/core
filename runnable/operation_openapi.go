@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -81,6 +82,11 @@ type OpenAPIOperation struct {
 	// Marker is the x-codefly-operation vendor extension, whose presence marks
 	// the operation as a Runnable one.
 	Marker json.RawMessage `json:"x-codefly-operation"`
+	// OperationID, Summary and Description present the operation as a tool
+	// when its marker names none.
+	OperationID string `json:"operationId"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
 }
 
 // OpenAPIParameter is an input carried outside the request body.
@@ -269,6 +275,12 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 	if err != nil {
 		return nil, nil, err
 	}
+	if spec.Tool == nil {
+		spec.Tool = restTool(operation, route, spec.EffectiveRecovery())
+		if err = spec.Validate(); err != nil {
+			return nil, nil, err
+		}
+	}
 	input, inputMessage, err := doc.payload(operation.RequestBody, route, "request body")
 	if err != nil {
 		return nil, nil, err
@@ -294,7 +306,7 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 			Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
 			Timeout:        durationpb.New(spec.TotalTimeout),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
-			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
+			Recovery:       spec.EffectiveRecovery(),
 			Completion:     spec.Completion,
 			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
 			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
@@ -313,4 +325,26 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 		return nil, nil, err
 	}
 	return pkg, spec, nil
+}
+
+// restTool presents a REST operation as a tool from what its document says:
+// its operationId (or its route), its description (or summary), and its
+// effect, read-only exactly when it recomputes.
+func restTool(operation *OpenAPIOperation, route string, recovery basev0.RunnableExecution_Recovery) *runnablev0.ToolExposure {
+	name := operation.OperationID
+	if name == "" {
+		name = route
+	}
+	description := toolDescription(operation.Description)
+	if description == "" {
+		description = toolDescription(operation.Summary)
+	}
+	if description == "" {
+		description = "Calls " + route + "."
+	}
+	effect := runnablev0.ToolExposure_EFFECT_MUTATION
+	if recovery == basev0.RunnableExecution_RECOVERY_RECOMPUTE {
+		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
+	}
+	return &runnablev0.ToolExposure{Name: toolName(name), Description: description, Effect: effect}
 }
