@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -234,8 +233,21 @@ func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
 		Effect:      runnablev0.ToolExposure_EFFECT_READ_ONLY,
 	}, spec.Tool))
 
-	written, err := protojson.Marshal(spec.Policy())
+	// RouteMarker is that operation as the marker an owner writes, from the
+	// policy JSON the owner already publishes beside it.
+	written, err := runnable.RouteMarker("GET", "/history",
+		json.RawMessage(`{"requires":[{"resource_kind":"records.records","actions":["read"]}]}`), "releases", "Releases_Get_History",
+		"Read the recorded tags of one repository and the recorded pins of one component")
 	require.NoError(t, err)
+	again, err := runnable.RouteMarker("GET", "/history",
+		json.RawMessage(`{"requires":[{"resource_kind":"records.records","actions":["read"]}]}`), "releases", "Releases_Get_History",
+		"Read the recorded tags of one repository and the recorded pins of one component")
+	require.NoError(t, err)
+	require.Equal(t, string(written), string(again), "a committed marker is written byte-stably")
+	_, err = runnable.RouteMarker("GET", "/history", json.RawMessage(`{"require":[]}`), "releases", "", "")
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	_, err = runnable.RouteMarker("GET", "/status", json.RawMessage(`{"any_checked_caller":true}`), "releases", "", "")
+	require.ErrorIs(t, err, runnable.ErrNotDerivable)
 	fromDefault, _, err := runnable.PackageFromOpenAPIOperation(
 		swaggerDocument(t, "releases.swagger.json", func(doc map[string]any) {
 			var marker map[string]any

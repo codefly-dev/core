@@ -424,7 +424,7 @@ There are two ways an owner describes an operation, and one derivation:
 | | gRPC | REST |
 | --- | --- | --- |
 | Marking | the `codefly.runnable.v0.operation` method option (`proto/codefly/runnable/v0/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
-| Default with nothing added | `runnable.DefaultOperation(method, authority, audience)`, from `authority.hop.v1.policy` | `runnable.DefaultRouteOperation(method, path, authority, audience, name, description)`, which the owner writes as the marker (solution-runtime-go does, from each route's `x-codefly-authority-policy`) |
+| Default with nothing added | `runnable.DefaultOperation(method, authority, audience)`, from `authority.hop.v1.policy` | `runnable.DefaultRouteOperation(method, path, authority, audience, name, description)`; `runnable.RouteMarker` writes it as the marker from the route's `x-codefly-authority-policy` JSON, which is how solution-runtime-go marks a route |
 | Source of the contract | the method's request and response descriptors | the operation's `application/json` request body — a `GET`'s query — and its one `2xx` response |
 | Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")`, from OpenAPI 3 or Swagger 2.0 |
 | Projection | `runnable.ProjectMessage(md)` | `runnable.ProjectJSONSchema(doc, schema)` |

@@ -1,6 +1,7 @@
 package runnable
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -603,4 +605,50 @@ func DefaultRouteOperation(method, path string, authority *Authority, audience, 
 		return nil, err
 	}
 	return spec, nil
+}
+
+// routePolicy is an authority.hop.v1.Policy as an owner publishes it under a
+// route's x-codefly-authority-policy, in its proto field names.
+type routePolicy struct {
+	Requires []struct {
+		ResourceKind string   `json:"resource_kind"`
+		Actions      []string `json:"actions"`
+	} `json:"requires"`
+	AnyCheckedCaller bool `json:"any_checked_caller"`
+}
+
+// RouteMarker is the x-codefly-operation an owner publishes for a route whose
+// authority policy it publishes: the marker of DefaultRouteOperation, so the
+// owner hands core the policy it already writes and core states the defaults.
+// policy is that policy's JSON, as written under x-codefly-authority-policy;
+// a field it does not define is refused rather than read as nothing required.
+// The marker is proto3 JSON in proto field names with its members in a stable
+// order, because the document carrying it is committed and diffed. A route
+// DefaultRouteOperation does not derive answers ErrNotDerivable.
+func RouteMarker(method, path string, policy json.RawMessage, audience, name, description string) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(policy))
+	decoder.DisallowUnknownFields()
+	declared := routePolicy{}
+	if err := decoder.Decode(&declared); err != nil {
+		return nil, fmt.Errorf("%w: %s policy is not an authority.hop.v1.Policy: %v", ErrInvalid, Route(method, path), err)
+	}
+	authority := &Authority{AnyCheckedCaller: declared.AnyCheckedCaller}
+	for _, requirement := range declared.Requires {
+		authority.Requires = append(authority.Requires, &basev0.WorkScopeV1{ResourceKind: requirement.ResourceKind, Actions: slices.Clone(requirement.Actions)})
+	}
+	spec, err := DefaultRouteOperation(method, path, authority, audience, name, description)
+	if err != nil {
+		return nil, err
+	}
+	written, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(spec.Policy())
+	if err != nil {
+		return nil, err
+	}
+	// protojson's spacing is deliberately unstable; a round trip through
+	// encoding/json fixes the members' order and spacing.
+	var marker map[string]any
+	if err = json.Unmarshal(written, &marker); err != nil {
+		return nil, err
+	}
+	return json.Marshal(marker)
 }
