@@ -50,8 +50,13 @@ installation.
 ## Tool-turn lifecycle
 
 `Generate` can finish with validated JSON or return terminal tool proposals plus
-an opaque continuation. The consumer authorizes and executes each proposed call,
-then supplies exactly one committed result per call to `Continue`. Each
+an opaque continuation. A proposal carries no continuation when the executor kept
+no state to resume -- a consumer that will never continue can ask its executor to
+keep none, and nothing is stored that nothing reads back. Such a proposal is
+final: its calls are actionable, and `Continue` refuses it with
+`ContinuationMissing` before dispatch. The consumer authorizes and executes each
+proposed call, then supplies exactly one committed result per call to
+`Continue`. Each
 continuation is a separate stable invocation, so changing a result requires a
 new identity. Authorization references and recovery receipts are operation
 metadata and do not change that model intent. Missing, duplicated, or

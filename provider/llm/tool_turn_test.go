@@ -362,6 +362,32 @@ func TestStructuredClient_RejectsForeignContinuationPredecessor(t *testing.T) {
 	require.Zero(t, executor.continueCalls)
 }
 
+func TestStructuredClient_AcceptsAFinalProposalWithNoContinuation(t *testing.T) {
+	fixture := llm.ToolTurnConformanceFixtures()[0]
+	proposal := fixture.Proposal
+	proposal.Continuation = ""
+	executor := newToolExecutor()
+	executor.proposal = &proposal
+	client := llm.NewStructuredClient(executor)
+
+	returned, err := client.Generate(t.Context(), &fixture.Request)
+	require.NoError(t, err)
+	require.Equal(t, llm.GenerationToolCalls, returned.Outcome)
+	require.Equal(t, "call-weather-1", returned.ToolCalls[0].ID)
+	require.Empty(t, returned.Continuation)
+
+	// Final means final: the calls are the consumer's to execute, and resuming the
+	// turn is refused before the executor is asked.
+	fixture.Continuation.Previous = returned
+	var continuationErr *llm.ContinuationError
+	require.ErrorAs(t, llm.BindContinuation(&fixture.Continuation, fixture.Continuation.Invocation.ID), &continuationErr)
+	require.Equal(t, llm.ContinuationMissing, continuationErr.Code)
+	_, err = client.Continue(t.Context(), &fixture.Continuation)
+	require.ErrorAs(t, err, &continuationErr)
+	require.Equal(t, llm.ContinuationMissing, continuationErr.Code)
+	require.Zero(t, executor.continueCalls)
+}
+
 func TestContinuationIntentExcludesAuthorizationAndRecoveryReceipt(t *testing.T) {
 	fixture := llm.ToolTurnConformanceFixtures()[0]
 	original, err := llm.ContinuationIntentDigest(&fixture.Continuation)
