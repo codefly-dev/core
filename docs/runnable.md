@@ -424,11 +424,12 @@ There are two ways an owner describes an operation, and one derivation:
 | | gRPC | REST |
 | --- | --- | --- |
 | Marking | the `codefly.runnable.v0.operation` method option (`proto/codefly/runnable/v0/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
-| Source of the contract | the method's request and response descriptors | the operation's `application/json` request body and its one `2xx` response |
-| Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")` |
+| Default with nothing added | `runnable.DefaultOperation(method, authority, audience)`, from `authority.hop.v1.policy` | `runnable.DefaultRouteOperation(method, path, authority, audience, name, description)`, which the owner writes as the marker (solution-runtime-go does, from each route's `x-codefly-authority-policy`) |
+| Source of the contract | the method's request and response descriptors | the operation's `application/json` request body — a `GET`'s query — and its one `2xx` response |
+| Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")`, from OpenAPI 3 or Swagger 2.0 |
 | Projection | `runnable.ProjectMessage(md)` | `runnable.ProjectJSONSchema(doc, schema)` |
 | `operation` recorded | `/pkg.Service/Method` | `POST /path` |
-| `input_message` / `output_message` | the messages' full names | the payload components' names |
+| `input_message` / `output_message` | the messages' full names | the payload components' names; a `GET`'s query is recorded by its `operationId` |
 | `retryable_codes` | `google.rpc.Code` names, such as `UNAVAILABLE` | HTTP statuses as decimal strings, such as `"503"` |
 
 Both land in the same place, which is the point: one profile, one digest and
@@ -580,11 +581,26 @@ taken over.
 `runnable.PackageFromOpenAPIOperation(document, location, owner, method, path)`
 reads the OpenAPI JSON an owner already publishes (`codefly generate
 contracts` writes one per HTTP endpoint) and derives the same package. An
-operation is eligible only if it is a `POST` or a `PUT`, carries no parameter
-outside `header` and `cookie`, has one `application/json` request body and
-exactly one `2xx` response with an `application/json` schema. Anything else is a
-refusal that names why, never a coercion: v1 keeps an operation's input as one
-JSON object, and folding a parameter into it is a later profile decision.
+operation is eligible only if it is a `GET`, a `POST` or a `PUT` on one fixed
+path (no template), carries no parameter outside `header` and `cookie`, has one
+`application/json` request body and exactly one `2xx` response with an
+`application/json` schema. Anything else is a refusal that names why, never a
+coercion: v1 keeps an operation's input as one JSON object.
+
+**A `GET` is a read, and its query is its input.** It is admitted only when
+every half of its operation reads: it recomputes (`RECOVERY_RECOMPUTE`), its
+tool is `EFFECT_READ_ONLY`, and its invoke scopes require nothing but `read`, so
+the capability a call presents cannot change what it reads whatever the route
+does. A read is the safest operation to re-run, so this is no loosening of the
+retry rule; a mutation keeps its body, its receipt and its `POST` or `PUT`. A
+`GET` carries no body: its input object's members are its `query` parameters,
+each a scalar (string, integer, number or boolean), optional exactly when the
+parameter is, and a `GET` with no parameter takes the empty object. A caller
+sends the object as the query — each member as one parameter of that name, a
+string as written, a number or a boolean as its JSON spelling. No component
+describes a query, so `input_message` records the identity the document
+publishes it under, the operation's `operationId`, and a `GET` without one is
+refused.
 
 The parameter locations are an **allow list**, not a pair of denied ones. The
 transport carries a header and a cookie, so they are no part of the payload;
@@ -593,14 +609,23 @@ Denying only `path` and `query` would let `body` and `formData` — which is how
 Swagger 2.0 spells a request body — pass in silence, and the derived contract
 would simply omit the operation's input.
 
-The document's version is checked rather than assumed, for the same reason.
-Swagger 2.0 puts a request body in an `in: body` parameter and a response schema
-on the response itself, so reading one as OpenAPI 3 finds no `requestBody` and
-reports exactly that — pointing at the wrong part of a document that plainly
-declares one. Core's own `OpenAPICombinator` still writes 2.0, so this is a
-document that turns up; it is refused as Swagger, by name.
+The document's version is checked rather than assumed, and **both dialects an
+owner publishes are read as themselves**. Swagger 2.0 is what
+protoc-gen-openapiv2, core's own `OpenAPICombinator` and solution-runtime-go's
+interface artifact write, so it is the document a solution actually commits. It
+spells the same operation in other places — the request body is an `in: body`
+parameter, a response's schema hangs off the response, the media types are
+listed in `consumes` and `produces` (the operation's, or else the document's),
+a parameter states `type` beside its name, and schemas live under
+`#/definitions/` — and `ParseOpenAPIDocument` moves each into the place OpenAPI
+3 spells it before anything else reads the document. Every rule after that reads
+both alike, so a Swagger body in two encodings or a `formData` parameter is
+refused by the same rule, in the same words, as its OpenAPI 3 spelling, and the
+same operation in either dialect derives a byte-identical package. Any other
+`swagger` version, or a document declaring both, is refused by name.
 
-Both payload schemas must be `#/components/schemas/…` references. That is where
+Both payload schemas must be references to the document's own schemas
+(`#/components/schemas/…`, or `#/definitions/…` in Swagger 2.0). That is where
 `input_message` and `output_message` come from, and their job is to record the
 owner's published message identity so the reuse is auditable rather than
 implied by a matching shape — which an inline schema has nothing to record. A
