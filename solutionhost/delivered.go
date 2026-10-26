@@ -37,17 +37,17 @@ func (d *Delivered) Signer() SignerIdentity { return d.signer }
 // applied over what the host holds is Admit's.
 func VerifyDelivered(ctx context.Context, carrier *Signed, verifier *Verifier) (*Delivered, error) {
 	if carrier == nil {
-		return nil, fmt.Errorf("%w: no carrier", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no carrier", errUnsignedManifest)
 	}
 	if err := carrier.validate(); err != nil {
 		return nil, err
 	}
 	if verifier == nil {
-		return nil, fmt.Errorf("%w: no pinned-key verifier", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no pinned-key verifier", errUnsignedManifest)
 	}
 	signer, err := verifier.VerifyEnvelope(ctx, carrier.Document, carrier.Envelope)
 	if err != nil {
-		return nil, fmt.Errorf("%w: the attestation does not hold: %w", ErrUnsigned, err)
+		return nil, fmt.Errorf("%w: the attestation does not hold: %w", errUnsignedManifest, err)
 	}
 	manifest, err := ManifestFromVerified(carrier.Document)
 	if err != nil {

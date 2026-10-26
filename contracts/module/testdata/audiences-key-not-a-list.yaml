@@ -1,0 +1,14 @@
+# An audience list slot names a *-audiences key: a single audience key resolves one name.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings: []
+bindings:
+    - id: owner
+      operations: [invoke]
+      audiences: {from: assistant/owner-audience}
+      resource_kinds: {from: assistant/owner-resource-kinds}
+      scope_ceiling:
+          invoke: [read]
+destinations: []

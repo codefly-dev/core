@@ -34,11 +34,14 @@ repositories the rulesets are:
 Queried, not inferred. Ruleset 24397257, `target: branch`,
 `enforcement: active`, `bypass_actors: []`, conditions `refs/heads/main`:
 
-- **`required_status_checks`** — `Build`, `Proto`, `Registry cache cold (go)`,
-  `Registry cache cold (next)`, `Registry cache clean runner (go)`,
-  `Registry cache clean runner (next)`. Six, not the seven below:
-  `pnpm source evidence` is derived as safe to require and is **not** in the
-  live ruleset.
+- **`required_status_checks`** — `Build`, `Companion version`, `Proto`,
+  `Registry cache cold (go)`, `Registry cache cold (next)`,
+  `Registry cache clean runner (go)`, `Registry cache clean runner (next)`.
+  Seven, not the eight below: `pnpm source evidence` is derived as safe to
+  require and is **not** in the live ruleset. `Companion version` was added
+  on 2026-10-26 by appending that one context to the live ruleset (GET,
+  append, PUT), not by applying the payload below, which would also change
+  the decisions listed under it.
 - **`strict_required_status_checks_policy: false`** — a pull request that went
   green against an older `main` can land without being retested. The `"strict":
   true` recommended below is not what is applied.
@@ -79,6 +82,7 @@ if you require them.
 
 ```
 Build
+Companion version
 Proto
 pnpm source evidence
 Registry cache cold (go)
@@ -92,10 +96,12 @@ coverage, `govulncheck`, and the version/tag and CGO-free guards. It is the
 check #447 was red on. `Proto` is the same workflow's `buf breaking` gate on
 `proto/`, split out so a BSR hiccup and a schema break answer separately.
 `pnpm source evidence` runs the real lockfile audit and inventory tests with the
-pinned pnpm toolchain. The other four are `build-cache.yml`'s registry
+pinned pnpm toolchain. `Companion version` (`companion-version.yml`) refuses a
+change to a companion's image inputs that keeps its version, so a published tag
+never names two images. The other four are `build-cache.yml`'s registry
 cache-conformance matrix.
 
-All seven qualify on the same three grounds, which are what make a required check
+All eight qualify on the same three grounds, which are what make a required check
 safe rather than merely desirable:
 
 - **Their workflow runs on every pull request to `main`** — `on.pull_request`
@@ -143,6 +149,7 @@ gh api -X PUT repos/codefly-dev/core/rulesets/24397257 --input - <<'JSON'
       "do_not_enforce_on_create": false,
       "required_status_checks": [
         {"context": "Build"},
+        {"context": "Companion version"},
         {"context": "Proto"},
         {"context": "pnpm source evidence"},
         {"context": "Registry cache cold (go)"},

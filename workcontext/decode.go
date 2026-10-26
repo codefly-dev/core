@@ -39,11 +39,11 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if !found {
 		return nil, nil, nil, fmt.Errorf("%w: token is not <payload>.<signature>", ErrInvalid)
 	}
-	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	claims, err := decodeSegment(payload)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: payload is not base64url: %v", ErrInvalid, err)
 	}
-	sig, err := base64.RawURLEncoding.DecodeString(signature)
+	sig, err := decodeSegment(signature)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: signature is not base64url: %v", ErrInvalid, err)
 	}
@@ -106,6 +106,20 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	return wc, claims, sig, nil
 }
 
+// decodeSegment requires the exact unpadded base64url spelling. DecodeString
+// alone ignores CR/LF and accepts nonzero unused bits. Re-encoding catches both
+// while preserving empty signatures for the authentication check to refuse.
+func decodeSegment(segment string) ([]byte, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(segment)
+	if err != nil {
+		return nil, err
+	}
+	if base64.RawURLEncoding.EncodeToString(decoded) != segment {
+		return nil, fmt.Errorf("noncanonical base64url encoding")
+	}
+	return decoded, nil
+}
+
 // unknownFieldIn reports the path of the first unknown field it finds,
 // recursively, or "" when there is none. Recursion is the point: an unknown
 // field nested inside a seal or an actor hop is as foreign as one at the top,
@@ -163,11 +177,9 @@ func unknownFieldIn(message protoreflect.Message) string {
 // channel — so you can see its expiry and its seal without re-deriving them
 // by hand. Reading your own credential is not an authorization decision.
 //
-// What it cannot do: become authority. Every function that derives identity
-// or mints takes a checked capability — policy.PrincipalFromWorkContext a
-// *Verified, policy.PrincipalFromAuthenticatedWorkContext an *Authenticated,
-// Authority.Child and Authority.Grant a *Verified — so a Decoded capability
-// can become neither a Principal nor a derived capability.
+// What it cannot do: become authority. Every function that mints takes a
+// checked capability — Authority.Child and Authority.Grant a *Verified — so a
+// Decoded capability cannot become a derived capability.
 //
 // There is no function turning a Decoded into any of them, and
 // TestNoDeclarationTurnsAnInspectedOrDecodedCapabilityIntoAVerifiedOne guards

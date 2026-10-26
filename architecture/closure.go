@@ -48,6 +48,9 @@ func SelectClosure(ctx context.Context, workspace *resources.Workspace, target s
 			return nil, w.Wrapf(err, "cannot apply option")
 		}
 	}
+	if len(options.RuntimePrerequisites) > 0 {
+		return nil, w.NewError("SelectClosure does not support runtime prerequisites; use NewServiceDependencies")
+	}
 	unique, err := canonicalTarget(workspace, target)
 	if err != nil {
 		return nil, w.Wrap(err)
@@ -114,6 +117,16 @@ func (closure *Closure) walk(ctx context.Context) error {
 			continue
 		}
 		for _, dependency := range service.ServiceDependencies {
+			// An interface no unit in the workspace implements has no producer
+			// to walk to. An external one is no edge; any other leaves the
+			// closure unrunnable, recorded under the requirement it names.
+			if dependency.Unbound() {
+				if err := dependency.RefuseUnbound(current); err != nil {
+					closure.unresolved[dependency.Interface] = err.Error()
+					closure.via[dependency.Interface] = append(slices.Clone(closure.via[current]), current)
+				}
+				continue
+			}
 			unique := dependency.Unique()
 			if closure.options.ExcludeService[unique] {
 				continue

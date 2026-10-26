@@ -401,3 +401,21 @@ func TestTypeScriptTemplateUsesTheBakedProtocGenEs(t *testing.T) {
 		t.Error("the TypeScript template no longer runs the image's own protoc-gen-es")
 	}
 }
+
+// Python's bindings come from the companion's own plugin, as Go's and Rust's do:
+// buf's remote python plugins moved on their own, and their gencode outran the
+// protobuf runtime a generated library declares. Both build definitions ship
+// the plugin, and the image pins the grpc_tools it runs.
+func TestCompanionGeneratesPythonWithItsLocalPlugin(t *testing.T) {
+	for _, file := range []string{"Dockerfile", "flake.nix"} {
+		assertMentionsAll(t, file, []string{"protoc-gen-codefly-python", "protoc_gen_codefly_python.py"})
+	}
+	content, err := os.ReadFile("templates/python/buf.gen.yaml.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "buf.build/") || !strings.Contains(string(content), "name: codefly-python") {
+		t.Fatal("Python generation must use the companion's local plugin")
+	}
+	assertMentionsAll(t, "Dockerfile", []string{"protobuf==5.29.3", "grpcio-tools==1.71.0"})
+}

@@ -1,0 +1,28 @@
+# An installation-owned scope list naming one kind twice.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read, write]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read, write]
+    - name: viewer
+      installation_owned_scopes:
+          - resource_kind: documents.collection
+            actions: [read]
+          - resource_kind: documents.collection
+            actions: [read]
+bindings:
+    - id: collections
+      operations: [invoke]
+      audience: {from: assistant/collections-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents.collection
+                actions: [read]
+destinations: []

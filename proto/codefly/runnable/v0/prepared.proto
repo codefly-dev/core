@@ -55,9 +55,11 @@ message ConnectProcedure {
 // owner's schema declares. No Codefly envelope: a field Codefly added to that
 // body would be a field the owner never described.
 message HTTPRoute {
-  // verb is the request method, POST or PUT — the two an operation applying a
-  // retryable effect is derived from.
-  string verb = 1 [(buf.validate.field).string.in = "POST", (buf.validate.field).string.in = "PUT"];
+  // verb is the request method: POST or PUT, which carry the input as the
+  // JSON body, or GET, which core derives only for a read and which carries
+  // the input object as its query — each member one parameter of that name, a
+  // string as written, a number or a boolean in its JSON spelling.
+  string verb = 1 [(buf.validate.field).string.in = "GET", (buf.validate.field).string.in = "POST", (buf.validate.field).string.in = "PUT"];
   // path is the route the owner publishes, beginning with "/".
   string path = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.prefix = "/"];
 }
