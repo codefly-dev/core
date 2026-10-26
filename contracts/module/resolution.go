@@ -53,11 +53,16 @@ const (
 	ruleResolvedKind = "resolved-kind-grammar"
 	// ruleResolvedName: a resolved value is one non-empty line.
 	ruleResolvedName = "resolved-single-line"
+	// ruleResolvedList: an audience list resolves to comma-separated names,
+	// each once, and per-audience kinds to <audience>=<kind> pairs naming a
+	// listed audience each, once. Without it, "robin,,documents" delivers a
+	// binding addressed to no one.
+	ruleResolvedList = "resolved-list-grammar"
 )
 
 // resolutionRuleNames is every rule of the resolution half, in apply order.
 func resolutionRuleNames() []string {
-	return []string{ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind}
+	return []string{ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind, ruleResolvedList}
 }
 
 // resolution is what the rules answer for one slot: the value, or the reason
@@ -167,6 +172,20 @@ func (values MapValues) Records(group string) ([]Record, error) {
 		records = append(records, Record{Key: key, Value: value, Secret: true})
 	}
 	return records, nil
+}
+
+// slotFilled reports whether a group's records fill the slot keyed key: some
+// record is that key and carries a value, or is secret. Only an optional
+// binding asks, to tell a composition that left it out from one that wrote
+// it; the resolution of a filled slot is resolveSlot's, unchanged.
+func slotFilled(records []Record, key string) bool {
+	normalized := normalizeKey(key)
+	for _, record := range records {
+		if normalizeKey(record.Key) == normalized && (record.Secret || strings.TrimSpace(record.Value) != "") {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeKey(key string) string {

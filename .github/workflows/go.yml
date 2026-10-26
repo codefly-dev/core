@@ -112,7 +112,7 @@ jobs:
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
 
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -212,6 +212,34 @@ jobs:
           python -m unittest discover
           -s generated/python/codefly-cli/codefly_cli/tests
           -p "test_*_contract.py"
+
+      - name: proto companion Python plugins
+        # The bindings, facade and strip plugins the proto companion bakes
+        # (companions/proto/facades/python): map_entry kept through the strip,
+        # each streaming RPC on its own gateway seam, bindings importing only
+        # what their types need. Run on the protobuf and grpcio-tools the
+        # companion's /venv installs (companions/proto/Dockerfile), grpcio held
+        # to grpcio-tools' release; internal/ciguard's
+        # TestFacadePluginSuiteRunsOnTheCompanionsPins fails when they drift.
+        # googleapis-common-protos is the suite's own (the image carries none):
+        # it lets the google.rpc import case run. `protoc` is the pinned
+        # grpc_tools' compiler. A skipped case fails the step: here it would be
+        # an unverified plugin, not an absent optional tool.
+        run: |
+          set -euo pipefail
+          shim="$RUNNER_TEMP/grpc-tools-protoc"
+          mkdir -p "$shim"
+          printf '#!/bin/sh\nexec python -m grpc_tools.protoc "$@"\n' > "$shim/protoc"
+          chmod +x "$shim/protoc"
+          PATH="$shim:$PATH" uv run --no-project --python 3.12 \
+            --with protobuf==5.29.3 --with grpcio-tools==1.71.0 --with grpcio==1.71.0 \
+            --with googleapis-common-protos==1.70.0 --with pytest==9.1.1 \
+            python -m pytest -p no:cacheprovider -rs companions/proto/testdata/facade \
+            | tee "$RUNNER_TEMP/facade-pytest.txt"
+          if grep -qE '[0-9]+ skipped' "$RUNNER_TEMP/facade-pytest.txt"; then
+            echo "a proto companion Python plugin case was skipped; every case must run here" >&2
+            exit 1
+          fi
 
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,

@@ -202,6 +202,21 @@ func TestBwrap_NetworkLoopback_UsesIsolatedNetwork(t *testing.T) {
 	require.Equal(t, []string{"/tmp/codefly-agent", "--fixture"}, cmd.Args[len(cmd.Args)-2:])
 }
 
+func TestBwrapPayloadLifetimeIsBoundToAPidNamespace(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		// bubblewrap is Linux-only; returning early per the no-skip rule.
+		return
+	}
+	sb, err := sandbox.New()
+	require.NoError(t, err)
+	cmd := exec.Command("/tmp/codefly-agent", "--fixture")
+	require.NoError(t, sb.Wrap(cmd))
+	args := strings.Join(cmd.Args, " ")
+	require.Contains(t, args, "--unshare-pid",
+		"the payload must run under a pid-namespace init bubblewrap supervises: --die-with-parent alone is not honoured on every platform (Ubuntu 26.04 let a payload outlive its terminated supervisor)")
+	require.Contains(t, args, "--die-with-parent")
+}
+
 func TestSandbox_Wrap_RefusesDoubleWrap(t *testing.T) {
 	sb, err := sandbox.New()
 	if err != nil {

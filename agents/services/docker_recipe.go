@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/codefly-dev/core/templates"
@@ -44,8 +46,20 @@ const DockerBuildRecipeContextContractVersion = "codefly.dev/docker-build-recipe
 // emitting v3 or v4, so existing agents need no coordinated rebuild.
 const DockerBuildRecipeGoModulesContractVersion = "codefly.dev/docker-build-recipe/v5"
 
+// DockerBuildRecipeGitSourcesContractVersion adds declared git source downloads
+// (DockerBuildRecipe.git_source_downloads) to the recipe digest, on top of v5's
+// Go module downloads and v4's explicit context root. A host that does not know
+// the field would build without supplying the mirrors, so the plan carries v6
+// and such a host rejects it instead. Recipes without git sources keep v3 to v5.
+const DockerBuildRecipeGitSourcesContractVersion = "codefly.dev/docker-build-recipe/v6"
+
 func recipeContractVersion(recipes []*builderv0.DockerBuildRecipe) string {
 	version := DockerBuildRecipeContractVersion
+	for _, recipe := range recipes {
+		if len(recipe.GetGitSourceDownloads()) > 0 {
+			return DockerBuildRecipeGitSourcesContractVersion
+		}
+	}
 	for _, recipe := range recipes {
 		if len(recipe.GetGoModuleDownloads()) > 0 {
 			return DockerBuildRecipeGoModulesContractVersion
@@ -241,6 +255,52 @@ func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOptio
 	}
 }
 
+// WithGitSourceDownloads declares the locked git commits the recipe fetches
+// while it builds (DockerBuildRecipe.git_source_downloads). The caller fetches
+// each into a bare mirror at GitSourceMirrorPath(repository), under
+// GitSourceMirrorRef(commit), inside the named mirror context before any image
+// build, so the build needs no credential. A recipe carrying one emits the v6
+// contract, and a host must fetch every declared source, and refuse a
+// declaration it did not fetch, before it accepts a v6 plan. Declarations are
+// digested in the order given and an exact duplicate is refused, so declare
+// them sorted and de-duplicated.
+func WithGitSourceDownloads(downloads ...*builderv0.GitSourceDownload) RecipeOption {
+	return func(recipe *builderv0.DockerBuildRecipe) {
+		recipe.GitSourceDownloads = append(recipe.GitSourceDownloads, downloads...)
+	}
+}
+
+// GitSourceMirrorPath is where, inside a git source mirror context, the bare
+// mirror of repository lives: the hex sha256 of the URL exactly as declared,
+// plus ".git". It is the layout the caller that fills the context and the
+// Dockerfile that reads it share, so neither has to escape a URL into a path.
+func GitSourceMirrorPath(repository string) string {
+	sum := sha256.Sum256([]byte(repository))
+	return hex.EncodeToString(sum[:]) + ".git"
+}
+
+// GitSourceMirrorRef is the ref under which a git source mirror holds commit.
+// It is the ref a fetch by commit id writes, so a build fetching the locked
+// commit from the mirror finds it there.
+func GitSourceMirrorRef(commit string) string {
+	return "refs/commit/" + commit
+}
+
+// GitSourceRepositoryProblem returns why a recipe would refuse repository as a
+// git source, or "" when it would accept it. An agent reading a lockfile calls
+// it before declaring a source, so it can leave a source the contract cannot
+// carry to the build's own fetch, or refuse it naming the package. The reason
+// never quotes the URL.
+func GitSourceRepositoryProblem(repository string) string {
+	return gitSourceRepositoryProblem(repository)
+}
+
+// IsGitSourceCommit reports whether commit is a full lowercase hex object id
+// (SHA-1 or SHA-256), the only form a recipe accepts.
+func IsGitSourceCommit(commit string) bool {
+	return gitCommitID.MatchString(commit)
+}
+
 func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv0.DockerBuildPlan, error) {
 	dockerignore := ""
 	for _, name := range emitted {
@@ -416,6 +476,9 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 		if err := validateGoModuleDownloads(recipe); err != nil {
 			return err
 		}
+		if err := validateGitSourceDownloads(recipe); err != nil {
+			return err
+		}
 		if ignore := recipe.GetDockerignore(); ignore != "" {
 			dockerignore, err := recipeRelPath(destination, ignore)
 			if err != nil {
@@ -460,6 +523,100 @@ func validateGoModuleDownloads(recipe *builderv0.DockerBuildRecipe) error {
 		contexts[name] = struct{}{}
 	}
 	return nil
+}
+
+// gitCommitID is a full git object id: SHA-1 (40) or SHA-256 (64), lowercase.
+var gitCommitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// gitSourceRepository is the accepted shape of a git source URL: https or ssh,
+// spelled exactly so, an optional login name (ssh only, checked below), a
+// host, an optional port and a non-empty path with no "@" and no
+// percent-encoding. Every character is one a Dockerfile and a git config value
+// carry without quoting, so the URL can be written into either verbatim.
+var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/:+-]*[A-Za-z0-9._~:+-][A-Za-z0-9._~/:+-]*$`)
+
+// validateGitSourceDownloads checks a recipe's declared git sources: each names
+// a credential-free https or ssh URL with no query or fragment, a full commit
+// id, and a valid build-context name that is not also a Go module proxy
+// context. The same repository may be declared at several commits; the same
+// (repository, commit, context) twice is refused. A refused repository may
+// carry a credential, so errors name the declaration by position, never by URL.
+func validateGitSourceDownloads(recipe *builderv0.DockerBuildRecipe) error {
+	proxies := make(map[string]struct{}, len(recipe.GetGoModuleDownloads()))
+	for _, download := range recipe.GetGoModuleDownloads() {
+		proxies[download.GetProxyContext()] = struct{}{}
+	}
+	seen := make(map[[3]string]struct{}, len(recipe.GetGitSourceDownloads()))
+	for index, download := range recipe.GetGitSourceDownloads() {
+		if reason := gitSourceRepositoryProblem(download.GetRepository()); reason != "" {
+			return fmt.Errorf("recipe %q git source %d: repository %s", recipe.GetName(), index, reason)
+		}
+		if !gitCommitID.MatchString(download.GetCommit()) {
+			return fmt.Errorf("recipe %q git source %d: commit is not a full lowercase hex object id", recipe.GetName(), index)
+		}
+		name := download.GetMirrorContext()
+		if !proxyContextName.MatchString(name) {
+			return fmt.Errorf("recipe %q git source %d: mirror context %q is not a valid build context name", recipe.GetName(), index, name)
+		}
+		if _, ok := proxies[name]; ok {
+			return fmt.Errorf("recipe %q git source %d: build context %q is also a Go module proxy context", recipe.GetName(), index, name)
+		}
+		key := [3]string{download.GetRepository(), download.GetCommit(), name}
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("recipe %q git source %d: declared twice", recipe.GetName(), index)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// gitSourceRepositoryProblem returns why repository is refused, or "". The
+// reason never quotes the URL.
+func gitSourceRepositoryProblem(repository string) string {
+	scheme, rest, found := strings.Cut(repository, "://")
+	if !found || (scheme != "https" && scheme != "ssh") {
+		return "must start with https:// or ssh://"
+	}
+	if strings.ContainsAny(repository, "?#") {
+		return "must carry no query or fragment"
+	}
+	// git decodes percent-encoding before it splits an ssh URL into user, host
+	// and path, so an encoded "[", "@" or "/" would move the host after this
+	// check has passed; no lockfile URL needs one, so none is accepted.
+	if strings.Contains(repository, "%") {
+		return "must carry no percent-encoding"
+	}
+	authority, path, _ := strings.Cut(rest, "/")
+	if strings.Contains(path, "@") {
+		return "must carry no @ in the path"
+	}
+	if userinfo, _, hasUser := strings.Cut(authority, "@"); hasUser {
+		if scheme == "https" {
+			return "must carry no user information over https"
+		}
+		if strings.Contains(userinfo, ":") {
+			return "must carry no password"
+		}
+	}
+	if !gitSourceRepository.MatchString(repository) {
+		return "must be a host and repository path in [A-Za-z0-9._~/:+-], with an optional port"
+	}
+	parsed, err := url.Parse(repository)
+	if err != nil {
+		return "is not a valid URL"
+	}
+	// git refuses an ssh login name or host that starts with "-" (it would read
+	// as an option) and a port outside 1-65535, so neither is a source a build
+	// could fetch.
+	if strings.HasPrefix(parsed.User.Username(), "-") || strings.HasPrefix(parsed.Hostname(), "-") {
+		return "must not start its login name or host with -"
+	}
+	if port := parsed.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "must carry a port between 1 and 65535"
+		}
+	}
+	return ""
 }
 
 // recipeRelPath validates that p is a non-empty relative path that stays inside
@@ -558,8 +715,9 @@ func fileDigest(path string) (string, error) {
 func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
 	hasher := sha256.New()
 	version := recipeContractVersion(recipes)
-	explicitRoots := version == DockerBuildRecipeContextContractVersion || version == DockerBuildRecipeGoModulesContractVersion
-	goModules := version == DockerBuildRecipeGoModulesContractVersion
+	gitSources := version == DockerBuildRecipeGitSourcesContractVersion
+	goModules := gitSources || version == DockerBuildRecipeGoModulesContractVersion
+	explicitRoots := goModules || version == DockerBuildRecipeContextContractVersion
 	// The scope decides how strictly the inventory is verified, so it is covered
 	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop
 	// added files from being detected without disturbing the digest.
@@ -580,6 +738,15 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 			for _, download := range downloads {
 				hashField(hasher, download.GetModuleRoot())
 				hashField(hasher, download.GetProxyContext())
+			}
+		}
+		if gitSources {
+			sources := recipe.GetGitSourceDownloads()
+			hashCount(hasher, len(sources))
+			for _, source := range sources {
+				hashField(hasher, source.GetRepository())
+				hashField(hasher, source.GetCommit())
+				hashField(hasher, source.GetMirrorContext())
 			}
 		}
 		hashField(hasher, recipe.GetDockerignore())

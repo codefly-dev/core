@@ -1,0 +1,34 @@
+name: companion-version
+
+# A change to a companion's image inputs must bump its version: publishing
+# skips a tag the registry already has, and a forced republish swaps the image
+# under every machine that cached the tag. companions/proto 0.0.17 shipped the
+# streaming Python facade that way (core#837).
+#
+# It runs on every pull request, with no path filter, so it can be a required
+# check of main's ruleset: a path-filtered workflow that does not run leaves a
+# required check pending forever. internal/companionbump reads which files are
+# a companion's inputs from the Dockerfiles themselves; a change that touches
+# none passes at once.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  companion-version:
+    name: Companion version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: every changed companion carries a new version
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: go run ./internal/companionbump "$BASE_REF"

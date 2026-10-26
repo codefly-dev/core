@@ -358,21 +358,78 @@ delivered by file — is in [Runnable binding delivery](runnable-binding-deliver
 An owner is called with JSON: a gRPC owner on its Connect endpoint, a REST owner
 on its real route, so no protobuf descriptor is delivered to a caller.
 
-A unary, idempotent operation an owner service already publishes becomes a
-Runnable by derivation, not by authoring. The owner marks it and the contract
+A unary operation an owner service already publishes becomes a Runnable by
+derivation, not by authoring, and **every Runnable is a tool**. The contract
 follows from the payloads the owner already describes. Nothing is written
 twice, so the published message and the bounded contract cannot drift apart.
+
+### Every method behind the hop is an operation
+
+A gRPC method that declares its authority policy — the
+`authority.hop.v1.policy` option every method served behind the authority hop
+already carries — is derived with **no runnable option at all**
+(`runnable.OperationForMethod`, `runnable.DefaultOperation`). Its effect is
+read from the actions the policy requires, because that is what the hop lets
+a call through holding:
+
+| The policy requires | Effect | Recovery | Authority | Attempts |
+|---|---|---|---|---|
+| only `read`, on every kind | `EFFECT_READ_ONLY` | `RECOVERY_RECOMPUTE`: no receipt, no lookup scopes, no lookup method | invoke = the required scopes | 3, on `UNAVAILABLE` |
+| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT` | invoke = the required scopes; no lookup scopes — a receipt is read under the invoke scopes, by the identity that made the effect | 1 |
+
+A read is safe to re-run, so it carries no receipt — which also keeps a read's
+answer (a signed URL, a secret) out of every receipt store.
+
+A derived mutation is **at-most-once today**, and says so. It is attempted
+once, because a retry is exactly-once only where the owner records a receipt
+and a Receipts server answers for it, and neither exists yet for a derived
+operation: the SDK's receipt guard covers option-marked methods, and no
+generic `codefly.runnable.receipts.v0.Receipts` server is served. An uncertain
+outcome is therefore surfaced as *unknown* — honestly, never as success or
+failure — and a recovery reading "no receipt" stays inconclusive. A caller
+that invokes again after an unknown outcome makes a new effect, so it asks the
+person first. When the guard follows this derivation and the lookup is
+served, the same declaration recovers by receipt with no change.
+The audience is the owner's module unless `ServiceOwner.Audience` names
+another. The tool is presented from the method itself: its name, its leading
+doc comment, and the effect above.
+
+**Who reaches an operation is a matter of grants, not of derivation.** Every
+operation is a tool, and a tool is offered to a person only when the person's
+grants cover its binding: a caller mints the call's Work Context from the
+person's own authority, narrowed to the binding, and the hop refuses a call
+that does not hold what the method requires. A runtime-only or administrative
+operation therefore derives like any other and never reaches a person who is
+not granted it; derivation applies no visibility heuristic of its own. The
+one structural exclusion is a receipt lookup — a method another operation of
+its service names as its `lookup_method`, or one spelled `Lookup<Op>` beside a
+method `<Op>`: it is recovery's, so it is never derived. Hand-marked
+operations derive as they always did, and are tools too.
+
+`codefly.runnable.v0.exclude` keeps a method from being derived, for an
+operation no agent may ever call whatever its grants; it is refused beside an
+operation option. A
+policy requiring nothing (`any_checked_caller`) has no authority to mint a
+call's capability from, and a stream is not one finite call: both, and a
+payload outside the profile, answer `ErrNotDerivable`, a notice the generator
+lists without failing. A method declaring neither a policy nor an option is
+`ErrNotAnOperation`, as before.
+
+The option below remains, as the way to override these defaults. An option
+without `recovery` keeps `RECOVERY_RECEIPT`, so every operation declared before
+the field existed derives exactly as it did.
 
 There are two ways an owner describes an operation, and one derivation:
 
 | | gRPC | REST |
 | --- | --- | --- |
 | Marking | the `codefly.runnable.v0.operation` method option (`proto/codefly/runnable/v0/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
-| Source of the contract | the method's request and response descriptors | the operation's `application/json` request body and its one `2xx` response |
-| Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")` |
+| Default with nothing added | `runnable.DefaultOperation(method, authority, audience)`, from `authority.hop.v1.policy` | `runnable.DefaultRouteOperation(method, path, authority, audience, name, description)`; `runnable.RouteMarker` writes it as the marker from the route's `x-codefly-authority-policy` JSON, which is how solution-runtime-go marks a route |
+| Source of the contract | the method's request and response descriptors | the operation's `application/json` request body — a `GET`'s query — and its one `2xx` response |
+| Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")`, from OpenAPI 3 or Swagger 2.0 |
 | Projection | `runnable.ProjectMessage(md)` | `runnable.ProjectJSONSchema(doc, schema)` |
 | `operation` recorded | `/pkg.Service/Method` | `POST /path` |
-| `input_message` / `output_message` | the messages' full names | the payload components' names |
+| `input_message` / `output_message` | the messages' full names | the payload components' names; a `GET`'s query is recorded by its `operationId` |
 | `retryable_codes` | `google.rpc.Code` names, such as `UNAVAILABLE` | HTTP statuses as decimal strings, such as `"503"` |
 
 Both land in the same place, which is the point: one profile, one digest and
@@ -398,10 +455,34 @@ validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
-vocabulary; `audience` is required, and both concrete scope sets are required at
-installation. An owner declaration may defer scopes to its
+vocabulary; `audience` is required, and concrete invoke scopes are required at
+installation. Lookup scopes are optional, under one rule wherever they appear
+— a declaration, a prepared policy, an installed binding — whether or not the
+operation states its recovery. Declared, they are a read-only subset of the
+invoke scopes. Empty, a receipt is read under the invoke scopes and **only by
+the identity that made the effect**: a receipt records its Work Context's owner
+and whole actor chain, each hop by principal and agent
+(`codefly.runnable.receipts.v0.ReceiptIdentity`), and
+`runnable.AdmitReceiptLookup` admits a lookup only for that same identity,
+holding the scopes the receipt is read under. A refused lookup answers
+NOT_FOUND exactly as an absent receipt does, its reason logged and never
+returned. The replay path is bound the same way: a guarded invocation
+presenting an effect id whose receipt was recorded for another identity is
+refused as a conflict carrying no content (`runnable.AdmitReceiptReplay`), so
+no caller is ever answered with another's committed response. That binding,
+not the spelling of the declaration, is what makes an empty list safe — which
+is why the rule cannot hang on whether `recovery` was written: the installed
+package carries only the recovery in effect. A module that contributes no
+`read` permission on a kind it writes can therefore still mint the mutation.
+A `COMPLETION_SUBMIT` operation keeps its lookup scopes required: its answer is
+learnable only through its receipt, and no runtime mints a lookup under the
+invoke scopes yet. A `RECOVERY_RECOMPUTE` operation has no receipt at all: no
+lookup scopes, no lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
-own value bounds. An operation with no
+own value bounds. No scope here names a `resource_owner_id` — not a declaration,
+a binding or a slot selection: an owner is inherited from the capability the
+operation is invoked under, with `workcontext.InheritResourceOwner`
+([Work Context](work-context.md#scopes-and-the-resource-owner)). An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
 capability from, and the runtime refuses the installation rather than calling
 without authority. `lookup_scopes` must be a subset of `invoke_scopes` under
@@ -433,14 +514,21 @@ document transcoded from them project to **equal** `RunnableSchema`s.
 | Protobuf | JSON Schema | Bounded profile | Note |
 |---|---|---|---|
 | `string` | `type: string`, `format` absent or outside the rejected list below | `STRING` | `uuid`, `email`, `uri` annotate a string |
-| `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | int64 range |
-| `uint64`, `fixed64` | `type: integer` of any other `format` | **rejected** | exceeds int64 |
+| `int32`, `sint32`, `sfixed32`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | |
+| `int64`, `sint64`, `sfixed64` / `uint64`, `fixed64` | `type: string`, `format: int64` / `uint64` | `STRING`, format `int64` / `uint64` | proto3 JSON writes a 64-bit integer as a decimal string |
 | `bool` | `type: boolean` | `BOOLEAN` | |
 | message | `type: object` with `properties` and `additionalProperties: false` | `OBJECT` with `fields` | depth ≤ 32 and ≤ 10 000 fields in total; recursion (a message or a `$ref` reaching itself) rejected |
 | `repeated T` | `type: array` with a single `items` schema | `ARRAY` with `items` | |
 | proto3 `optional` / message-typed field | a name absent from `required` | `optional: true` | absent key |
 | — | `nullable: true`, or `type: [T, "null"]` | `nullable: true` | protobuf has no null value |
-| `enum`, `map<>`, `oneof`, `bytes`, `float`, `double`, `google.protobuf.*` well-known types, `Any` | `enum`, `oneOf` / `anyOf` / `allOf`, `type: number`, `additionalProperties` other than `false` (maps), free-form objects, `type: object` without `properties`, tuple `items`, `format: byte` / `binary` / `date-time` / `date` | **rejected** | named by full field path or by JSON pointer in the error; never coerced |
+| `float`, `double` | `type: number`, `format` absent, `float` or `double` | `NUMBER` | also `"NaN"`, `"Infinity"`, `"-Infinity"`, as proto3 JSON writes a non-finite value |
+| `enum` | `type: string` with a string `enum` | `STRING` with `values` | carried by name |
+| `bytes` | `type: string`, `format: byte` | `STRING`, format `byte` | base64 |
+| `google.protobuf.Timestamp` / `Duration` / `FieldMask` | `type: string`, `format: date-time` / `protobuf-duration` / `protobuf-field-mask` | `STRING`, the same format | RFC 3339, `"1.5s"` (never JSON Schema's ISO 8601 `duration`), `"a.b,c"` |
+| `map<>`, `Struct`, `ListValue`, `Value` | `type: object` without `properties` and not closed | `JSON`, format `object` / `array` | members not enumerated |
+| `oneof` member | — | `optional: true` | each member is its own key |
+| wrappers (`StringValue`, …) | — | the wrapped type, `nullable: true` | |
+| `Any`, a recursive message | `oneOf` / `anyOf` / `allOf`, tuple `items`, `format: binary` / `date` | **rejected** | named by full field path or by JSON pointer in the error; never coerced |
 
 Rejection is a generation failure, not a runtime one: an out-of-profile payload
 is fixed once in the `.proto` or the document and stays fixed, whereas coercing
@@ -448,10 +536,13 @@ one would put a representation on the wire that neither the owner nor the
 runtime agreed to. An array's items carry neither the field's name nor its
 optionality — an element is present or the list is shorter.
 
-The well-known-type rule covers the payload itself and not only its fields: a
-method taking or returning `google.protobuf.Timestamp` would otherwise derive a
-contract of `{seconds, nanos}`, and one returning `google.protobuf.Empty` a
-contract with no keys at all. `optional` reads the field's presence, except that
+The profile describes the JSON an owner's Connect endpoint reads and writes,
+so every type is projected by its canonical proto3 JSON mapping. That is what
+the old refusal of well-known types protected: a Timestamp walked as a message
+derives `{seconds, nanos}`, a contract that misdescribes the wire. Projected by
+its proto3 JSON spelling it is an RFC 3339 string, which is the wire. The
+payload itself must still be an object: `google.protobuf.Empty` is (an object
+with no keys); a Timestamp or a wrapper payload is not. `optional` reads the field's presence, except that
 a *required* field (proto2, or editions `LEGACY_REQUIRED`) keeps its key: it
 tracks presence, but it is never absent. The rejected string formats are what
 the rejected protobuf types transcode to — `bytes` becomes `byte` or `binary`,
@@ -470,12 +561,18 @@ the same reason a type outside the profile is: the object closes
 anyway would hand back a contract silent about a key the owner marked mandatory.
 
 Reading the columns together says what a transcription has to spell, and the
-fixture pair is what enforces it. A proto3 field with implicit presence has a
-key that is always there, so it is `required` in the document; a message-typed
-or `optional` field has one that may be absent, so it is not. An `int64` is an
-`integer` of format `int64` and never the string proto3 JSON would carry it as:
-the bounded profile has a 64-bit integer of its own and does not borrow that
-encoding. An object's members are projected in the order the source spells
+fixture pair is what enforces it. **Every key may be absent** except a
+required field's (proto2 `required`, editions `LEGACY_REQUIRED`), so only those
+are `required` in the document: proto3 JSON omits a field at its default — an
+empty string, 0, false, the zero enum value, an empty list or map — just as it
+omits an unset field with presence, and connect-go marshals that way
+(`protojson.MarshalOptions{}`). A contract that demanded such a key would
+refuse an ordinary answer — an empty page, a last page with no cursor — as an
+integrity failure after the effect committed. **The schema is the wire.** A member is named by its JSON name — lowerCamelCase, or the
+`json_name` the owner chose — which is the key a Connect server writes, and a
+64-bit integer is the decimal string proto3 JSON writes; protojson reads either
+name and either integer spelling, so a caller's input loses nothing. A
+transcribed document spells the same names and `type: string, format: int64`. An object's members are projected in the order the source spells
 them, because the profile's `fields` are an ordered list the package digest is
 taken over.
 
@@ -484,11 +581,26 @@ taken over.
 `runnable.PackageFromOpenAPIOperation(document, location, owner, method, path)`
 reads the OpenAPI JSON an owner already publishes (`codefly generate
 contracts` writes one per HTTP endpoint) and derives the same package. An
-operation is eligible only if it is a `POST` or a `PUT`, carries no parameter
-outside `header` and `cookie`, has one `application/json` request body and
-exactly one `2xx` response with an `application/json` schema. Anything else is a
-refusal that names why, never a coercion: v1 keeps an operation's input as one
-JSON object, and folding a parameter into it is a later profile decision.
+operation is eligible only if it is a `GET`, a `POST` or a `PUT` on one fixed
+path (no template), carries no parameter outside `header` and `cookie`, has one
+`application/json` request body and exactly one `2xx` response with an
+`application/json` schema. Anything else is a refusal that names why, never a
+coercion: v1 keeps an operation's input as one JSON object.
+
+**A `GET` is a read, and its query is its input.** It is admitted only when
+every half of its operation reads: it recomputes (`RECOVERY_RECOMPUTE`), its
+tool is `EFFECT_READ_ONLY`, and its invoke scopes require nothing but `read`, so
+the capability a call presents cannot change what it reads whatever the route
+does. A read is the safest operation to re-run, so this is no loosening of the
+retry rule; a mutation keeps its body, its receipt and its `POST` or `PUT`. A
+`GET` carries no body: its input object's members are its `query` parameters,
+each a scalar (string, integer, number or boolean), optional exactly when the
+parameter is, and a `GET` with no parameter takes the empty object. A caller
+sends the object as the query — each member as one parameter of that name, a
+string as written, a number or a boolean as its JSON spelling. No component
+describes a query, so `input_message` records the identity the document
+publishes it under, the operation's `operationId`, and a `GET` without one is
+refused.
 
 The parameter locations are an **allow list**, not a pair of denied ones. The
 transport carries a header and a cookie, so they are no part of the payload;
@@ -497,14 +609,23 @@ Denying only `path` and `query` would let `body` and `formData` — which is how
 Swagger 2.0 spells a request body — pass in silence, and the derived contract
 would simply omit the operation's input.
 
-The document's version is checked rather than assumed, for the same reason.
-Swagger 2.0 puts a request body in an `in: body` parameter and a response schema
-on the response itself, so reading one as OpenAPI 3 finds no `requestBody` and
-reports exactly that — pointing at the wrong part of a document that plainly
-declares one. Core's own `OpenAPICombinator` still writes 2.0, so this is a
-document that turns up; it is refused as Swagger, by name.
+The document's version is checked rather than assumed, and **both dialects an
+owner publishes are read as themselves**. Swagger 2.0 is what
+protoc-gen-openapiv2, core's own `OpenAPICombinator` and solution-runtime-go's
+interface artifact write, so it is the document a solution actually commits. It
+spells the same operation in other places — the request body is an `in: body`
+parameter, a response's schema hangs off the response, the media types are
+listed in `consumes` and `produces` (the operation's, or else the document's),
+a parameter states `type` beside its name, and schemas live under
+`#/definitions/` — and `ParseOpenAPIDocument` moves each into the place OpenAPI
+3 spells it before anything else reads the document. Every rule after that reads
+both alike, so a Swagger body in two encodings or a `formData` parameter is
+refused by the same rule, in the same words, as its OpenAPI 3 spelling, and the
+same operation in either dialect derives a byte-identical package. Any other
+`swagger` version, or a document declaring both, is refused by name.
 
-Both payload schemas must be `#/components/schemas/…` references. That is where
+Both payload schemas must be references to the document's own schemas
+(`#/components/schemas/…`, or `#/definitions/…` in Swagger 2.0). That is where
 `input_message` and `output_message` come from, and their job is to record the
 owner's published message identity so the reuse is auditable rather than
 implied by a matching shape — which an inline schema has nothing to record. A
@@ -830,15 +951,19 @@ half core implements, which is what the runtime builds its own half against.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.
 
-### Explicit tool exposure
+### Every runnable is a tool
 
-A Runnable is not automatically a discoverable tool. An owner opts in with
-`Operation.tool` in the method option or the same `tool` object in the
-`x-codefly-operation` OpenAPI marker. It declares a stable `name`, bounded
-`description`, and an explicit `effect`: `EFFECT_READ_ONLY` or
-`EFFECT_MUTATION`. Absence keeps the operation hidden; an empty exposure or an
-unspecified effect is invalid. HTTP verbs, scope names, receipt support and
-idempotence never classify a mutation as read-only.
+A Runnable is a discoverable tool by definition. `Operation.tool` (or the same
+`tool` object in the `x-codefly-operation` marker) is presentation only: a
+stable `name`, a bounded `description` and an explicit `effect`. A derivation
+fills it when the owner writes none — the method's name and leading doc
+comment, or the REST operation's `operationId` and description — with the
+effect from the authority policy, and read-only exactly when the operation
+recomputes. A binding delivered without one is presented from its operation
+spelling by `ToolFromPrepared`, as a mutation unless it recomputes. An empty
+exposure or an unspecified effect is invalid; HTTP verbs, scope names, receipt
+support and idempotence never classify a mutation as read-only, and a
+recomputed operation can never be presented as a mutation.
 
 The input/output schema remains the operation's derived `RunnableContract`.
 `OperationSpec.Tool` retains exposure during derivation, and a prepared binding
@@ -849,8 +974,7 @@ and the read-back side to the schema's field list, so a field a hand-copying
 writer would drop — exposure arrived as exactly such a field — cannot be added
 to the schema without the conversion learning it. `ToolFromPrepared` validates
 the complete binding (including its contract digest) and returns a detached
-exposure with no route, credential or authority scopes. A valid unexposed
-operation returns `ErrNotATool`.
+exposure with no route, credential or authority scopes.
 
 Core validates the declaration, not the publisher's identity or the viewer's
 permissions. The host must authenticate the declaration source and project only
@@ -931,9 +1055,9 @@ It returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEvery
 holds both JSON fixtures, delivery and extraction to the schema's field list,
 including every nested projection field, as `TestPolicyRoundTripsEveryField`
 does for policy. A valid projection may accompany a binding with `policy.tool`
-absent: this leaves the generic method hidden from direct discovery, and
-`ToolFromPrepared` still returns `ErrNotATool`. An explicitly exposed generic
-method is a separate tool; its effect does not classify the projected tools.
+absent: the generic method is still a tool, presented from its operation, and
+its name is taken against the projection's. Its effect does not classify the
+projected tools.
 
 Discovery authenticates the declaration publisher and exposes only currently
 permitted installations and declarations. Admission rejects name collisions
@@ -969,11 +1093,12 @@ Required slots may supply **all** of an operation's resource authority. An
 unresolved declaration may leave both fixed `invoke_scopes` and `lookup_scopes`
 empty; it need not invent an unrelated fixed permission or a wildcard of the
 selected kind. Supplied fixed scopes still satisfy the usual bounds and lookup
-subset rules. After every slot is resolved, both concrete scope lists must be
-nonempty. `lookup: true` additionally requires read-only lookup over the same
+subset rules. After every slot is resolved, the concrete scope lists must be
+nonempty — invoke always; lookup unless the receipt is read under invoke (see
+above). `lookup: true` additionally requires read-only lookup over the same
 exact ids for every invoke kind selected into that slot. A slot without that
-flag may supply lookup too, but a completed policy with no lookup authority
-is refused. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
+flag may supply lookup too; a completed policy with no lookup scopes reads its
+receipts under its invoke scopes, by the identity that made each effect. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
 is exercised through derivation, resolution, prepared delivery and the matching
 resolved-policy receipt.
 

@@ -80,6 +80,9 @@ func LoadService(ctx context.Context, workspace *resources.Workspace, module *re
 	out.Endpoints = init.Endpoints
 
 	for _, dep := range service.ServiceDependencies {
+		if dep.Unbound() {
+			continue
+		}
 		out.ServiceDependencies = append(out.ServiceDependencies, &basev0.ServiceReference{Name: dep.Name, Module: dep.Module})
 	}
 

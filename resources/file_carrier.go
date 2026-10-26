@@ -225,9 +225,14 @@ func CheckProcessEnvironment(envs []*EnvironmentVariable) error {
 // ResolveFileCarriers reads every file carrier of environ ("KEY=VALUE"
 // strings, as os.Environ returns them) and returns the value key of each with
 // the content of its file. A carrier whose value key is also set inline, a
-// relative path, a file that is not a regular file, is larger than
+// relative path, a file that is not a regular file, is empty, is larger than
 // MaxFileCarrierBytes or cannot be read, and a secret file accessible by
 // others, are errors: an unreadable value never reads as an unset one.
+//
+// An empty file is refused because a value is delivered by file only when it
+// is larger than FileCarrierThreshold (deliverByFile): an empty one is a
+// truncated write or a mount race, never a value the host left unset, and
+// reading it as absent would let a lookup step past a broken delivery.
 func ResolveFileCarriers(environ []string) (map[string]string, error) {
 	inline := map[string]bool{}
 	carriers := map[string]string{}
@@ -291,6 +296,9 @@ func ReadFileCarrier(key, path string) (string, error) {
 	}
 	if len(content) > MaxFileCarrierBytes {
 		return "", fmt.Errorf("%w: %s: exceeds %d bytes", ErrFileCarrier, key, MaxFileCarrierBytes)
+	}
+	if len(content) == 0 {
+		return "", fmt.Errorf("%w: %s: delivered file is empty", ErrFileCarrier, key)
 	}
 	return string(content), nil
 }

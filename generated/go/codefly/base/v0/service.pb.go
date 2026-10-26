@@ -224,8 +224,14 @@ type ServiceIdentity struct {
 	WorkspacePath string `protobuf:"bytes,5,opt,name=workspace_path,json=workspacePath,proto3" json:"workspace_path,omitempty"`
 	// relative_to_workspace is the path to the service relative to the workspace root.
 	RelativeToWorkspace string `protobuf:"bytes,6,opt,name=relative_to_workspace,json=relativeToWorkspace,proto3" json:"relative_to_workspace,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// interface_bindings is how the host's composition bound the service's
+	// interface dependencies. Present, it is authoritative: the agent applies it
+	// and never loads the workspace to bind them itself, because only the host
+	// resolves a composition that imports other workspaces. Absent (an older
+	// host), the agent binds against the workspace at workspace_path.
+	InterfaceBindings *ServiceInterfaceBindings `protobuf:"bytes,7,opt,name=interface_bindings,json=interfaceBindings,proto3" json:"interface_bindings,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ServiceIdentity) Reset() {
@@ -300,6 +306,136 @@ func (x *ServiceIdentity) GetRelativeToWorkspace() string {
 	return ""
 }
 
+func (x *ServiceIdentity) GetInterfaceBindings() *ServiceInterfaceBindings {
+	if x != nil {
+		return x.InterfaceBindings
+	}
+	return nil
+}
+
+// ServiceInterfaceBindings is the host's binding of a service's interface
+// dependencies. A requirement with no entry is unbound: nothing in the
+// composition implements it.
+type ServiceInterfaceBindings struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// bindings holds one entry per interface-only dependency the host bound.
+	Bindings      []*ServiceInterfaceBinding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceInterfaceBindings) Reset() {
+	*x = ServiceInterfaceBindings{}
+	mi := &file_codefly_base_v0_service_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceInterfaceBindings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceInterfaceBindings) ProtoMessage() {}
+
+func (x *ServiceInterfaceBindings) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_service_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceInterfaceBindings.ProtoReflect.Descriptor instead.
+func (*ServiceInterfaceBindings) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_service_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ServiceInterfaceBindings) GetBindings() []*ServiceInterfaceBinding {
+	if x != nil {
+		return x.Bindings
+	}
+	return nil
+}
+
+// ServiceInterfaceBinding is the provider one interface dependency is bound to.
+type ServiceInterfaceBinding struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// interface is the requirement as the service declares it,
+	// <publisher>/<name>@<range>.
+	Interface string `protobuf:"bytes,1,opt,name=interface,proto3" json:"interface,omitempty"`
+	// module is the module of the providing service.
+	Module string `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
+	// service is the providing service.
+	Service string `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
+	// endpoint is the provider's endpoint implementing the interface, empty when
+	// the service implements it as a capability.
+	Endpoint      string `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceInterfaceBinding) Reset() {
+	*x = ServiceInterfaceBinding{}
+	mi := &file_codefly_base_v0_service_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceInterfaceBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceInterfaceBinding) ProtoMessage() {}
+
+func (x *ServiceInterfaceBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_service_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceInterfaceBinding.ProtoReflect.Descriptor instead.
+func (*ServiceInterfaceBinding) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_service_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ServiceInterfaceBinding) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *ServiceInterfaceBinding) GetModule() string {
+	if x != nil {
+		return x.Module
+	}
+	return ""
+}
+
+func (x *ServiceInterfaceBinding) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *ServiceInterfaceBinding) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
 var File_codefly_base_v0_service_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_service_proto_rawDesc = "" +
@@ -315,7 +451,7 @@ const file_codefly_base_v0_service_proto_rawDesc = "" +
 	"\tendpoints\x18\x04 \x03(\v2\x19.codefly.base.v0.EndpointR\tendpoints\x12T\n" +
 	"\x14service_dependencies\x18\x05 \x03(\v2!.codefly.base.v0.ServiceReferenceR\x13serviceDependencies\"#\n" +
 	"\aVersion\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\tR\aversion\"\x8e\x02\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\"\xe8\x02\n" +
 	"\x0fServiceIdentity\x12\x1d\n" +
 	"\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x182R\x04name\x12!\n" +
 	"\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x182R\x06module\x12'\n" +
@@ -323,7 +459,15 @@ const file_codefly_base_v0_service_proto_rawDesc = "" +
 	"\aversion\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\n" +
 	"R\aversion\x12.\n" +
 	"\x0eworkspace_path\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\rworkspacePath\x12;\n" +
-	"\x15relative_to_workspace\x18\x06 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\x13relativeToWorkspaceB\xbb\x01\n" +
+	"\x15relative_to_workspace\x18\x06 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\x13relativeToWorkspace\x12X\n" +
+	"\x12interface_bindings\x18\a \x01(\v2).codefly.base.v0.ServiceInterfaceBindingsR\x11interfaceBindings\"`\n" +
+	"\x18ServiceInterfaceBindings\x12D\n" +
+	"\bbindings\x18\x01 \x03(\v2(.codefly.base.v0.ServiceInterfaceBindingR\bbindings\"\xa0\x01\n" +
+	"\x17ServiceInterfaceBinding\x12%\n" +
+	"\tinterface\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\tinterface\x12\x1f\n" +
+	"\x06module\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06module\x12!\n" +
+	"\aservice\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aservice\x12\x1a\n" +
+	"\bendpoint\x18\x04 \x01(\tR\bendpointB\xbb\x01\n" +
 	"\x13com.codefly.base.v0B\fServiceProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -338,24 +482,28 @@ func file_codefly_base_v0_service_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_service_proto_rawDescData
 }
 
-var file_codefly_base_v0_service_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_codefly_base_v0_service_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_base_v0_service_proto_goTypes = []any{
-	(*ServiceReference)(nil), // 0: codefly.base.v0.ServiceReference
-	(*Service)(nil),          // 1: codefly.base.v0.Service
-	(*Version)(nil),          // 2: codefly.base.v0.Version
-	(*ServiceIdentity)(nil),  // 3: codefly.base.v0.ServiceIdentity
-	(*Agent)(nil),            // 4: codefly.base.v0.Agent
-	(*Endpoint)(nil),         // 5: codefly.base.v0.Endpoint
+	(*ServiceReference)(nil),         // 0: codefly.base.v0.ServiceReference
+	(*Service)(nil),                  // 1: codefly.base.v0.Service
+	(*Version)(nil),                  // 2: codefly.base.v0.Version
+	(*ServiceIdentity)(nil),          // 3: codefly.base.v0.ServiceIdentity
+	(*ServiceInterfaceBindings)(nil), // 4: codefly.base.v0.ServiceInterfaceBindings
+	(*ServiceInterfaceBinding)(nil),  // 5: codefly.base.v0.ServiceInterfaceBinding
+	(*Agent)(nil),                    // 6: codefly.base.v0.Agent
+	(*Endpoint)(nil),                 // 7: codefly.base.v0.Endpoint
 }
 var file_codefly_base_v0_service_proto_depIdxs = []int32{
-	4, // 0: codefly.base.v0.Service.agent:type_name -> codefly.base.v0.Agent
-	5, // 1: codefly.base.v0.Service.endpoints:type_name -> codefly.base.v0.Endpoint
+	6, // 0: codefly.base.v0.Service.agent:type_name -> codefly.base.v0.Agent
+	7, // 1: codefly.base.v0.Service.endpoints:type_name -> codefly.base.v0.Endpoint
 	0, // 2: codefly.base.v0.Service.service_dependencies:type_name -> codefly.base.v0.ServiceReference
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	4, // 3: codefly.base.v0.ServiceIdentity.interface_bindings:type_name -> codefly.base.v0.ServiceInterfaceBindings
+	5, // 4: codefly.base.v0.ServiceInterfaceBindings.bindings:type_name -> codefly.base.v0.ServiceInterfaceBinding
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_service_proto_init() }
@@ -371,7 +519,7 @@ func file_codefly_base_v0_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_service_proto_rawDesc), len(file_codefly_base_v0_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -263,9 +263,10 @@ func (s *BuilderWrapper) WithBuildPlan(plan *builderv0.DockerBuildPlan) {
 // output_directory and returns the build response. The CLI executes the plan.
 // emitted is the path set the caller just rendered, from PrepareRecipeDestination:
 // it scopes the plan's inventory to the files this build wrote and decides whether
-// the recipe references a dockerignore at all.
-func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, image string, emitted []string) (*builderv0.BuildResponse, error) {
-	plan, err := SingleImageBuildPlan(req.GetOutputDirectory(), image, RecipeBuildPlatforms(), emitted)
+// the recipe references a dockerignore at all. options add declarations to the
+// recipe, as for SingleImageBuildPlan.
+func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, image string, emitted []string, options ...RecipeOption) (*builderv0.BuildResponse, error) {
+	plan, err := SingleImageBuildPlan(req.GetOutputDirectory(), image, RecipeBuildPlatforms(), emitted, options...)
 	if err != nil {
 		return s.BuildError(err)
 	}

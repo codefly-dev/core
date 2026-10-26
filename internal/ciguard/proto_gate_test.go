@@ -299,3 +299,48 @@ func ciTableRows(t *testing.T) []string {
 		"%s: the %q table has no rows", agentContextFile, ciTableHeading)
 	return rows
 }
+
+var (
+	bakedProtobufPin    = regexp.MustCompile(`protobuf==([0-9]+\.[0-9]+\.[0-9]+)`)
+	bakedGrpcioToolsPin = regexp.MustCompile(`grpcio-tools==([0-9]+\.[0-9]+\.[0-9]+)`)
+)
+
+// The proto companion's Python plugins run in CI on the protobuf and
+// grpcio-tools the companion's /venv installs, or the suite proves them on a
+// runtime no generated client is built with: it passed locally on grpcio-tools
+// 1.84 and protobuf 7 while the image pinned 1.71 and 5.29, and no workflow ran
+// it at all. grpcio follows grpcio-tools' release, which is what the image's
+// resolver picks against that pin's floor today.
+func TestFacadePluginSuiteRunsOnTheCompanionsPins(t *testing.T) {
+	root := repoRoot(t)
+	dockerfile, err := os.ReadFile(filepath.Join(root, "companions", "proto", "Dockerfile"))
+	require.NoError(t, err)
+	pin := func(pattern *regexp.Regexp, name string) string {
+		found := pattern.FindAllSubmatch(dockerfile, -1)
+		require.Len(t, found, 1, "companions/proto/Dockerfile must pin %s exactly once for the plugin suite to match", name)
+		return string(found[0][1])
+	}
+	protobuf := pin(bakedProtobufPin, "protobuf")
+	tools := pin(bakedGrpcioToolsPin, "grpcio-tools")
+
+	runs := 0
+	for _, path := range workflowFiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var wf workflow
+		require.NoError(t, yaml.Unmarshal(raw, &wf), path)
+		for jobName, job := range wf.Jobs {
+			for _, step := range job.Steps {
+				if !strings.Contains(step.Run, "companions/proto/testdata/facade") {
+					continue
+				}
+				runs++
+				where := fmt.Sprintf("%s job %s step %q", filepath.Base(path), jobName, step.Name)
+				for _, want := range []string{"--with protobuf==" + protobuf, "--with grpcio-tools==" + tools, "--with grpcio==" + tools} {
+					require.Contains(t, step.Run, want, "%s must run the plugin suite with %s, what the companion image installs", where, want)
+				}
+			}
+		}
+	}
+	require.Equal(t, 1, runs, "exactly one workflow step must run the proto companion's Python plugin suite")
+}

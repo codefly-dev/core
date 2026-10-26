@@ -1,0 +1,17 @@
+# One operation names both a scope ceiling and calls: which bounds it?
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings: []
+bindings:
+    - id: evidence
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      calls:
+          invoke: [/documents.v1.DocumentsService/ResolveEvidence]
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents
+                actions: [read]
+destinations: []

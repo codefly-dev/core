@@ -105,6 +105,41 @@ solution is organised in the host's catalogue too; see
 [the module manifest](module-manifest.md#the-document),
 where the same id grammar is held and a group on a module is refused.
 
+### Extending an imported workspace group
+
+An own group still replaces the imported group whole by default. Opt into
+additive composition in the consuming `workspace.codefly.yaml`:
+
+```yaml
+configuration-extensions:
+  edge:
+    append: {MODULES: ","}
+  fixture-grants: {}
+```
+
+Each workspace supplies its own ordinary profile files. Codefly reuses
+`LoadProfileConfigurations` before extending at `readOwnedWorkspaceConfigurations`,
+so inspection, run and render read the same result. Both groups must exist;
+differing sibling imports still fail. Extension is transitive and preserves
+unfulfilled profile requirements and source-file evidence.
+
+Env keys combine only when disjoint. A collision is refused by name even for
+identical values, using Core's case/dash/underscore matching. An explicit
+`append` entry names the consuming key's exact spelling and a nonempty delimiter:
+`MODULES=robin,tracing` plus `MODULES=wiki` becomes `robin,tracing,wiki`. Both
+values must be supplied plaintext without templates; empty or duplicate list
+items and `${profile}` are refused. Endpoint references remain unresolved until
+the existing runtime resolver judges and resolves them.
+
+YAML documents combine mappings recursively and append sequences in
+imported-then-own order. This assembles module roles plus product roles and
+installations in `fixture-grants.yaml`. Scalar collisions and type changes fail
+with the full key path; repeated keys, aliases, merge keys and multiple documents
+are refused. Lists have no inferred domain identity: their consumer validates
+role names and other domain constraints. A document remains secret if either
+input is secret. Env/document mixing is refused. Origins include both files and
+contain no values. Module-default overlays and profile derivation are unchanged.
+
 ### Overriding a composed module's group
 
 A composed module brings its `configurations/<profile>/*` into the consuming
@@ -348,3 +383,24 @@ This accessor is for local file revalidation: its absolute path is host-specific
 and consumers must make it relative to their composition root before exporting
 a diagnostic. Its declaration digest is separate from configuration-origin
 evidence, whose paths are already relative and which carries no content hashes.
+
+### API catalogs for implemented interfaces
+
+A protobuf listener can publish services from several packages, including
+implemented host interfaces. Its explicit catalog `services` inventory defines
+what it serves; complete descriptor imports are schemas, not serving claims.
+For a multi-package listener the endpoint and package-manifest contract's
+`package` field is empty, and each service's `fullName` supplies its package.
+Single-package exports keep their package field, and every service they name
+lies in that package. `ProtobufProcedures` validates every named service and
+method against the descriptor, and contract evidence uses only that inventory,
+including a restricted subset of a service's methods.
+
+The catalog is still exact. `ProtobufCoverage` holds the listeners that share a
+descriptor (the same service and descriptor digest) to serving, between them,
+every method of every service any of them names and, for a package-qualified
+listener, every service of its package. A restricted listener is one whose
+siblings serve the rest; a method no listener serves is a catalog that was not
+regenerated with its descriptor, refused naming the method, since update
+compatibility would never see a breaking change to it. A service of another
+package that no listener names, an imported schema, needs no row.

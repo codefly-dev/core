@@ -323,6 +323,14 @@ func TestScopeSelectionsAreRefusedWhenTheyDoNotAnswerTheSlots(t *testing.T) {
 			s[1].Invoke[0].ResourceIds = []string{"search-1", "search-1"}
 			return s
 		}, `scope slot "tools" invoke scope over kind "acme.tool/search" names resource id "search-1" twice`},
+		"an owner in the selection": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+			s[1].Invoke[0].ResourceOwnerId = "principal-u"
+			return s
+		}, `scope slot "tools" invoke scope over kind "acme.tool/search" selects resource owner "principal-u" in the composition's selection; owner-scoped parent:`},
+		"an owner in a lookup selection": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+			s[1].Lookup[0].ResourceOwnerId = "principal-u"
+			return s
+		}, `lookup scope over kind "acme.tool/calendar" selects resource owner "principal-u" in the composition's selection; owner-scoped parent:`},
 		"no actions": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[1].Invoke[0].Actions = nil
 			return s
