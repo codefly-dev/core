@@ -2,6 +2,9 @@ package workcontext_test
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -109,11 +112,35 @@ func TestVerifyRefusesAHopThatDropsOrChangesTheOwner(t *testing.T) {
 	}
 }
 
-// The owner is bounded in bytes and carries nothing that prints as nothing or
-// as something else: no ASCII or Unicode whitespace, no control, format
-// (zero-width) or private-use character. Two owners that look alike in an
-// audit line are then the same bytes, and the schema, not each reader, says so.
+// The owner is at most 512 bytes of printable ASCII other than space and "*".
+// An allowlist rather than a list of excluded categories: Unicode keeps
+// characters that print as nothing or as another letter outside any category
+// a pattern can name, and engines disagree on the categories themselves (Go's
+// unicode.C includes unassigned code points; Python protovalidate's does not).
+// The vectors live in testdata so a second implementation's validator is
+// checked against the same list.
 func TestResourceOwnerSchema(t *testing.T) {
+	type vector struct {
+		Name   string `json:"name"`
+		Owner  string `json:"owner"`
+		Repeat int    `json:"repeat"`
+	}
+	var vectors struct {
+		Accepted []vector `json:"accepted"`
+		Refused  []vector `json:"refused"`
+	}
+	data, err := os.ReadFile(filepath.Join("testdata", "resource_owner_vectors.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &vectors))
+	require.NotEmpty(t, vectors.Accepted)
+	require.NotEmpty(t, vectors.Refused)
+	owner := func(v vector) string {
+		if v.Repeat > 0 {
+			return strings.Repeat(v.Owner, v.Repeat)
+		}
+		return v.Owner
+	}
+
 	h := newHarness(t)
 	start := func(owner string) error {
 		_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
@@ -123,41 +150,14 @@ func TestResourceOwnerSchema(t *testing.T) {
 		})
 		return err
 	}
-	for name, owner := range map[string]string{
-		"512 ASCII bytes":              strings.Repeat("u", 512),
-		"512 bytes of four-byte runes": strings.Repeat("\U0001F600", 128),
-		"an accented principal":        "principal-é",
-		"a path-like principal":        "solutions/org-1/wiki:principal",
-	} {
-		t.Run("accepts "+name, func(t *testing.T) {
-			require.NoError(t, start(owner))
+	for _, v := range vectors.Accepted {
+		t.Run("accepts "+v.Name, func(t *testing.T) {
+			require.NoError(t, start(owner(v)))
 		})
 	}
-	for name, owner := range map[string]string{
-		"513 ASCII bytes":            strings.Repeat("u", 513),
-		"2048 bytes in 512 runes":    strings.Repeat("\U0001F600", 512),
-		"a leading space":            " principal-u",
-		"an inner space":             "principal u",
-		"a trailing newline":         "principal-u\n",
-		"a tab":                      "principal\tu",
-		"a vertical tab":             "principal\vu",
-		"a form feed":                "principal\fu",
-		"a non-breaking space":       "principal-u\u00a0",
-		"an ideographic space":       "principal\u3000u",
-		"a line separator":           "principal\u2028u",
-		"a zero-width space":         "principal-u\u200b",
-		"a zero-width joiner":        "principal\u200du",
-		"a byte-order mark":          "\ufeffprincipal-u",
-		"a NUL":                      "principal\x00u",
-		"a start-of-heading control": "principal\x01u",
-		"DEL":                        "principal\x7fu",
-		"a C1 control":               "principal\u0085u",
-		"a private-use character":    "principal\ue000u",
-		"the wildcard":               "*",
-		"a wildcard inside":          "principal-*",
-	} {
-		t.Run("refuses "+name, func(t *testing.T) {
-			err := start(owner)
+	for _, v := range vectors.Refused {
+		t.Run("refuses "+v.Name, func(t *testing.T) {
+			err := start(owner(v))
 			require.ErrorIs(t, err, workcontext.ErrInvalid)
 			require.Contains(t, err.Error(), "resource_owner_id")
 		})
@@ -213,6 +213,28 @@ func TestInheritResourceOwner(t *testing.T) {
 			requested: rows(scope("doc", []string{"read"}, []string{"a"})),
 			parent:    rows(owned("doc", []string{"read"}, nil, "u"), owned("doc", []string{"read"}, nil, "v")),
 			refusal:   "owner-scoped parent",
+		},
+		// Intended, and fail-closed: the owner applies to the whole scope, so
+		// the read the parent holds on every document is confined to P's.
+		"an owner applies to the whole scope, read included": {
+			requested: rows(scope("doc", []string{"read", "write"}, nil)),
+			parent:    rows(scope("doc", []string{"read"}, nil), owned("doc", []string{"write"}, nil, "P")),
+			want:      rows(owned("doc", []string{"read", "write"}, nil, "P")),
+		},
+		"ids covered only by two owners together": {
+			requested: rows(scope("doc", []string{"read"}, []string{"a", "b"})),
+			parent:    rows(owned("doc", []string{"read"}, []string{"a"}, "P"), owned("doc", []string{"read"}, []string{"b"}, "Q")),
+			refusal:   `owner-scoped parent: scope "doc" is covered only across resource owners ["P" "Q"] together`,
+		},
+		"actions covered only by two owners together": {
+			requested: rows(scope("doc", []string{"read", "write"}, nil)),
+			parent:    rows(owned("doc", []string{"read"}, nil, "P"), owned("doc", []string{"write"}, nil, "Q")),
+			refusal:   `covered only across resource owners ["P" "Q"] together`,
+		},
+		"an id no owner covers beside ids two owners do": {
+			requested: rows(scope("doc", []string{"read"}, []string{"a", "c"})),
+			parent:    rows(owned("doc", []string{"read"}, []string{"a"}, "P"), owned("doc", []string{"read"}, []string{"b"}, "Q")),
+			refusal:   "not covered by the parent",
 		},
 		"an owner someone wrote is never replaced": {
 			requested: rows(owned("doc", []string{"read"}, nil, "v")),

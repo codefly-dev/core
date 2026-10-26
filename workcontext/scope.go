@@ -89,10 +89,20 @@ func ScopesAttenuate(child, parents []*basev0.WorkScopeV1) bool {
 // one of the owners the parent selects for its kind covers it. It fails
 // closed, with ErrInvalid naming the reason, when no owner covers the scope
 // (the parent does not hold it), when several do (the runtime must mint one
-// child per owner rather than have one chosen for it), and when a requested
+// child per owner rather than have one chosen for it), when only several
+// owners' rows together cover it (split it by owner), and when a requested
 // scope already names an owner the parent does not cover it under — an owner
 // someone wrote is never replaced. The result is a fresh copy; requested and
 // parent are only read, and the result attenuates parent.
+//
+// An owner applies to the whole scope it is inherited onto. Under the parent
+// [doc:read, doc:write@P], the operation scope doc:{read,write} becomes
+// doc:{read,write}@P: the child reads only P's documents, although the parent
+// reads every document. That is intended and fails closed. An operation
+// invoked under an owner-scoped capability is confined to that owner's
+// resources, and splitting the scope by action to keep the wider read would
+// mint a child the operation's single declared scope for the kind never
+// described.
 func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.WorkScopeV1, error) {
 	inherited := make([]*basev0.WorkScopeV1, 0, len(requested))
 	for _, scope := range requested {
@@ -117,6 +127,10 @@ func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.Wo
 		}
 		switch len(covering) {
 		case 0:
+			child.ResourceOwnerId = ""
+			if owners := coveringOwners(child, parent); len(owners) > 1 {
+				return nil, fmt.Errorf("%w: owner-scoped parent: scope %q is covered only across resource owners %q together, never under one; split it into one child per owner", ErrInvalid, child.GetResourceKind(), owners)
+			}
 			return nil, fmt.Errorf("%w: scope %q is not covered by the parent, with or without a resource owner", ErrInvalid, child.GetResourceKind())
 		case 1:
 			child.ResourceOwnerId = covering[0]
@@ -126,4 +140,46 @@ func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.Wo
 		}
 	}
 	return inherited, nil
+}
+
+// coveringOwners reports, for a scope no single owner covers, the owners whose
+// rows cover it together: every (action, resource) point of the scope is
+// covered by the parent under one owner or another. It returns nil when some
+// point is not covered at all, so "not covered" and "covered only across
+// owners" are refused with their own reasons.
+func coveringOwners(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) []string {
+	candidates := []string{""}
+	for _, row := range parent {
+		if owner := row.GetResourceOwnerId(); owner != "" && row.GetResourceKind() == child.GetResourceKind() && !slices.Contains(candidates, owner) {
+			candidates = append(candidates, owner)
+		}
+	}
+	ids := child.GetResourceIds()
+	if len(ids) == 0 {
+		ids = []string{""}
+	}
+	var owners []string
+	for _, action := range child.GetActions() {
+		for _, id := range ids {
+			point := &basev0.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: []string{action}}
+			if id != "" {
+				point.ResourceIds = []string{id}
+			}
+			covered := false
+			for _, owner := range candidates {
+				point.ResourceOwnerId = owner
+				if ScopeContained(point, parent) {
+					covered = true
+					if owner != "" && !slices.Contains(owners, owner) {
+						owners = append(owners, owner)
+					}
+					break
+				}
+			}
+			if !covered {
+				return nil
+			}
+		}
+	}
+	return owners
 }
