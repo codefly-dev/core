@@ -159,11 +159,13 @@ func extensionValue(files *protoregistry.Files, options *descriptorpb.MethodOpti
 // and, through the actions it requires, whether the call only reads.
 //
 // A read recomputes: no receipt, no lookup, invoked under exactly the scopes
-// the policy requires. Anything else is a mutation resolved by its receipt:
-// it is invoked under the required scopes plus read on each kind it touches,
-// and its receipt is read under that read alone, through the SDK's generic
-// receipt lookup — the lookup scopes are a read-only subset of the invoke
-// scopes, as every receipt operation's are.
+// the policy requires. Anything else is a mutation resolved by its receipt,
+// invoked under exactly the scopes the policy requires too: it states
+// RECOVERY_RECEIPT and declares no lookup scopes, so its receipt is read under
+// those same invoke scopes — the caller reads the receipt of its own effect —
+// through the SDK's generic receipt lookup. Nothing is added to what the hop
+// requires, so a module that contributes no read permission on a kind it
+// writes can still mint the mutation.
 func DefaultOperation(method protoreflect.MethodDescriptor, authority *Authority, audience string) (*OperationSpec, error) {
 	full := FullMethodName(method)
 	if method.IsStreamingClient() || method.IsStreamingServer() {
@@ -188,14 +190,7 @@ func DefaultOperation(method protoreflect.MethodDescriptor, authority *Authority
 	} else {
 		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
 		spec.MaxAttempts = DefaultMutationAttempts
-		for _, requirement := range authority.Requires {
-			invoke := proto.CloneOf(requirement)
-			if !slices.Contains(invoke.Actions, ReadOnlyScopeAction) {
-				invoke.Actions = append(invoke.Actions, ReadOnlyScopeAction)
-			}
-			spec.InvokeScopes = append(spec.InvokeScopes, invoke)
-			spec.LookupScopes = append(spec.LookupScopes, &basev0.WorkScopeV1{ResourceKind: requirement.GetResourceKind(), Actions: []string{ReadOnlyScopeAction}})
-		}
+		spec.InvokeScopes = clonedScopes(authority.Requires)
 	}
 	spec.Tool = DefaultTool(method, spec.Recovery, authority)
 	if err := spec.Validate(); err != nil {

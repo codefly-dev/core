@@ -120,8 +120,9 @@ func TestAMethodDeclaringOnlyItsAuthorityPolicyIsAReadTool(t *testing.T) {
 }
 
 // Anything that is not a read is a mutation resolved by its receipt, read
-// through the SDK's generic lookup under read on the kinds it writes, and
-// attempted once.
+// through the SDK's generic lookup under the very scopes that made the effect,
+// and attempted once. Nothing is added to what the hop requires: a kind with no
+// read permission still mints.
 func TestAMethodWhosePolicyWritesIsAMutationToolResolvedByItsReceipt(t *testing.T) {
 	files := hopFiles(t, hopMethod(t, hopPolicyFile(t), "ApplyText", false,
 		requirement{"documents", []string{"write"}}, requirement{"documents.collection", []string{"read"}}))
@@ -132,11 +133,10 @@ func TestAMethodWhosePolicyWritesIsAMutationToolResolvedByItsReceipt(t *testing.
 	require.Empty(t, spec.LookupMethod, "the SDK's generic receipt lookup answers")
 	require.EqualValues(t, 1, spec.MaxAttempts)
 	require.Empty(t, spec.RetryableCodes)
-	require.Equal(t, []string{"write", "read"}, spec.InvokeScopes[0].GetActions())
-	require.Len(t, spec.LookupScopes, 2)
-	for _, lookup := range spec.LookupScopes {
-		require.Equal(t, []string{runnable.ReadOnlyScopeAction}, lookup.GetActions())
-	}
+	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, spec.Recovery, "stated, so the receipt is read under invoke")
+	require.Equal(t, []string{"write"}, spec.InvokeScopes[0].GetActions(), "no read is added to a written kind")
+	require.Equal(t, []string{"read"}, spec.InvokeScopes[1].GetActions())
+	require.Empty(t, spec.LookupScopes)
 	tool, err := runnable.ToolFromPrepared(preparedFor(t, spec))
 	require.NoError(t, err)
 	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
@@ -219,4 +219,30 @@ func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev0.Prepare
 	delivered, err := runnable.DecodePrepared(encoded)
 	require.NoError(t, err)
 	return delivered
+}
+
+// A receipt read under the invoke scopes is the stated form only: an operation
+// leaving recovery unstated still needs its lookup scopes, so no declaration
+// written before the rule changes meaning.
+func TestALookupUnderTheInvokeScopesIsStatedNeverInferred(t *testing.T) {
+	declared := declaredOperation()
+	declared.LookupScopes, declared.LookupMethod = nil, ""
+	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "lookup_scopes")
+
+	declared.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.NoError(t, err)
+	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
+	require.Empty(t, spec.LookupScopes)
+	// It delivers: a prepared binding with no lookup scopes verifies.
+	delivered := preparedFor(t, spec)
+	require.Empty(t, delivered.GetPolicy().GetLookupScopes())
+
+	// Lookup scopes it does declare keep every rule: read-only, inside invoke.
+	declared.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest"}}}
+	_, _, err = runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "not read-only")
 }

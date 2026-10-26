@@ -375,7 +375,7 @@ a call through holding:
 | The policy requires | Effect | Recovery | Authority | Attempts |
 |---|---|---|---|---|
 | only `read`, on every kind | `EFFECT_READ_ONLY` | `RECOVERY_RECOMPUTE`: no receipt, no lookup scopes, no lookup method | invoke = the required scopes | 3, on `UNAVAILABLE` |
-| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT`, read through the SDK's generic receipt lookup | invoke = the required scopes plus `read` on each kind; lookup = `read` on each kind | 1 |
+| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT`, read through the SDK's generic receipt lookup | invoke = the required scopes; no lookup scopes — the receipt is read under the invoke scopes | 1 |
 
 A read is safe to re-run, so it carries no receipt — which also keeps a read's
 answer (a signed URL, a secret) out of every receipt store. A mutation keeps
@@ -435,7 +435,14 @@ least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
 vocabulary; `audience` is required, and both concrete scope sets are required at
 installation — except that a `RECOVERY_RECOMPUTE` operation has no receipt and
-so no lookup scopes, no lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
+so no lookup scopes, no lookup method, and only `COMPLETION_CALL`; and an
+operation that *states* `recovery: RECOVERY_RECEIPT` may declare no lookup
+scopes, in which case its receipt is read under its invoke scopes: the caller
+reads the receipt of its own effect, keyed by effect id and caller identity,
+with the authority that made the effect and never more. A module that
+contributes no `read` permission on a kind it writes can therefore still mint
+the mutation. With `recovery` unstated, both scope sets stay required, so no
+earlier declaration changes meaning. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
 own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child

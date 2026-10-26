@@ -452,6 +452,7 @@ func (s *OperationSpec) authority() authoritySpec {
 		lookupScopes:       s.LookupScopes,
 		requiredScopeSlots: s.RequiredScopeSlots,
 		recomputed:         s.EffectiveRecovery() == basev0.RunnableExecution_RECOVERY_RECOMPUTE,
+		lookupUnderInvoke:  s.Recovery == basev0.RunnableExecution_RECOVERY_RECEIPT,
 	}
 }
 
@@ -473,6 +474,13 @@ type authoritySpec struct {
 	// recomputed is an operation with no receipt, whose authority is its
 	// invoke scopes alone.
 	recomputed bool
+	// lookupUnderInvoke is an operation that states RECOVERY_RECEIPT: one
+	// declaring no lookup scopes reads its receipt under its invoke scopes —
+	// the caller reads the receipt of its own effect, keyed by effect id and
+	// caller identity, with the authority that made the effect and never more.
+	// An operation leaving recovery unstated keeps the older rule that lookup
+	// scopes are required, so no declaration written before changes meaning.
+	lookupUnderInvoke bool
 }
 
 func (a authoritySpec) validate() error {
@@ -485,7 +493,7 @@ func (a authoritySpec) validate() error {
 	if err := a.validateScopes("invoke_scopes", a.invokeScopes); err != nil {
 		return err
 	}
-	if a.recomputed && len(a.lookupScopes) == 0 {
+	if (a.recomputed || a.lookupUnderInvoke) && len(a.lookupScopes) == 0 {
 		return nil
 	}
 	if err := a.validateScopes("lookup_scopes", a.lookupScopes); err != nil {
