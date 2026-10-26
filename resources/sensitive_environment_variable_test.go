@@ -11,6 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWorkloadCredentialPathIsNotCredentialMaterial(t *testing.T) {
+	require.Equal(t, "CODEFLY__WORKLOAD_TOKEN_FILE", resources.WorkloadTokenFileKey)
+	require.False(t, resources.IsSensitiveEnvironmentVariable("CODEFLY__WORKLOAD_TOKEN_FILE"))
+	// Only the established path carrier gets this classification. A key
+	// inside configuration, or any token value, remains sensitive.
+	for _, name := range []string{
+		"WORKLOAD_TOKEN_FILE", "CODEFLY__WORKLOAD_TOKEN", "CODEFLY__WORKLOAD_TOKEN_FILE_EXTRA",
+		"PREFIX_CODEFLY__WORKLOAD_TOKEN_FILE", "CODEFLY__WORKLOAD_TOKEN_FILE__TOKEN",
+		"codefly__workload_token_file", "CODEFLY__Workload_TOKEN_FILE",
+		"CODEFLY__WORKSPACE_CONFIGURATION__IDENTITY__CODEFLY__WORKLOAD_TOKEN_FILE",
+		"CODEFLY__SERVICE_CONFIGURATION__APP__SVC__IDENTITY__CODEFLY__WORKLOAD_TOKEN_FILE",
+		"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__IDENTITY__CODEFLY__WORKLOAD_TOKEN_FILE",
+	} {
+		require.True(t, resources.IsSensitiveEnvironmentVariable(name), name)
+	}
+	require.True(t, resources.IsSensitiveKey("CODEFLY__WORKLOAD_TOKEN_FILE"))
+}
+
 // A carrier's name embeds module, service, endpoint and configuration-group
 // names. A service called auth-gateway must not turn its endpoint address into
 // a credential, a public group called datasource-oauth must not turn its

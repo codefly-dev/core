@@ -12,6 +12,10 @@ import (
 
 const ConfigurationWorkspace = "_workspace_origin"
 
+// WorkloadTokenFileKey names the process carrier for the workload credential's
+// file path. The launcher or renderer owns the path; its value is not a token.
+const WorkloadTokenFileKey = "CODEFLY__WORKLOAD_TOKEN_FILE"
+
 func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, name string) bool {
 	for _, info := range conf.Infos {
 		if info.Name == name {
@@ -230,6 +234,8 @@ var addressCarrierPrefixes = []string{
 //   - a service or workspace configuration carrier is classified by its
 //     complete KEY alone, without the module, service and configuration-name
 //     segments — the same segment the rendered-manifest validator reads;
+//   - the exact WorkloadTokenFileKey carries the workload credential's path,
+//     not its contents; differently spelled names are not that carrier;
 //   - an endpoint, self-endpoint or REST-route carrier is an address: at the
 //     start of the name, or behind an operator-chosen prefix
 //     (WithPublicEnvironmentVariablePrefix) that is a plain prefix — one with
@@ -245,6 +251,9 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 	}
 	if key, ok := ConfigurationCarrierKey(canonical); ok {
 		return IsSensitiveKey(key)
+	}
+	if name == WorkloadTokenFileKey {
+		return false
 	}
 	for _, prefix := range addressCarrierPrefixes {
 		if at := strings.Index(canonical, prefix); at >= 0 && !strings.Contains(canonical[:at], "__") {

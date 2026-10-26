@@ -75,6 +75,14 @@ read by its complete key — the outermost carrier first, so a key that spells
 an address carrier is still a key — and a group's or service's name never
 classifies a public value.
 
+The exact `resources.WorkloadTokenFileKey` (`CODEFLY__WORKLOAD_TOKEN_FILE`)
+is a process carrier for a workload credential's file path, not its contents.
+The launcher or renderer supplies that path to the authenticating workload.
+The environment classifier treats this exact uppercase name as path metadata;
+ordinary token keys, different spellings, and configuration or secret keys
+containing that spelling remain sensitive. This does not change the generic
+key classifier or authorize credential bytes in rendered values.
+
 `EnvironmentVariableManager.Configurations` never emits secret documents;
 `Secrets` returns them separately with error propagation. Raw configuration
 injection refuses structured data because it has no document identity. Restricted
