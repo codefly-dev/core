@@ -478,7 +478,10 @@ learnable only through its receipt, and no runtime mints a lookup under the
 invoke scopes yet. A `RECOVERY_RECOMPUTE` operation has no receipt at all: no
 lookup scopes, no lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
-own value bounds. An operation with no
+own value bounds. No scope here names a `resource_owner_id` — not a declaration,
+a binding or a slot selection: an owner is inherited from the capability the
+operation is invoked under, with `workcontext.InheritResourceOwner`
+([Work Context](work-context.md#scopes-and-the-resource-owner)). An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
 capability from, and the runtime refuses the installation rather than calling
 without authority. `lookup_scopes` must be a subset of `invoke_scopes` under

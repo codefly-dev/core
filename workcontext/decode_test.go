@@ -58,6 +58,10 @@ func TestDecodeAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		// read refuses it, and no entrypoint ever compares an empty audience
 		// to anything.
 		"empty-audience": workcontext.ErrInvalid,
+		// A hop that drops or changes its parent's resource owner widens the
+		// chain, and attenuation is structure: Decode runs checkStructure.
+		"owner-dropped-by-hop": workcontext.ErrInvalid,
+		"owner-changed-by-hop": workcontext.ErrInvalid,
 	}
 	seen := map[string]bool{}
 	for _, fixture := range fixtures {

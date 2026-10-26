@@ -203,8 +203,11 @@ message WorkScopeV1 {
   // (an installed solution's principal). Empty means the scope selects no
   // owner. With resource_ids, a resource is covered only when both match. A
   // reader that cannot compare a resource's owner must not treat an
-  // owner-selected scope as covering the whole kind.
-  string resource_owner_id = 4 [(buf.validate.field).string.max_len = 512, (buf.validate.field).string.pattern = "^[^\\s\\x00*]*$"];
+  // owner-selected scope as covering the whole kind. It is at most 512 bytes
+  // of UTF-8 and carries no whitespace (ASCII or Unicode separators), no
+  // control, format (zero-width) or private-use character, and no "*", so two
+  // owners that print alike are the same bytes.
+  string resource_owner_id = 4 [(buf.validate.field).string.max_bytes = 512, (buf.validate.field).string.pattern = "^[^\\s\\p{Z}\\p{C}*]*$"];
 }
 
 // WorkActorV1 is one verified delegated actor. granted_scopes are the actor's
