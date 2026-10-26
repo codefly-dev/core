@@ -315,11 +315,21 @@ type ScopeCeiling struct {
 }
 
 // Role is one role of a unit's own: its name and what it grants — scopes, each
-// a resource kind named literally with the actions granted on it, and binding
-// operations, each granting what that binding carries for it as resolved.
+// a resource kind named literally with the actions granted on it, scopes it
+// grants only on what the installation owns, and binding operations, each
+// granting what that binding carries for it as resolved.
 type Role struct {
 	Name   string         `yaml:"name"`
 	Scopes []CeilingScope `yaml:"scopes,omitempty"`
+	// InstallationOwnedScopes are scopes the role grants only on the
+	// resources the installation it is held on owns: those created or
+	// attached through that installation. Each names a kind and actions and
+	// no resource ids, since ids are each installation's own, and is held to
+	// the same rules and the same ceiling as Scopes. The authority resolves
+	// each, per installation, into the same scope limited to the ids that
+	// installation owns of the kind; a kind it owns nothing of grants
+	// nothing, never the whole kind.
+	InstallationOwnedScopes []CeilingScope `yaml:"installation_owned_scopes,omitempty"`
 	// Bindings grant what one of the unit's bindings carries for an operation
 	// a person causes (invoke, lookup): its ceiling as Resolve derives it —
 	// the scopes its calls require, read from each audience's declarations,
@@ -798,6 +808,11 @@ type ResolvedRole struct {
 	// Grants are, per audience, the scopes "<resource kind>:<action>" the
 	// role grants there. Sorted, each once.
 	Grants map[string][]string
+	// InstallationOwnedGrants are, per audience, the scopes
+	// "<resource kind>:<action>" the role grants there only on what the
+	// installation owns, addressed exactly as Grants' literal scopes are.
+	// Sorted, each once; nil when the role declares none.
+	InstallationOwnedGrants map[string][]string
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -1061,14 +1076,14 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 		slices.Sort(audiences)
 		return slices.Compact(audiences)
 	}
-	roles := make([]ResolvedRole, 0, len(contract.Roles))
-	for _, role := range contract.Roles {
-		grants := map[string][]string{}
-		for _, scope := range role.Scopes {
+	// address adds each literal scope to grants at the one audience that
+	// underwrites it, appending to ambiguous each scope two underwrite.
+	address := func(role, label string, scopes []CeilingScope, grants map[string][]string) {
+		for _, scope := range scopes {
 			for _, action := range scope.Actions {
 				audiences := underwriters(scope.ResourceKind, action)
 				if len(audiences) > 1 {
-					ambiguous = append(ambiguous, fmt.Sprintf("role %s grants %s:%s, which is underwritten at %s; a role grants a scope at one audience, so it names the binding it means in bindings", role.Name, scope.ResourceKind, action, strings.Join(audiences, " and ")))
+					ambiguous = append(ambiguous, fmt.Sprintf("role %s grants %s%s:%s, which is underwritten at %s; a role grants a scope at one audience, so it names the binding it means in bindings", role, label, scope.ResourceKind, action, strings.Join(audiences, " and ")))
 					continue
 				}
 				for _, audience := range audiences {
@@ -1076,19 +1091,35 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 				}
 			}
 		}
+	}
+	roles := make([]ResolvedRole, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		grants := map[string][]string{}
+		address(role.Name, "", role.Scopes, grants)
 		for _, granted := range role.Bindings {
 			for _, index := range delivered[granted.Binding] {
 				binding := resolved.Bindings[index]
 				grants[binding.Audience] = append(grants[binding.Audience], binding.Scopes[granted.Operation]...)
 			}
 		}
-		for audience, scopes := range grants {
-			slices.Sort(scopes)
-			grants[audience] = slices.Compact(scopes)
+		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
+		if len(role.InstallationOwnedScopes) > 0 {
+			owned := map[string][]string{}
+			address(role.Name, "installation-owned ", role.InstallationOwnedScopes, owned)
+			entry.InstallationOwnedGrants = sortedGrants(owned)
 		}
-		roles = append(roles, ResolvedRole{Name: role.Name, Grants: grants})
+		roles = append(roles, entry)
 	}
 	return roles, ambiguous
+}
+
+// sortedGrants sorts each audience's scopes and keeps each once.
+func sortedGrants(grants map[string][]string) map[string][]string {
+	for audience, scopes := range grants {
+		slices.Sort(scopes)
+		grants[audience] = slices.Compact(scopes)
+	}
+	return grants
 }
 
 // beyondOwnCeilings lists the scopes, each "<resource kind>:<action>", that
