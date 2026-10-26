@@ -546,9 +546,10 @@ type WorkScopeV1 struct {
 	// owner. With resource_ids, a resource is covered only when both match. A
 	// reader that cannot compare a resource's owner must not treat an
 	// owner-selected scope as covering the whole kind. It is at most 512 bytes
-	// of UTF-8 and carries no whitespace (ASCII or Unicode separators), no
-	// control, format (zero-width) or private-use character, and no "*", so two
-	// owners that print alike are the same bytes.
+	// of printable ASCII other than space and "*" (0x21-0x29, 0x2B-0x7E): no
+	// whitespace, control, non-ASCII, invisible or lookalike character, so two
+	// owners that print alike are the same bytes and every regex engine answers
+	// the rule the same way.
 	ResourceOwnerId string `protobuf:"bytes,4,opt,name=resource_owner_id,json=resourceOwnerId,proto3" json:"resource_owner_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -1041,13 +1042,13 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"binding_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\tbindingId\x12#\n" +
 	"\brevision\x18\x02 \x01(\x04B\a\xbaH\x042\x02(\x01R\brevision\x12)\n" +
-	"\vincarnation\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\vincarnation\"\xc6\x01\n" +
+	"\vincarnation\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\vincarnation\"\xbe\x01\n" +
 	"\vWorkScopeV1\x12/\n" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\x12I\n" +
-	"\x11resource_owner_id\x18\x04 \x01(\tB\x1d\xbaH\x1ar\x18(\x80\x042\x13^[^\\s\\p{Z}\\p{C}*]*$R\x0fresourceOwnerId\"\xce\x03\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\x12A\n" +
+	"\x11resource_owner_id\x18\x04 \x01(\tB\x15\xbaH\x12r\x10(\x80\x042\v^[!-)+-~]*$R\x0fresourceOwnerId\"\xce\x03\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
