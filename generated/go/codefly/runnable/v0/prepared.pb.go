@@ -158,8 +158,10 @@ func (x *ConnectProcedure) GetProcedure() string {
 // body would be a field the owner never described.
 type HTTPRoute struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// verb is the request method, POST or PUT — the two an operation applying a
-	// retryable effect is derived from.
+	// verb is the request method: POST or PUT, which carry the input as the
+	// JSON body, or GET, which core derives only for a read and which carries
+	// the input object as its query — each member one parameter of that name, a
+	// string as written, a number or a boolean in its JSON spelling.
 	Verb string `protobuf:"bytes,1,opt,name=verb,proto3" json:"verb,omitempty"`
 	// path is the route the owner publishes, beginning with "/".
 	Path          string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
@@ -521,9 +523,9 @@ const file_codefly_runnable_v0_prepared_proto_rawDesc = "" +
 	"\bspelling\x18\x04 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\bspelling\"l\n" +
 	"\x10ConnectProcedure\x12X\n" +
-	"\tprocedure\x18\x01 \x01(\tB:\xbaH7r5\x10\x0321^/[A-Za-z_][A-Za-z0-9_.]*/[A-Za-z_][A-Za-z0-9_]*$R\tprocedure\"Q\n" +
-	"\tHTTPRoute\x12$\n" +
-	"\x04verb\x18\x01 \x01(\tB\x10\xbaH\rr\vR\x04POSTR\x03PUTR\x04verb\x12\x1e\n" +
+	"\tprocedure\x18\x01 \x01(\tB:\xbaH7r5\x10\x0321^/[A-Za-z_][A-Za-z0-9_.]*/[A-Za-z_][A-Za-z0-9_]*$R\tprocedure\"V\n" +
+	"\tHTTPRoute\x12)\n" +
+	"\x04verb\x18\x01 \x01(\tB\x15\xbaH\x12r\x10R\x03GETR\x04POSTR\x03PUTR\x04verb\x12\x1e\n" +
 	"\x04path\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01:\x01/R\x04path\"\xd5\x01\n" +
 	"\fPreparedCall\x12<\n" +

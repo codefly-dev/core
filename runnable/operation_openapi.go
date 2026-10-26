@@ -1,6 +1,7 @@
 package runnable
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -16,12 +18,15 @@ import (
 )
 
 const (
-	// componentSchemaPrefix is the only $ref the projection follows. A $ref
-	// anywhere else in the operation — its request body, a response, a
-	// parameter — is refused rather than resolved: core reads the operation as
-	// the document writes it, and the payload schemas are where the issue of
-	// one shape described once actually arises.
-	componentSchemaPrefix = "#/components/schemas/"
+	// componentSchemaPrefix and definitionSchemaPrefix are the only $refs the
+	// projection follows, one per dialect: OpenAPI 3 keeps its schemas under
+	// components and Swagger 2.0 under definitions. A $ref anywhere else in the
+	// operation — its request body, a response, a parameter — is refused rather
+	// than resolved: core reads the operation as the document writes it, and the
+	// payload schemas are where the issue of one shape described once actually
+	// arises.
+	componentSchemaPrefix  = "#/components/schemas/"
+	definitionSchemaPrefix = "#/definitions/"
 	// jsonMediaType is the one media type a derived operation carries. The
 	// bounded profile is a JSON profile, so a route offering another encoding
 	// offers a payload the contract cannot describe.
@@ -29,20 +34,37 @@ const (
 )
 
 // openAPIOperationMethods are the HTTP methods a Runnable operation may be
-// published under. An operation applies an effect and is retried under a
-// declared policy, which GET and DELETE do not describe and PATCH describes as
-// a diff against a state the contract does not carry.
-var openAPIOperationMethods = []string{http.MethodPost, http.MethodPut}
+// published under. POST and PUT carry the input as a JSON body and may apply
+// any effect. GET is a read: it is admitted for an operation that recomputes,
+// presents a read-only tool and is invoked holding nothing but read
+// (readOnlyRoute), and its input is its query (queryPayload) — it is the safest
+// operation to re-run, not one outside the profile. DELETE describes an effect
+// with no body to name its input, and PATCH a diff against a state the contract
+// does not carry.
+var openAPIOperationMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut}
 
 // transportParameterLocations are the parameter locations a derived operation
 // may carry: the transport carries them and they are no part of the payload.
 // Every other location names an input the bounded contract would have to
-// describe, and is refused rather than ignored.
+// describe, and is refused rather than ignored — except `query` on a GET,
+// whose query is its whole input (queryPayload).
 var transportParameterLocations = []string{"header", "cookie"}
 
-// supportedOpenAPIMajor is the document version a Runnable operation is derived
-// from.
-const supportedOpenAPIMajor = "3"
+// queryParameterLocation is where a GET's input travels.
+const queryParameterLocation = "query"
+
+// The document versions a Runnable operation is derived from: OpenAPI 3, and
+// Swagger 2.0, the dialect protoc-gen-openapiv2, core's own OpenAPICombinator
+// and solution-runtime-go's interface artifact write. Swagger spells the same
+// operation in other places — a body is an `in: body` parameter, a response
+// schema hangs off the response itself, media types are listed once in
+// consumes and produces — and the reader moves each into the place OpenAPI 3
+// spells it before anything else reads the document (fromSwagger), so one
+// derivation reads both.
+const (
+	supportedOpenAPIMajor = "3"
+	supportedSwagger      = "2.0"
+)
 
 // OpenAPIDocument is the part of an OpenAPI document a Runnable operation is
 // derived from, read as JSON. It is deliberately not a model of OpenAPI:
@@ -50,12 +72,19 @@ const supportedOpenAPIMajor = "3"
 // examples — says how the route is served and never what the contract is.
 type OpenAPIDocument struct {
 	// OpenAPI and Swagger are the two spellings of a document's version. Both
-	// are read so a Swagger 2.0 document is refused as one rather than as an
+	// are read so a Swagger 2.0 document is read as one rather than as an
 	// OpenAPI 3 document that happens to declare nothing.
 	OpenAPI    string                      `json:"openapi"`
 	Swagger    string                      `json:"swagger"`
 	Paths      map[string]*OpenAPIPathItem `json:"paths"`
 	Components OpenAPIComponents           `json:"components"`
+	// Definitions, Consumes and Produces are Swagger 2.0's: its schemas, and
+	// the media types every operation carries unless it lists its own.
+	Definitions map[string]*JSONSchema `json:"definitions"`
+	Consumes    []string               `json:"consumes"`
+	Produces    []string               `json:"produces"`
+	// schemaPrefix is where this document's payload $refs point.
+	schemaPrefix string
 }
 
 // OpenAPIComponents holds the schemas a payload $ref names.
@@ -70,6 +99,7 @@ type OpenAPIPathItem struct {
 	// Parameters are declared for every operation on the path, so they are as
 	// much a part of one operation's shape as the ones it declares itself.
 	Parameters []OpenAPIParameter `json:"parameters"`
+	Get        *OpenAPIOperation  `json:"get"`
 	Post       *OpenAPIOperation  `json:"post"`
 	Put        *OpenAPIOperation  `json:"put"`
 }
@@ -87,20 +117,31 @@ type OpenAPIOperation struct {
 	OperationID string `json:"operationId"`
 	Summary     string `json:"summary"`
 	Description string `json:"description"`
+	// Consumes and Produces are Swagger 2.0's per-operation media types.
+	Consumes []string `json:"consumes"`
+	Produces []string `json:"produces"`
 }
 
-// OpenAPIParameter is an input carried outside the request body.
+// OpenAPIParameter is an input carried outside the request body. OpenAPI 3
+// describes its value with a schema; Swagger 2.0 with type and format beside
+// the name, or — for `in: body` — with a schema that is the request body's.
 type OpenAPIParameter struct {
-	Ref  string `json:"$ref"`
-	Name string `json:"name"`
-	In   string `json:"in"`
+	Ref      string      `json:"$ref"`
+	Name     string      `json:"name"`
+	In       string      `json:"in"`
+	Required bool        `json:"required"`
+	Schema   *JSONSchema `json:"schema"`
+	Type     string      `json:"type"`
+	Format   string      `json:"format"`
 }
 
 // OpenAPIBody is a request body or a response: the media types it is carried
-// as, and the schema of each.
+// as, and the schema of each. Schema is Swagger 2.0's response schema, which
+// the reader moves into Content.
 type OpenAPIBody struct {
 	Ref     string                      `json:"$ref"`
 	Content map[string]OpenAPIMediaType `json:"content"`
+	Schema  *JSONSchema                 `json:"schema"`
 }
 
 // OpenAPIMediaType is one encoding of a body.
@@ -117,24 +158,90 @@ func ParseOpenAPIDocument(document []byte) (*OpenAPIDocument, error) {
 		return nil, fmt.Errorf("%w: document is not readable OpenAPI JSON: %v", ErrInvalid, err)
 	}
 	// The version is checked rather than assumed. Swagger 2.0 describes the
-	// same operation in different places — a body is an `in: body` parameter
-	// and a response schema hangs off the response itself — so reading one as
-	// OpenAPI 3 finds no request body and reports that, pointing at the wrong
-	// part of a document that plainly declares one. Core's own
-	// OpenAPICombinator still writes 2.0, so this is a document that turns up.
+	// same operation in different places, so reading one as OpenAPI 3 would
+	// find no request body and report that, pointing at the wrong part of a
+	// document that plainly declares one. It is read as itself instead.
 	if doc.Swagger != "" {
-		return nil, fmt.Errorf("%w: document declares swagger %q; a Runnable operation is derived from OpenAPI %s, which spells a request body and a response schema in different places", ErrInvalid, doc.Swagger, supportedOpenAPIMajor)
+		if doc.Swagger != supportedSwagger || doc.OpenAPI != "" {
+			return nil, fmt.Errorf("%w: document declares swagger %q; a Runnable operation is derived from swagger %s or OpenAPI %s", ErrInvalid, doc.Swagger, supportedSwagger, supportedOpenAPIMajor)
+		}
+		doc.fromSwagger()
+		return doc, nil
 	}
 	if major, _, _ := strings.Cut(doc.OpenAPI, "."); major != supportedOpenAPIMajor {
 		return nil, fmt.Errorf("%w: document declares openapi %q; a Runnable operation is derived from OpenAPI %s", ErrInvalid, doc.OpenAPI, supportedOpenAPIMajor)
 	}
+	doc.schemaPrefix = componentSchemaPrefix
 	return doc, nil
 }
 
-// componentSchema resolves a $ref against the document's own components.
+// fromSwagger moves what Swagger 2.0 spells differently into the place OpenAPI
+// 3 spells it, and nothing else: an `in: body` parameter becomes the request
+// body, a response's schema its content, each carried as the media types the
+// operation (or else the document) lists, and a typed parameter's type and
+// format its schema. Every rule after this — one JSON media type, one 2xx, the
+// parameter allow-list — then reads both dialects alike, so a Swagger body in
+// two encodings or a formData parameter is refused by the same rule, in the
+// same words, as its OpenAPI 3 spelling.
+func (d *OpenAPIDocument) fromSwagger() {
+	d.schemaPrefix = definitionSchemaPrefix
+	d.Components.Schemas = d.Definitions
+	carried := func(schema *JSONSchema, listed, document []string) map[string]OpenAPIMediaType {
+		types := listed
+		if len(types) == 0 {
+			types = document
+		}
+		content := make(map[string]OpenAPIMediaType, len(types))
+		for _, kind := range types {
+			content[kind] = OpenAPIMediaType{Schema: schema}
+		}
+		return content
+	}
+	for _, item := range d.Paths {
+		if item == nil {
+			continue
+		}
+		item.Parameters = typedParameters(item.Parameters)
+		for _, operation := range []*OpenAPIOperation{item.Get, item.Post, item.Put} {
+			if operation == nil {
+				continue
+			}
+			kept := make([]OpenAPIParameter, 0, len(operation.Parameters))
+			for _, parameter := range operation.Parameters {
+				if parameter.In == "body" && parameter.Ref == "" && operation.RequestBody == nil {
+					operation.RequestBody = &OpenAPIBody{Content: carried(parameter.Schema, operation.Consumes, d.Consumes)}
+					continue
+				}
+				kept = append(kept, parameter)
+			}
+			operation.Parameters = typedParameters(kept)
+			for _, response := range operation.Responses {
+				if response != nil && response.Schema != nil && response.Content == nil {
+					response.Content = carried(response.Schema, operation.Produces, d.Produces)
+				}
+			}
+		}
+	}
+}
+
+// typedParameters gives each Swagger parameter that states its value by type
+// the schema OpenAPI 3 would state it with.
+func typedParameters(parameters []OpenAPIParameter) []OpenAPIParameter {
+	for i := range parameters {
+		if parameters[i].Schema == nil && parameters[i].Type != "" {
+			parameters[i].Schema = &JSONSchema{Type: JSONSchemaType{parameters[i].Type}, Format: parameters[i].Format}
+		}
+	}
+	return parameters
+}
+
+// componentSchema resolves a $ref against the document's own schemas.
 func (d *OpenAPIDocument) componentSchema(ref string) (*JSONSchema, bool) {
-	name, isComponent := strings.CutPrefix(ref, componentSchemaPrefix)
-	if d == nil || !isComponent {
+	if d == nil {
+		return nil, false
+	}
+	name, isComponent := strings.CutPrefix(ref, d.schemaPrefix)
+	if !isComponent {
 		return nil, false
 	}
 	// A component spelled as null is a key the map reports as present carrying
@@ -152,13 +259,19 @@ func Route(method, path string) string {
 
 // operation finds the operation a route publishes and refuses one whose shape
 // a bounded contract cannot describe. Each refusal names what it refused and
-// why: v1 keeps an operation's input as one JSON object, and folding a path or
-// query parameter into it is a later profile decision rather than a coercion
-// core may make now.
+// why: v1 keeps an operation's input as one JSON object — a POST or PUT's
+// body, a GET's query — and folding a path parameter or a query beside a body
+// into it is a later profile decision rather than a coercion core may make now.
 func (d *OpenAPIDocument) operation(method, path string) (*OpenAPIOperation, string, error) {
 	route := Route(method, path)
-	if !slices.Contains(openAPIOperationMethods, strings.ToUpper(method)) {
-		return nil, "", fmt.Errorf("%w: %s is not %s, and only those apply an effect a declared policy can retry", ErrInvalid, route, strings.Join(openAPIOperationMethods, " or "))
+	verb := strings.ToUpper(method)
+	if !slices.Contains(openAPIOperationMethods, verb) {
+		return nil, "", fmt.Errorf("%w: %s is not %s, and only those carry an input a declared policy can retry", ErrInvalid, route, joinedMethods())
+	}
+	// A template names an input the route carries in its path, which no
+	// parameter list need declare for the document to look complete.
+	if strings.ContainsAny(path, "{}") {
+		return nil, "", fmt.Errorf("%w: %s is a path template, and a derived operation's route is one fixed path", ErrInvalid, route)
 	}
 	item, published := d.Paths[path]
 	if !published || item == nil {
@@ -167,10 +280,7 @@ func (d *OpenAPIDocument) operation(method, path string) (*OpenAPIOperation, str
 	if item.Ref != "" {
 		return nil, "", fmt.Errorf("%w: %s is a $ref to another path item, which core does not follow", ErrInvalid, path)
 	}
-	operation := item.Post
-	if strings.EqualFold(method, http.MethodPut) {
-		operation = item.Put
-	}
+	operation := map[string]*OpenAPIOperation{http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodPut: item.Put}[verb]
 	if operation == nil {
 		return nil, "", fmt.Errorf("%w: the document publishes no %s", ErrInvalid, route)
 	}
@@ -183,11 +293,88 @@ func (d *OpenAPIDocument) operation(method, path string) (*OpenAPIOperation, str
 		// input: `body` and `formData` are how Swagger 2.0 spells a request
 		// body, so denying only path and query would drop the operation's whole
 		// input from the contract without saying so.
+		if verb == http.MethodGet && parameter.In == queryParameterLocation {
+			continue
+		}
 		if !slices.Contains(transportParameterLocations, parameter.In) {
-			return nil, "", fmt.Errorf("%w: %s carries %q parameter %q, and a derived operation's input is the JSON request body alone", ErrInvalid, route, parameter.In, parameter.Name)
+			return nil, "", fmt.Errorf("%w: %s carries %q parameter %q, and a derived operation's input is the JSON request body alone, or a GET's query", ErrInvalid, route, parameter.In, parameter.Name)
 		}
 	}
 	return operation, route, nil
+}
+
+// joinedMethods spells the admitted methods for a refusal: "GET, POST or PUT".
+func joinedMethods() string {
+	last := len(openAPIOperationMethods) - 1
+	return strings.Join(openAPIOperationMethods[:last], ", ") + " or " + openAPIOperationMethods[last]
+}
+
+// readOnlyRoute holds a GET to being a read in every half of its operation: it
+// recomputes, so an uncertain outcome is asked again rather than resolved by a
+// receipt; its tool, when it states one, says it only reads (a recomputed
+// operation stating none is presented as a read, preparedTool); and it is
+// invoked holding nothing but
+// the read action, so the capability a call presents cannot change what it
+// reads whatever the route does. A mutation keeps its body, its receipt and its
+// POST or PUT.
+func readOnlyRoute(spec *OperationSpec, route string) error {
+	invoked := &Authority{Requires: spec.InvokeScopes}
+	if spec.EffectiveRecovery() != basev0.RunnableExecution_RECOVERY_RECOMPUTE ||
+		(spec.Tool != nil && spec.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY) || !invoked.ReadOnly() {
+		return fmt.Errorf("%w: %s is a GET, which is admitted only as a read: recovery %s, a %s tool, and invoke scopes requiring only %q; a mutation is published as POST or PUT",
+			ErrInvalid, route, basev0.RunnableExecution_RECOVERY_RECOMPUTE, runnablev0.ToolExposure_EFFECT_READ_ONLY, ReadOnlyScopeAction)
+	}
+	return nil
+}
+
+// queryPayload is a GET's input: one JSON object whose members are its query
+// parameters, each a scalar a query string spells, optional exactly when the
+// parameter is. A caller carries the object as the query — each member as one
+// parameter of that name, a string as written, a number or a boolean as its
+// JSON spelling — and a GET with no parameter takes the empty object. No
+// component describes a query, so the identity input_message records is the
+// one the document publishes it under: the operation's operationId.
+func (d *OpenAPIDocument) queryPayload(operation *OpenAPIOperation, parameters []OpenAPIParameter, route string) (*basev0.RunnableSchema, string, error) {
+	if operation.RequestBody != nil {
+		return nil, "", fmt.Errorf("%w: %s declares a request body, and a GET's input is its query", ErrInvalid, route)
+	}
+	if operation.OperationID == "" {
+		return nil, "", fmt.Errorf("%w: %s declares no operationId, which is the published identity a GET's query is recorded by", ErrInvalid, route)
+	}
+	properties := JSONSchemaProperties{}
+	var required []string
+	for _, parameter := range parameters {
+		if parameter.In != queryParameterLocation {
+			continue
+		}
+		if parameter.Schema == nil {
+			return nil, "", fmt.Errorf("%w: %s query parameter %q declares no schema", ErrInvalid, route, parameter.Name)
+		}
+		if slices.ContainsFunc(properties, func(p JSONSchemaProperty) bool { return p.Name == parameter.Name }) {
+			return nil, "", fmt.Errorf("%w: %s declares query parameter %q twice", ErrInvalid, route, parameter.Name)
+		}
+		properties = append(properties, JSONSchemaProperty{Name: parameter.Name, Schema: parameter.Schema})
+		if parameter.Required {
+			required = append(required, parameter.Name)
+		}
+	}
+	input, err := ProjectJSONSchema(d, &JSONSchema{
+		Type: JSONSchemaType{"object"}, Properties: &properties, Required: required, AdditionalProperties: json.RawMessage("false"),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	for _, field := range input.GetFields() {
+		switch field.GetType() {
+		case basev0.RunnableField_STRING, basev0.RunnableField_INTEGER, basev0.RunnableField_NUMBER, basev0.RunnableField_BOOLEAN:
+		default:
+			return nil, "", fmt.Errorf("%w: %s query parameter %q is %s, and a query carries one scalar per name", ErrInvalid, route, field.GetName(), field.GetType())
+		}
+		if field.GetNullable() {
+			return nil, "", fmt.Errorf("%w: %s query parameter %q is nullable, which a query string cannot spell", ErrInvalid, route, field.GetName())
+		}
+	}
+	return input, operation.OperationID, nil
 }
 
 // payload projects one body and names the component it was described by. The
@@ -219,9 +406,9 @@ func (d *OpenAPIDocument) payload(body *OpenAPIBody, route, what string) (*basev
 	if media.Schema == nil {
 		return nil, "", fmt.Errorf("%w: %s %s declares no schema, and an undescribed payload is not a contract", ErrInvalid, route, what)
 	}
-	name, isComponent := strings.CutPrefix(media.Schema.Ref, componentSchemaPrefix)
+	name, isComponent := strings.CutPrefix(media.Schema.Ref, d.schemaPrefix)
 	if !isComponent || !onlyRef(media.Schema) {
-		return nil, "", fmt.Errorf("%w: %s %s schema is not a %s reference, and a payload described inline has no published identity to record", ErrInvalid, route, what, componentSchemaPrefix)
+		return nil, "", fmt.Errorf("%w: %s %s schema is not a %s reference, and a payload described inline has no published identity to record", ErrInvalid, route, what, d.schemaPrefix)
 	}
 	schema, err := ProjectJSONSchema(d, media.Schema)
 	if err != nil {
@@ -255,6 +442,9 @@ func success(operation *OpenAPIOperation, route string) (*OpenAPIBody, error) {
 // operation a REST route declares, and the execution policy and authority that
 // are installed beside it rather than digested into it.
 //
+// method is GET, POST or PUT; a GET is admitted as a read only, its query its
+// input (readOnlyRoute, queryPayload). document is OpenAPI 3 or Swagger 2.0.
+//
 // It is PackageFromMethod's twin for a service described by OpenAPI rather than
 // by a descriptor, and deliberately lands in the same place: one profile, one
 // digest and one drift rule, so a FastAPI service and a gRPC one publish the
@@ -281,7 +471,16 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 			return nil, nil, err
 		}
 	}
-	input, inputMessage, err := doc.payload(operation.RequestBody, route, "request body")
+	var input *basev0.RunnableSchema
+	var inputMessage string
+	if strings.EqualFold(method, http.MethodGet) {
+		if err = readOnlyRoute(spec, route); err != nil {
+			return nil, nil, err
+		}
+		input, inputMessage, err = doc.queryPayload(operation, slices.Concat(doc.Paths[path].Parameters, operation.Parameters), route)
+	} else {
+		input, inputMessage, err = doc.payload(operation.RequestBody, route, "request body")
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -347,4 +546,111 @@ func restTool(operation *OpenAPIOperation, route string, recovery basev0.Runnabl
 		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
 	}
 	return &runnablev0.ToolExposure{Name: toolName(name), Description: description, Effect: effect}
+}
+
+// DefaultReadRetryableStatuses are the outcomes a derived REST read is retried
+// on: DefaultReadRetryableCodes, spelled as the HTTP status it is.
+var DefaultReadRetryableStatuses = []string{"503"}
+
+// DefaultRouteOperation is DefaultOperation for a REST route: the operation a
+// route declaring an authority policy derives with nothing added, which its
+// owner publishes as the route's x-codefly-operation marker so the marker
+// states core's defaults rather than the owner's guess at them. name and
+// description present it as a tool — the route's operationId and its one-line
+// summary — and audience is the trust boundary the owner's hop admits.
+//
+// A read recomputes and may be served over GET, POST or PUT; anything else is
+// a mutation resolved by its receipt and may not be a GET. A policy requiring
+// nothing, a mutation over GET, or a path template (a relayed subtree, whose
+// input is partly its path) is ErrNotDerivable: the route stays a call its own
+// clients make.
+func DefaultRouteOperation(method, path string, authority *Authority, audience, name, description string) (*OperationSpec, error) {
+	route := Route(method, path)
+	if authority == nil || len(authority.Requires) == 0 {
+		return nil, fmt.Errorf("%w: %s requires no authority, so there is nothing to mint the call's capability from", ErrNotDerivable, route)
+	}
+	if strings.ContainsAny(path, "{}") {
+		return nil, fmt.Errorf("%w: %s is a path template, and an operation's route is one fixed path", ErrNotDerivable, route)
+	}
+	if strings.EqualFold(method, http.MethodGet) && !authority.ReadOnly() {
+		return nil, fmt.Errorf("%w: %s requires more than %q, and a GET is derived only as a read", ErrNotDerivable, route, ReadOnlyScopeAction)
+	}
+	spec := &OperationSpec{
+		Method:         route,
+		AttemptTimeout: DefaultAttemptTimeout,
+		TotalTimeout:   DefaultTotalTimeout,
+		Backoff:        DefaultBackoff,
+		Codes:          HTTPStatusCodes,
+		Audience:       audience,
+		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		InvokeScopes:   clonedScopes(authority.Requires),
+	}
+	effect := runnablev0.ToolExposure_EFFECT_MUTATION
+	if authority.ReadOnly() {
+		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
+		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+		spec.MaxAttempts = DefaultReadAttempts
+		spec.RetryableCodes = slices.Clone(DefaultReadRetryableStatuses)
+	} else {
+		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+		spec.MaxAttempts = DefaultMutationAttempts
+	}
+	if name == "" {
+		name = route
+	}
+	text := toolDescription(description)
+	if text == "" {
+		text = "Calls " + route + "."
+	}
+	spec.Tool = &runnablev0.ToolExposure{Name: toolName(name), Description: text, Effect: effect}
+	if err := spec.Validate(); err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+// routePolicy is an authority.hop.v1.Policy as an owner publishes it under a
+// route's x-codefly-authority-policy, in its proto field names.
+type routePolicy struct {
+	Requires []struct {
+		ResourceKind string   `json:"resource_kind"`
+		Actions      []string `json:"actions"`
+	} `json:"requires"`
+	AnyCheckedCaller bool `json:"any_checked_caller"`
+}
+
+// RouteMarker is the x-codefly-operation an owner publishes for a route whose
+// authority policy it publishes: the marker of DefaultRouteOperation, so the
+// owner hands core the policy it already writes and core states the defaults.
+// policy is that policy's JSON, as written under x-codefly-authority-policy;
+// a field it does not define is refused rather than read as nothing required.
+// The marker is proto3 JSON in proto field names with its members in a stable
+// order, because the document carrying it is committed and diffed. A route
+// DefaultRouteOperation does not derive answers ErrNotDerivable.
+func RouteMarker(method, path string, policy json.RawMessage, audience, name, description string) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(policy))
+	decoder.DisallowUnknownFields()
+	declared := routePolicy{}
+	if err := decoder.Decode(&declared); err != nil {
+		return nil, fmt.Errorf("%w: %s policy is not an authority.hop.v1.Policy: %v", ErrInvalid, Route(method, path), err)
+	}
+	authority := &Authority{AnyCheckedCaller: declared.AnyCheckedCaller}
+	for _, requirement := range declared.Requires {
+		authority.Requires = append(authority.Requires, &basev0.WorkScopeV1{ResourceKind: requirement.ResourceKind, Actions: slices.Clone(requirement.Actions)})
+	}
+	spec, err := DefaultRouteOperation(method, path, authority, audience, name, description)
+	if err != nil {
+		return nil, err
+	}
+	written, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(spec.Policy())
+	if err != nil {
+		return nil, err
+	}
+	// protojson's spacing is deliberately unstable; a round trip through
+	// encoding/json fixes the members' order and spacing.
+	var marker map[string]any
+	if err = json.Unmarshal(written, &marker); err != nil {
+		return nil, err
+	}
+	return json.Marshal(marker)
 }

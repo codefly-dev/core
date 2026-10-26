@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -122,6 +123,13 @@ func VerifyPrepared(binding *runnablev0.PreparedBinding) error {
 	policy := preparedPolicy(binding, codes)
 	if err := policy.Validate(); err != nil {
 		return err
+	}
+	// A GET is derived only as a read, and an installer holds a delivered one
+	// to the same rule rather than trust that a generator applied it.
+	if binding.GetCall().GetRest().GetVerb() == http.MethodGet {
+		if err := readOnlyRoute(policy, binding.GetOperation().GetSpelling()); err != nil {
+			return err
+		}
 	}
 	return refuseUnresolvedSlots("prepared binding", policy)
 }
