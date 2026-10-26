@@ -133,6 +133,31 @@ func TestProjectJSONSchemaReadsBothSpellingsOfNullable(t *testing.T) {
 	}
 }
 
+// TestProjectJSONSchemaReadsTheProtoJSONSpellings holds the document reader to
+// the proto projection's table: what a protobuf type transcodes to projects to
+// what that type projects to.
+func TestProjectJSONSchemaReadsTheProtoJSONSpellings(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		schema string
+		want   *basev0.RunnableField
+	}{
+		{"timestamp", `{"type":"string","format":"date-time"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "date-time"}},
+		{"bytes", `{"type":"string","format":"byte"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "byte"}},
+		{"enum", `{"type":"string","enum":["RED","GREEN"]}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Values: []string{"RED", "GREEN"}}},
+		{"double", `{"type":"number","format":"double"}`, &basev0.RunnableField{Type: basev0.RunnableField_NUMBER}},
+		{"struct", `{"type":"object"}`, &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}},
+		{"map", `{"type":"object","additionalProperties":{"type":"string"}}`, &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := projectRoot(t, member(test.schema))
+			require.NoError(t, err)
+			test.want.Name = "value"
+			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{test.want}}, schema), "projected %v", schema)
+		})
+	}
+}
+
 func TestProjectJSONSchemaRejectsEveryShapeOutsideTheProfile(t *testing.T) {
 	const value = "#/components/schemas/Root/properties/value"
 	for _, test := range []struct {
@@ -141,17 +166,15 @@ func TestProjectJSONSchemaRejectsEveryShapeOutsideTheProfile(t *testing.T) {
 		at      string
 		because string
 	}{
-		{"number", []string{member(`{"type":"number"}`)}, value, `type "number"`},
-		{"enum", []string{member(`{"type":"string","enum":["a","b"]}`)}, value, "declares enum"},
+		{"number width", []string{member(`{"type":"number","format":"decimal"}`)}, value, `format "decimal"`},
+		{"enum of a non-string", []string{member(`{"type":"integer","enum":[1,2]}`)}, value, "declares enum on a integer"},
 		{"oneOf", []string{member(`{"oneOf":[{"type":"string"},{"type":"integer"}]}`)}, value, "declares oneOf"},
 		{"anyOf", []string{member(`{"anyOf":[{"type":"string"}]}`)}, value, "declares anyOf"},
 		{"allOf", []string{member(`{"allOf":[{"$ref":"#/components/schemas/Root"}]}`)}, value, "declares allOf"},
 		{"union", []string{member(`{"type":["string","integer"]}`)}, value, "no union"},
 		{"untyped", []string{member(`{}`)}, value, "declares no type"},
 		{"only null", []string{member(`{"type":["null"]}`)}, value, "declares no type"},
-		{"format byte", []string{member(`{"type":"string","format":"byte"}`)}, value, `format "byte"`},
 		{"format binary", []string{member(`{"type":"string","format":"binary"}`)}, value, `format "binary"`},
-		{"format date-time", []string{member(`{"type":"string","format":"date-time"}`)}, value, `format "date-time"`},
 		{"format date", []string{member(`{"type":"string","format":"date"}`)}, value, `format "date"`},
 		{"integer width", []string{member(`{"type":"integer","format":"uint64"}`)}, value, `format "uint64"`},
 		{"open object", []string{member(`{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":true}`)}, value, "additionalProperties"},
@@ -168,10 +191,10 @@ func TestProjectJSONSchemaRejectsEveryShapeOutsideTheProfile(t *testing.T) {
 		{"external $ref", []string{member(`{"$ref":"other.json#/Thing"}`)}, value, "does not define"},
 		// A rejection deeper in is named by the whole pointer, not by the leaf:
 		// the same component may be reached from several members.
-		{"inside a component", []string{member(`{"$ref":"#/components/schemas/Inner"}`), `"Inner":` + object(`"weight":{"type":"number"}`)},
-			"#/components/schemas/Inner/properties/weight", `type "number"`},
+		{"inside a component", []string{member(`{"$ref":"#/components/schemas/Inner"}`), `"Inner":` + object(`"weight":{"type":"string","format":"binary"}`)},
+			"#/components/schemas/Inner/properties/weight", `format "binary"`},
 		// A property name containing a slash is one reference token, not two.
-		{"escaped pointer", []string{`"Root":` + object(`"a/b":{"type":"number"}`)}, "#/components/schemas/Root/properties/a~1b", `type "number"`},
+		{"escaped pointer", []string{`"Root":` + object(`"a/b":{"type":"string","format":"binary"}`)}, "#/components/schemas/Root/properties/a~1b", `format "binary"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := projectRoot(t, test.schemas...)

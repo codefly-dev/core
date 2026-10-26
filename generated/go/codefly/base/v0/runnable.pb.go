@@ -40,6 +40,13 @@ const (
 	RunnableField_OBJECT RunnableField_Type = 4
 	// ARRAY is a homogeneous list described by items.
 	RunnableField_ARRAY RunnableField_Type = 5
+	// NUMBER is a floating-point number, as a protobuf float or double is
+	// carried in proto3 JSON.
+	RunnableField_NUMBER RunnableField_Type = 6
+	// JSON is any JSON value: a google.protobuf.Struct, Value or ListValue,
+	// or a protobuf map, whose members the owner does not enumerate. format
+	// narrows it to "object" or "array" where the source says so.
+	RunnableField_JSON RunnableField_Type = 7
 )
 
 // Enum value maps for RunnableField_Type.
@@ -51,6 +58,8 @@ var (
 		3: "BOOLEAN",
 		4: "OBJECT",
 		5: "ARRAY",
+		6: "NUMBER",
+		7: "JSON",
 	}
 	RunnableField_Type_value = map[string]int32{
 		"UNKNOWN": 0,
@@ -59,6 +68,8 @@ var (
 		"BOOLEAN": 3,
 		"OBJECT":  4,
 		"ARRAY":   5,
+		"NUMBER":  6,
+		"JSON":    7,
 	}
 )
 
@@ -667,7 +678,15 @@ type RunnableField struct {
 	// fields describes an OBJECT field's members.
 	Fields []*RunnableField `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
 	// items describes an ARRAY field's elements.
-	Items         *RunnableField `protobuf:"bytes,7,opt,name=items,proto3" json:"items,omitempty"`
+	Items *RunnableField `protobuf:"bytes,7,opt,name=items,proto3" json:"items,omitempty"`
+	// format refines the value's spelling the way proto3 JSON carries it:
+	// "date-time" (a Timestamp, RFC 3339), "duration" (a Duration, "1.5s"),
+	// "field-mask", "byte" (base64 bytes), "uint64" (an unsigned 64-bit
+	// integer, carried as a decimal string), "object" or "array" on a JSON
+	// value. Empty is a plain value of its type.
+	Format string `protobuf:"bytes,8,opt,name=format,proto3" json:"format,omitempty"`
+	// values are the names a STRING may take: a protobuf enum, carried by name.
+	Values        []string `protobuf:"bytes,9,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -747,6 +766,20 @@ func (x *RunnableField) GetFields() []*RunnableField {
 func (x *RunnableField) GetItems() *RunnableField {
 	if x != nil {
 		return x.Items
+	}
+	return nil
+}
+
+func (x *RunnableField) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *RunnableField) GetValues() []string {
+	if x != nil {
+		return x.Values
 	}
 	return nil
 }
@@ -2513,7 +2546,7 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x10RunnableLocation\x12E\n" +
 	"\bidentity\x18\x01 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12.\n" +
 	"\x0eworkspace_path\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\rworkspacePath\x12;\n" +
-	"\x15relative_to_workspace\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x13relativeToWorkspace\"\xf6\x02\n" +
+	"\x15relative_to_workspace\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x13relativeToWorkspace\"\xbc\x03\n" +
 	"\rRunnableField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x127\n" +
 	"\x04type\x18\x02 \x01(\x0e2#.codefly.base.v0.RunnableField.TypeR\x04type\x12 \n" +
@@ -2521,7 +2554,9 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\boptional\x18\x04 \x01(\bR\boptional\x12\x1a\n" +
 	"\bnullable\x18\x05 \x01(\bR\bnullable\x126\n" +
 	"\x06fields\x18\x06 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\x124\n" +
-	"\x05items\x18\a \x01(\v2\x1e.codefly.base.v0.RunnableFieldR\x05items\"P\n" +
+	"\x05items\x18\a \x01(\v2\x1e.codefly.base.v0.RunnableFieldR\x05items\x12\x16\n" +
+	"\x06format\x18\b \x01(\tR\x06format\x12\x16\n" +
+	"\x06values\x18\t \x03(\tR\x06values\"f\n" +
 	"\x04Type\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\n" +
 	"\n" +
@@ -2530,7 +2565,10 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\aBOOLEAN\x10\x03\x12\n" +
 	"\n" +
 	"\x06OBJECT\x10\x04\x12\t\n" +
-	"\x05ARRAY\x10\x05\"H\n" +
+	"\x05ARRAY\x10\x05\x12\n" +
+	"\n" +
+	"\x06NUMBER\x10\x06\x12\b\n" +
+	"\x04JSON\x10\a\"H\n" +
 	"\x0eRunnableSchema\x126\n" +
 	"\x06fields\x18\x01 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\"\xb7\x01\n" +
 	"\x10RunnableContract\x12#\n" +

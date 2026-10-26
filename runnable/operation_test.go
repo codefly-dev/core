@@ -343,7 +343,9 @@ func TestPackageFromMethodRejectsAPayloadOutsideTheProfile(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := ingestion(declaredOperation())
-			spec.messages[test.message].Field = append(spec.messages[test.message].Field, scalar("size", 10, tUint64))
+			// A message reaching itself has no bounded shape.
+			self := ".documents.ingest.v1." + spec.messages[test.message].GetName()
+			spec.messages[test.message].Field = append(spec.messages[test.message].Field, named("size", 10, tMessage, self))
 			_, _, err := runnable.PackageFromMethod(registry(t, compile(t, spec)), ingestLocation(), ingestOwner(), applyText)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			require.ErrorContains(t, err, test.path)
@@ -428,11 +430,11 @@ func TestPackageFromMethodNamesTheOwnerServiceModule(t *testing.T) {
 }
 
 // TestPackageFromMethodRejectsAWellKnownPayload covers the payload itself, not
-// just its fields: a Timestamp reads as two integers and an Empty as an object
-// with no keys, either of which is a contract that misdescribes the wire.
+// just its fields: proto3 JSON carries a Timestamp as a string and a wrapper as
+// its value, neither of which is an object whose keys a contract names. Empty
+// is the exception, an object with no keys.
 func TestPackageFromMethodRejectsAWellKnownPayload(t *testing.T) {
 	for _, wellKnown := range []string{
-		".google.protobuf.Empty",
 		".google.protobuf.Timestamp",
 		".google.protobuf.Duration",
 		".google.protobuf.StringValue",

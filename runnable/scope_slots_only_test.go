@@ -37,7 +37,12 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, spec.InvokeScopes)
 			require.Empty(t, spec.LookupScopes)
-			require.True(t, proto.Equal(declared, spec.Policy()))
+			// The derivation presents it as a tool from the method itself; the
+			// rest of the policy is exactly what the owner declared.
+			require.NotNil(t, spec.Tool)
+			withTool := proto.CloneOf(declared)
+			withTool.Tool = spec.Tool
+			require.True(t, proto.Equal(withTool, spec.Policy()))
 
 			// Both delivery surfaces refuse the unresolved declaration, even when
 			// its only authority is the slot. Supplying digests cannot bypass it.
@@ -83,8 +88,11 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			installed, err := runnable.DecodeResolvedPolicy(value)
 			require.NoError(t, err)
 			require.NoError(t, runnable.BindingMatchesResolvedPolicy(delivered, installed))
-			_, err = runnable.ToolFromPrepared(delivered)
-			require.ErrorIs(t, err, runnable.ErrNotATool)
+			// Every runnable is a tool: a policy naming none is presented from
+			// its operation, and a receipt operation is a mutation.
+			tool, err := runnable.ToolFromPrepared(delivered)
+			require.NoError(t, err)
+			require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
 
 			for _, clearInvoke := range []bool{true, false} {
 				empty := proto.CloneOf(delivered)
@@ -99,7 +107,7 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			}
 
 			// No mutation of declaration or selection, and no invented fixed scope.
-			require.True(t, proto.Equal(declared, spec.Policy()))
+			require.True(t, proto.Equal(withTool, spec.Policy()))
 			resolved.InvokeScopes[0].ResourceIds[0] = "changed"
 			require.Equal(t, "item-a", selections[0].Invoke[0].ResourceIds[0])
 			require.Equal(t, "item-a", delivered.Policy.InvokeScopes[0].ResourceIds[0])

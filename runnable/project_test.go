@@ -107,9 +107,14 @@ func TestProjectMessageProjectsAnEmptyMessage(t *testing.T) {
 	require.Empty(t, schema.GetFields())
 }
 
-func TestProjectMessageRejectsEveryTypeOutsideTheProfile(t *testing.T) {
+// TestProjectMessageProjectsByProtoJSON holds the projection to the canonical
+// proto3 JSON a Connect endpoint reads and writes: each type is stated as it is
+// spelled on the wire, never as its descriptor's fields.
+func TestProjectMessageProjectsByProtoJSON(t *testing.T) {
 	enum := &descriptorpb.EnumDescriptorProto{Name: proto.String("Colour"),
-		Value: []*descriptorpb.EnumValueDescriptorProto{{Name: proto.String("COLOUR_UNKNOWN"), Number: proto.Int32(0)}}}
+		Value: []*descriptorpb.EnumValueDescriptorProto{
+			{Name: proto.String("COLOUR_UNKNOWN"), Number: proto.Int32(0)},
+			{Name: proto.String("COLOUR_RED"), Number: proto.Int32(1)}}}
 
 	oneof := message("Root", inOneof(scalar("choice", 1, tString), 0))
 	oneof.OneofDecl = []*descriptorpb.OneofDescriptorProto{{Name: proto.String("pick")}}
@@ -117,38 +122,69 @@ func TestProjectMessageRejectsEveryTypeOutsideTheProfile(t *testing.T) {
 	mapped := message("Root")
 	mapField("fixture", mapped, "labels", 1)
 
-	nested := message("Root", named("inner", 1, tMessage, ".fixture.Inner"))
-	inner := message("Inner", scalar("weight", 1, tDouble))
-
+	wkt := func(field, typeName string) fileSpec {
+		return fileSpec{imports: []string{"google/protobuf/timestamp.proto", "google/protobuf/duration.proto",
+			"google/protobuf/struct.proto", "google/protobuf/wrappers.proto", "google/protobuf/field_mask.proto"},
+			messages: []*descriptorpb.DescriptorProto{message("Root", named(field, 1, tMessage, typeName))}}
+	}
 	for _, test := range []struct {
-		name    string
-		spec    fileSpec
-		path    string
-		because string
+		name string
+		spec fileSpec
+		want *basev0.RunnableField
 	}{
-		{"uint64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tUint64))}}, "fixture.Root.count", "exceeds the signed 64-bit"},
-		{"fixed64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tFixed64))}}, "fixture.Root.count", "exceeds the signed 64-bit"},
-		{"bytes", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("blob", 1, tBytes))}}, "fixture.Root.blob", "does not cover"},
-		{"float", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tFloat))}}, "fixture.Root.ratio", "does not cover"},
-		{"double", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tDouble))}}, "fixture.Root.ratio", "does not cover"},
-		{"enum", fileSpec{enums: []*descriptorpb.EnumDescriptorProto{enum}, messages: []*descriptorpb.DescriptorProto{message("Root", named("colour", 1, tEnum, ".fixture.Colour"))}}, "fixture.Root.colour", "does not cover"},
-		{"map", fileSpec{messages: []*descriptorpb.DescriptorProto{mapped}}, "fixture.Root.labels", "is a map"},
-		{"oneof", fileSpec{messages: []*descriptorpb.DescriptorProto{oneof}}, "fixture.Root.choice", "belongs to oneof pick"},
-		{"well-known type", fileSpec{imports: []string{"google/protobuf/timestamp.proto"}, messages: []*descriptorpb.DescriptorProto{message("Root", named("at", 1, tMessage, ".google.protobuf.Timestamp"))}}, "fixture.Root.at", "well-known type"},
-		{"any", fileSpec{imports: []string{"google/protobuf/any.proto"}, messages: []*descriptorpb.DescriptorProto{message("Root", named("payload", 1, tMessage, ".google.protobuf.Any"))}}, "fixture.Root.payload", "well-known type"},
-		// A nested rejection is named by the whole path, not by the leaf: the
-		// same message may be reached from several fields.
-		{"nested", fileSpec{messages: []*descriptorpb.DescriptorProto{nested, inner}}, "fixture.Root.inner.weight", "does not cover"},
+		{"uint64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tUint64))}},
+			&basev0.RunnableField{Name: "count", Type: basev0.RunnableField_STRING, Format: "uint64"}},
+		{"fixed64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tFixed64))}},
+			&basev0.RunnableField{Name: "count", Type: basev0.RunnableField_STRING, Format: "uint64"}},
+		{"bytes", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("blob", 1, tBytes))}},
+			&basev0.RunnableField{Name: "blob", Type: basev0.RunnableField_STRING, Format: "byte"}},
+		{"float", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tFloat))}},
+			&basev0.RunnableField{Name: "ratio", Type: basev0.RunnableField_NUMBER}},
+		{"double", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tDouble))}},
+			&basev0.RunnableField{Name: "ratio", Type: basev0.RunnableField_NUMBER}},
+		{"enum", fileSpec{enums: []*descriptorpb.EnumDescriptorProto{enum}, messages: []*descriptorpb.DescriptorProto{message("Root", named("colour", 1, tEnum, ".fixture.Colour"))}},
+			&basev0.RunnableField{Name: "colour", Type: basev0.RunnableField_STRING, Values: []string{"COLOUR_UNKNOWN", "COLOUR_RED"}}},
+		{"map", fileSpec{messages: []*descriptorpb.DescriptorProto{mapped}},
+			&basev0.RunnableField{Name: "labels", Type: basev0.RunnableField_JSON, Format: "object", Optional: true}},
+		// A oneof member is its own key, and at most one is present.
+		{"oneof", fileSpec{messages: []*descriptorpb.DescriptorProto{oneof}},
+			&basev0.RunnableField{Name: "choice", Type: basev0.RunnableField_STRING, Optional: true}},
+		{"timestamp", wkt("at", ".google.protobuf.Timestamp"),
+			&basev0.RunnableField{Name: "at", Type: basev0.RunnableField_STRING, Format: "date-time", Optional: true}},
+		{"duration", wkt("wait", ".google.protobuf.Duration"),
+			&basev0.RunnableField{Name: "wait", Type: basev0.RunnableField_STRING, Format: "duration", Optional: true}},
+		{"field mask", wkt("mask", ".google.protobuf.FieldMask"),
+			&basev0.RunnableField{Name: "mask", Type: basev0.RunnableField_STRING, Format: "field-mask", Optional: true}},
+		{"struct", wkt("payload", ".google.protobuf.Struct"),
+			&basev0.RunnableField{Name: "payload", Type: basev0.RunnableField_JSON, Format: "object", Optional: true}},
+		{"value", wkt("payload", ".google.protobuf.Value"),
+			&basev0.RunnableField{Name: "payload", Type: basev0.RunnableField_JSON, Nullable: true, Optional: true}},
+		{"wrapper", wkt("label", ".google.protobuf.StringValue"),
+			&basev0.RunnableField{Name: "label", Type: basev0.RunnableField_STRING, Nullable: true, Optional: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := test.spec
 			spec.name, spec.pkg = test.name+".proto", "fixture"
-			_, err := projected(t, spec, "Root")
-			require.ErrorIs(t, err, runnable.ErrInvalid)
-			require.ErrorContains(t, err, test.path)
-			require.ErrorContains(t, err, test.because)
+			schema, err := projected(t, spec, "Root")
+			require.NoError(t, err)
+			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{test.want}}, schema), "projected %v", schema)
+			// What projects is a contract that loads.
+			contract, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
+				Protocol: resources.RunnableServiceProtocolV1, Input: schema, Output: schema})
+			require.NoError(t, err)
+			require.NoError(t, contract.Validate())
 		})
 	}
+}
+
+// TestProjectMessageRejectsWhatProtoJSONCannotCarry keeps the refusals that
+// remain: an Any needs the owner's type registry to be written at all.
+func TestProjectMessageRejectsWhatProtoJSONCannotCarry(t *testing.T) {
+	_, err := projected(t, fileSpec{name: "any.proto", pkg: "fixture", imports: []string{"google/protobuf/any.proto"},
+		messages: []*descriptorpb.DescriptorProto{message("Root", named("payload", 1, tMessage, ".google.protobuf.Any"))}}, "Root")
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "fixture.Root.payload")
+	require.ErrorContains(t, err, "type registry")
 }
 
 func TestProjectMessageRejectsRecursionAndExcessiveDepth(t *testing.T) {
@@ -195,10 +231,12 @@ func TestProjectMessageRequiresADescriptor(t *testing.T) {
 // integers just as happily at the payload as nested, and the wrappers project
 // into a single-key object.
 func TestProjectMessageRejectsAWellKnownPayload(t *testing.T) {
+	empty, err := runnable.ProjectMessage((&emptypb.Empty{}).ProtoReflect().Descriptor())
+	require.NoError(t, err, "Empty is an object with no keys")
+	require.Empty(t, empty.GetFields())
 	for _, wellKnown := range []protoreflect.MessageDescriptor{
 		(&timestamppb.Timestamp{}).ProtoReflect().Descriptor(),
 		(&durationpb.Duration{}).ProtoReflect().Descriptor(),
-		(&emptypb.Empty{}).ProtoReflect().Descriptor(),
 		(&wrapperspb.StringValue{}).ProtoReflect().Descriptor(),
 		(&wrapperspb.BoolValue{}).ProtoReflect().Descriptor(),
 		(&wrapperspb.Int64Value{}).ProtoReflect().Descriptor(),

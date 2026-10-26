@@ -35,6 +35,7 @@ func fullSpec() *OperationSpec {
 		Completion:         basev0.RunnableExecution_COMPLETION_CALL,
 		Tool:               &runnablev0.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION},
 		RequiredScopeSlots: []*runnablev0.ScopeSlot{{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true}},
+		Recovery:           basev0.RunnableExecution_RECOVERY_RECEIPT,
 	}
 }
 

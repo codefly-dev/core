@@ -301,7 +301,7 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 		{name: "unprojectable payload", edit: func(doc map[string]any) {
 			schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
 			schemas["ApplyTextRequest"].(map[string]any)["properties"].(map[string]any)["cursor"] =
-				map[string]any{"type": "number"}
+				map[string]any{"type": "string", "format": "binary"}
 		}, because: "#/components/schemas/ApplyTextRequest/properties/cursor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

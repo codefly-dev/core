@@ -86,7 +86,7 @@ func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes, max_output_bytes, tool and
+// lookup_method, max_input_bytes, max_output_bytes, tool, recovery and
 // required_scope_slots and the scope lists is required, completion included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
@@ -134,9 +134,12 @@ type Operation struct {
 	// a caller that assumed wrongly either abandons work that is still running or
 	// waits for a reply that was never going to come.
 	Completion v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
-	// tool explicitly permits discovery as a tool. Absent means not exposed;
-	// presence never grants a caller authority to discover or invoke it. The
-	// host still checks installation, exposure and current caller permissions.
+	// tool is how the operation is presented as a tool. Every Runnable is a
+	// tool; this only names and describes it. A derivation fills it from the
+	// method's own name, its leading doc comment and its effect when the owner
+	// writes none, so a delivered policy always carries it. Presence never grants
+	// a caller authority to discover or invoke it: the host still checks
+	// installation and current caller permissions.
 	Tool *ToolExposure `protobuf:"bytes,13,opt,name=tool,proto3" json:"tool,omitempty"`
 	// required_scope_slots are authority the owner cannot spell alone: a model
 	// whose resource kind another module defines, a tool whose kinds and actions
@@ -150,8 +153,16 @@ type Operation struct {
 	// runnable.OperationSpec.ResolveScopeSlots is the one resolution to a
 	// concrete policy.
 	RequiredScopeSlots []*ScopeSlot `protobuf:"bytes,14,rep,name=required_scope_slots,json=requiredScopeSlots,proto3" json:"required_scope_slots,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// recovery is how an uncertain outcome is resolved. RECOVERY_RECOMPUTE is a
+	// read: re-running it is safe, so it carries no receipt, no lookup scopes and
+	// no lookup method, answers synchronously, and its tool effect is read-only.
+	// RECOVERY_RECEIPT is anything else: an uncertain outcome is resolved by
+	// reading the effect receipt and never by re-running. Unset is
+	// RECOVERY_RECEIPT, the reading that never repeats an effect, so every
+	// operation declared before this field existed keeps the recovery it had.
+	Recovery      v0.RunnableExecution_Recovery `protobuf:"varint,15,opt,name=recovery,proto3,enum=codefly.base.v0.RunnableExecution_Recovery" json:"recovery,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
@@ -280,6 +291,13 @@ func (x *Operation) GetRequiredScopeSlots() []*ScopeSlot {
 		return x.RequiredScopeSlots
 	}
 	return nil
+}
+
+func (x *Operation) GetRecovery() v0.RunnableExecution_Recovery {
+	if x != nil {
+		return x.Recovery
+	}
+	return v0.RunnableExecution_Recovery(0)
 }
 
 // ToolExposure is an owner's explicit tool contribution. Input and output
@@ -506,6 +524,14 @@ var file_codefly_runnable_v0_options_proto_extTypes = []protoimpl.ExtensionInfo{
 		Tag:           "bytes,51003,opt,name=operation",
 		Filename:      "codefly/runnable/v0/options.proto",
 	},
+	{
+		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
+		ExtensionType: (*bool)(nil),
+		Field:         51004,
+		Name:          "codefly.runnable.v0.exclude",
+		Tag:           "varint,51004,opt,name=exclude",
+		Filename:      "codefly/runnable/v0/options.proto",
+	},
 }
 
 // Extension fields to descriptorpb.MethodOptions.
@@ -515,13 +541,20 @@ var (
 	//
 	// optional codefly.runnable.v0.Operation operation = 51003;
 	E_Operation = &file_codefly_runnable_v0_options_proto_extTypes[0]
+	// exclude keeps a method that declares an authority policy from being
+	// derived as a Runnable, and therefore as a tool: an operation no agent may
+	// ever call. It is the one per-method word a derivation needs, and it is
+	// refused beside an operation option, which would say the opposite.
+	//
+	// optional bool exclude = 51004;
+	E_Exclude = &file_codefly_runnable_v0_options_proto_extTypes[1]
 )
 
 var File_codefly_runnable_v0_options_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\x81\x06\n" +
+	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xca\x06\n" +
 	"\tOperation\x12B\n" +
 	"\x0fattempt_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0eattemptTimeout\x12>\n" +
 	"\rtotal_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\x12!\n" +
@@ -539,7 +572,8 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"completion\x18\f \x01(\x0e2-.codefly.base.v0.RunnableExecution.CompletionR\n" +
 	"completion\x125\n" +
 	"\x04tool\x18\r \x01(\v2!.codefly.runnable.v0.ToolExposureR\x04tool\x12P\n" +
-	"\x14required_scope_slots\x18\x0e \x03(\v2\x1e.codefly.runnable.v0.ScopeSlotR\x12requiredScopeSlots\"\xd3\x01\n" +
+	"\x14required_scope_slots\x18\x0e \x03(\v2\x1e.codefly.runnable.v0.ScopeSlotR\x12requiredScopeSlots\x12G\n" +
+	"\brecovery\x18\x0f \x01(\x0e2+.codefly.base.v0.RunnableExecution.RecoveryR\brecovery\"\xd3\x01\n" +
 	"\fToolExposure\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12@\n" +
@@ -556,7 +590,8 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\x04slot\x18\x01 \x01(\tR\x04slot\x124\n" +
 	"\x06invoke\x18\x02 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\x06invoke\x124\n" +
 	"\x06lookup\x18\x03 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\x06lookup:^\n" +
-	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperationB\xd3\x01\n" +
+	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperation::\n" +
+	"\aexclude\x12\x1e.google.protobuf.MethodOptions\x18\xbc\x8e\x03 \x01(\bR\aexcludeB\xd3\x01\n" +
 	"\x17com.codefly.runnable.v0B\fOptionsProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
 var (
@@ -582,7 +617,8 @@ var file_codefly_runnable_v0_options_proto_goTypes = []any{
 	(*durationpb.Duration)(nil),          // 5: google.protobuf.Duration
 	(*v0.WorkScopeV1)(nil),               // 6: codefly.base.v0.WorkScopeV1
 	(v0.RunnableExecution_Completion)(0), // 7: codefly.base.v0.RunnableExecution.Completion
-	(*descriptorpb.MethodOptions)(nil),   // 8: google.protobuf.MethodOptions
+	(v0.RunnableExecution_Recovery)(0),   // 8: codefly.base.v0.RunnableExecution.Recovery
+	(*descriptorpb.MethodOptions)(nil),   // 9: google.protobuf.MethodOptions
 }
 var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
 	5,  // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
@@ -593,16 +629,18 @@ var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
 	7,  // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
 	2,  // 6: codefly.runnable.v0.Operation.tool:type_name -> codefly.runnable.v0.ToolExposure
 	3,  // 7: codefly.runnable.v0.Operation.required_scope_slots:type_name -> codefly.runnable.v0.ScopeSlot
-	0,  // 8: codefly.runnable.v0.ToolExposure.effect:type_name -> codefly.runnable.v0.ToolExposure.Effect
-	6,  // 9: codefly.runnable.v0.ScopeSelection.invoke:type_name -> codefly.base.v0.WorkScopeV1
-	6,  // 10: codefly.runnable.v0.ScopeSelection.lookup:type_name -> codefly.base.v0.WorkScopeV1
-	8,  // 11: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
-	1,  // 12: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	12, // [12:13] is the sub-list for extension type_name
-	11, // [11:12] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	8,  // 8: codefly.runnable.v0.Operation.recovery:type_name -> codefly.base.v0.RunnableExecution.Recovery
+	0,  // 9: codefly.runnable.v0.ToolExposure.effect:type_name -> codefly.runnable.v0.ToolExposure.Effect
+	6,  // 10: codefly.runnable.v0.ScopeSelection.invoke:type_name -> codefly.base.v0.WorkScopeV1
+	6,  // 11: codefly.runnable.v0.ScopeSelection.lookup:type_name -> codefly.base.v0.WorkScopeV1
+	9,  // 12: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
+	9,  // 13: codefly.runnable.v0.exclude:extendee -> google.protobuf.MethodOptions
+	1,  // 14: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	14, // [14:15] is the sub-list for extension type_name
+	12, // [12:14] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_options_proto_init() }
@@ -617,7 +655,7 @@ func file_codefly_runnable_v0_options_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_runnable_v0_options_proto_rawDesc), len(file_codefly_runnable_v0_options_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   4,
-			NumExtensions: 1,
+			NumExtensions: 2,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_runnable_v0_options_proto_goTypes,

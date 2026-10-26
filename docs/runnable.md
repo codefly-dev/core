@@ -358,10 +358,45 @@ delivered by file — is in [Runnable binding delivery](runnable-binding-deliver
 An owner is called with JSON: a gRPC owner on its Connect endpoint, a REST owner
 on its real route, so no protobuf descriptor is delivered to a caller.
 
-A unary, idempotent operation an owner service already publishes becomes a
-Runnable by derivation, not by authoring. The owner marks it and the contract
+A unary operation an owner service already publishes becomes a Runnable by
+derivation, not by authoring, and **every Runnable is a tool**. The contract
 follows from the payloads the owner already describes. Nothing is written
 twice, so the published message and the bounded contract cannot drift apart.
+
+### Every method behind the hop is an operation
+
+A gRPC method that declares its authority policy — the
+`authority.hop.v1.policy` option every method served behind the authority hop
+already carries — is derived with **no runnable option at all**
+(`runnable.OperationForMethod`, `runnable.DefaultOperation`). Its effect is
+read from the actions the policy requires, because that is what the hop lets
+a call through holding:
+
+| The policy requires | Effect | Recovery | Authority | Attempts |
+|---|---|---|---|---|
+| only `read`, on every kind | `EFFECT_READ_ONLY` | `RECOVERY_RECOMPUTE`: no receipt, no lookup scopes, no lookup method | invoke = the required scopes | 3, on `UNAVAILABLE` |
+| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT`, read through the SDK's generic receipt lookup | invoke = the required scopes plus `read` on each kind; lookup = `read` on each kind | 1 |
+
+A read is safe to re-run, so it carries no receipt — which also keeps a read's
+answer (a signed URL, a secret) out of every receipt store. A mutation keeps
+every guarantee a receipt operation has, and is attempted once: a retry is
+exactly-once only where the owner serves a receipt guard, so the default never
+assumes one; an uncertain outcome ends unknown and is resolved by the receipt.
+The audience is the owner's module unless `ServiceOwner.Audience` names
+another. The tool is presented from the method itself: its name, its leading
+doc comment, and the effect above.
+
+`codefly.runnable.v0.exclude` keeps a method from being derived, for an
+operation no agent may ever call; it is refused beside an operation option. A
+policy requiring nothing (`any_checked_caller`) has no authority to mint a
+call's capability from, and a stream is not one finite call: both, and a
+payload outside the profile, answer `ErrNotDerivable`, a notice the generator
+lists without failing. A method declaring neither a policy nor an option is
+`ErrNotAnOperation`, as before.
+
+The option below remains, as the way to override these defaults. An option
+without `recovery` keeps `RECOVERY_RECEIPT`, so every operation declared before
+the field existed derives exactly as it did.
 
 There are two ways an owner describes an operation, and one derivation:
 
@@ -399,7 +434,8 @@ method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
 vocabulary; `audience` is required, and both concrete scope sets are required at
-installation. An owner declaration may defer scopes to its
+installation — except that a `RECOVERY_RECOMPUTE` operation has no receipt and
+so no lookup scopes, no lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
 own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
@@ -440,7 +476,14 @@ document transcoded from them project to **equal** `RunnableSchema`s.
 | `repeated T` | `type: array` with a single `items` schema | `ARRAY` with `items` | |
 | proto3 `optional` / message-typed field | a name absent from `required` | `optional: true` | absent key |
 | — | `nullable: true`, or `type: [T, "null"]` | `nullable: true` | protobuf has no null value |
-| `enum`, `map<>`, `oneof`, `bytes`, `float`, `double`, `google.protobuf.*` well-known types, `Any` | `enum`, `oneOf` / `anyOf` / `allOf`, `type: number`, `additionalProperties` other than `false` (maps), free-form objects, `type: object` without `properties`, tuple `items`, `format: byte` / `binary` / `date-time` / `date` | **rejected** | named by full field path or by JSON pointer in the error; never coerced |
+| `float`, `double` | `type: number`, `format` absent, `float` or `double` | `NUMBER` | |
+| `enum` | `type: string` with a string `enum` | `STRING` with `values` | carried by name |
+| `bytes` | `type: string`, `format: byte` | `STRING`, format `byte` | base64 |
+| `google.protobuf.Timestamp` / `Duration` / `FieldMask` | `type: string`, `format: date-time` (Timestamp) | `STRING`, format `date-time` / `duration` / `field-mask` | RFC 3339, `"1.5s"`, `"a.b,c"` |
+| `map<>`, `Struct`, `ListValue`, `Value` | `type: object` without `properties` and not closed | `JSON`, format `object` / `array` | members not enumerated |
+| `oneof` member | — | `optional: true` | each member is its own key |
+| wrappers (`StringValue`, …) | — | the wrapped type, `nullable: true` | |
+| `Any`, a recursive message | `oneOf` / `anyOf` / `allOf`, tuple `items`, `format: binary` / `date` | **rejected** | named by full field path or by JSON pointer in the error; never coerced |
 
 Rejection is a generation failure, not a runtime one: an out-of-profile payload
 is fixed once in the `.proto` or the document and stays fixed, whereas coercing
@@ -448,10 +491,13 @@ one would put a representation on the wire that neither the owner nor the
 runtime agreed to. An array's items carry neither the field's name nor its
 optionality — an element is present or the list is shorter.
 
-The well-known-type rule covers the payload itself and not only its fields: a
-method taking or returning `google.protobuf.Timestamp` would otherwise derive a
-contract of `{seconds, nanos}`, and one returning `google.protobuf.Empty` a
-contract with no keys at all. `optional` reads the field's presence, except that
+The profile describes the JSON an owner's Connect endpoint reads and writes,
+so every type is projected by its canonical proto3 JSON mapping. That is what
+the old refusal of well-known types protected: a Timestamp walked as a message
+derives `{seconds, nanos}`, a contract that misdescribes the wire. Projected by
+its proto3 JSON spelling it is an RFC 3339 string, which is the wire. The
+payload itself must still be an object: `google.protobuf.Empty` is (an object
+with no keys); a Timestamp or a wrapper payload is not. `optional` reads the field's presence, except that
 a *required* field (proto2, or editions `LEGACY_REQUIRED`) keeps its key: it
 tracks presence, but it is never absent. The rejected string formats are what
 the rejected protobuf types transcode to — `bytes` becomes `byte` or `binary`,
@@ -830,15 +876,19 @@ half core implements, which is what the runtime builds its own half against.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.
 
-### Explicit tool exposure
+### Every runnable is a tool
 
-A Runnable is not automatically a discoverable tool. An owner opts in with
-`Operation.tool` in the method option or the same `tool` object in the
-`x-codefly-operation` OpenAPI marker. It declares a stable `name`, bounded
-`description`, and an explicit `effect`: `EFFECT_READ_ONLY` or
-`EFFECT_MUTATION`. Absence keeps the operation hidden; an empty exposure or an
-unspecified effect is invalid. HTTP verbs, scope names, receipt support and
-idempotence never classify a mutation as read-only.
+A Runnable is a discoverable tool by definition. `Operation.tool` (or the same
+`tool` object in the `x-codefly-operation` marker) is presentation only: a
+stable `name`, a bounded `description` and an explicit `effect`. A derivation
+fills it when the owner writes none — the method's name and leading doc
+comment, or the REST operation's `operationId` and description — with the
+effect from the authority policy, and read-only exactly when the operation
+recomputes. A binding delivered without one is presented from its operation
+spelling by `ToolFromPrepared`, as a mutation unless it recomputes. An empty
+exposure or an unspecified effect is invalid; HTTP verbs, scope names, receipt
+support and idempotence never classify a mutation as read-only, and a
+recomputed operation can never be presented as a mutation.
 
 The input/output schema remains the operation's derived `RunnableContract`.
 `OperationSpec.Tool` retains exposure during derivation, and a prepared binding
@@ -849,8 +899,7 @@ and the read-back side to the schema's field list, so a field a hand-copying
 writer would drop — exposure arrived as exactly such a field — cannot be added
 to the schema without the conversion learning it. `ToolFromPrepared` validates
 the complete binding (including its contract digest) and returns a detached
-exposure with no route, credential or authority scopes. A valid unexposed
-operation returns `ErrNotATool`.
+exposure with no route, credential or authority scopes.
 
 Core validates the declaration, not the publisher's identity or the viewer's
 permissions. The host must authenticate the declaration source and project only
@@ -931,9 +980,9 @@ It returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEvery
 holds both JSON fixtures, delivery and extraction to the schema's field list,
 including every nested projection field, as `TestPolicyRoundTripsEveryField`
 does for policy. A valid projection may accompany a binding with `policy.tool`
-absent: this leaves the generic method hidden from direct discovery, and
-`ToolFromPrepared` still returns `ErrNotATool`. An explicitly exposed generic
-method is a separate tool; its effect does not classify the projected tools.
+absent: the generic method is still a tool, presented from its operation, and
+its name is taken against the projection's. Its effect does not classify the
+projected tools.
 
 Discovery authenticates the declaration publisher and exposes only currently
 permitted installations and declarations. Admission rejects name collisions

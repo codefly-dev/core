@@ -72,6 +72,13 @@ message RunnableField {
     OBJECT = 4;
     // ARRAY is a homogeneous list described by items.
     ARRAY = 5;
+    // NUMBER is a floating-point number, as a protobuf float or double is
+    // carried in proto3 JSON.
+    NUMBER = 6;
+    // JSON is any JSON value: a google.protobuf.Struct, Value or ListValue,
+    // or a protobuf map, whose members the owner does not enumerate. format
+    // narrows it to "object" or "array" where the source says so.
+    JSON = 7;
   }
   // name is the field name; empty only for an array's items.
   string name = 1;
@@ -87,6 +94,14 @@ message RunnableField {
   repeated RunnableField fields = 6;
   // items describes an ARRAY field's elements.
   RunnableField items = 7;
+  // format refines the value's spelling the way proto3 JSON carries it:
+  // "date-time" (a Timestamp, RFC 3339), "duration" (a Duration, "1.5s"),
+  // "field-mask", "byte" (base64 bytes), "uint64" (an unsigned 64-bit
+  // integer, carried as a decimal string), "object" or "array" on a JSON
+  // value. Empty is a plain value of its type.
+  string format = 8;
+  // values are the names a STRING may take: a protobuf enum, carried by name.
+  repeated string values = 9;
 }
 
 // RunnableSchema is the typed shape of one invocation payload; the payload is
