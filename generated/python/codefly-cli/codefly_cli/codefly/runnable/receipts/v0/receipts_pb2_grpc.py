@@ -13,10 +13,20 @@ class ReceiptsStub(object):
 
     The tenant is deliberately absent from every request below: it comes from the
     verified Work Context the call carries, so one tenant cannot name another's
-    effect. Authority is the operation's lookup_scopes, which are a read-only
-    subset of its invoke_scopes — recovering an outcome never carries more
-    authority than producing it did. Binding those scopes to the operation named
-    in the request is the server's job, and LookupRequest.method says why.
+    effect.
+
+    A receipt belongs to the caller that made the effect. The owner records,
+    with every receipt, the ReceiptIdentity of the Work Context the effect was
+    made under, and a lookup is admitted only for that same identity — the same
+    owner principal and the same acting principal — so no other caller in the
+    tenant reads it, whatever scopes it holds and whatever effect id it
+    presents. On top of the identity, the presented context must cover the
+    operation's lookup_scopes, or, when the operation declares none, its
+    invoke_scopes: the receipt is then read with exactly the authority that made
+    the effect, never more. Binding those scopes to the operation named in the
+    request is the server's job, and LookupRequest.method says why.
+    codefly-dev/core's runnable.AdmitReceiptLookup is the one decision, so every
+    server makes it the same way.
     """
 
     def __init__(self, channel):
@@ -40,10 +50,20 @@ class ReceiptsServicer(object):
 
     The tenant is deliberately absent from every request below: it comes from the
     verified Work Context the call carries, so one tenant cannot name another's
-    effect. Authority is the operation's lookup_scopes, which are a read-only
-    subset of its invoke_scopes — recovering an outcome never carries more
-    authority than producing it did. Binding those scopes to the operation named
-    in the request is the server's job, and LookupRequest.method says why.
+    effect.
+
+    A receipt belongs to the caller that made the effect. The owner records,
+    with every receipt, the ReceiptIdentity of the Work Context the effect was
+    made under, and a lookup is admitted only for that same identity — the same
+    owner principal and the same acting principal — so no other caller in the
+    tenant reads it, whatever scopes it holds and whatever effect id it
+    presents. On top of the identity, the presented context must cover the
+    operation's lookup_scopes, or, when the operation declares none, its
+    invoke_scopes: the receipt is then read with exactly the authority that made
+    the effect, never more. Binding those scopes to the operation named in the
+    request is the server's job, and LookupRequest.method says why.
+    codefly-dev/core's runnable.AdmitReceiptLookup is the one decision, so every
+    server makes it the same way.
     """
 
     def Lookup(self, request, context):
@@ -81,10 +101,20 @@ class Receipts(object):
 
     The tenant is deliberately absent from every request below: it comes from the
     verified Work Context the call carries, so one tenant cannot name another's
-    effect. Authority is the operation's lookup_scopes, which are a read-only
-    subset of its invoke_scopes — recovering an outcome never carries more
-    authority than producing it did. Binding those scopes to the operation named
-    in the request is the server's job, and LookupRequest.method says why.
+    effect.
+
+    A receipt belongs to the caller that made the effect. The owner records,
+    with every receipt, the ReceiptIdentity of the Work Context the effect was
+    made under, and a lookup is admitted only for that same identity — the same
+    owner principal and the same acting principal — so no other caller in the
+    tenant reads it, whatever scopes it holds and whatever effect id it
+    presents. On top of the identity, the presented context must cover the
+    operation's lookup_scopes, or, when the operation declares none, its
+    invoke_scopes: the receipt is then read with exactly the authority that made
+    the effect, never more. Binding those scopes to the operation named in the
+    request is the server's job, and LookupRequest.method says why.
+    codefly-dev/core's runnable.AdmitReceiptLookup is the one decision, so every
+    server makes it the same way.
     """
 
     @staticmethod
