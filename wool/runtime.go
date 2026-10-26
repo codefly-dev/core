@@ -42,13 +42,15 @@ func SetFallbackLogger(l LogProcessor) {
 }
 
 // getFallbackLogger returns the fallback logger or a Console if none is set.
+// The Console carries no threshold of its own: Wool.LogLevel already applied the
+// global level and any scope override.
 func getFallbackLogger() LogProcessor {
 	fallbackLoggerMu.RLock()
 	defer fallbackLoggerMu.RUnlock()
 	if fallbackLogger != nil {
 		return fallbackLogger
 	}
-	return &Console{level: GlobalLogLevel()}
+	return &Console{}
 }
 
 // scopeRule maps a scope-name prefix to a log level. A rule with an empty
@@ -73,6 +75,8 @@ func init() {
 // of "scope=level" entries, e.g. "network=debug,resources=info,*=warn"; "*" is
 // the catch-all. A scope matches when its prefix lines up with a leading segment
 // of the .In(...) name (see scopeMatches); the longest matching prefix wins.
+// A rule may set a scope louder or quieter than the global level, and it wins
+// over a console threshold (Provider.WithConsole) too.
 // Unparseable entries are ignored.
 func SetLogScopes(spec string) {
 	rules := parseLogScopes(spec)
