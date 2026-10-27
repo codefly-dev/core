@@ -199,6 +199,9 @@ vocabulary: every kind is one of its `scope_ceilings` and every action within
 that ceiling, and the list names each method once, each requiring at least one
 action. The render delivers them beside the methods its published contracts
 declare, so the hop in front of the module decides them like any other.
+An entry may name `service:` to select its serving service. The composition
+requires that service to publish a gRPC or Connect listener; without a selector
+it must find exactly one such service. This selects routing, not authority.
 
 **A module declares owner-aware checking explicitly.** Top-level
 `owner_aware: true` declares that the module enforces resource-owner selectors
