@@ -374,3 +374,74 @@ func TestCheckArchiveDigestHoldsBytesToTheReleaseRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, warning, "unverified")
 }
+
+// TestReleaseDigestSidecarIsInvisibleToCacheScans: the record Download leaves
+// beside an executable must never read as an agent to anything listing the
+// cache by name, and must round-trip the digest it records.
+func TestReleaseDigestSidecarIsInvisibleToCacheScans(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	agent := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1.2.3"}
+	bin, err := agent.Path(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o750))
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+
+	recorded, err := InstalledReleaseDigest(ctx, agent)
+	require.NoError(t, err)
+	require.Empty(t, recorded, "a cached executable with no record is reported as such, not as an error")
+
+	require.NoError(t, writeReleaseDigest(bin, strings.Repeat("a", 64)))
+	recorded, err = InstalledReleaseDigest(ctx, agent)
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("a", 64), recorded)
+
+	latest := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget"}
+	require.NoError(t, findLocalLatestInDir(filepath.Dir(bin), latest))
+	require.Equal(t, "1.2.3", latest.Version)
+	installed, err := Installed(ctx, resources.ServiceAgent)
+	require.NoError(t, err)
+	require.Len(t, installed, 1)
+}
+
+// TestAdmitCachedReleaseHoldsTheCacheToItsRecord covers the four states a cached
+// executable can be in: installed from a release and unchanged; installed from
+// a release and replaced since; never installed from a release under local
+// resolution; and never installed from a release under remote resolution, where
+// the release cannot be fetched.
+func TestAdmitCachedReleaseHoldsTheCacheToItsRecord(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	agent := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1.2.3"}
+	bin, err := agent.Path(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o750))
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+	digest, info, err := executableIdentity(ctx, bin)
+	require.NoError(t, err)
+
+	require.NoError(t, writeReleaseDigest(bin, strings.TrimPrefix(digest, "sha256:")))
+	got, _, err := admitCachedRelease(ctx, agent, bin, digest, info)
+	require.NoError(t, err)
+	require.Equal(t, digest, got)
+
+	require.NoError(t, writeReleaseDigest(bin, strings.Repeat("a", 64)))
+	_, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
+	require.ErrorIs(t, err, ErrAgentAdmission)
+	require.ErrorContains(t, err, "installed from its release as sha256:"+strings.Repeat("a", 64))
+	require.ErrorContains(t, err, digest)
+
+	require.NoError(t, os.Remove(releaseDigestFile(bin)))
+	t.Setenv(AgentSourceEnv, "local")
+	_, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
+	require.NoError(t, err, "a local build is what CODEFLY_AGENT_SOURCE=local asks for")
+
+	t.Setenv(AgentSourceEnv, "")
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, _, err = admitCachedRelease(cancelled, agent, bin, digest, info)
+	require.ErrorIs(t, err, ErrAgentAdmission)
+	require.ErrorContains(t, err, "was not installed from a release and the release could not be fetched")
+	require.ErrorContains(t, err, "CODEFLY_AGENT_SOURCE=local")
+	require.FileExists(t, bin, "a refused cache entry is left for the operator to see, not deleted")
+}

@@ -803,6 +803,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 
 	// Resolve binary: local cache → Nix flake → OCI registry → GitHub release.
+	cachePath := bin
 	if _, err := exec.LookPath(bin); err != nil {
 		pulled := false
 		// Try Nix store first (AGENT_NIX_FLAKE env var). Content-addressed,
@@ -850,6 +851,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	if err != nil {
 		return nil, err
 	}
+	if bin == cachePath && resolvesFromGitHubRelease(p) && registration.AutoDownload {
+		artifactDigest, artifactInfo, err = admitCachedRelease(ctx, p, bin, artifactDigest, artifactInfo)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var verifiedProvider *providerartifact.Verified
 	if registration.Resolution.Local == resources.AgentResolutionVerifiedArtifact {
 		verifiedProvider, err = providerartifact.VerifyExecutable(bin, p)
@@ -858,6 +865,52 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		}
 	}
 	return spawnAgent(ctx, bin, p.Unique(), string(p.Kind), artifactDigest, artifactInfo, verifiedProvider, cfg)
+}
+
+// admitCachedRelease holds an executable found in the agent cache to the digest
+// it was installed from its release with.
+//
+// The cache is keyed by name alone — <name>__<version> — and nothing used to
+// compare its bytes with the release that name stands for. So a build left
+// under a released version's name, by a developer or by a CI run that installed
+// what it built, was run by every process resolving that version, silently and
+// with nothing in any output to tell it from the release. Download now records
+// the installed digest beside the executable; this is where it is held to it.
+//
+// An executable with no record was not installed from a release by this
+// downloader: a local build, or an install that predates the record. Under
+// CODEFLY_AGENT_SOURCE=local that is what the developer asked for. Under remote
+// resolution the name means the release, so the release is fetched over it; if
+// it cannot be, the cached bytes are refused rather than run on trust, and the
+// refusal names the way to run a local build deliberately.
+func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest string, info os.FileInfo) (string, os.FileInfo, error) {
+	w := wool.Get(ctx).In("manager.admitCachedRelease", wool.Field("agent", p.Identifier()))
+	recorded, err := readReleaseDigest(bin)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: %v", ErrAgentAdmission, err)
+	}
+	switch {
+	case recorded != "" && "sha256:"+recorded == digest:
+		return digest, info, nil
+	case recorded != "":
+		return "", nil, fmt.Errorf("%w: cached agent %s is %s but was installed from its release as sha256:%s; something replaced it after install — delete it and it is downloaded again", ErrAgentAdmission, bin, digest, recorded)
+	case AgentSourceLocal():
+		w.Debug("cached agent was not installed from a release; CODEFLY_AGENT_SOURCE=local admits it", wool.Field("digest", digest))
+		return digest, info, nil
+	}
+	w.Warn(fmt.Sprintf("cached agent %s (%s) was not installed from a release; fetching the release over it", p.Identifier(), digest))
+	if err := Download(ctx, p); err != nil {
+		return "", nil, fmt.Errorf("%w: cached agent %s (%s) was not installed from a release and the release could not be fetched to replace it: %v; export %s=local to run local builds deliberately", ErrAgentAdmission, bin, digest, err, AgentSourceEnv)
+	}
+	digest, info, err = executableIdentity(ctx, bin)
+	if err != nil {
+		return "", nil, err
+	}
+	recorded, err = readReleaseDigest(bin)
+	if err != nil || "sha256:"+recorded != digest {
+		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release as sha256:%s but reads as %s", ErrAgentAdmission, bin, recorded, digest)
+	}
+	return digest, info, nil
 }
 
 func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDigest string, artifactInfo os.FileInfo, verifiedProvider *providerartifact.Verified, cfg loadConfig) (*AgentConn, error) {
