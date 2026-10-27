@@ -729,6 +729,30 @@ One call carries one invocation, and there is no way to hand a second to a
 call already in flight. `execution.concurrency` therefore bounds how many calls
 a facility serves at once, not a pool inside one of them.
 
+**The request line, for either route.** A Connect procedure uses
+`POST <address><route>`; a REST mutation preserves its `POST` or `PUT` verb. A prepared binding names a typed route
+rather than one spelling read as both (`PreparedCall`), and a REST `GET` — the
+one route core derives only as a read — carries its input as its **query** and
+no body, so the method and the body are not the same for every call.
+`runnable.CallRequestFor(binding, input)` is that translation, and it is the
+only one: it answers the method, the absolute path, the query and the body for
+whichever arm the binding sets, and refuses a verb outside `GET`/`POST`/`PUT`,
+a route that is not an absolute path, and a `GET` member no query string can
+spell (a null, an object, an array). The input itself must be an object: `{}`
+is valid and `null` is not. Valid REST paths, including `/` and trailing slashes,
+are preserved. `runnable.CallQuery` is the query half on
+its own — each member one parameter of that name, a string as written, a number
+or a boolean in its JSON spelling, sorted by name so one input object addresses
+one request line.
+
+It lives here because more than one caller makes a prepared call — the task
+runtime's worker dispatches an installed binding, robin's chat turn calls one
+as the asking person — and the wire form of `HTTPRoute` is this package's to
+define. It addresses the call and nothing more: what authorizes it, which
+headers it carries, which client dials it, how an answer is classified and
+where a receipt is read are the caller's, because those differ between a
+durable task and a chat turn and the request line does not.
+
 **Identity and deadline.** An invocation carries the release it invokes, an
 `invocation_id` for this one call, an `intent_id` stable across attempts of the
 caller's logical operation, and the `effect_id` an uncertain outcome is resolved

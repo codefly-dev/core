@@ -117,3 +117,91 @@ func TestOpenReleaseAssetRefusesUntrustedURLAndCancelledContext(t *testing.T) {
 	_, _, err = OpenReleaseAsset(ctx, testReleaseURL, client)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// TestFetchReleaseAssetPrefersTheProducersChecksums establishes the digest
+// source order: the checksums file the release's producer published outranks
+// GitHub's own record of the upload, and a release with neither yields nothing
+// to hold the bytes to rather than an invented digest.
+func TestFetchReleaseAssetPrefersTheProducersChecksums(t *testing.T) {
+	const archive = "service-render_0.1.0_linux_amd64.tar.gz"
+	for _, scenario := range []struct {
+		name, wantDigest, wantSource string
+		wantError                    string
+		checksums                    bool
+		githubDigest                 string
+	}{
+		{name: "checksums outrank github", checksums: true, githubDigest: "sha256:" + strings.Repeat("b", 64), wantDigest: strings.Repeat("a", 64), wantSource: DigestFromChecksums},
+		{name: "github record alone", githubDigest: "sha256:" + strings.Repeat("b", 64), wantDigest: strings.Repeat("b", 64), wantSource: DigestFromGitHub},
+		{name: "nothing to hold to"},
+		{name: "empty digest", githubDigest: "sha256:", wantError: "invalid SHA-256"},
+		{name: "unsupported digest", githubDigest: "sha512:" + strings.Repeat("b", 128), wantError: "invalid SHA-256"},
+		{name: "malformed digest", githubDigest: "sha256:bad", wantError: "invalid SHA-256"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			assets := []map[string]any{{"id": 12, "name": archive, "size": 7, "browser_download_url": testReleaseURL, "digest": scenario.githubDigest}}
+			if scenario.checksums {
+				assets = append(assets, map[string]any{"id": 13, "name": "service-render_0.1.0_checksums.txt", "size": 80, "browser_download_url": strings.Replace(testReleaseURL, archive, "service-render_0.1.0_checksums.txt", 1)})
+			}
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/example-org/service-render/releases/tags/v0.1.0":
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]any{"tag_name": "v0.1.0", "assets": assets})
+				case "/repos/example-org/service-render/releases/assets/13":
+					fmt.Fprintf(w, "%s  %s\n%s  other.tar.gz\n", strings.Repeat("a", 64), archive, strings.Repeat("c", 64))
+				case "/repos/example-org/service-render/releases/assets/12":
+					fmt.Fprint(w, "archive")
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(api.Close)
+			endpoint := api.URL + "/"
+			client, err := github.NewClient(github.WithURLs(&endpoint, &endpoint))
+			require.NoError(t, err)
+			asset, err := FetchReleaseAsset(t.Context(), testReleaseURL, client)
+			if scenario.wantError != "" {
+				require.ErrorContains(t, err, scenario.wantError)
+				return
+			}
+			require.NoError(t, err)
+			defer asset.Body.Close()
+			require.Equal(t, scenario.wantDigest, asset.Digest)
+			require.Equal(t, scenario.wantSource, asset.DigestSource)
+		})
+	}
+}
+
+// TestFetchReleaseAssetRefusesAChecksumsFileThatOmitsTheArchive: a producer's
+// record that exists but says nothing about the archive is a verdict, not an
+// absence — the bytes cannot be established, so they are not served.
+func TestFetchReleaseAssetRefusesAChecksumsFileThatOmitsTheArchive(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/example-org/service-render/releases/tags/v0.1.0":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"tag_name":"v0.1.0","assets":[{"id":12,"name":"service-render_0.1.0_linux_amd64.tar.gz","size":7,"browser_download_url":%q},{"id":13,"name":"checksums.txt","size":10,"browser_download_url":"https://github.com/example-org/service-render/releases/download/v0.1.0/checksums.txt"}]}`, testReleaseURL)
+		case "/repos/example-org/service-render/releases/assets/13":
+			fmt.Fprintf(w, "%s  other.tar.gz\n", strings.Repeat("c", 64))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(api.Close)
+	endpoint := api.URL + "/"
+	client, err := github.NewClient(github.WithURLs(&endpoint, &endpoint))
+	require.NoError(t, err)
+	_, err = FetchReleaseAsset(t.Context(), testReleaseURL, client)
+	require.ErrorContains(t, err, "records no digest for service-render_0.1.0_linux_amd64.tar.gz")
+}
+
+func TestParseChecksumsReadsSha256sumOutput(t *testing.T) {
+	digest := strings.Repeat("A", 64)
+	parsed, err := parseChecksums([]byte(digest + "  a.tar.gz\n" + digest + " *b.tar.gz\n\n"))
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"a.tar.gz": strings.ToLower(digest), "b.tar.gz": strings.ToLower(digest)}, parsed)
+	for _, raw := range []string{"abcd  a.tar.gz", digest + "  a.tar.gz\n" + digest + "  a.tar.gz", "malformed line here", strings.Repeat("x", 70000)} {
+		_, err := parseChecksums([]byte(raw))
+		require.Error(t, err)
+	}
+}

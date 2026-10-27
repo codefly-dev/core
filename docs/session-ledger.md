@@ -9,7 +9,8 @@ Codefly already had two ownership mechanisms, and neither answers the question
 cleanup actually asks.
 
 - **Process groups** (`runners/base`) persist an authenticated record per spawned
-  group under `~/.codefly/runs/authenticated-v1/`. It is PID-reuse safe and
+  group under `~/.codefly/runs/authenticated-v2/` (with explicit reads of the
+  earlier `authenticated-v1` contract). It is PID-reuse safe and
   proves which groups a dead CLI left behind — but it knows nothing about
   containers, volumes, data, or whether a resource was ours to begin with.
 - **Docker containers** carried the spawning CLI's PID in a
@@ -291,6 +292,48 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
 
+## Native launch workspace
+
+Native tracked spawns transport the CLI's `CODEFLY_RUN_WORKSPACE` marker from
+the current parent environment at spawn time. This includes materialized Nix
+processes: an old cached export cannot override the current launch workspace,
+and a parent without the marker clears any cached marker. Service processes
+whose working directories live outside the workspace need durable attribution:
+Redis, for example, can rewrite the process metadata that exposes the marker.
+
+New tracked spawns persist the current parent marker as `launch_workspace` in
+`~/.codefly/runs/authenticated-v2/<pgid>.pgid` before releasing the start gate.
+The record carries the same leader/owner birth identities and group credential.
+`ListProcessGroups` discovers registrations without consumer format knowledge.
+`LookupProcessGroup` reads v2 and v1, refusing duplicate registrations across
+namespaces. Discovery errors return no partial list and do not modify evidence. `InspectOwnership` returns `LaunchWorkspace` only when the group
+authenticates; an empty value means no recorded attribution, including all v1
+records. Scope selection and refusal policy remain with the CLI. Metadata never
+authorizes signaling: callers must use the existing identity-checking methods.
+
+The process-group registry is an explicit exception to the default generated
+protobuf contract rule in [architecture](architecture.md#contract-source-of-truth).
+Core retains the existing strict JSON storage contract so it can recover records
+from independently released owners without rewriting their birth evidence.
+The versioned namespace isolates incompatible readers. Consumers use the Core
+ownership API instead of implementing a JSON decoder; this exception does not
+introduce another public serialization surface or relax the protobuf default.
+
+The v1 wire format is unchanged. Older strict readers ignore the v2 directory;
+they cannot recover its groups and must upgrade before claiming scoped cleanup
+of new producers. New Core explicitly reaps both formats, locking each namespace
+with its existing lock. It never copies or rewrites live v1 evidence. Unknown
+namespaces remain untouched. The versioned record is the only durable provenance
+source; no parallel sidecar registry or argv/environment inference is required.
+
+If a live recorded leader has the same process-start identity but a different
+boot identity, Core reports incompatible evidence and preserves the record.
+This includes older Darwin records using clock-derived boot times. It is not
+proof of PID reuse or successful cleanup, and Core neither rewrites the birth
+identity nor signals the unverified process. Inspection, stale recovery and
+explicit signals share this refusal; an actual different start identity retains
+the existing reused-process handling.
+
 ## Startup container recovery scope
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`
@@ -316,6 +359,30 @@ explicit owner recovery, even when runtime configurations match. Each Docker
 environment retains its scope from first use so another flow changing the process
 marker cannot redirect its cleanup. Cross-scope recovery authorizes orphan
 sweeping only; it never authorizes adopting another invocation's container.
+
+Agents bind each service-owned Docker environment before first use with
+`WithServiceIdentity(s.Identity)`, using the identity supplied by `Base.Load`.
+The runner snapshots the exact module/service into `codefly.service`; it never
+derives a parent from flattened container names, sidecar suffixes or the agent
+process identity. Service version is excluded so upgrades can reuse state.
+Changing the source identity afterward cannot redirect the environment, and
+rebinding after first use returns an error.
+
+`dockerrun.ContainerServiceIdentity(labels)` reads this same attribution for
+consumers such as the CLI's port guard. Missing attribution returns `nil, nil`;
+a malformed present label is an error. A present conflicting label refuses
+adoption and runtime-configuration replacement, including by an unbound runner.
+The label alone does not authorize reuse or cleanup: consumers still check exact
+recovery scope, compatible namespace, actual/logical container name and lifecycle
+and publication constraints relevant to their operation.
+
+Legacy unlabeled containers retain the existing exact-name reuse behavior, but
+remain unproven to a parent-service lookup. Core neither relabels them nor
+replaces them solely to acquire attribution. In particular, a suffixed name is
+not evidence that a retained container belongs to a service. Rollout requires
+the creating agent to adopt this API for each container; upgrading the CLI alone
+cannot attribute containers from an older agent. Recovery of old retained state
+remains an explicit owner operation, never a broad cleanup.
 
 The marker and that header are owned by `runners/recoveryscope`, which holds no
 Docker client: an agent validates and echoes what it inherited but never calls a

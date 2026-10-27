@@ -107,6 +107,8 @@ type DockerEnvironment struct {
 	// Recovery ownership is fixed on first use. A later flow changing the
 	// process marker must not redirect this environment's lookup or shutdown.
 	recoveryScope *ContainerRecoveryScope
+	// serviceIdentity is a module/service snapshot, frozen with recoveryScope.
+	serviceIdentity string
 	// carriers are the container's file-delivered configuration values,
 	// copied into it between create and start (copyCarriers).
 	carriers []resources.FileCarrier
@@ -233,6 +235,9 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		}
 		if ownershipErr := validateContainerRecoveryReuse(inspect.Config, containerConfig); ownershipErr != nil {
 			return w.Wrapf(ownershipErr, "cannot reuse container %s; recover its owner explicitly before retrying", docker.instance.ID)
+		}
+		if ownershipErr := validateContainerServiceReuse(inspect.Config.Labels, containerConfig.Labels[LabelCodeflyService]); ownershipErr != nil {
+			return w.Wrapf(ownershipErr, "cannot reuse container %s", docker.instance.ID)
 		}
 		owned = true
 		actualFingerprint := ""
@@ -572,6 +577,11 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation
 	}
+	docker.mu.Lock()
+	if docker.serviceIdentity != "" {
+		config.Labels[LabelCodeflyService] = docker.serviceIdentity
+	}
+	docker.mu.Unlock()
 
 	if len(docker.cmd) > 0 {
 		w.Debug("overriding command", wool.Field("cmd", base.CommandSummary(docker.cmd)))
@@ -881,6 +891,9 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		c := containers[i]
 		for _, name := range c.Names {
 			if name == "/"+docker.name {
+				if err := validateContainerServiceReuse(c.Labels, docker.serviceIdentity); err != nil {
+					return false, err
+				}
 				if c.Labels[LabelCodeflyRecoveryScope] != scope.id ||
 					(scope.id != "" && c.Labels[LabelCodeflyOwner] != labelTrue) {
 					return false, fmt.Errorf("container %s belongs to a different or unresolved recovery scope; refusing adoption or replacement", docker.name)

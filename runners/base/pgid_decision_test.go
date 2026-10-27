@@ -43,7 +43,7 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		signal.Ignore(syscall.SIGTERM)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
 		select {}
-	case "owner", "stubborn-owner", "live-owner":
+	case "owner", "stubborn-owner", "live-owner", "workspace-owner":
 		var stopping chan os.Signal
 		if os.Getenv(processGroupRoleEnv) == "live-owner" {
 			stopping = armTerminationSignal()
@@ -55,6 +55,10 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		}
 		leader := registryHelperCommand(leaderRole)
 		leader.Env = append(leader.Env, processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv))
+		if os.Getenv(processGroupRoleEnv) == "workspace-owner" {
+			// Replace the inherited environment before reaching the live child.
+			leader = exec.Command("env", "-i", "sh", "-c", `printf ready > "$1"; exec sleep 60`, "sh", os.Getenv(processGroupReadyFileEnv))
+		}
 		if _, err := StartTrackedProcessGroup(leader); err != nil {
 			t.Fatal(err)
 		}

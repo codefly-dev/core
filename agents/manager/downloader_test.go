@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/require"
 )
 
@@ -166,19 +167,25 @@ func TestFetchReleaseAbortsWhenContextIsCancelledBeforeHeaders(t *testing.T) {
 	// request it never returns at all, and this must report that as a failure
 	// rather than hang the package until the suite-wide timeout.
 	type result struct {
-		resp *http.Response
+		resp io.ReadCloser
 		err  error
 	}
 	returned := make(chan result, 1)
 	go func() {
-		resp, err := fetchRelease(ctx, server.URL)
+		endpoint := server.URL + "/"
+		client, err := newGitHubReleaseClient().Clone(github.WithURLs(&endpoint, &endpoint))
+		if err != nil {
+			returned <- result{err: err}
+			return
+		}
+		resp, _, err := client.Repositories.DownloadReleaseAsset(ctx, "owner", "repo", 1, agentDownloadClient)
 		returned <- result{resp, err}
 	}()
 
 	select {
 	case got := <-returned:
 		if got.err == nil {
-			got.resp.Body.Close()
+			got.resp.Close()
 			t.Fatal("a server that never answers must not return a response")
 		}
 		if !errors.Is(got.err, context.DeadlineExceeded) {
@@ -199,21 +206,24 @@ func TestFetchReleaseAbortsWhenContextIsCancelledMidTransfer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resp, err := fetchRelease(ctx, server.URL)
+	endpoint := server.URL + "/"
+	client, err := newGitHubReleaseClient().Clone(github.WithURLs(&endpoint, &endpoint))
+	require.NoError(t, err)
+	resp, _, err := client.Repositories.DownloadReleaseAsset(ctx, "owner", "repo", 1, agentDownloadClient)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp.Close()
 
 	first := make([]byte, 1)
-	if _, err := io.ReadFull(resp.Body, first); err != nil {
+	if _, err := io.ReadFull(resp, first); err != nil {
 		t.Fatalf("expected the transfer to start: %v", err)
 	}
 
 	cancel()
 	failed := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(io.Discard, resp.Body)
+		_, err := io.Copy(io.Discard, resp)
 		failed <- err
 	}()
 	select {
@@ -315,7 +325,7 @@ func TestWriteArchiveClosesItsHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeArchive(f, strings.NewReader(payload), int64(len(payload))); err != nil {
+	if _, err := writeArchive(f, strings.NewReader(payload), int64(len(payload))); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
@@ -338,11 +348,29 @@ func TestWriteArchiveClosesItsHandleWhenTheTransferFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = writeArchive(f, errReader{err: context.Canceled}, 1024)
+	_, err = writeArchive(f, errReader{err: context.Canceled}, 1024)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want the transfer failure to reach the caller", err)
 	}
 	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("second Close returned %v — a failed transfer leaked the descriptor", err)
 	}
+}
+
+// TestCheckArchiveDigestHoldsBytesToTheReleaseRecord: a digest mismatch is a
+// refusal naming both digests and whose record was used; no digest at all is a
+// warning that says the install is unverified, never a silent pass.
+func TestCheckArchiveDigestHoldsBytesToTheReleaseRecord(t *testing.T) {
+	warning, err := checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{Digest: "aa", DigestSource: DigestFromChecksums}, "aa")
+	require.NoError(t, err)
+	require.Empty(t, warning)
+
+	_, err = checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{Digest: "aa", DigestSource: DigestFromChecksums}, "bb")
+	require.ErrorContains(t, err, "refusing to install codefly.dev/parse:0.1.1")
+	require.ErrorContains(t, err, "sha256:bb")
+	require.ErrorContains(t, err, "checksums record says sha256:aa")
+
+	warning, err = checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{}, "bb")
+	require.NoError(t, err)
+	require.Contains(t, warning, "unverified")
 }
