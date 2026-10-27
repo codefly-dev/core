@@ -18,8 +18,10 @@ var ErrProcessNotFound = errProcessNotFound
 
 // ProcessIdentity is a process's full identity: the PID plus the boot and
 // start-time facts that distinguish it from a later process that happens to
-// reuse the same number. Callers persisting ownership must record all of it —
-// a PID on its own cannot be re-authenticated after a crash.
+// reuse the same number. Persist PID, BootID and StartID to re-authenticate a
+// birth after a crash; a PID alone is insufficient. PGID and Executable describe
+// current execution state, which can change within that birth. Before signaling,
+// re-inspect, compare the persisted birth, and supply the current full identity.
 type ProcessIdentity struct {
 	PID        int
 	PGID       int

@@ -519,8 +519,11 @@ reach its consumer.
 
 ### Signaling a detached process
 
-An owner that persists a detached process records `runners/base.InspectProcess`'s
-full `ProcessIdentity` and sends signals through `SignalProcess`. Core binds
+An owner persists a detached process's birth (`PID`, `BootID`, `StartID`) from
+`runners/base.InspectProcess`. Before signaling, it re-inspects and compares that
+birth, then supplies the current full `ProcessIdentity` to `SignalProcess`.
+Process group and executable describe execution state that can change within a
+birth. Core binds
 kernel delivery to that birth (Linux pidfd, Darwin audit token); a missing or
 replaced process returns `ErrProcessNotFound`. A PID-only record is refused.
 The consumer still owns its shutdown policy and process lifecycle. Registered
