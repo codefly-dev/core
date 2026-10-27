@@ -90,8 +90,7 @@ image core alone cannot build. Run them locally before touching that surface.
 
 ## Where things live
 
-`resources/` is the source of truth for every type. When unsure how something is
-modelled, read it there first.
+`resources/` is the source of truth for every type; read it there first.
 
 | Path | Owns |
 | --- | --- |
@@ -102,6 +101,7 @@ modelled, read it there first.
 | `network/` | deterministic port allocation, DNS, native/container/public modes |
 | `configurations/` | what services provide and consume, injected as env vars |
 | `runners/`, `companions/` | process execution; sidecar images for language tooling |
+| `imagepolicy/` | target-declared Dockerfile requirements ([docs](docs/image-policy.md)) |
 | `solutionhost/` | `ModuleManifest`, the one signed record of a module instance on a host: its workloads, endpoints and requested authority ([docs](docs/module-manifest.md)) |
 | `contracts/module/` | the ONE implementation of `codefly/module-contract/v1` (Go package `module`, imported as `modulecontract`) — the request a module publishes, strict decoding, every refusal as a named rule (`rules.go`), slot resolution, a serialisable model, shipped fixtures every reader is driven through and a self-check that deletes each rule and proves a fixture notices ([docs](docs/module-contract.md)). The cell (`codefly/cell/v1`) has no implementation in core |
 | `code/semantic` | the **only** package allowed to use cgo (tree-sitter) |
