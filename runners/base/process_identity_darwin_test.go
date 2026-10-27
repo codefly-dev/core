@@ -1,7 +1,9 @@
 package base
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +13,61 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
+	"golang.org/x/sys/unix"
 )
+
+func TestDarwinLegacyBootIdentityPreservesLiveRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	t.Cleanup(func() { stopRegistryLeader(t, leader) })
+	path := recordPath(t, leader.Process.Pid)
+	// Control: the current boot identity and live owner preserve the record.
+	if err := ReapStaleProcessGroups(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	boot, err := unix.SysctlTimeval("kern.boottime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewriteRecord(t, path, func(rec *pgidRecord) {
+		rec.Leader.BootID = fmt.Sprintf("%d:%d", boot.Sec, boot.Usec)
+		rec.Owner.BootID = rec.Leader.BootID
+	})
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := LookupProcessGroup(leader.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		name string
+		run  func() error
+	}{
+		{"stale sweep", func() error { return ReapStaleProcessGroups(t.Context()) }},
+		{"inspection", func() error { _, err := group.InspectOwnership(t.Context()); return err }},
+		{"signal", func() error { return group.Signal(t.Context(), syscall.SIGTERM) }},
+		{"owned authentication", func() error {
+			_, _, err := authenticateOwnedProcessGroup(context.Background(), group.record)
+			return err
+		}},
+	} {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); err == nil || !strings.Contains(err.Error(), "incompatible boot identity") {
+				t.Fatalf("expected explicit incompatible birth refusal, got %v", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("refusal must preserve byte-identical ownership evidence: %v", err)
+			}
+			assertGroupAlive(t, leader.Process.Pid)
+		})
+	}
+}
 
 func TestDarwinProcessNotFoundClassifiesProcessTableRaces(t *testing.T) {
 	tests := []struct {
@@ -30,6 +86,48 @@ func TestDarwinProcessNotFoundClassifiesProcessTableRaces(t *testing.T) {
 				t.Fatalf("darwinProcessNotFound(%v) = %t, want %t", test.err, got, test.want)
 			}
 		})
+	}
+}
+
+// TestDarwinBootIDNamesTheBootSessionNotTheClock pins the boot id to the one
+// Darwin value that holds still for a whole boot. kern.boottime moves every
+// time the clock is set, and a boot id built from it made every live record
+// stop matching its own process: the reaper dropped the record as a reused
+// group and the group could never be reaped again.
+func TestDarwinBootIDNamesTheBootSessionNotTheClock(t *testing.T) {
+	session, err := unix.Sysctl("kern.bootsessionuuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootID, err := darwinBootID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootID != session {
+		t.Fatalf("boot id = %q, want the boot session %q", bootID, session)
+	}
+	bootTime, err := unix.SysctlTimeval("kern.boottime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, clockDerived := range []string{
+		fmt.Sprintf("%d:%d", bootTime.Sec, bootTime.Usec),
+		fmt.Sprintf("%d", bootTime.Sec),
+	} {
+		if strings.Contains(bootID, clockDerived) {
+			t.Fatalf("boot id %q is derived from kern.boottime %q, which the kernel rewrites when the clock is set", bootID, clockDerived)
+		}
+	}
+
+	identity, err := inspectProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.bootID != session {
+		t.Fatalf("inspected boot id = %q, want the boot session %q", identity.bootID, session)
+	}
+	if !identity.matches(identity.recorded()) {
+		t.Fatal("a process does not match the identity it was just recorded with")
 	}
 }
 

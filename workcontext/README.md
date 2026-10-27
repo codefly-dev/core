@@ -130,8 +130,7 @@ still required, because no entrypoint skips the seal comparison or assumes the
 authorization revision — it is per tenant, and an earlier draft's stated number
 silently stopped enforcing revocation for every tenant but one; and the result
 is `*Authenticated`, which
-`policy.PrincipalFromWorkContext`, `Authority.Child` and `Authority.Grant` will
-not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
+`Authority.Child` and `Authority.Grant` will not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
 outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be
 refused — the one assertion a downgraded authenticator fails.
 
@@ -206,7 +205,7 @@ Two more entry points exist, and neither is a strength at all:
   reading its OWN credential needs the expiry and the seal, so with nothing
   returned it keeps the hand-written parser that this call exists to delete.
   The safety now rests on the TYPE — `Decoded` is not `Verified`, cannot
-  become one, and `policy.PrincipalFromWorkContext` will not take it — rather
+  become one, and nothing that derives a capability takes it — rather
   than on withholding data any holder of the token could base64-decode anyway.
 - **`(*Verifier).Recheck(ctx, *Verified) error`** — re-read live state under a
   long-running call, **without consuming the nonce**. It takes a `*Verified`,
@@ -324,3 +323,13 @@ for every consumer. That relocation is an owner call, not a quiet one.
 
 See `docs/work-context.md`, "Two entrypoints, one implementation, one strength"
 and "The forwarding hop inspects; the callee verifies".
+
+## Action-specific resource scopes
+
+Several scopes may name the same resource kind when their actions cover different
+resource IDs. Containment checks the union of IDs separately for each action.
+For example, `read(a)` and `invoke(b)` allow those two pairs, but neither
+`invoke(a)` nor `read(b)`. Row ordering does not change authority. A kind-wide
+action requires a parent row granting that action without an ID restriction;
+a finite union of IDs cannot become kind-wide. A zero-action row grants nothing
+and can retain an explicit denial for an already-known kind.

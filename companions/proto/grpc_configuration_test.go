@@ -255,3 +255,37 @@ func TestTypeScriptClientImportsCarryTheJsExtension(t *testing.T) {
 		})
 	}
 }
+
+// A client generated from proto sources resolves the same shared protos in every
+// language: a source importing buf/validate (or a grpc-gateway or grpc option)
+// compiles for Go and fails for any language whose buf.yaml leaves the module
+// out ("cannot find buf.validate.field"), which is how a Python client of an
+// interface whose protos validate their fields could not be generated at all.
+func TestEveryLanguageResolvesTheSameSharedProtos(t *testing.T) {
+	deps := func(language languages.Language) string {
+		dir := t.TempDir()
+		if err := CreateBufConfiguration(context.Background(), dir, "users-api", language, FacadeOptions{}); err != nil {
+			t.Fatalf("%s: %v", language, err)
+		}
+		configuration, err := os.ReadFile(filepath.Join(dir, "buf.yaml"))
+		if err != nil {
+			t.Fatalf("%s: %v", language, err)
+		}
+		block := regexp.MustCompile(`(?s)deps:\n(.*?)\n[a-z]`).FindStringSubmatch(string(configuration))
+		if block == nil {
+			t.Fatalf("%s writes no deps: %s", language, configuration)
+		}
+		return block[1]
+	}
+	want := deps(languages.GO)
+	for _, module := range []string{"buf.build/bufbuild/protovalidate", "buf.build/googleapis/googleapis"} {
+		if !strings.Contains(want, module) {
+			t.Fatalf("Go resolves no %s", module)
+		}
+	}
+	for _, language := range []languages.Language{languages.PYTHON, languages.TYPESCRIPT, languages.RUST} {
+		if got := deps(language); got != want {
+			t.Errorf("%s resolves\n%s\nwhere Go resolves\n%s", language, got, want)
+		}
+	}
+}

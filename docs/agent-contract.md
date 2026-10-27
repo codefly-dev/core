@@ -234,6 +234,71 @@ again after a failed one. It reports `StartedArtifact{Executable: path}` with
 no sources, since the executable is the build; it never derives the path from
 the cache directory's layout.
 
+### The runtime contexts a plugin can run in
+
+`AgentInformation.supported_backends` is the plugin's own answer to "how can I
+run on this host": `LOCAL`, `NIX` and `DOCKER`, in the plugin's preference
+order, already filtered to what the machine has (`runners/base.BackendSupport`).
+`services.PlanRuntimeContexts` reconciles a run's requested runtime context
+against it, for every service, **before anything boots**.
+
+A requested context is a preference, not an assertion every service of a graph
+can honour. A plugin that *is* its runtime image — a LibreOffice engine, not a
+compiled binary the host can run — declares `DOCKER` alone, and under
+`--runtime-context native` it runs as a container. The alternative, which this replaces, was the plugin refusing at
+its own Init with an error about an image field the user never set, and taking
+the whole run down with it ([core#820](https://github.com/codefly-dev/core/issues/820)).
+
+Not every substitution costs the same, so the decision says which one happened.
+Moving *into* a container is safe — the image brings its own engine. Giving one
+*up* is not: a stateful service then pairs on-disk state with whatever engine
+version the host-native backend brings, and a data directory written by a
+postgres 16 image, read by a nix postgres 17, fails later and opaquely.
+`RuntimeContextDecision.LeavesContainerImage` marks exactly that hop, so a run
+reports it apart from the substitutions that cost nothing but isolation. It
+marks what is visible here and no more: a plugin whose `supported_backends`
+omits `DOCKER` because the docker CLI is absent is indistinguishable from one
+that ships no image, so a `free` run on such a host is not flagged.
+
+`RuntimeContextDecision.Cause` separates whose fact caused a substitution. The
+plugin's declaration is one input; the host's own state — a Docker engine that
+is installed but not running — is another, and it arrives as
+`RuntimeContextRequest.Unavailable`, never subtracted from `Backends`. Core
+reconciles a declaration and probes nothing, so a host fact that is folded into
+the declaration becomes indistinguishable from it, and every diagnostic
+downstream then tells the user to fix the plugin when the remedy was to start a
+daemon. `SubstitutionUnavailable` and `SubstitutionUndeclared` are that
+distinction.
+
+A non-empty declaration is read as complete whether or not the plugin advertises
+anything: a list naming only `DOCKER` is already evidence that there is no
+native path. An **empty** one is the ambiguous case — an older plugin that never
+filled the field and a plugin that can run nowhere on this host are the same
+empty repeated field on the wire. `runtime-backend-declaration/v1` names which:
+a plugin advertising it owns the completeness of `supported_backends`, so an
+empty declaration is the plugin's own verdict that nothing here can run it.
+Without it, an empty declaration is unjudged and the request passes through,
+which is what it did before plugins declared backends at all. A plugin whose
+`BackendSupport` is only partly declared must not advertise it;
+`services.Advertisement.BackendsComplete` is the agent-side opt-in, and the
+shared contract never advertises it for every plugin built on this Core.
+
+Every service left with no usable backend is refused together, in one
+`services.NoRuntimeBackendError`, before anything boots. It carries the refusals
+as data rather than only as prose, because the remedy belongs to whoever owns
+the fact that caused each one: a refusal whose `Unavailable` is empty is the
+plugin's own verdict and nothing a user can act on, while one naming backends is
+the host's report, and the host reaches these through `errors.As` to print what
+it alone knows — which endpoint was unreachable, and how to start it — beside
+them. `errors.Is` against `services.ErrNoRuntimeBackend` is the cheap check for
+a caller that needs none of that.
+
+This is the Core half: the host contract and its reconciliation. The CLI's run
+resolves only the `free` hint today and honours an explicit context untouched,
+so the substitution and the up-front refusal reach a user only once
+`pkg/orchestration` plans through this. Core tests do not qualify that adoption
+or any plugin's.
+
 ### Compatibility reporting
 
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers
@@ -259,6 +324,19 @@ roots. Only plans selecting an explicit root use v4; default service-root plans
 retain v3 and its digest. The plan version, not the agent identity or Core pin,
 prevents an older host from silently building the wrong tree. See
 [build recipe context selection](build-cache.md#cli-executor-selection).
+`codefly.dev/docker-build-recipe/v5` records support for declared Go module
+downloads (`DockerBuildRecipe.go_module_downloads`). Only plans declaring one
+use v5. A v5 host fetches each declared module graph before any image build,
+supplies it as the named proxy build context, and refuses a declaration it did
+not fetch.
+`codefly.dev/docker-build-recipe/v6` records support for declared git source
+downloads (`DockerBuildRecipe.git_source_downloads`). Only plans declaring one
+use v6, and v6 also covers v5's declarations. A v6 host fetches each declared
+commit into a bare mirror at `services.GitSourceMirrorPath(repository)`, under
+`services.GitSourceMirrorRef(commit)`, supplies the mirrors as the named build
+context, and refuses a declaration it did not fetch.
+`runtime-backend-declaration/v1` is explicitly advertised by plugins that own
+the completeness of their `supported_backends`, as above.
 `runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
 consume `InitRequest.dependencies_network_mappings` before executing a test
 whose target is never started. These are the dependencies' accepted addresses,
@@ -311,13 +389,24 @@ trusting their contents. Single underscores remain valid in names and release
 labels. Existing unambiguous cache paths are unchanged.
 
 GitHub agent downloads use `GITHUB_TOKEN`, then `GH_TOKEN`, when supplied.
-Authenticated acquisition resolves the exact published tag and asset through
-the GitHub API, then streams the asset through its authenticated API endpoint.
-The bounded download client follows asset redirects without API credentials.
-Draft releases, duplicate assets and an asset URL that disagrees with the loader
-selection are refused. Without a token, the public download path is unchanged.
-`manager.OpenReleaseAsset` lets a publisher verify the same selected asset with
-its existing authenticated client; a private release is not a public URL probe.
+`manager.GitHubReleaseToken` exposes this selection to consumers verifying
+installability; a `gh` CLI login is not a loader credential. Both anonymous and
+authenticated acquisition resolve the exact published tag and asset through the
+GitHub API. The bounded download client follows asset redirects without API
+credentials. Draft releases, duplicate assets and an asset URL that disagrees
+with the loader selection are refused. An unauthenticated 404 can mean a missing
+release/platform asset or a private release; supply a token with repository
+access for the latter. Services do not need that download credential.
+
+Before extraction, downloads compare the archive's SHA-256 with its producer's
+published `*checksums.txt` entry, or GitHub's asset digest when no checksum file
+exists. Missing entries, malformed or duplicate checksum entries, lookup/read
+failures and digest mismatches are errors. A release confirmed to offer neither
+digest remains installable with an explicit unverified warning for historical
+releases. Checksums provide an integrity comparison, not signed provenance.
+`manager.FetchReleaseAsset` exposes the same archive and expected digest to
+consumers; `OpenReleaseAsset` retains its reader/size API. Existing local and OCI
+cache selection and live admission rules are unchanged.
 
 Agent downloads finish extraction before publishing a binary. Publication copies
 into a temporary file beside the destination, sets permissions, flushes and closes

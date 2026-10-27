@@ -129,7 +129,10 @@ func (w *Wool) Catch() {
 	}
 }
 
-// LogLevel returns the effective log level for this Wool instance.
+// LogLevel returns the effective log level for this Wool instance, and is the
+// one level gate wool applies (process checks it; no sink in this package
+// filters again): in order, the instance level, a scope override, then the
+// global level quietened by a console threshold.
 // A zero-value (DEFAULT) instance level means "inherit the global level" —
 // otherwise an instance never filters and custom processors (gRPC streaming,
 // buffered, agent loggers) receive every TRACE/DEBUG line regardless of the
@@ -144,7 +147,14 @@ func (w *Wool) LogLevel() Loglevel {
 	if level, ok := scopeLevelFor(w.name); ok {
 		return level
 	}
-	return GlobalLogLevel()
+	// A console's threshold (Provider.WithConsole) can only quiet the global
+	// level. It is read here, in the one gate, rather than by the console itself:
+	// a sink that re-filters cannot know a scope rule admitted the record.
+	level := GlobalLogLevel()
+	if c, ok := w.logger.(*Console); ok && c.level > level {
+		level = c.level
+	}
+	return level
 }
 
 func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {

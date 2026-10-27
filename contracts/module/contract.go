@@ -64,6 +64,44 @@
 // a capability for it is addressed to), resource_kind a *-resource-kind key and
 // binding_key a *-binding key, in either spelling core accepts.
 //
+// # The module itself
+//
+// One audience is not another module's vocabulary: the module's own. A module
+// that admits work into itself on someone's behalf — a scheduler issued the
+// capability an occurrence is admitted under — redeems a binding addressed to
+// its own principal, and that principal is already the contract's (Principal),
+// held by every renderer to the name the module is composed under. So the
+// audience slot alone may say so, as {self: true}, and resolves to Principal:
+// a configured value carrying the module's own name would be a second
+// statement of an identity the composition already resolves, free to drift
+// from it. Self names an audience and nothing else — a resource kind, a list
+// or a binding key is never the module's principal — and a binding addressed
+// to itself asks for its own vocabulary, so it names its kinds literally,
+// each within the module's own scope_ceilings, and declares no resource_kind
+// slot. It is not a slot the composition fills, so it neither fills nor
+// leaves unfilled an optional binding: such a binding is omitted by its other
+// slots, and one with none could never be left out, which is refused.
+//
+// # Audience lists
+//
+// A generic module reaches whichever modules a composition wires to it — a
+// store of comments reaches the owner of each kind of thing commented on —
+// so the audiences of one of its bindings are a LIST only the composition can
+// write. Such a binding declares `audiences` in place of `audience`: a slot
+// whose key is a *-audiences one and whose value is comma-separated names
+// (robin,documents). It means "this binding may be exercised toward any of
+// these audiences", and the resolution delivers it as one binding per listed
+// audience, each its own unit of authority at the issuer: id
+// <binding>:<audience> (AudienceBindingID), the audience, and the ceiling
+// resolved for THAT audience — the calls it names read from that audience's
+// own declarations, so two owners declaring one protocol's methods differently
+// get two different ceilings, and a call one of them does not serve is refused
+// by name. A bare-action ceiling is qualified per audience by resource_kinds
+// (a *-resource-kinds key, <audience>=<kind>,...), because each audience's
+// kinds are its own vocabulary: one resource_kind for many audiences would
+// name one module's kind at another, and one binding_key would install N
+// bindings under one key, so neither is written beside audiences.
+//
 // # Scope ceilings
 //
 // A binding's ceiling is written per operation in one of two spellings. Bare
@@ -125,12 +163,28 @@ var operations = []string{OperationInvoke, OperationLookup, OperationHeadless}
 // The slot fields of a binding, as the file spells them: what a refusal names
 // and what the key-naming convention is keyed by.
 const (
-	fieldAudience     = "audience"
-	fieldResourceKind = "resource_kind"
-	fieldBindingKey   = "binding_key"
-	fieldActions      = "actions"
-	fieldFrom         = "from"
+	fieldAudience      = "audience"
+	fieldAudiences     = "audiences"
+	fieldResourceKind  = "resource_kind"
+	fieldResourceKinds = "resource_kinds"
+	fieldBindingKey    = "binding_key"
+	fieldActions       = "actions"
+	fieldFrom          = "from"
+	fieldSelf          = "self"
 )
+
+// audienceBindingSeparator joins a binding declaring an audience list to one
+// audience it lists. It is outside the binding-id grammar (namePattern), so a
+// derived id never collides with a binding a contract declares, and inside the
+// opaque-id grammar a delivered manifest holds a binding id to.
+const audienceBindingSeparator = ":"
+
+// AudienceBindingID is the id a binding that declares an audience list is
+// delivered under for one audience it lists: the operation binding a module
+// names when it is issued a context toward that audience.
+func AudienceBindingID(binding, audience string) string {
+	return binding + audienceBindingSeparator + audience
+}
 
 // Destination kinds. The vocabulary belongs with the host's envelope table;
 // these three are what is written until that table names it.
@@ -163,7 +217,32 @@ var (
 	// them would make a delivered document depend on which record a reader
 	// met first.
 	ErrAmbiguousSlot = errors.New("module contract slot resolves ambiguously")
+	// ErrUnresolvedCall means a binding names a call whose requirement cannot
+	// be read: the contract was resolved with no callee declarations, or the
+	// audience does not serve the call, or the call declares nothing — or one
+	// it cannot be granted: a call a binding addressed to the module itself
+	// names requires a scope beyond the module's own scope_ceilings.
+	ErrUnresolvedCall = errors.New("module contract call cannot be resolved")
 )
+
+// Callees answers what a call to another module requires, from that module's
+// own declarations: the scopes, each "<resource kind>:<action>", that the
+// audience's method policy for the call names. A call the audience does not
+// serve, or one that declares nothing, is an error naming it.
+type Callees interface {
+	Requires(audience, call string) ([]string, error)
+}
+
+// ResolveOption shapes one resolution.
+type ResolveOption func(*resolveOptions)
+
+type resolveOptions struct{ callees Callees }
+
+// WithCallees resolves the bindings that name calls through callees: each such
+// operation's ceiling is the union of what its calls require.
+func WithCallees(callees Callees) ResolveOption {
+	return func(o *resolveOptions) { o.callees = callees }
+}
 
 var (
 	// namePattern is one lowercase dotted or dashed segment: a principal, a
@@ -184,6 +263,11 @@ type Contract struct {
 	// Principal is the principal every credential the module mints is issued
 	// to: the module's own name.
 	Principal string `yaml:"principal"`
+	// OwnerAware declares that the module enforces resource-owner selectors
+	// in Work Context scopes. It is never inferred from roles or kinds; absent
+	// or false declares no owner-aware checking. Solutions must declare it to
+	// receive person capabilities from the authority.
+	OwnerAware bool `yaml:"owner_aware,omitempty"`
 	// Namespaces are the namespaces the module declares — the audit namespaces
 	// it emits under, which an operator binds to its principal.
 	Namespaces []string `yaml:"namespaces"`
@@ -193,11 +277,44 @@ type Contract struct {
 	// ScopeCeilings are the module's own permission vocabulary: the widest
 	// authority any credential naming the module's resources may carry.
 	ScopeCeilings []ScopeCeiling `yaml:"scope_ceilings"`
+	// Roles are the roles a person may hold on an installation of a unit a
+	// person uses — a solution — each a set of scopes: its own kinds within
+	// ScopeCeilings, and the permissions at other modules its bindings ask for
+	// on a person's behalf. One of them is InstallerRole. A bare module, whose
+	// access is the organisation's roles, declares none.
+	Roles []Role `yaml:"roles,omitempty"`
 	// Bindings are the operation bindings the module redeems, outward.
 	Bindings []Binding `yaml:"bindings"`
 	// Destinations are the endpoints the module exposes for something else to
 	// route to.
 	Destinations []Destination `yaml:"destinations"`
+	// ForeignMethods are the methods the module serves from a protocol whose
+	// definition it does not own (an OpenTelemetry collector's Export), so no
+	// option of its own can mark them, each with what a call must hold. They
+	// join the methods its published contracts declare, so the hop in front of
+	// the module decides them like any other.
+	ForeignMethods []ForeignMethod `yaml:"foreign_methods,omitempty"`
+	// RequireMethodPolicies holds every method the module publishes to an
+	// explicit policy wherever the module is delivered: a method that names
+	// neither requirements nor any checked caller is refused by name before
+	// anything is rendered, even toward a host that does not consume method
+	// policies. Absent, whether an unmarked method is refused before delivery
+	// is the deliverer's call, made from what the host consumes; the hop in
+	// front of the module refuses an undeclared method per call either way.
+	RequireMethodPolicies bool `yaml:"require_method_policies,omitempty"`
+}
+
+// ForeignMethod is one served method of a protocol the module does not own,
+// by its full gRPC name, and what a call to it must hold, in the module's own
+// vocabulary.
+type ForeignMethod struct {
+	// Service names the Codefly service that serves this method when the module
+	// publishes more than one RPC service. Omission retains single-service
+	// inference. The composition validates the selection against published
+	// services, never an address.
+	Service  string         `yaml:"service,omitempty"`
+	Method   string         `yaml:"method"`
+	Requires []CeilingScope `yaml:"requires"`
 }
 
 // ScopeCeiling is one resource kind of the module's own vocabulary and the
@@ -206,6 +323,42 @@ type ScopeCeiling struct {
 	ResourceKind string   `yaml:"resource_kind"`
 	Actions      []string `yaml:"actions"`
 }
+
+// Role is one role of a unit's own: its name and what it grants — scopes, each
+// a resource kind named literally with the actions granted on it, scopes it
+// grants only on what the installation owns, and binding operations, each
+// granting what that binding carries for it as resolved.
+type Role struct {
+	Name   string         `yaml:"name"`
+	Scopes []CeilingScope `yaml:"scopes,omitempty"`
+	// InstallationOwnedScopes are scopes the role grants only on the
+	// resources the installation it is held on owns: those created or
+	// attached through that installation. Each names a kind and actions and
+	// no resource ids, since ids are each installation's own, and is held to
+	// the same rules and the same ceiling as Scopes. The authority resolves
+	// each, per installation, into the same scope limited to the ids that
+	// installation owns of the kind; a kind it owns nothing of grants
+	// nothing, never the whole kind.
+	InstallationOwnedScopes []CeilingScope `yaml:"installation_owned_scopes,omitempty"`
+	// Bindings grant what one of the unit's bindings carries for an operation
+	// a person causes (invoke, lookup): its ceiling as Resolve derives it —
+	// the scopes its calls require, read from each audience's declarations,
+	// or those it spells out — at each audience it is delivered to. It is how
+	// a role grants a permission at another module without naming that
+	// module's kinds.
+	Bindings []RoleBinding `yaml:"bindings,omitempty"`
+}
+
+// RoleBinding names one binding of the unit and one operation of it a role
+// grants.
+type RoleBinding struct {
+	Binding   string `yaml:"binding"`
+	Operation string `yaml:"operation"`
+}
+
+// InstallerRole is the role every unit that declares roles declares: whoever
+// installs it holds it on that installation.
+const InstallerRole = "installer"
 
 // Binding is one operation binding the module asks to redeem.
 type Binding struct {
@@ -219,18 +372,48 @@ type Binding struct {
 	Operations []string `yaml:"operations"`
 	// Lookup carries the lookup method when the binding declares lookup.
 	Lookup *Lookup `yaml:"lookup,omitempty"`
-	// Audience is the operation audience, a slot into the composition.
-	Audience Slot `yaml:"audience"`
+	// Audience is the operation audience, a slot into the composition — or
+	// {self: true}, the module itself, resolved to Principal.
+	// A binding declares exactly one of Audience and Audiences.
+	Audience Slot `yaml:"audience,omitempty"`
+	// Audiences is the operation audiences, a slot whose value lists them
+	// comma-separated: the binding may be exercised toward any of them, and
+	// is resolved into one binding per listed audience (AudienceBindingID),
+	// each with the ceiling that audience's own declarations give it.
+	Audiences *Slot `yaml:"audiences,omitempty"`
 	// ResourceKind is the other module's resource kind the scopes name, a
 	// slot. Required by a ceiling written as bare actions, which it qualifies;
-	// absent for a binding whose every ceiling spells its scopes out.
+	// absent for a binding whose every ceiling spells its scopes out. Never
+	// beside Audiences: each audience's kinds are its own.
 	ResourceKind *Slot `yaml:"resource_kind,omitempty"`
+	// ResourceKinds is, beside Audiences only, the kind that qualifies the
+	// bare actions per listed audience: a slot whose value is
+	// <audience>=<kind> pairs, comma-separated, one per listed audience.
+	ResourceKinds *Slot `yaml:"resource_kinds,omitempty"`
 	// BindingKey is the key the host installs the binding under, a slot.
+	// Never beside Audiences: one key cannot install a binding per audience.
 	BindingKey *Slot `yaml:"binding_key,omitempty"`
 	// ScopeCeiling is, per declared operation, the scopes the binding may at
-	// most carry. Every declared operation names its ceiling: a binding
-	// declaring no scopes for an operation cannot be minted that way at all.
-	ScopeCeiling map[string]Ceiling `yaml:"scope_ceiling"`
+	// most carry. Every declared operation names its ceiling here or in Calls:
+	// a binding declaring neither for an operation cannot be minted that way.
+	ScopeCeiling map[string]Ceiling `yaml:"scope_ceiling,omitempty"`
+	// Calls is, per declared operation, the audience's methods the binding
+	// calls, each spelled as the audience's own method policy names it: a
+	// gRPC method ("/<package>.<Service>/<Method>") or an HTTP route ("<VERB>
+	// <path>"). The operation's ceiling is then what those calls require,
+	// read from the audience's declarations when the contract is resolved
+	// (WithCallees), so a module never names another module's resource kinds.
+	// An operation takes its ceiling from ScopeCeiling or from Calls, never
+	// both.
+	Calls map[string][]string `yaml:"calls,omitempty"`
+	// Optional marks a binding a composition may leave out. A composition
+	// that fills NONE of its slots — every one absent, or supplied empty —
+	// gets a resolution without it (Resolved.Omitted says so and why), so no
+	// credential can ever be issued through it. A composition that fills any
+	// slot resolves it whole, exactly as a mandatory binding: a slot left
+	// unfilled beside a filled one is refused by name, because a misspelt key
+	// must not silently drop a binding. Mandatory is the default.
+	Optional bool `yaml:"optional,omitempty"`
 }
 
 // Ceiling is one operation's scope ceiling, in exactly one of two spellings:
@@ -333,9 +516,19 @@ type Lookup struct {
 
 // Slot is a reference to a workspace configuration value the composition
 // supplies: {from: <group>/<key>}. It is a struct and not a string so that a
-// literal value where a slot belongs is a schema error at the reader.
+// literal value where a slot belongs is a schema error at the reader. An
+// audience slot may instead be {self: true}: the module itself, resolved to
+// the contract's own principal (see "The module itself").
 type Slot struct {
 	From string `yaml:"from"`
+	// Self addresses the binding to the module itself. Only an audience may
+	// be, and never beside From.
+	Self bool `yaml:"self,omitempty"`
+
+	// present records that the document wrote the slot at all, so a binding
+	// writing audience: {} beside audiences is refused rather than read as
+	// declaring only the list.
+	present bool
 
 	// What the decoder saw where a slot belongs and the rule that refuses it:
 	// a literal, or a mapping carrying a field a slot does not, or one that
@@ -345,6 +538,10 @@ type Slot struct {
 	hasExtra  bool
 	extra     string
 	malformed error
+	// selfWritten records that the document wrote self at all, so self:
+	// false — a slot that says what it is not — is refused rather than read
+	// as a slot naming nothing.
+	selfWritten bool
 }
 
 // SlotGroups lists the workspace configuration groups the contract's slots
@@ -352,12 +549,12 @@ type Slot struct {
 // delivered manifest's authority beside what its services consume.
 func (contract *Contract) SlotGroups() []string {
 	seen := map[string]struct{}{}
-	for _, binding := range contract.Bindings {
-		for _, slot := range []*Slot{&binding.Audience, binding.ResourceKind, binding.BindingKey} {
-			if slot == nil || slot.From == "" {
+	for index := range contract.Bindings {
+		for _, declared := range contract.Bindings[index].fieldSlots() {
+			if declared.slot.From == "" {
 				continue
 			}
-			seen[slot.Group()] = struct{}{}
+			seen[declared.slot.Group()] = struct{}{}
 		}
 	}
 	groups := make([]string, 0, len(seen))
@@ -373,34 +570,94 @@ func (contract *Contract) SlotGroups() []string {
 // an extra key is a slot trying to carry a default; each is recorded for the
 // rule that refuses it.
 func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
+	slot.present = true
 	if node.Kind != yaml.MappingNode {
 		literal := node.Value
 		slot.literal = &literal
 		return nil
 	}
 	mapping := wire.ReadMapping(node, func(key string, value *yaml.Node) (bool, error) {
-		if key != fieldFrom {
-			return false, nil
+		switch key {
+		case fieldFrom:
+			// Decoded with its type, not copied off the node: a tagged scalar —
+			// {from: !!int assistant/model-audience} — is refused by the typed
+			// decoder and was silently accepted as a string by reading Value.
+			return true, value.Decode(&slot.From)
+		case fieldSelf:
+			slot.selfWritten = true
+			return true, value.Decode(&slot.Self)
 		}
-		// Decoded with its type, not copied off the node: a tagged scalar —
-		// {from: !!int assistant/model-audience} — is refused by the typed
-		// decoder and was silently accepted as a string by reading Value.
-		return true, value.Decode(&slot.From)
+		return false, nil
 	})
 	slot.hasExtra, slot.extra, slot.malformed = mapping.HasUnknown, mapping.Unknown, mapping.Err
 	return nil
 }
 
-// MarshalYAML writes the slot as {from: <group>/<key>}.
-func (slot Slot) MarshalYAML() (any, error) {
-	return map[string]string{fieldFrom: slot.From}, nil
+// MarshalYAML writes the slot as {from: <group>/<key>}, or {self: true}.
+func (slot Slot) MarshalYAML() (any, error) { return slot.wire(), nil }
+
+// MarshalJSON writes a slot in the spelling the file uses, {"from": ...} or
+// {"self": true}, so a document that carries one as JSON — a solution
+// manifest's canonical bytes — spells it as its YAML does.
+func (slot Slot) MarshalJSON() ([]byte, error) { return json.Marshal(slot.wire()) }
+
+// wire is the slot in the spelling the file uses. A slot holding both is
+// refused by Validate and is written with both, so it reads back refused.
+func (slot Slot) wire() map[string]any {
+	if !slot.Self {
+		return map[string]any{fieldFrom: slot.From}
+	}
+	if slot.From == "" {
+		return map[string]any{fieldSelf: true}
+	}
+	return map[string]any{fieldFrom: slot.From, fieldSelf: true}
 }
 
-// MarshalJSON writes a slot in the spelling the file uses, {"from": ...}, so a
-// document that carries one as JSON — a solution manifest's canonical bytes —
-// spells it as its YAML does.
-func (slot Slot) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]string{fieldFrom: slot.From})
+// declared reports whether the slot was written: read from a document, or
+// constructed with a reference or as the module itself.
+func (slot Slot) declared() bool {
+	return slot.present || slot.From != "" || slot.Self || slot.literal != nil
+}
+
+// composed reports a slot the composition fills: every declared slot but the
+// module itself, which the contract's own principal answers.
+func (slot Slot) composed() bool { return !slot.Self }
+
+// fieldSlot is one declared slot of a binding and the field it fills.
+type fieldSlot struct {
+	field string
+	slot  *Slot
+}
+
+// fieldSlots lists the binding's declared slots in file order: its audience
+// (unless it declares only an audience list), the list, the resource kind or
+// the per-audience kinds, and the binding key.
+func (binding *Binding) fieldSlots() []fieldSlot {
+	var all []fieldSlot
+	if binding.Audiences == nil || binding.Audience.declared() {
+		all = append(all, fieldSlot{fieldAudience, &binding.Audience})
+	}
+	for _, declared := range []fieldSlot{
+		{fieldAudiences, binding.Audiences}, {fieldResourceKind, binding.ResourceKind},
+		{fieldResourceKinds, binding.ResourceKinds}, {fieldBindingKey, binding.BindingKey},
+	} {
+		if declared.slot != nil {
+			all = append(all, declared)
+		}
+	}
+	return all
+}
+
+// composedSlots is fieldSlots without the module itself: the slots the
+// composition fills.
+func (binding *Binding) composedSlots() []fieldSlot {
+	var composed []fieldSlot
+	for _, declared := range binding.fieldSlots() {
+		if declared.slot.composed() {
+			composed = append(composed, declared)
+		}
+	}
+	return composed
 }
 
 // Group and Key split the slot's reference into the workspace configuration
@@ -415,9 +672,11 @@ func (slot Slot) Key() string { _, key, _ := strings.Cut(slot.From, "/"); return
 // Compared in core's normalized spelling, so model-audience and MODEL_AUDIENCE
 // both pass.
 var slotSuffixes = map[string][]string{
-	fieldAudience:     {"_AUDIENCE", "_PREFIX"},
-	fieldResourceKind: {"_RESOURCE_KIND"},
-	fieldBindingKey:   {"_BINDING"},
+	fieldAudience:      {"_AUDIENCE", "_PREFIX"},
+	fieldAudiences:     {"_AUDIENCES"},
+	fieldResourceKind:  {"_RESOURCE_KIND"},
+	fieldResourceKinds: {"_RESOURCE_KINDS"},
+	fieldBindingKey:    {"_BINDING"},
 }
 
 // Destination is one endpoint the module exposes for a caller outside it.
@@ -498,6 +757,22 @@ func parse(data []byte, without string) (*Contract, error) {
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)
 	}
+	if without != ruleOwnerAwareBoolean {
+		mapping := wire.ReadMapping(tree.Content[0], func(key string, value *yaml.Node) (bool, error) {
+			if key == "owner_aware" {
+				for value.Kind == yaml.AliasNode {
+					value = value.Alias
+				}
+				if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool" {
+					return true, fmt.Errorf("%w: owner_aware must be a boolean (true or false), declaring whether the module enforces resource-owner selectors", ErrInvalid)
+				}
+			}
+			return true, nil
+		})
+		if mapping.Err != nil {
+			return nil, mapping.Err
+		}
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)
 	var contract Contract
@@ -521,12 +796,50 @@ func (contract *Contract) Validate() error { return contract.validate("") }
 // Resolved is a contract with every slot resolved to the value the composition
 // supplies, ready to be derived into a manifest's authority.
 type Resolved struct {
-	Principal     string
-	Namespaces    []string
-	Queues        []string
-	ScopeCeilings []ScopeCeiling
-	Bindings      []ResolvedBinding
-	Destinations  []Destination
+	OwnerAware     bool
+	Principal      string
+	Namespaces     []string
+	Queues         []string
+	ScopeCeilings  []ScopeCeiling
+	Bindings       []ResolvedBinding
+	Destinations   []Destination
+	ForeignMethods []ForeignMethod
+	// Roles are the contract's roles, in declaration order, each grant
+	// addressed to the audience it is held at.
+	Roles []ResolvedRole
+	// Omitted are the optional bindings the composition fills none of the
+	// slots of, which the resolution leaves out: nothing can be issued
+	// through them. In declaration order.
+	Omitted []OmittedBinding
+}
+
+// OmittedBinding is one optional binding a resolution left out, and why.
+type OmittedBinding struct {
+	ID string
+	// Reason says why, naming every slot the composition left unfilled.
+	Reason string
+}
+
+// ResolvedRole is one role with every grant addressed. A role scope names a
+// kind and actions but no audience, and is never ambiguous here: Validate
+// holds it to the unit's own ceilings or to a scope one of its bindings spells
+// out, and Resolve addresses it to the one audience that underwrites it — the
+// unit's principal for its own kind, the binding's resolved audience for a
+// consumed one (a binding spelling scopes names one audience: never a list,
+// whose kinds are each audience's own). A scope two audiences underwrite is
+// refused, naming both; the role then grants the binding it means through
+// bindings, which carries its audience. A grant through an optional binding
+// the composition leaves out is left out with it.
+type ResolvedRole struct {
+	Name string
+	// Grants are, per audience, the scopes "<resource kind>:<action>" the
+	// role grants there. Sorted, each once.
+	Grants map[string][]string
+	// InstallationOwnedGrants are, per audience, the scopes
+	// "<resource kind>:<action>" the role grants there only on what the
+	// installation owns, addressed exactly as Grants' literal scopes are.
+	// Sorted, each once; nil when the role declares none.
+	InstallationOwnedGrants map[string][]string
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -544,48 +857,74 @@ type ResolvedBinding struct {
 	BindingKey string
 	// Scopes are, per operation, the scope strings the binding may at most
 	// carry, every one "<resource kind>:<action>": the binding's resolved
-	// resource kind qualifies its bare actions, and an explicit scope names
-	// its own. Sorted.
+	// resource kind qualifies its bare actions, an explicit scope names its
+	// own, and an operation that names calls carries what they require.
+	// Sorted, each once.
 	Scopes map[string][]string
+	// Calls are, per operation that names them, the calls its ceiling was
+	// read from. Sorted.
+	Calls map[string][]string
 }
 
 // Resolve resolves every slot of the contract against values. Every unresolved,
 // secret or ambiguous slot is reported in one error carrying every sentinel
 // that applies, so a composition is fixed in one pass rather than one slot per
 // render; a secret's value is never part of the message.
-func (contract *Contract) Resolve(values Values) (*Resolved, error) {
-	return contract.resolve(values, "")
+func (contract *Contract) Resolve(values Values, options ...ResolveOption) (*Resolved, error) {
+	return contract.resolve(values, "", options...)
 }
 
 // resolve is Resolve with one resolution rule removed, for the kit's
 // completeness self-check.
-func (contract *Contract) resolve(values Values, without string) (*Resolved, error) {
+func (contract *Contract) resolve(values Values, without string, options ...ResolveOption) (*Resolved, error) {
+	var opts resolveOptions
+	for _, option := range options {
+		option(&opts)
+	}
 	if err := contract.Validate(); err != nil {
 		return nil, err
 	}
 	resolved := &Resolved{
-		Principal:     contract.Principal,
-		Namespaces:    slices.Clone(contract.Namespaces),
-		Queues:        slices.Clone(contract.Queues),
-		ScopeCeilings: slices.Clone(contract.ScopeCeilings),
-		Destinations:  slices.Clone(contract.Destinations),
+		OwnerAware:     contract.OwnerAware,
+		Principal:      contract.Principal,
+		Namespaces:     slices.Clone(contract.Namespaces),
+		Queues:         slices.Clone(contract.Queues),
+		ScopeCeilings:  slices.Clone(contract.ScopeCeilings),
+		Destinations:   slices.Clone(contract.Destinations),
+		ForeignMethods: slices.Clone(contract.ForeignMethods),
 	}
-	var unresolved, secret, ambiguous []string
+	var unresolved, secret, ambiguous, calls []string
+	own := contract.ownCeilings()
+	// delivered maps a declared binding to the indexes of what it resolved
+	// to in resolved.Bindings: one entry, one per listed audience, or none.
+	delivered := map[string][]int{}
 	// One Records call per group, so a provider is asked for a group's records
 	// once and every slot of that group is resolved from the same answer.
 	groups := map[string][]Record{}
+	recordsOf := func(group string) ([]Record, error) {
+		if records, held := groups[group]; held {
+			return records, nil
+		}
+		supplied, err := values.Records(group)
+		if err != nil {
+			return nil, err
+		}
+		groups[group] = supplied
+		return supplied, nil
+	}
 	resolve := func(label string, slot *Slot, kind bool) string {
 		if slot == nil {
 			return ""
 		}
-		records, held := groups[slot.Group()]
-		if !held {
-			supplied, err := values.Records(slot.Group())
-			if err != nil {
-				ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
-				return ""
-			}
-			records, groups[slot.Group()] = supplied, supplied
+		if slot.Self {
+			// The module itself: the contract's principal, which every
+			// renderer holds to the name the module is composed under.
+			return contract.Principal
+		}
+		records, err := recordsOf(slot.Group())
+		if err != nil {
+			ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
+			return ""
 		}
 		answer := resolveSlot(records, slot.Key(), kind, without)
 		switch {
@@ -601,41 +940,314 @@ func (contract *Contract) resolve(values Values, without string) (*Resolved, err
 		}
 		return answer.value
 	}
+	// targetsOf resolves where a binding is delivered: its one audience and
+	// resource kind under its own id, or — for a binding declaring an audience
+	// list — each listed audience under AudienceBindingID with that audience's
+	// kind. A list that does not resolve is reported and delivers nothing.
+	targetsOf := func(binding Binding, label string) []bindingTarget {
+		if binding.Audiences == nil {
+			return []bindingTarget{{
+				id:       binding.ID,
+				audience: resolve(label+" audience", &binding.Audience, false),
+				kind:     resolve(label+" resource_kind", binding.ResourceKind, true),
+			}}
+		}
+		listed := resolve(label+" audiences", binding.Audiences, false)
+		kinds := resolve(label+" resource_kinds", binding.ResourceKinds, false)
+		if listed == "" || (binding.ResourceKinds != nil && kinds == "") {
+			return nil
+		}
+		audiences, reason := resolveAudienceList(listed, without)
+		if reason != "" {
+			ambiguous = append(ambiguous, label+" audiences ← "+binding.Audiences.From+" "+reason)
+			return nil
+		}
+		var kindOf map[string]string
+		if binding.ResourceKinds != nil {
+			var missing []string
+			kindOf, missing, reason = resolveKindsPerAudience(kinds, audiences, without)
+			switch {
+			case reason != "":
+				ambiguous = append(ambiguous, label+" resource_kinds ← "+binding.ResourceKinds.From+" "+reason)
+				return nil
+			case len(missing) > 0:
+				unresolved = append(unresolved, label+" resource_kinds ← "+binding.ResourceKinds.From+" names no kind for the listed audience "+strings.Join(missing, ", "))
+				return nil
+			}
+		}
+		targets := make([]bindingTarget, 0, len(audiences))
+		for _, audience := range audiences {
+			targets = append(targets, bindingTarget{id: AudienceBindingID(binding.ID, audience), audience: audience, kind: kindOf[audience]})
+		}
+		return targets
+	}
 	for _, binding := range contract.Bindings {
+		label := "binding " + binding.ID
+		if binding.Optional {
+			unfilled, none := binding.unfilledSlots(recordsOf)
+			switch {
+			case none:
+				resolved.Omitted = append(resolved.Omitted, OmittedBinding{
+					ID:     binding.ID,
+					Reason: "it is optional and the composition fills none of its slots (" + strings.Join(unfilled, ", ") + "), so nothing can be issued through it",
+				})
+				continue
+			case len(unfilled) > 0:
+				// Filled in part is resolved whole: each slot left unfilled
+				// is refused below by name, with the reason it was not
+				// omitted. Filled whole, it resolves as a mandatory binding.
+				label = "optional binding " + binding.ID + " (filled in part, so resolved whole)"
+			}
+		}
 		revision := binding.Revision
 		if revision == 0 {
 			revision = 1
 		}
-		entry := ResolvedBinding{
-			ID: binding.ID, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
-			Audience:     resolve("binding "+binding.ID+" audience", &binding.Audience, false),
-			ResourceKind: resolve("binding "+binding.ID+" resource_kind", binding.ResourceKind, true),
-			BindingKey:   resolve("binding "+binding.ID+" binding_key", binding.BindingKey, false),
-			Scopes:       make(map[string][]string, len(binding.Operations)),
-		}
-		for _, operation := range binding.Operations {
-			ceiling := binding.ScopeCeiling[operation]
-			scopes := make([]string, 0, len(ceiling.Actions)+len(ceiling.Scopes))
-			// Bare actions are qualified by the binding's resolved resource
-			// kind; explicit scopes carry their own, already held to the
-			// grammar by Validate.
-			for _, action := range ceiling.Actions {
-				scopes = append(scopes, entry.ResourceKind+":"+action)
+		targets := targetsOf(binding, label)
+		bindingKey := resolve(label+" binding_key", binding.BindingKey, false)
+		for _, target := range targets {
+			delivered[binding.ID] = append(delivered[binding.ID], len(resolved.Bindings))
+			entry := ResolvedBinding{
+				ID: target.id, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
+				Audience: target.audience, ResourceKind: target.kind, BindingKey: bindingKey,
+				Scopes: make(map[string][]string, len(binding.Operations)),
 			}
-			for _, scope := range ceiling.Scopes {
-				for _, action := range scope.Actions {
-					scopes = append(scopes, scope.ResourceKind+":"+action)
+			for _, operation := range binding.Operations {
+				ceiling := binding.ScopeCeiling[operation]
+				scopes := make([]string, 0, len(ceiling.Actions)+len(ceiling.Scopes))
+				// Bare actions are qualified by the binding's resolved resource
+				// kind; explicit scopes carry their own, already held to the
+				// grammar by Validate.
+				for _, action := range ceiling.Actions {
+					scopes = append(scopes, entry.ResourceKind+":"+action)
 				}
+				for _, scope := range ceiling.Scopes {
+					for _, action := range scope.Actions {
+						scopes = append(scopes, scope.ResourceKind+":"+action)
+					}
+				}
+				if named := binding.Calls[operation]; len(named) > 0 {
+					if entry.Calls == nil {
+						entry.Calls = map[string][]string{}
+					}
+					entry.Calls[operation] = slices.Sorted(slices.Values(named))
+					operationLabel := label + " " + operation
+					switch {
+					case opts.callees == nil:
+						calls = append(calls, operationLabel+" names calls, and the contract was resolved with no callee declarations to read them from")
+					case entry.Audience != "":
+						// Read from THIS audience's declarations: one binding
+						// listing two audiences gets each one's ceiling, and a
+						// call one of them does not serve is refused naming it.
+						for _, call := range entry.Calls[operation] {
+							required, err := opts.callees.Requires(entry.Audience, call)
+							if err != nil {
+								calls = append(calls, operationLabel+" call "+call+" at "+entry.Audience+": "+err.Error())
+								continue
+							}
+							if binding.Audience.Self {
+								// The self rule holds for what calls derive
+								// exactly as for what is spelled out: a scope at
+								// itself beyond its own ceilings is one no host
+								// could grant.
+								if beyond := beyondOwnCeilings(own, required); len(beyond) > 0 {
+									calls = append(calls, operationLabel+" call "+call+" is addressed to the module itself and requires "+strings.Join(beyond, ", ")+", beyond the module's own scope_ceilings")
+									continue
+								}
+							}
+							scopes = append(scopes, required...)
+						}
+					}
+				}
+				sort.Strings(scopes)
+				entry.Scopes[operation] = slices.Compact(scopes)
 			}
-			sort.Strings(scopes)
-			entry.Scopes[operation] = scopes
+			resolved.Bindings = append(resolved.Bindings, entry)
 		}
-		resolved.Bindings = append(resolved.Bindings, entry)
 	}
+	resolved.Roles, ambiguous = contract.resolveRoles(resolved, delivered, ambiguous)
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
+		if len(calls) > 0 {
+			err = errors.Join(err, callsError(calls))
+		}
 		return nil, err
 	}
+	if len(calls) > 0 {
+		return nil, callsError(calls)
+	}
 	return resolved, nil
+}
+
+// resolveRoles addresses every grant of every role (ResolvedRole), appending
+// to ambiguous each role scope two audiences underwrite.
+func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
+	own := contract.ownCeilings()
+	// underwriters are the audiences a literal role scope is held at: the
+	// principal for the unit's own kind, and each delivered audience of a
+	// binding that spells the scope out for an operation a person causes.
+	underwriters := func(kind, action string) []string {
+		var audiences []string
+		if slices.Contains(own[kind], action) {
+			audiences = append(audiences, contract.Principal)
+		}
+		for _, binding := range contract.Bindings {
+			for _, operation := range []string{OperationInvoke, OperationLookup} {
+				if slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
+					return scope.ResourceKind == kind && slices.Contains(scope.Actions, action)
+				}) {
+					for _, index := range delivered[binding.ID] {
+						audiences = append(audiences, resolved.Bindings[index].Audience)
+					}
+				}
+			}
+		}
+		slices.Sort(audiences)
+		return slices.Compact(audiences)
+	}
+	// address adds each literal scope to grants at the one audience that
+	// underwrites it, appending to ambiguous each scope two underwrite.
+	address := func(role, label string, scopes []CeilingScope, grants map[string][]string) {
+		for _, scope := range scopes {
+			for _, action := range scope.Actions {
+				audiences := underwriters(scope.ResourceKind, action)
+				if len(audiences) > 1 {
+					ambiguous = append(ambiguous, fmt.Sprintf("role %s grants %s%s:%s, which is underwritten at %s; a role grants a scope at one audience, so it names the binding it means in bindings", role, label, scope.ResourceKind, action, strings.Join(audiences, " and ")))
+					continue
+				}
+				for _, audience := range audiences {
+					grants[audience] = append(grants[audience], scope.ResourceKind+":"+action)
+				}
+			}
+		}
+	}
+	roles := make([]ResolvedRole, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		grants := map[string][]string{}
+		address(role.Name, "", role.Scopes, grants)
+		for _, granted := range role.Bindings {
+			for _, index := range delivered[granted.Binding] {
+				binding := resolved.Bindings[index]
+				grants[binding.Audience] = append(grants[binding.Audience], binding.Scopes[granted.Operation]...)
+			}
+		}
+		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
+		if len(role.InstallationOwnedScopes) > 0 {
+			owned := map[string][]string{}
+			address(role.Name, "installation-owned ", role.InstallationOwnedScopes, owned)
+			entry.InstallationOwnedGrants = sortedGrants(owned)
+		}
+		roles = append(roles, entry)
+	}
+	return roles, ambiguous
+}
+
+// sortedGrants sorts each audience's scopes and keeps each once.
+func sortedGrants(grants map[string][]string) map[string][]string {
+	for audience, scopes := range grants {
+		slices.Sort(scopes)
+		grants[audience] = slices.Compact(scopes)
+	}
+	return grants
+}
+
+// beyondOwnCeilings lists the scopes, each "<resource kind>:<action>", that
+// are not within the module's own ceilings, in the order given.
+func beyondOwnCeilings(own map[string][]string, scopes []string) []string {
+	var beyond []string
+	for _, scope := range scopes {
+		kind, action, _ := strings.Cut(scope, ":")
+		if !slices.Contains(own[kind], action) {
+			beyond = append(beyond, scope)
+		}
+	}
+	return beyond
+}
+
+// bindingTarget is one place a binding is delivered: the id it is delivered
+// under, its audience, and the resource kind its bare actions are qualified by.
+type bindingTarget struct{ id, audience, kind string }
+
+// resolveAudienceList reads an audience list's resolved value: comma-separated
+// names, each once, returned sorted so two compositions listing one set in two
+// orders deliver one document. A value that is not such a list has no
+// audiences to deliver to, and the reason says why. `without` removes the
+// list-grammar rule, for the kit's completeness self-check.
+func resolveAudienceList(value, without string) ([]string, string) {
+	var audiences []string
+	// The value is one line with no space in it (ruleResolvedName), so an
+	// entry is exactly what lies between two commas.
+	for _, audience := range strings.Split(value, ",") {
+		if without != ruleResolvedList {
+			switch {
+			case !namePattern.MatchString(audience):
+				return nil, fmt.Sprintf("lists %q, which is not an audience; an audience list is comma-separated lowercase names", audience)
+			case slices.Contains(audiences, audience):
+				return nil, fmt.Sprintf("lists the audience %q twice", audience)
+			}
+		}
+		audiences = append(audiences, audience)
+	}
+	sort.Strings(audiences)
+	return audiences, ""
+}
+
+// resolveKindsPerAudience reads a per-audience kinds value — <audience>=<kind>
+// pairs, comma-separated — against the listed audiences: each kind held to the
+// grammar a literal kind is, each pair naming a listed audience once. The
+// listed audiences it names no kind for are returned, for the caller to refuse
+// by name.
+func resolveKindsPerAudience(value string, audiences []string, without string) (map[string]string, []string, string) {
+	kinds := map[string]string{}
+	for _, entry := range strings.Split(value, ",") {
+		audience, kind, paired := strings.Cut(entry, "=")
+		if without != ruleResolvedList {
+			switch {
+			case !paired:
+				return nil, nil, fmt.Sprintf("carries %q, which is not <audience>=<kind>", entry)
+			case !slices.Contains(audiences, audience):
+				return nil, nil, fmt.Sprintf("names a kind for %q, which the binding's audience list does not list", audience)
+			case kinds[audience] != "":
+				return nil, nil, fmt.Sprintf("names a kind for the audience %q twice", audience)
+			}
+		}
+		if !namePattern.MatchString(kind) && without != ruleResolvedKind {
+			return nil, nil, fmt.Sprintf("resolves the kind of %q to %q, which is not a lowercase resource kind; a resolved kind is held to the grammar a literal one is, because it is concatenated into a scope", audience, kind)
+		}
+		kinds[audience] = kind
+	}
+	var missing []string
+	for _, audience := range audiences {
+		if kinds[audience] == "" {
+			missing = append(missing, audience)
+		}
+	}
+	return kinds, missing, ""
+}
+
+// unfilledSlots names each slot of the binding the composition leaves
+// unfilled, and reports whether that is every one of them. A slot is unfilled when no record is its key,
+// or every record that is supplies an empty public value — the spelling a
+// module's declared configuration gives a key nobody set. A secret record, or
+// a group whose records cannot be read, counts as filled, so resolution
+// reports it rather than an omission hiding it. The module itself is no slot
+// the composition fills, so it is neither (optional-binding-has-a-slot keeps
+// the count above zero).
+func (binding Binding) unfilledSlots(recordsOf func(group string) ([]Record, error)) ([]string, bool) {
+	var unfilled []string
+	slots := binding.composedSlots()
+	for _, slot := range slots {
+		records, err := recordsOf(slot.slot.Group())
+		if err != nil || slotFilled(records, slot.slot.Key()) {
+			continue
+		}
+		unfilled = append(unfilled, slot.field+" ← "+slot.slot.From)
+	}
+	return unfilled, len(unfilled) == len(slots)
+}
+
+// callsError names every call a resolution could not read a requirement for.
+func callsError(calls []string) error {
+	return fmt.Errorf("%w: %s; a call's requirement is the audience's own method policy, read from its published contracts", ErrUnresolvedCall, strings.Join(calls, "; "))
 }
 
 // resolutionError is the one error a Resolve reports: every category that

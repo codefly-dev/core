@@ -216,64 +216,70 @@ func TestBuildSpecsMatchWhatTheCurrentPublisherApplies(t *testing.T) {
 	}
 }
 
-// copyKind classifies a Dockerfile line for copySources.
-type copyKind int
+// A COPY spread over continued lines is one instruction: its later sources
+// are inputs too, and a comment inside it is not part of it.
+func TestInstructionsJoinContinuedLines(t *testing.T) {
+	dockerfile := "FROM alpine\n# a comment\nCOPY a \\\n  # inside\n  b /dst/\nRUN true\n"
+	instructions := companions.Instructions(dockerfile)
+	require.Len(t, instructions, 3)
+	require.Equal(t, 3, instructions[1].Line)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+}
 
-const (
-	// notCopy is any line that is not a COPY instruction.
-	notCopy copyKind = iota
-	// fromStage is COPY --from=<stage|image>, which reads from another image
-	// rather than from the build context.
-	fromStage
-	// fromContext is a COPY that reads paths out of the build context.
-	fromContext
-	// unparsed is a COPY whose shape this parser does not understand — the
-	// JSON form, or one with no source and destination. It is reported rather
-	// than skipped: a COPY nobody checks is exactly the drift these tests
-	// exist to catch.
-	unparsed
-)
+// A blank line inside a continuation does not end it: BuildKit skips it, so
+// the sources after it belong to the same COPY.
+func TestABlankLineInsideAContinuationKeepsTheInstruction(t *testing.T) {
+	instructions := companions.Instructions("FROM alpine\nCOPY a \\\n\n  b /dst/\n")
+	require.Len(t, instructions, 2)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+}
 
-// copySources returns the build-context sources of a COPY instruction.
-//
-// Leading flags are stripped rather than abandoning the line. Skipping any
-// flagged COPY would leave `COPY --chown=…` and `COPY --link` — both ordinary
-// context reads — unguarded, so a bad path in one would reach the builder.
-func copySources(line string) ([]string, copyKind) {
-	fields := strings.Fields(line)
-	if len(fields) == 0 || fields[0] != "COPY" {
-		return nil, notCopy
-	}
-	operands := fields[1:]
-	for len(operands) > 0 && strings.HasPrefix(operands[0], "--") {
-		if strings.HasPrefix(operands[0], "--from=") {
-			return nil, fromStage
-		}
-		operands = operands[1:]
-	}
-	if len(operands) < 2 || strings.HasPrefix(operands[0], "[") {
-		return nil, unparsed
-	}
-	return operands[:len(operands)-1], fromContext
+// `# escape=` names the continuation character; a backslash is then an
+// ordinary character (a Windows path), not a continuation.
+func TestTheEscapeDirectiveNamesTheContinuation(t *testing.T) {
+	dockerfile := "# syntax=docker/dockerfile:1\n# escape=`\nFROM alpine\nCOPY a `\n  b C:\\dst\\\nRUN true\n"
+	instructions := companions.Instructions(dockerfile)
+	require.Len(t, instructions, 3)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+	require.Equal(t, "RUN true", instructions[2].Text)
+}
+
+// A directive after the first instruction is an ordinary comment.
+func TestAnEscapeDirectiveAfterAnInstructionIsAComment(t *testing.T) {
+	instructions := companions.Instructions("FROM alpine\n# escape=`\nCOPY a \\\n  b /dst/\n")
+	require.Len(t, instructions, 2)
+	sources, _ := companions.CopySources(instructions[1].Text)
+	require.Equal(t, []string{"a", "b"}, sources)
 }
 
 func TestCopySourcesReadsEveryContextCopyShape(t *testing.T) {
 	for line, expected := range map[string]struct {
 		sources []string
-		kind    copyKind
+		kind    companions.CopyKind
 	}{
-		"COPY facades/go /src":                          {[]string{"facades/go"}, fromContext},
-		"COPY a b /dst/":                                {[]string{"a", "b"}, fromContext},
-		"COPY --chown=1000:1000 facades/ts /opt":        {[]string{"facades/ts"}, fromContext},
-		"COPY --link --chown=root:root bin/x /bin/x":    {[]string{"bin/x"}, fromContext},
-		"  COPY bin/linux/${TARGETARCH}/codefly /bin/c": {[]string{"bin/linux/${TARGETARCH}/codefly"}, fromContext},
-		"COPY --from=builder /go/bin/buf /usr/local/":   {nil, fromStage},
-		"RUN apk add --no-cache bash":                   {nil, notCopy},
-		"":                                              {nil, notCopy},
-		`COPY ["a", "b"]`:                               {nil, unparsed},
-		"COPY onlyone":                                  {nil, unparsed},
+		"COPY facades/go /src":                          {[]string{"facades/go"}, companions.FromContext},
+		"COPY a b /dst/":                                {[]string{"a", "b"}, companions.FromContext},
+		"COPY --chown=1000:1000 facades/ts /opt":        {[]string{"facades/ts"}, companions.FromContext},
+		"COPY --link --chown=root:root bin/x /bin/x":    {[]string{"bin/x"}, companions.FromContext},
+		"  COPY bin/linux/${TARGETARCH}/codefly /bin/c": {[]string{"bin/linux/${TARGETARCH}/codefly"}, companions.FromContext},
+		"COPY --from=builder /go/bin/buf /usr/local/":   {nil, companions.FromStage},
+		"RUN apk add --no-cache bash":                   {nil, companions.NotCopy},
+		"":                                              {nil, companions.NotCopy},
+		"copy facades/py /opt":                          {[]string{"facades/py"}, companions.FromContext},
+		"ADD entrypoint.sh /usr/local/bin/":             {[]string{"entrypoint.sh"}, companions.FromContext},
+		"add --chown=1 a https://example.com/x.tgz /d/": {[]string{"a"}, companions.FromContext},
+		"ADD git@github.com:o/r.git /src":               {nil, companions.FromContext},
+		"COPY <<EOF /etc/conf":                          {nil, companions.FromContext},
+		`COPY ["a", "b"]`:                               {nil, companions.Unparsed},
+		"COPY onlyone":                                  {nil, companions.Unparsed},
 	} {
-		sources, kind := copySources(line)
+		sources, kind := companions.CopySources(line)
 		require.Equalf(t, expected.kind, kind, "kind for %q", line)
 		require.Equalf(t, expected.sources, sources, "sources for %q", line)
 	}
@@ -286,12 +292,12 @@ func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
 	root := repositoryRoot(t)
 	for _, spec := range buildSpecs(t) {
 		context := filepath.Join(root, filepath.FromSlash(spec.Context))
-		for number, line := range strings.Split(dockerfile(t, spec), "\n") {
-			sources, kind := copySources(line)
-			require.NotEqualf(t, unparsed, kind,
+		for _, instruction := range companions.Instructions(dockerfile(t, spec)) {
+			sources, kind := companions.CopySources(instruction.Text)
+			require.NotEqualf(t, companions.Unparsed, kind,
 				"%s:%d is a COPY this test cannot read, so nothing checks its sources: %s",
-				spec.Dockerfile, number+1, strings.TrimSpace(line))
-			if kind != fromContext {
+				spec.Dockerfile, instruction.Line, strings.TrimSpace(instruction.Text))
+			if kind != companions.FromContext {
 				continue
 			}
 			for _, source := range sources {
@@ -304,7 +310,7 @@ func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
 				}
 				_, err := os.Stat(filepath.Join(context, filepath.FromSlash(source)))
 				require.NoErrorf(t, err, "%s:%d copies %s, which does not exist in the %s context",
-					spec.Dockerfile, number+1, source, spec.Context)
+					spec.Dockerfile, instruction.Line, source, spec.Context)
 			}
 		}
 	}
@@ -339,8 +345,8 @@ func TestDockerIgnoreExcludesNothingTheBuildsNeed(t *testing.T) {
 		if spec.CLIBinary != "" {
 			required = append(required, spec.CLIBinary)
 		}
-		for _, line := range strings.Split(dockerfile(t, spec), "\n") {
-			if sources, kind := copySources(line); kind == fromContext {
+		for _, instruction := range companions.Instructions(dockerfile(t, spec)) {
+			if sources, kind := companions.CopySources(instruction.Text); kind == companions.FromContext {
 				required = append(required, sources...)
 			}
 		}

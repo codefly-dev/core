@@ -46,6 +46,11 @@ type ReceiptsClient interface {
 	// as "the effect did not happen": a swept receipt is indistinguishable from
 	// one that never existed, which is why retention has to exceed the runtime's
 	// maximum recovery horizon.
+	//
+	// Every refusal is answered NOT_FOUND too, exactly as an absent receipt is:
+	// another identity, missing scopes, a method the context does not cover.
+	// The reason is logged by the server and never returned, so a refusal never
+	// confirms that another caller's effect exists.
 	Lookup(context.Context, *connect.Request[v0.LookupRequest]) (*connect.Response[v0.LookupResponse], error)
 }
 
@@ -87,6 +92,11 @@ type ReceiptsHandler interface {
 	// as "the effect did not happen": a swept receipt is indistinguishable from
 	// one that never existed, which is why retention has to exceed the runtime's
 	// maximum recovery horizon.
+	//
+	// Every refusal is answered NOT_FOUND too, exactly as an absent receipt is:
+	// another identity, missing scopes, a method the context does not cover.
+	// The reason is logged by the server and never returned, so a refusal never
+	// confirms that another caller's effect exists.
 	Lookup(context.Context, *connect.Request[v0.LookupRequest]) (*connect.Response[v0.LookupResponse], error)
 }
 

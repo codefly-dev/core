@@ -51,6 +51,26 @@ srv := codeserver.New(root) // + optional code.ServerOption values
   `CGO_ENABLED=0`. Source-semantics operations report an unsupported-operation
   failure.
 
+### When you build the server yourself
+
+A consumer that assembles its own `DefaultCodeServer` — because it adds options
+of its own, or wraps the server — needs the *options*, not a finished server.
+Take them from `codeserver`, which splits on the same tag:
+
+```go
+opts := append(myOptions, codeserver.SemanticOptions()...)
+srv := code.NewDefaultCodeServer(root, opts...)
+```
+
+`SemanticOptions` returns the analyzer option on a default build and **nothing**
+under `-tags codefly_nosemantic`. Never name `semantic.New()` to fill this gap:
+that import is unconditional, so it pins a cgo edge the tag cannot remove. It is
+also invisible to `scripts/check_cgo_free.sh`, which proves *core's* packages
+link CGO-free and cannot see a consumer's import graph — so the break surfaces
+as a failed `CGO_ENABLED=0` link in another repo, long after the import landed.
+That is not hypothetical: it is how the service agents came to require cgo, and
+why a static (scratch-based) agent image was not buildable.
+
 `GetProjectInfo` is the exception, because it is not a source-semantics
 operation: it reports dependencies, packages and file hashes, and only its
 per-file import inventory needs a parser. Go takes that inventory with

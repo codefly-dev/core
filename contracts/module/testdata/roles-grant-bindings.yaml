@@ -1,0 +1,56 @@
+# A role grants what a binding carries for an operation a person causes by
+# naming the binding: the scopes its calls require, read from each audience's
+# declarations when the contract is resolved, at each audience it is delivered
+# to. The unit names no kind of the audience's for it. A scope a role spells
+# out is held at the one audience that underwrites it.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read, write]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read, write]
+          - resource_kind: documents
+            actions: [read]
+      bindings:
+          - {binding: evidence, operation: invoke}
+          - {binding: owner, operation: invoke}
+    - name: viewer
+      bindings:
+          - {binding: evidence, operation: lookup}
+bindings:
+    - id: evidence
+      operations: [invoke, lookup]
+      audience: {from: assistant/evidence-audience}
+      calls:
+          invoke:
+              - /documents.v1.DocumentsService/ResolveEvidence
+          lookup:
+              - /documents.v1.DocumentsService/ReadDocumentExcerpt
+    - id: owner
+      optional: true
+      operations: [invoke]
+      audiences: {from: assistant/owner-audiences}
+      calls:
+          invoke:
+              - /targets.v1.TargetService/Reach
+    - id: documents
+      operations: [invoke]
+      audience: {from: assistant/documents-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents
+                actions: [read]
+    - id: replica
+      operations: [invoke]
+      audience: {from: assistant/replica-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents
+                actions: [read]
+destinations: []

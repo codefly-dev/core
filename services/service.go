@@ -84,6 +84,7 @@ func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv0.Lo
 			Workspace:           instance.Workspace.Name,
 			WorkspacePath:       instance.Workspace.Dir(),
 			RelativeToWorkspace: relativeToWorkspace,
+			InterfaceBindings:   instance.Service.InterfaceBindingsProto(),
 		},
 	}
 	return req, nil
@@ -304,6 +305,7 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 			Workspace:           instance.Workspace.Name,
 			WorkspacePath:       instance.Workspace.Dir(),
 			RelativeToWorkspace: relativeToWorkspace,
+			InterfaceBindings:   instance.Service.InterfaceBindingsProto(),
 		},
 		Environment: env,
 	}

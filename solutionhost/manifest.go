@@ -1,7 +1,8 @@
-// Package solutionhost defines the module manifest: the one signed document
-// that says a module or solution instance is present on a host, which
-// workloads run as it, where its endpoints live, and what authority it asks
-// for.
+// Package solutionhost defines the two signed documents a host is delivered:
+// the module manifest, which says a module or solution instance is present on
+// a host, which workloads run as it, where its endpoints live, and what
+// authority it asks for; and the module envelope, the authority grants the
+// composition holds that host to, per module principal.
 //
 // A module is present on a host because a signed manifest declared it, never
 // because its process announced itself. The manifest is desired state and
@@ -20,7 +21,12 @@
 //     deliver under (VerifyDelivered);
 //   - the monotonic-generation decision a host makes when a manifest arrives
 //     for a binding it may already hold (Admit), and the route-alias rules a
-//     host holds a candidate alias to (CheckAlias).
+//     host holds a candidate alias to (CheckAlias);
+//   - ModuleEnvelope, its canonical encoding and the same DSSE signature
+//     under the same pins, admitted only from a release key
+//     (VerifyDeliveredEnvelope), at a revision that only rises per host
+//     (AdmitEnvelope). The grants inside it are the host's contract; this
+//     package reads each one only as a JSON object.
 //
 // Nothing here renders, reconciles, mints or observes. Signing authority
 // belongs to the delivery pipeline: a Signer is supplied by the caller.
@@ -309,12 +315,16 @@ var replacedFamilies = []string{
 	"codefly/endpoint-delivery",
 }
 
-func schemaRefusal(declared, accepted string) error {
+func replacedFamily(declared string) bool {
 	family := declared
 	if cut := strings.LastIndex(declared, "/"); cut >= 0 {
 		family = declared[:cut]
 	}
-	if slices.Contains(replacedFamilies, family) {
+	return slices.Contains(replacedFamilies, family)
+}
+
+func schemaRefusal(declared, accepted string) error {
+	if replacedFamily(declared) {
 		return fmt.Errorf("%w: %q is a presence, authority or endpoint-delivery document, which the module manifest (%q) replaced; re-render it with a current Codefly CLI",
 			ErrSchema, declared, accepted)
 	}

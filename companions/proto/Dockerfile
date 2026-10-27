@@ -91,7 +91,7 @@ ENV HOME=/tmp
 # venv is not portable across them.
 RUN apk add --no-cache nodejs npm protobuf python3 py3-pip && \
     python3 -m venv /venv && \
-    /venv/bin/pip install --no-cache-dir protobuf grpcio-tools && \
+    /venv/bin/pip install --no-cache-dir protobuf==5.29.3 grpcio-tools==1.71.0 && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \
@@ -137,14 +137,18 @@ RUN cd /opt/codefly-facades/ts && \
     ln -sf /opt/codefly-facades/ts/protoc-gen-codefly-facade-ts.js \
         /usr/local/bin/protoc-gen-codefly-facade-ts
 
-# Python facade plugin + descriptor-set option stripper. Both facade plugin
-# names are exposed (protoc-gen-solution_facade is kept for one release so the
-# runtime repo can switch), each a wrapper running the copied venv's python.
-RUN printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_gen_codefly_facade_python.py "$@"\n' \
+# Python bindings plugin (protoc-gen-codefly-python: the venv's pinned grpc_tools
+# compiling the *_pb2 and *_pb2_grpc files), the facade plugin and the
+# descriptor-set option stripper. Both facade plugin names are exposed
+# (protoc-gen-solution_facade is kept for one release so the runtime repo can
+# switch), each a wrapper running the copied venv's python.
+RUN printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_gen_codefly_python.py "$@"\n' \
+        > /usr/local/bin/protoc-gen-codefly-python && \
+    printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_gen_codefly_facade_python.py "$@"\n' \
         > /usr/local/bin/protoc-gen-codefly-facade-python && \
     printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/strip_custom_options.py "$@"\n' \
         > /usr/local/bin/codefly-proto-strip-options && \
-    chmod +x /usr/local/bin/protoc-gen-codefly-facade-python /usr/local/bin/codefly-proto-strip-options && \
+    chmod +x /usr/local/bin/protoc-gen-codefly-python /usr/local/bin/protoc-gen-codefly-facade-python /usr/local/bin/codefly-proto-strip-options && \
     ln -sf protoc-gen-codefly-facade-python /usr/local/bin/protoc-gen-solution_facade
 
 WORKDIR /workspace

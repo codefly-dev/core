@@ -100,6 +100,10 @@ type GenerationUsage struct {
 }
 
 // GenerationResult preserves partial output separately from valid completed JSON.
+// Continuation is the executor's opaque handle for resuming a tool-call proposal;
+// empty means the executor kept no resumable state, which makes the proposal
+// final: its calls are actionable, and Continue refuses it with
+// ContinuationMissing.
 type GenerationResult struct {
 	Invocation   Invocation
 	Receipt      string
@@ -260,7 +264,12 @@ func validateGenerationResult(prepared *preparedGenerationRequest, invocation In
 		}
 		return validateStructuredJSON(prepared.schema, result.JSON)
 	case GenerationToolCalls:
-		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" || result.PartialText != "" || result.Continuation == "" {
+		// A proposal need not be resumable. An executor whose caller declared it
+		// will never continue keeps no state to resume and reports that as an empty
+		// continuation; requiring one here refused that caller's valid proposals,
+		// calls and usage included. Resuming such a result is still refused, by
+		// prepareContinuationValue, so nothing here is left unchecked.
+		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" || result.PartialText != "" {
 			return fmt.Errorf("tool-call generation has invalid settlement or content")
 		}
 		return validateToolProposals(prepared.tools, result.ToolCalls)

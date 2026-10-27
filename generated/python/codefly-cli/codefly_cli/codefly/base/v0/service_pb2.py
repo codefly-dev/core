@@ -27,7 +27,7 @@ from codefly.base.v0 import endpoint_pb2 as codefly_dot_base_dot_v0_dot_endpoint
 from codefly.base.v0 import agent_pb2 as codefly_dot_base_dot_v0_dot_agent__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x63odefly/base/v0/service.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1e\x63odefly/base/v0/endpoint.proto\x1a\x1b\x63odefly/base/v0/agent.proto\"T\n\x10ServiceReference\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12!\n\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x06module\"\x87\x02\n\x07Service\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12,\n\x05\x61gent\x18\x03 \x01(\x0b\x32\x16.codefly.base.v0.AgentR\x05\x61gent\x12\x37\n\tendpoints\x18\x04 \x03(\x0b\x32\x19.codefly.base.v0.EndpointR\tendpoints\x12T\n\x14service_dependencies\x18\x05 \x03(\x0b\x32!.codefly.base.v0.ServiceReferenceR\x13serviceDependencies\"#\n\x07Version\x12\x18\n\x07version\x18\x01 \x01(\tR\x07version\"\x8e\x02\n\x0fServiceIdentity\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12!\n\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x06module\x12\'\n\tworkspace\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\tworkspace\x12#\n\x07version\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\nR\x07version\x12.\n\x0eworkspace_path\x18\x05 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\rworkspacePath\x12;\n\x15relative_to_workspace\x18\x06 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\x13relativeToWorkspaceb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x63odefly/base/v0/service.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1e\x63odefly/base/v0/endpoint.proto\x1a\x1b\x63odefly/base/v0/agent.proto\"T\n\x10ServiceReference\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12!\n\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x06module\"\x87\x02\n\x07Service\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12,\n\x05\x61gent\x18\x03 \x01(\x0b\x32\x16.codefly.base.v0.AgentR\x05\x61gent\x12\x37\n\tendpoints\x18\x04 \x03(\x0b\x32\x19.codefly.base.v0.EndpointR\tendpoints\x12T\n\x14service_dependencies\x18\x05 \x03(\x0b\x32!.codefly.base.v0.ServiceReferenceR\x13serviceDependencies\"#\n\x07Version\x12\x18\n\x07version\x18\x01 \x01(\tR\x07version\"\xe8\x02\n\x0fServiceIdentity\x12\x1d\n\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x04name\x12!\n\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\x06module\x12\'\n\tworkspace\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\x32R\tworkspace\x12#\n\x07version\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x18\nR\x07version\x12.\n\x0eworkspace_path\x18\x05 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\rworkspacePath\x12;\n\x15relative_to_workspace\x18\x06 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\x13relativeToWorkspace\x12X\n\x12interface_bindings\x18\x07 \x01(\x0b\x32).codefly.base.v0.ServiceInterfaceBindingsR\x11interfaceBindings\"`\n\x18ServiceInterfaceBindings\x12\x44\n\x08\x62indings\x18\x01 \x03(\x0b\x32(.codefly.base.v0.ServiceInterfaceBindingR\x08\x62indings\"\xa0\x01\n\x17ServiceInterfaceBinding\x12%\n\tinterface\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x03R\tinterface\x12\x1f\n\x06module\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x06module\x12!\n\x07service\x18\x03 \x01(\tB\x07\xbaH\x04r\x02\x10\x01R\x07service\x12\x1a\n\x08\x65ndpoint\x18\x04 \x01(\tR\x08\x65ndpointb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -52,6 +52,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SERVICEIDENTITY'].fields_by_name['workspace_path']._serialized_options = b'\272H\004r\002\020\003'
   _globals['_SERVICEIDENTITY'].fields_by_name['relative_to_workspace']._loaded_options = None
   _globals['_SERVICEIDENTITY'].fields_by_name['relative_to_workspace']._serialized_options = b'\272H\004r\002\020\003'
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['interface']._loaded_options = None
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['interface']._serialized_options = b'\272H\004r\002\020\003'
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['module']._loaded_options = None
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['module']._serialized_options = b'\272H\004r\002\020\001'
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['service']._loaded_options = None
+  _globals['_SERVICEINTERFACEBINDING'].fields_by_name['service']._serialized_options = b'\272H\004r\002\020\001'
   _globals['_SERVICEREFERENCE']._serialized_start=140
   _globals['_SERVICEREFERENCE']._serialized_end=224
   _globals['_SERVICE']._serialized_start=227
@@ -59,5 +65,9 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_VERSION']._serialized_start=492
   _globals['_VERSION']._serialized_end=527
   _globals['_SERVICEIDENTITY']._serialized_start=530
-  _globals['_SERVICEIDENTITY']._serialized_end=800
+  _globals['_SERVICEIDENTITY']._serialized_end=890
+  _globals['_SERVICEINTERFACEBINDINGS']._serialized_start=892
+  _globals['_SERVICEINTERFACEBINDINGS']._serialized_end=988
+  _globals['_SERVICEINTERFACEBINDING']._serialized_start=991
+  _globals['_SERVICEINTERFACEBINDING']._serialized_end=1151
 # @@protoc_insertion_point(module_scope)

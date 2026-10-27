@@ -11,7 +11,7 @@ import (
 )
 
 func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
 	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
 	require.NotContains(t, Current().Capabilities, RuntimeInitDependencyMappings)
 	require.NotContains(t, Current().Capabilities, RuntimeInitImage)
@@ -24,8 +24,12 @@ func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
 	// capability: an agent advertising the baseline contract must stay
 	// compatible, so this must never leak into the AgentContract wire.
 	require.NotContains(t, Current().Capabilities, ConfigurationValueTemplate)
+	// A plugin owns the completeness of its own backend declaration: the shared
+	// contract claiming it would make every plugin that leaves
+	// supported_backends unset look like one that can run nowhere on this host.
+	require.NotContains(t, Current().Capabilities, RuntimeBackendDeclaration)
 	SupportedOperationContracts()[0] = "changed"
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
 }
 
 func TestCheck(t *testing.T) {

@@ -52,4 +52,32 @@ message ServiceIdentity {
   string workspace_path = 5 [(buf.validate.field).string.min_len = 3];
   // relative_to_workspace is the path to the service relative to the workspace root.
   string relative_to_workspace = 6 [(buf.validate.field).string.min_len = 3];
+  // interface_bindings is how the host's composition bound the service's
+  // interface dependencies. Present, it is authoritative: the agent applies it
+  // and never loads the workspace to bind them itself, because only the host
+  // resolves a composition that imports other workspaces. Absent (an older
+  // host), the agent binds against the workspace at workspace_path.
+  ServiceInterfaceBindings interface_bindings = 7;
+}
+
+// ServiceInterfaceBindings is the host's binding of a service's interface
+// dependencies. A requirement with no entry is unbound: nothing in the
+// composition implements it.
+message ServiceInterfaceBindings {
+  // bindings holds one entry per interface-only dependency the host bound.
+  repeated ServiceInterfaceBinding bindings = 1;
+}
+
+// ServiceInterfaceBinding is the provider one interface dependency is bound to.
+message ServiceInterfaceBinding {
+  // interface is the requirement as the service declares it,
+  // <publisher>/<name>@<range>.
+  string interface = 1 [(buf.validate.field).string.min_len = 3];
+  // module is the module of the providing service.
+  string module = 2 [(buf.validate.field).string.min_len = 1];
+  // service is the providing service.
+  string service = 3 [(buf.validate.field).string.min_len = 1];
+  // endpoint is the provider's endpoint implementing the interface, empty when
+  // the service implements it as a capability.
+  string endpoint = 4;
 }

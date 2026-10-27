@@ -64,6 +64,7 @@ func OperationFromOpenAPIMarker(marker json.RawMessage, operation string) (*Oper
 		Completion:         declared.GetCompletion(),
 		Tool:               proto.CloneOf(declared.GetTool()),
 		RequiredScopeSlots: clonedSlots(declared.GetRequiredScopeSlots()),
+		Recovery:           declared.GetRecovery(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err

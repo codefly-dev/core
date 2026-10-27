@@ -367,8 +367,19 @@ type DockerBuildRecipe struct {
 	// non-empty list requires the v5 recipe contract and participates in its
 	// digest; older hosts reject v5 rather than build without supplying it.
 	GoModuleDownloads []*GoModuleDownload `protobuf:"bytes,10,rep,name=go_module_downloads,json=goModuleDownloads,proto3" json:"go_module_downloads,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// git_source_downloads are the git commits this recipe's dependency
+	// resolution fetches while it builds, as its lockfile pins them. Declaring
+	// them moves the fetch out of the build: the caller fetches each commit once,
+	// before it builds any image, with the credentials of the machine running the
+	// build, and supplies it to the build as a bare repository mirror. A recipe
+	// that declares them therefore needs no credential inside the build. A
+	// non-empty list requires the v6 recipe contract and participates in its
+	// digest, in order; older hosts reject v6 rather than build without
+	// supplying it. A host accepts a v6 plan only after it has fetched every
+	// declared source, and refuses a declaration it did not fetch.
+	GitSourceDownloads []*GitSourceDownload `protobuf:"bytes,11,rep,name=git_source_downloads,json=gitSourceDownloads,proto3" json:"git_source_downloads,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DockerBuildRecipe) Reset() {
@@ -471,6 +482,13 @@ func (x *DockerBuildRecipe) GetGoModuleDownloads() []*GoModuleDownload {
 	return nil
 }
 
+func (x *DockerBuildRecipe) GetGitSourceDownloads() []*GitSourceDownload {
+	if x != nil {
+		return x.GitSourceDownloads
+	}
+	return nil
+}
+
 // GoModuleDownload is one Go module graph a recipe downloads.
 type GoModuleDownload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -531,6 +549,84 @@ func (x *GoModuleDownload) GetProxyContext() string {
 	return ""
 }
 
+// GitSourceDownload is one locked git commit a recipe fetches.
+type GitSourceDownload struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// repository is the URL the build fetches from, exactly as the lockfile
+	// records it: https:// or ssh://, spelled in lowercase, a host, an optional
+	// port and a path, every path character in [A-Za-z0-9._~/:+-] (no "@", no
+	// percent-encoding), with no query, fragment, password or token (ssh may
+	// name a login user). The Dockerfile
+	// maps this URL onto the supplied mirror (git's url.<base>.insteadOf), so it
+	// must match the lockfile byte for byte.
+	Repository string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	// commit is the full object id the lockfile pins: 40 (SHA-1) or 64 (SHA-256)
+	// lowercase hexadecimal characters.
+	Commit string `protobuf:"bytes,2,opt,name=commit,proto3" json:"commit,omitempty"`
+	// mirror_context names the build context the caller supplies the fetched
+	// commits as: a directory holding one bare repository per declared
+	// repository, named by the lowercase hex SHA-256 of the repository string
+	// followed by ".git" (services.GitSourceMirrorPath in Go), each holding every
+	// declared commit under refs/commit/<commit> (services.GitSourceMirrorRef).
+	// Several downloads may share one mirror context. The Dockerfile declares a
+	// stage of the same name (FROM scratch) so it still builds, from the network,
+	// when no caller supplies one.
+	MirrorContext string `protobuf:"bytes,3,opt,name=mirror_context,json=mirrorContext,proto3" json:"mirror_context,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GitSourceDownload) Reset() {
+	*x = GitSourceDownload{}
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GitSourceDownload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GitSourceDownload) ProtoMessage() {}
+
+func (x *GitSourceDownload) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GitSourceDownload.ProtoReflect.Descriptor instead.
+func (*GitSourceDownload) Descriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GitSourceDownload) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *GitSourceDownload) GetCommit() string {
+	if x != nil {
+		return x.Commit
+	}
+	return ""
+}
+
+func (x *GitSourceDownload) GetMirrorContext() string {
+	if x != nil {
+		return x.MirrorContext
+	}
+	return ""
+}
+
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
 // output_directory. The caller owns running docker buildx from the recipes, so
 // the recipes are a durable, first-class artifact rather than an image built
@@ -559,7 +655,7 @@ type DockerBuildPlan struct {
 
 func (x *DockerBuildPlan) Reset() {
 	*x = DockerBuildPlan{}
-	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +667,7 @@ func (x *DockerBuildPlan) String() string {
 func (*DockerBuildPlan) ProtoMessage() {}
 
 func (x *DockerBuildPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[5]
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,7 +680,7 @@ func (x *DockerBuildPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DockerBuildPlan.ProtoReflect.Descriptor instead.
 func (*DockerBuildPlan) Descriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{5}
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DockerBuildPlan) GetRecipes() []*DockerBuildRecipe {
@@ -643,7 +739,7 @@ type BuildCacheOptions struct {
 
 func (x *BuildCacheOptions) Reset() {
 	*x = BuildCacheOptions{}
-	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[6]
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -655,7 +751,7 @@ func (x *BuildCacheOptions) String() string {
 func (*BuildCacheOptions) ProtoMessage() {}
 
 func (x *BuildCacheOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[6]
+	mi := &file_codefly_services_builder_v0_docker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -668,7 +764,7 @@ func (x *BuildCacheOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildCacheOptions.ProtoReflect.Descriptor instead.
 func (*BuildCacheOptions) Descriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{6}
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BuildCacheOptions) GetImports() []string {
@@ -722,7 +818,7 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"RecipeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\rR\x04mode\"\x9f\x04\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\"\x81\x05\n" +
 	"\x11DockerBuildRecipe\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -737,14 +833,21 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\x06target\x18\b \x01(\tR\x06target\x12Q\n" +
 	"\fcontext_root\x18\t \x01(\x0e2..codefly.services.builder.v0.RecipeContextRootR\vcontextRoot\x12]\n" +
 	"\x13go_module_downloads\x18\n" +
-	" \x03(\v2-.codefly.services.builder.v0.GoModuleDownloadR\x11goModuleDownloads\x1a<\n" +
+	" \x03(\v2-.codefly.services.builder.v0.GoModuleDownloadR\x11goModuleDownloads\x12`\n" +
+	"\x14git_source_downloads\x18\v \x03(\v2..codefly.services.builder.v0.GitSourceDownloadR\x12gitSourceDownloads\x1a<\n" +
 	"\x0eBuildArgsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"X\n" +
 	"\x10GoModuleDownload\x12\x1f\n" +
 	"\vmodule_root\x18\x01 \x01(\tR\n" +
 	"moduleRoot\x12#\n" +
-	"\rproxy_context\x18\x02 \x01(\tR\fproxyContext\"\xa6\x02\n" +
+	"\rproxy_context\x18\x02 \x01(\tR\fproxyContext\"r\n" +
+	"\x11GitSourceDownload\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x01 \x01(\tR\n" +
+	"repository\x12\x16\n" +
+	"\x06commit\x18\x02 \x01(\tR\x06commit\x12%\n" +
+	"\x0emirror_context\x18\x03 \x01(\tR\rmirrorContext\"\xa6\x02\n" +
 	"\x0fDockerBuildPlan\x12H\n" +
 	"\arecipes\x18\x01 \x03(\v2..codefly.services.builder.v0.DockerBuildRecipeR\arecipes\x12=\n" +
 	"\x05files\x18\x02 \x03(\v2'.codefly.services.builder.v0.RecipeFileR\x05files\x12\x16\n" +
@@ -780,7 +883,7 @@ func file_codefly_services_builder_v0_docker_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_builder_v0_docker_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
 	(RecipeContextRoot)(0),     // 0: codefly.services.builder.v0.RecipeContextRoot
 	(RecipeInventoryScope)(0),  // 1: codefly.services.builder.v0.RecipeInventoryScope
@@ -789,23 +892,25 @@ var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
 	(*RecipeFile)(nil),         // 4: codefly.services.builder.v0.RecipeFile
 	(*DockerBuildRecipe)(nil),  // 5: codefly.services.builder.v0.DockerBuildRecipe
 	(*GoModuleDownload)(nil),   // 6: codefly.services.builder.v0.GoModuleDownload
-	(*DockerBuildPlan)(nil),    // 7: codefly.services.builder.v0.DockerBuildPlan
-	(*BuildCacheOptions)(nil),  // 8: codefly.services.builder.v0.BuildCacheOptions
-	nil,                        // 9: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	(*GitSourceDownload)(nil),  // 7: codefly.services.builder.v0.GitSourceDownload
+	(*DockerBuildPlan)(nil),    // 8: codefly.services.builder.v0.DockerBuildPlan
+	(*BuildCacheOptions)(nil),  // 9: codefly.services.builder.v0.BuildCacheOptions
+	nil,                        // 10: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
 }
 var file_codefly_services_builder_v0_docker_proto_depIdxs = []int32{
-	8, // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
-	9, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
-	0, // 2: codefly.services.builder.v0.DockerBuildRecipe.context_root:type_name -> codefly.services.builder.v0.RecipeContextRoot
-	6, // 3: codefly.services.builder.v0.DockerBuildRecipe.go_module_downloads:type_name -> codefly.services.builder.v0.GoModuleDownload
-	5, // 4: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
-	4, // 5: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
-	1, // 6: codefly.services.builder.v0.DockerBuildPlan.scope:type_name -> codefly.services.builder.v0.RecipeInventoryScope
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	9,  // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
+	10, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	0,  // 2: codefly.services.builder.v0.DockerBuildRecipe.context_root:type_name -> codefly.services.builder.v0.RecipeContextRoot
+	6,  // 3: codefly.services.builder.v0.DockerBuildRecipe.go_module_downloads:type_name -> codefly.services.builder.v0.GoModuleDownload
+	7,  // 4: codefly.services.builder.v0.DockerBuildRecipe.git_source_downloads:type_name -> codefly.services.builder.v0.GitSourceDownload
+	5,  // 5: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
+	4,  // 6: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
+	1,  // 7: codefly.services.builder.v0.DockerBuildPlan.scope:type_name -> codefly.services.builder.v0.RecipeInventoryScope
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_docker_proto_init() }
@@ -819,7 +924,7 @@ func file_codefly_services_builder_v0_docker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_builder_v0_docker_proto_rawDesc), len(file_codefly_services_builder_v0_docker_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

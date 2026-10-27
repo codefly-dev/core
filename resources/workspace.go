@@ -28,6 +28,9 @@ type Workspace struct {
 
 	Layout string `yaml:"layout"`
 
+	// ConfigurationExtensions opts named groups into additive import composition.
+	ConfigurationExtensions map[string]ConfigurationExtension `yaml:"configuration-extensions,omitempty"`
+
 	RunProfiles map[string]RunProfile `yaml:"run-profiles,omitempty"`
 
 	// Modules in the Workspace (used for non-flat layouts)

@@ -169,7 +169,11 @@
             dontBuild = true;
             installPhase = ''
               mkdir -p $out/libexec $out/bin
-              cp $src/protoc_gen_codefly_facade_python.py $src/strip_custom_options.py $out/libexec/
+              cp $src/protoc_gen_codefly_python.py $src/protoc_gen_codefly_facade_python.py $src/strip_custom_options.py $out/libexec/
+              cat > $out/bin/protoc-gen-codefly-python <<EOF
+              #!/bin/sh
+              exec ${py}/bin/python $out/libexec/protoc_gen_codefly_python.py "\$@"
+              EOF
               cat > $out/bin/protoc-gen-codefly-facade-python <<EOF
               #!/bin/sh
               exec ${py}/bin/python $out/libexec/protoc_gen_codefly_facade_python.py "\$@"
@@ -178,7 +182,7 @@
               #!/bin/sh
               exec ${py}/bin/python $out/libexec/strip_custom_options.py "\$@"
               EOF
-              chmod +x $out/bin/protoc-gen-codefly-facade-python $out/bin/codefly-proto-strip-options
+              chmod +x $out/bin/protoc-gen-codefly-python $out/bin/protoc-gen-codefly-facade-python $out/bin/codefly-proto-strip-options
               ln -s protoc-gen-codefly-facade-python $out/bin/protoc-gen-solution_facade
             '';
           };

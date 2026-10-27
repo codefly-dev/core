@@ -505,7 +505,7 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	}))
 
 	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Grant:     grant, TTL: time.Minute,
+		Grant: grant, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 	require.ErrorContains(t, err, "cannot derive, so mint afresh")
@@ -577,7 +577,7 @@ func TestGrant_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 
 	_, elevated, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Grant:     grant, TTL: time.Minute,
+		Grant: grant, TTL: time.Minute,
 	})
 	require.NoError(t, err)
 	require.Equal(t, agent.Context().GetSeal().GetInstallationRevision(), elevated.GetSeal().GetInstallationRevision())
@@ -613,7 +613,6 @@ func (answersElsewhere) Seal(context.Context, string, string) (workcontext.Seal,
 }
 
 func (answersElsewhere) PrincipalEpoch(context.Context, string) (uint64, error) { return 2, nil }
-
 
 func (answersElsewhere) OperationBinding(context.Context, string) (workcontext.OperationBinding, error) {
 	return workcontext.OperationBinding{}, workcontext.ErrNoBinding
@@ -840,7 +839,6 @@ func mustMarshal(t *testing.T, h *harness) []byte {
 	return claims
 }
 
-
 // A revision AHEAD of the issuer's is refused, exactly as a seal ahead of it
 // is. The package already made this argument for the seal — "there is no
 // legitimate way to hold one" — and applied it to one lever but not the other.
@@ -1050,8 +1048,6 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 	require.Equal(t, bindingID, h.mustVerify(audience, selfToken).OperationBindingID())
 }
 
-
-
 // TestTheSealSourcesWritersRefuseEveryRewind covers the writers whose guards
 // had no committed test — W4 and W5 in a round-four review, which found them
 // deletable with the whole suite green.
@@ -1190,8 +1186,6 @@ func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
 	require.ErrorContains(t, err, "too many scopes, hops or identifiers")
 }
 
-
-
 // TestAMissingInputNamesItselfRatherThanPanicking covers the two panics round
 // five found, and they are the same defect in two places: an input that is
 // missing crashed the caller instead of saying what was absent.
@@ -1226,9 +1220,6 @@ func TestAMissingInputNamesItselfRatherThanPanicking(t *testing.T) {
 		require.Nil(t, (&workcontext.Verified{}).EffectiveScopes())
 	})
 }
-
-
-
 
 // TestADerivationRefusesAParentItsIssuerDidNotSign is round seven's second
 // finding: a *Verified proves somebody verified those bytes, not that the
@@ -1357,7 +1348,6 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 // written. Four of the five are guards I added in this PR and claimed were
 // held.
 func TestFiveLoadBearingGuardsThatHadNoTest(t *testing.T) {
-
 
 	// (3) Recheck's fixture-key refusal.
 	t.Run("recheck refuses the fixture key", func(t *testing.T) {
