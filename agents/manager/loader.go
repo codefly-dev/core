@@ -892,11 +892,22 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 	switch {
 	case recorded != "" && "sha256:"+recorded == digest:
 		return digest, info, nil
-	case recorded != "":
-		return "", nil, fmt.Errorf("%w: cached agent %s is %s but was installed from its release as sha256:%s; something replaced it after install — delete it and it is downloaded again", ErrAgentAdmission, bin, digest, recorded)
 	case AgentSourceLocal():
+		// A local build is what the developer asked for, whatever sits beside
+		// it. A record left by an earlier release install no longer describes
+		// these bytes, so it goes: the next remote load then sees an entry with
+		// no record and fetches the release, instead of trusting a stale one.
+		if recorded != "" {
+			if err := os.Remove(releaseDigestFile(bin)); err != nil {
+				return "", nil, fmt.Errorf("%w: cached agent %s was rebuilt locally over its release but the release record beside it cannot be removed: %v", ErrAgentAdmission, bin, err)
+			}
+			w.Debug("cached agent was rebuilt over its release; CODEFLY_AGENT_SOURCE=local admits it and the release record is removed", wool.Field("digest", digest), wool.Field("recorded", recorded))
+			return digest, info, nil
+		}
 		w.Debug("cached agent was not installed from a release; CODEFLY_AGENT_SOURCE=local admits it", wool.Field("digest", digest))
 		return digest, info, nil
+	case recorded != "":
+		return "", nil, fmt.Errorf("%w: cached agent %s is %s but was installed from its release as sha256:%s; something replaced it after install — delete it and it is downloaded again, or export %s=local to run a local build deliberately", ErrAgentAdmission, bin, digest, recorded, AgentSourceEnv)
 	}
 	w.Warn(fmt.Sprintf("cached agent %s (%s) was not installed from a release; fetching the release over it", p.Identifier(), digest))
 	if err := Download(ctx, p); err != nil {
