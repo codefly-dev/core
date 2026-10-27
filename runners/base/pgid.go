@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,11 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/shirou/gopsutil/v3/process"
 )
+
+// LaunchWorkspaceEnv carries the launching workspace chosen by the CLI.
+// Process runners transport this marker; scope selection remains the caller's
+// policy and signaling still requires authenticated process-birth evidence.
+const LaunchWorkspaceEnv = "CODEFLY_RUN_WORKSPACE"
 
 // forwardLines reads r line by line and writes each line — WITH its trailing
 // newline — as a single Write to w. This preserves log-prefix boundaries
@@ -369,7 +375,16 @@ func startProcessGroupGate(cmd *exec.Cmd, authentication string) (*processGroupG
 	gateFDValue := strconv.Itoa(gateFD)
 	cmd.Path = shell
 	cmd.Args = append([]string{"sh", "-c", "IFS= read -r codefly_gate < \"$CODEFLY_PROCESS_GROUP_GATE\" || exit 125; eval \"exec ${CODEFLY_PROCESS_GROUP_GATE_FD}<&-\"; unset CODEFLY_PROCESS_GROUP_GATE CODEFLY_PROCESS_GROUP_GATE_FD; exec \"$@\"", "codefly-process-group-gate", originalPath}, originalArgs[1:]...)
-	cmd.Env = append(cmd.Environ(),
+	// Materialized Nix environments need not inherit the parent's environment,
+	// and cached exports may describe a previous run. Launch attribution always
+	// comes from the current parent at spawn, never from those cached exports.
+	launchEnv := slices.DeleteFunc(cmd.Environ(), func(entry string) bool {
+		return strings.HasPrefix(entry, LaunchWorkspaceEnv+"=")
+	})
+	if workspace, present := os.LookupEnv(LaunchWorkspaceEnv); present {
+		launchEnv = append(launchEnv, LaunchWorkspaceEnv+"="+workspace)
+	}
+	cmd.Env = append(launchEnv,
 		groupAuthEnv+"="+authentication,
 		"CODEFLY_PROCESS_GROUP_GATE=/dev/fd/"+gateFDValue,
 		"CODEFLY_PROCESS_GROUP_GATE_FD="+gateFDValue)

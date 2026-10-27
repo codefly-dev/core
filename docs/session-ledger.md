@@ -291,6 +291,17 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
 
+## Native launch workspace
+
+Native tracked spawns transport the CLI's `CODEFLY_RUN_WORKSPACE` marker from
+the current parent environment at spawn time. This includes materialized Nix
+processes: an old cached export cannot override the current launch workspace,
+and a parent without the marker clears any cached marker. Service processes
+whose working directories live outside the workspace therefore remain visible
+to scoped lifecycle operations. The marker supplies scope metadata only;
+process-birth authentication still authorizes signaling. CLI scope selection
+and refusal policy stay with the CLI.
+
 ## Startup container recovery scope
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`

@@ -75,6 +75,34 @@ func TestNixMaterialize_ProducesExports(t *testing.T) {
 	assertDirectExec(t, proc)
 }
 
+// Materialization may precede the run or be loaded from a previous run's
+// cache. A real Nix child must carry the launching parent's current marker.
+func TestNixMaterializePreservesCurrentLaunchWorkspace(t *testing.T) {
+	dir := requireWorkingNix(t)
+	t.Setenv(base.LaunchWorkspaceEnv, "materialization workspace")
+	env, err := base.NewNixEnvironment(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.WithCacheDir(t.TempDir())
+	if err := env.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(base.LaunchWorkspaceEnv, t.TempDir())
+	proc, err := env.NewProcess("sh", "-c", `printf '%s\n' "$CODEFLY_RUN_WORKSPACE"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &bufWriter{}
+	proc.WithOutput(out)
+	if err := proc.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(out.String()), os.Getenv(base.LaunchWorkspaceEnv); got != want {
+		t.Fatalf("child launch workspace = %q, want current parent %q", got, want)
+	}
+}
+
 // TestNixMaterialize_PinsGoCache asserts GOCACHE / GOMODCACHE / HOME
 // are set in the materialized env when the flake doesn't provide them.
 // Without this, `go test` loses its compile cache across every Test RPC
