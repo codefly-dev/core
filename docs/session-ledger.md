@@ -317,6 +317,30 @@ environment retains its scope from first use so another flow changing the proces
 marker cannot redirect its cleanup. Cross-scope recovery authorizes orphan
 sweeping only; it never authorizes adopting another invocation's container.
 
+Agents bind each service-owned Docker environment before first use with
+`WithServiceIdentity(s.Identity)`, using the identity supplied by `Base.Load`.
+The runner snapshots the exact module/service into `codefly.service`; it never
+derives a parent from flattened container names, sidecar suffixes or the agent
+process identity. Service version is excluded so upgrades can reuse state.
+Changing the source identity afterward cannot redirect the environment, and
+rebinding after first use returns an error.
+
+`dockerrun.ContainerServiceIdentity(labels)` reads this same attribution for
+consumers such as the CLI's port guard. Missing attribution returns `nil, nil`;
+a malformed present label is an error. A present conflicting label refuses
+adoption and runtime-configuration replacement, including by an unbound runner.
+The label alone does not authorize reuse or cleanup: consumers still check exact
+recovery scope, compatible namespace, actual/logical container name and lifecycle
+and publication constraints relevant to their operation.
+
+Legacy unlabeled containers retain the existing exact-name reuse behavior, but
+remain unproven to a parent-service lookup. Core neither relabels them nor
+replaces them solely to acquire attribution. In particular, a suffixed name is
+not evidence that a retained container belongs to a service. Rollout requires
+the creating agent to adopt this API for each container; upgrading the CLI alone
+cannot attribute containers from an older agent. Recovery of old retained state
+remains an explicit owner operation, never a broad cleanup.
+
 The marker and that header are owned by `runners/recoveryscope`, which holds no
 Docker client: an agent validates and echoes what it inherited but never calls a
 daemon, so reading the marker through `runners/dockerrun` would put the Docker
