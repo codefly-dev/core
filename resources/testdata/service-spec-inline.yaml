@@ -1,0 +1,4 @@
+enabled: true
+attempts: 3
+nested:
+  label: configured
