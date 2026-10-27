@@ -2,8 +2,12 @@
 // (the CLI, the gateway) run, deciding at build time whether to link the
 // tree-sitter semantic analyzer.
 //
-// New is the single entry point, so consumers never reinvent the cgo/no-cgo
-// split themselves. On a normal build it installs core/code/semantic — the
+// New and SemanticOptions are the only entry points, so consumers never
+// reinvent the cgo/no-cgo split themselves: New when codeserver builds the
+// server, SemanticOptions when the consumer builds it and needs the analyzer
+// option alone. Naming core/code/semantic directly instead pins a cgo edge the
+// tag cannot remove, one repo away from the guard that would have caught it.
+// On a normal build it installs core/code/semantic — the
 // tree-sitter CGO stack — so the server answers source-semantics operations.
 // Built with -tags codefly_nosemantic it returns a plain DefaultCodeServer that
 // never imports semantic, keeping the binary CGO-free (linkable with
