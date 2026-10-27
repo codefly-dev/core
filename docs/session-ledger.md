@@ -302,6 +302,14 @@ to scoped lifecycle operations. The marker supplies scope metadata only;
 process-birth authentication still authorizes signaling. CLI scope selection
 and refusal policy stay with the CLI.
 
+If a live recorded leader has the same process-start identity but a different
+boot identity, Core reports incompatible evidence and preserves the record.
+This includes older Darwin records using clock-derived boot times. It is not
+proof of PID reuse or successful cleanup, and Core neither rewrites the birth
+identity nor signals the unverified process. Inspection, stale recovery and
+explicit signals share this refusal; an actual different start identity retains
+the existing reused-process handling.
+
 ## Startup container recovery scope
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`

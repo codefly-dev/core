@@ -181,6 +181,16 @@ func (identity processIdentity) matches(recorded recordedProcessIdentity) bool {
 	return identity.pid == recorded.PID && identity.bootID == recorded.BootID && identity.startID == recorded.StartID
 }
 
+// A changed boot representation with an unchanged start witness is not proof
+// of PID reuse. Older Darwin writers used the mutable clock-derived boot time.
+// Keep that evidence and refuse ownership rather than retiring a live record.
+func (identity processIdentity) checkBootIdentity(recorded recordedProcessIdentity) error {
+	if identity.pid == recorded.PID && identity.startID == recorded.StartID && identity.bootID != recorded.BootID {
+		return errors.New("incompatible boot identity for unchanged process start; preserve the record and recover through its owner")
+	}
+	return nil
+}
+
 func pgidStateDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -855,7 +865,9 @@ func IsProcessAlive(pid int) bool {
 // contract namespace. Live owners are preserved; groups with dead or reused
 // owners are terminated. Stable malformed records are quarantined without
 // signaling any process; records that cannot prove a stable file identity
-// remain active and are reported. Codefly's own legacy plaintext records,
+// remain active and are reported. Incompatible boot evidence for a live leader
+// with an unchanged start identity is also preserved and reported, not retired
+// as PID reuse. Codefly's own legacy plaintext records,
 // written loose in the registry root by an older release, are reconciled too
 // so their groups cannot leak across an upgrade.
 func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
@@ -1317,6 +1329,9 @@ func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIde
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
+			if err := member.checkBootIdentity(rec.Leader); err != nil {
+				return nil, false, errors.Join(inspectErr, err)
+			}
 			if member.matches(rec.Leader) {
 				return members, true, inspectErr
 			}
@@ -1565,8 +1580,9 @@ func signalGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenti
 // readProcessGroupAuthentication.
 //
 // The two ways this declines to authenticate are deliberately distinct. A
-// member sitting on the pgid that is not the recorded leader proves the group
-// is not ours, and the caller may retire it. A readable member that lacks the
+// member sitting on the pgid with a different start identity proves the group
+// is not ours, and the caller may retire it. Incompatible boot evidence with
+// the same start identity is undecidable and reported. A readable member that lacks the
 // credential proves only that we cannot tell, so it is reported rather than
 // retired.
 func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
@@ -1576,6 +1592,9 @@ func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]proce
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
+			if err := member.checkBootIdentity(rec.Leader); err != nil {
+				return nil, false, errors.Join(inspectErr, err)
+			}
 			if member.matches(rec.Leader) {
 				return members, true, inspectErr
 			}
