@@ -431,8 +431,16 @@ func TestAdmitCachedReleaseHoldsTheCacheToItsRecord(t *testing.T) {
 	require.ErrorContains(t, err, "installed from its release as sha256:"+strings.Repeat("a", 64))
 	require.ErrorContains(t, err, digest)
 
-	require.NoError(t, os.Remove(releaseDigestFile(bin)))
+	// A local rebuild over a released name leaves the release's record beside
+	// bytes it no longer describes. Under local resolution that is the build
+	// the developer asked for: admitted, and the stale record removed so a
+	// later remote load fetches the release instead of trusting the record.
 	t.Setenv(AgentSourceEnv, "local")
+	got, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
+	require.NoError(t, err, "a local rebuild over a release is what CODEFLY_AGENT_SOURCE=local asks for, record or not")
+	require.Equal(t, digest, got)
+	require.NoFileExists(t, releaseDigestFile(bin), "the release record no longer describes these bytes")
+
 	_, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
 	require.NoError(t, err, "a local build is what CODEFLY_AGENT_SOURCE=local asks for")
 
