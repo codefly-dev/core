@@ -394,6 +394,10 @@ the GitHub API, then streams the asset through its authenticated API endpoint.
 The bounded download client follows asset redirects without API credentials.
 Draft releases, duplicate assets and an asset URL that disagrees with the loader
 selection are refused. Without a token, the public download path is unchanged.
+An unauthenticated 404 can mean a missing release or platform asset, or a private
+release. For a private release, supply an existing token with repository access
+through either variable for `codefly agent install`; services do not need that
+download credential.
 `manager.OpenReleaseAsset` lets a publisher verify the same selected asset with
 its existing authenticated client; a private release is not a public URL probe.
 

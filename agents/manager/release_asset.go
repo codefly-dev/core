@@ -73,6 +73,9 @@ func openAgentRelease(ctx context.Context, releaseURL string) (io.ReadCloser, in
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, 0, fmt.Errorf("unexpected status code 404 when downloading agent: the release or platform asset may be missing, or the release may be private; for private GitHub releases, supply GITHUB_TOKEN or GH_TOKEN with repository access to codefly agent install")
+		}
 		return nil, 0, fmt.Errorf("unexpected status code %d when downloading agent", resp.StatusCode)
 	}
 	return resp.Body, resp.ContentLength, nil
