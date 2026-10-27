@@ -315,7 +315,7 @@ func TestWriteArchiveClosesItsHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeArchive(f, strings.NewReader(payload), int64(len(payload))); err != nil {
+	if _, err := writeArchive(f, strings.NewReader(payload), int64(len(payload))); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
@@ -338,11 +338,100 @@ func TestWriteArchiveClosesItsHandleWhenTheTransferFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = writeArchive(f, errReader{err: context.Canceled}, 1024)
+	_, err = writeArchive(f, errReader{err: context.Canceled}, 1024)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want the transfer failure to reach the caller", err)
 	}
 	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("second Close returned %v — a failed transfer leaked the descriptor", err)
 	}
+}
+
+// TestCheckArchiveDigestHoldsBytesToTheReleaseRecord: a digest mismatch is a
+// refusal naming both digests and whose record was used; no digest at all is a
+// warning that says the install is unverified, never a silent pass.
+func TestCheckArchiveDigestHoldsBytesToTheReleaseRecord(t *testing.T) {
+	warning, err := checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{Digest: "aa", DigestSource: DigestFromChecksums}, "aa")
+	require.NoError(t, err)
+	require.Empty(t, warning)
+
+	_, err = checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{Digest: "aa", DigestSource: DigestFromChecksums}, "bb")
+	require.ErrorContains(t, err, "refusing to install codefly.dev/parse:0.1.1")
+	require.ErrorContains(t, err, "sha256:bb")
+	require.ErrorContains(t, err, "checksums record says sha256:aa")
+
+	warning, err = checkArchiveDigest("codefly.dev/parse:0.1.1", &ReleaseAsset{}, "bb")
+	require.NoError(t, err)
+	require.Contains(t, warning, "unverified")
+}
+
+// TestReleaseDigestSidecarIsInvisibleToCacheScans: the record Download leaves
+// beside an executable must never read as an agent to anything listing the
+// cache by name, and must round-trip the digest it records.
+func TestReleaseDigestSidecarIsInvisibleToCacheScans(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	agent := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1.2.3"}
+	bin, err := agent.Path(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o750))
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+
+	recorded, err := InstalledReleaseDigest(ctx, agent)
+	require.NoError(t, err)
+	require.Empty(t, recorded, "a cached executable with no record is reported as such, not as an error")
+
+	require.NoError(t, writeReleaseDigest(bin, strings.Repeat("a", 64)))
+	recorded, err = InstalledReleaseDigest(ctx, agent)
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("a", 64), recorded)
+
+	latest := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget"}
+	require.NoError(t, findLocalLatestInDir(filepath.Dir(bin), latest))
+	require.Equal(t, "1.2.3", latest.Version)
+	installed, err := Installed(ctx, resources.ServiceAgent)
+	require.NoError(t, err)
+	require.Len(t, installed, 1)
+}
+
+// TestAdmitCachedReleaseHoldsTheCacheToItsRecord covers the four states a cached
+// executable can be in: installed from a release and unchanged; installed from
+// a release and replaced since; never installed from a release under local
+// resolution; and never installed from a release under remote resolution, where
+// the release cannot be fetched.
+func TestAdmitCachedReleaseHoldsTheCacheToItsRecord(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	agent := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1.2.3"}
+	bin, err := agent.Path(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o750))
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+	digest, info, err := executableIdentity(ctx, bin)
+	require.NoError(t, err)
+
+	require.NoError(t, writeReleaseDigest(bin, strings.TrimPrefix(digest, "sha256:")))
+	got, _, err := admitCachedRelease(ctx, agent, bin, digest, info)
+	require.NoError(t, err)
+	require.Equal(t, digest, got)
+
+	require.NoError(t, writeReleaseDigest(bin, strings.Repeat("a", 64)))
+	_, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
+	require.ErrorIs(t, err, ErrAgentAdmission)
+	require.ErrorContains(t, err, "installed from its release as sha256:"+strings.Repeat("a", 64))
+	require.ErrorContains(t, err, digest)
+
+	require.NoError(t, os.Remove(releaseDigestFile(bin)))
+	t.Setenv(AgentSourceEnv, "local")
+	_, _, err = admitCachedRelease(ctx, agent, bin, digest, info)
+	require.NoError(t, err, "a local build is what CODEFLY_AGENT_SOURCE=local asks for")
+
+	t.Setenv(AgentSourceEnv, "")
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, _, err = admitCachedRelease(cancelled, agent, bin, digest, info)
+	require.ErrorIs(t, err, ErrAgentAdmission)
+	require.ErrorContains(t, err, "was not installed from a release and the release could not be fetched")
+	require.ErrorContains(t, err, "CODEFLY_AGENT_SOURCE=local")
+	require.FileExists(t, bin, "a refused cache entry is left for the operator to see, not deleted")
 }

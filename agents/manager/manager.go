@@ -37,12 +37,20 @@ func newGitHubReleaseClient() *github.Client {
 	return client
 }
 
-func githubReleaseToken() string {
+// GitHubReleaseToken is the one credential rule the agent loader applies when
+// it downloads a release: GITHUB_TOKEN, else GH_TOKEN, else nothing. It never
+// consults a `gh` CLI login, because the hosts that install agents — CI runners
+// and hosted builds — have none. A caller that checks whether a release is
+// installable must check with exactly this credential: verifying with a wider
+// one establishes reachability for the laptop and nothing else.
+func GitHubReleaseToken() string {
 	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
 		return token
 	}
 	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
+
+func githubReleaseToken() string { return GitHubReleaseToken() }
 
 // latestReleaseTag returns the newest published release tag for a repository.
 // It is a variable so resolution can be exercised without network access.
