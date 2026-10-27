@@ -19,7 +19,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
-	"github.com/mitchellh/mapstructure"
 	"gopkg.in/yaml.v3"
 )
 
@@ -455,23 +454,22 @@ func (s *Service) Save(ctx context.Context) error {
 }
 
 func (s *Service) UpdateSpecFromSettings(spec any) error {
+	// Use the same YAML semantics as LoadSettingsFromSpec, including inline
+	// embedded fields. A different struct decoder can silently nest them and
+	// lose their values on the next load.
+	content, err := yaml.Marshal(spec)
+	if err != nil {
+		return fmt.Errorf("cannot marshal service settings: %w", err)
+	}
+	var updated map[string]any
+	if err := yaml.Unmarshal(content, &updated); err != nil {
+		return fmt.Errorf("cannot decode service spec: %w", err)
+	}
 	if s.Spec == nil {
 		s.Spec = make(map[string]any)
 	}
-
-	config := &mapstructure.DecoderConfig{
-		Metadata: nil,
-		Result:   &s.Spec,
-		TagName:  "yaml",
-	}
-
-	decoder, err := mapstructure.NewDecoder(config)
-	if err != nil {
-		return fmt.Errorf("cannot create decoder: %w", err)
-	}
-
-	if err := decoder.Decode(spec); err != nil {
-		return fmt.Errorf("cannot decode service spec: %w", err)
+	for key, value := range updated {
+		s.Spec[key] = value
 	}
 	return nil
 }

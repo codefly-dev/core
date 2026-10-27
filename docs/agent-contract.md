@@ -73,6 +73,14 @@ existing recovery check and publishing CLI compatibility notes, is tracked in
 [codefly-dev/cli#747](https://github.com/codefly-dev/cli/issues/747). Until that
 lands, this is a Core contract implementation, not a completed CLI rollout.
 
+## Saving agent settings
+
+Core writes and reads typed service settings through YAML semantics, including
+inline fields and custom marshalers. Updates merge top-level keys into the
+existing spec: explicit values replace old values, while omitted and extension
+keys remain. A conversion failure leaves the spec unchanged. This does not
+repair already-malformed saved declarations; their owner must correct them.
+
 ## Container recovery
 
 `container-recovery-scope/v1` promises validation of the inherited process
