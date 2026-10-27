@@ -24,7 +24,8 @@
 //   - Environment + Workspace.FindEnvironment — declared deploy targets.
 //   - PlanReadiness / PlanEndpointProbes — declared health predicates (see docs/readiness.md).
 //
-// All loader functions are read-only; they don't mutate the on-disk
-// YAML. Mutators (CreateWorkspace, AddModuleReference, Save) are the
-// explicit write path.
+// Workspace loading may migrate legacy flat-layout module declarations on disk.
+// Inspection hosts use WithWorkspaceMigrationRefusal to refuse that migration
+// throughout the import closure, and supply a resolver with appropriate effects.
+// CreateWorkspace, AddModuleReference and Save are explicit write paths.
 package resources
