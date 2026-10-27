@@ -2060,46 +2060,26 @@ func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resource
 
 }
 
+// ImageExists reports whether the daemon can resolve the exact reference imag
+// names — a tag (name:tag) or a digest (name@sha256:…) — the way the later
+// container create will have to. It asks the daemon rather than reading the
+// image list: a digest reference resolves only under the repository name the
+// image carries it as, so the same bytes under another name, or an image whose
+// ID merely equals the digest, are NOT this reference, and a scan that matched
+// them reported an image present that the create then could not find. Before
+// this it compared RepoTags alone, which read every digest reference — the form
+// a local build hands back — as absent and sent the caller to pull it.
+//
+// Not found is an answer, false with no error; any other daemon failure is an
+// error, because "cannot tell" must not become "pull it".
 func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := c.ImageList(ctx, image.ListOptions{})
-	if err != nil {
-		return false, w.Wrapf(err, "cannot list images")
-	}
-	for i := range images {
-		if imageMatchesReference(&images[i], imag) {
-			return true, nil
+	reference := imag.FullName()
+	if _, err := c.ImageInspect(ctx, reference); err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
 		}
+		return false, w.Wrapf(err, "cannot inspect image %s", reference)
 	}
-	return false, nil
-}
-
-// imageMatchesReference reports whether a local image is the one imag names.
-//
-// A tag reference is matched on RepoTags, as before. A digest reference
-// (name@sha256:…) is matched on the digest alone, because that is what a digest
-// is: the same manifest pulled under another repository name is the same bytes,
-// and Docker records it in RepoDigests per name it was pulled as. An image
-// built or loaded here and never pushed has no RepoDigests at all; its only
-// digest is the content-addressable ID, which is what a local build hands back
-// and what a caller then asks for. Comparing RepoTags only — the behaviour this
-// replaces — read every such image as absent and sent the caller to pull an
-// image that was already present.
-func imageMatchesReference(img *image.Summary, imag *resources.DockerImage) bool {
-	wanted := imag.FullName()
-	if slices.Contains(img.RepoTags, wanted) {
-		return true
-	}
-	if imag.Digest == "" {
-		return false
-	}
-	if img.ID == imag.Digest {
-		return true
-	}
-	for _, repoDigest := range img.RepoDigests {
-		if _, digest, ok := strings.Cut(repoDigest, "@"); ok && digest == imag.Digest {
-			return true
-		}
-	}
-	return false
+	return true, nil
 }
