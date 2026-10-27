@@ -2067,12 +2067,39 @@ func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerIm
 		return false, w.Wrapf(err, "cannot list images")
 	}
 	for i := range images {
-		img := &images[i]
-		for _, repoTag := range img.RepoTags {
-			if repoTag == imag.FullName() {
-				return true, nil
-			}
+		if imageMatchesReference(&images[i], imag) {
+			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// imageMatchesReference reports whether a local image is the one imag names.
+//
+// A tag reference is matched on RepoTags, as before. A digest reference
+// (name@sha256:…) is matched on the digest alone, because that is what a digest
+// is: the same manifest pulled under another repository name is the same bytes,
+// and Docker records it in RepoDigests per name it was pulled as. An image
+// built or loaded here and never pushed has no RepoDigests at all; its only
+// digest is the content-addressable ID, which is what a local build hands back
+// and what a caller then asks for. Comparing RepoTags only — the behaviour this
+// replaces — read every such image as absent and sent the caller to pull an
+// image that was already present.
+func imageMatchesReference(img *image.Summary, imag *resources.DockerImage) bool {
+	wanted := imag.FullName()
+	if slices.Contains(img.RepoTags, wanted) {
+		return true
+	}
+	if imag.Digest == "" {
+		return false
+	}
+	if img.ID == imag.Digest {
+		return true
+	}
+	for _, repoDigest := range img.RepoDigests {
+		if _, digest, ok := strings.Cut(repoDigest, "@"); ok && digest == imag.Digest {
+			return true
+		}
+	}
+	return false
 }
