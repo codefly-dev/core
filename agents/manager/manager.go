@@ -20,16 +20,11 @@ import (
 // API access is capped at 60 requests/hour per IP, so resolving "latest" for
 // several agents can flakily 403; a token raises the cap to 5000/hour.
 func newGitHubReleaseClient() *github.Client {
-	token := githubReleaseToken()
-	var options []github.ClientOptionsFunc
-	if token == "" {
-		client, err := github.NewClient()
-		if err != nil {
-			panic(fmt.Sprintf("configure GitHub release client: %v", err))
-		}
-		return client
+	token := GitHubReleaseToken()
+	options := []github.ClientOptionsFunc{github.WithHTTPClient(agentDownloadClient)}
+	if token != "" {
+		options = append(options, github.WithAuthToken(token))
 	}
-	options = append(options, github.WithAuthToken(token))
 	client, err := github.NewClient(options...)
 	if err != nil {
 		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
@@ -37,7 +32,13 @@ func newGitHubReleaseClient() *github.Client {
 	return client
 }
 
-func githubReleaseToken() string {
+// GitHubReleaseToken is the one credential rule the agent loader applies when
+// it downloads a release: GITHUB_TOKEN, else GH_TOKEN, else nothing. It never
+// consults a `gh` CLI login, because the hosts that install agents — CI runners
+// and hosted builds — have none. A caller that checks whether a release is
+// installable must check with exactly this credential: verifying with a wider
+// one establishes reachability for the laptop and nothing else.
+func GitHubReleaseToken() string {
 	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
 		return token
 	}

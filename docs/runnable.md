@@ -729,8 +729,8 @@ One call carries one invocation, and there is no way to hand a second to a
 call already in flight. `execution.concurrency` therefore bounds how many calls
 a facility serves at once, not a pool inside one of them.
 
-**The request line, for either route.** `POST <address><route>` is a Connect
-procedure's call and a REST mutation's. A prepared binding names a typed route
+**The request line, for either route.** A Connect procedure uses
+`POST <address><route>`; a REST mutation preserves its `POST` or `PUT` verb. A prepared binding names a typed route
 rather than one spelling read as both (`PreparedCall`), and a REST `GET` — the
 one route core derives only as a read — carries its input as its **query** and
 no body, so the method and the body are not the same for every call.
@@ -738,7 +738,9 @@ no body, so the method and the body are not the same for every call.
 only one: it answers the method, the absolute path, the query and the body for
 whichever arm the binding sets, and refuses a verb outside `GET`/`POST`/`PUT`,
 a route that is not an absolute path, and a `GET` member no query string can
-spell (a null, an object, an array). `runnable.CallQuery` is the query half on
+spell (a null, an object, an array). The input itself must be an object: `{}`
+is valid and `null` is not. Valid REST paths, including `/` and trailing slashes,
+are preserved. `runnable.CallQuery` is the query half on
 its own — each member one parameter of that name, a string as written, a number
 or a boolean in its JSON spelling, sorted by name so one input object addresses
 one request line.

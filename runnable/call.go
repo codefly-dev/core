@@ -114,6 +114,9 @@ func CallQuery(input []byte) (string, error) {
 	if err := json.Unmarshal(input, &members); err != nil {
 		return "", fmt.Errorf("%w: a GET's input is one JSON object, and this call's is not: %v", ErrInvalid, err)
 	}
+	if members == nil {
+		return "", fmt.Errorf("%w: a GET's input must be a JSON object, not null", ErrInvalid)
+	}
 	values := url.Values{}
 	for name, raw := range members {
 		spelled, err := queryValue(raw)
@@ -159,8 +162,8 @@ func queryValue(raw json.RawMessage) (string, error) {
 }
 
 // absolutePath holds a route to an absolute path with no query, fragment or
-// space of its own and no trailing slash: the query of a call is the input's,
+// space of its own: the query of a call is the input's,
 // and a route carrying one would put a second input on the wire.
 func absolutePath(route string) bool {
-	return strings.HasPrefix(route, "/") && !strings.ContainsAny(route, "?# ") && !strings.HasSuffix(route, "/")
+	return strings.HasPrefix(route, "/") && !strings.ContainsAny(route, "?# ")
 }

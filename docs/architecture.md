@@ -516,3 +516,12 @@ and an unrestricted one judges them all, and `Closure.Verify` takes the phase
 the plan is for — the closure walk follows every declared edge, so judging them
 all would make a build input's verdict depend on whether the walk happened to
 reach its consumer.
+
+### Signaling a detached process
+
+An owner that persists a detached process records `runners/base.InspectProcess`'s
+full `ProcessIdentity` and sends signals through `SignalProcess`. Core binds
+kernel delivery to that birth (Linux pidfd, Darwin audit token); a missing or
+replaced process returns `ErrProcessNotFound`. A PID-only record is refused.
+The consumer still owns its shutdown policy and process lifecycle. Registered
+process groups continue to use `TrackedProcessGroup.Signal` for group delivery.

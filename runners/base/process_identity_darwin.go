@@ -235,8 +235,9 @@ const darwinSignalAttempts = 8
 // exists and the kernel rejects the delivery with ESRCH. A caller cannot tell
 // that apart from the process having exited, so it moves on and a live process
 // survives a pass that reported no failure. The birth is therefore re-verified
-// for every attempt and the version read immediately before delivery, leaving
-// no room for an exec to land between the two.
+// for every attempt after reading the audit-token version. A PID reused
+// before the identity check is refused there; one reused afterwards cannot match that version. An
+// exec between the reads or before delivery makes the kernel refuse and retry.
 //
 // Everything the exec window itself produces — a rejected token, a read that
 // raced the exec — is retried rather than reported, because that window is
@@ -251,6 +252,14 @@ const darwinSignalAttempts = 8
 func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
 	var last error
 	for range darwinSignalAttempts {
+		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			last = err
+			continue
+		}
 		current, err := inspectProcess(handle.identity.pid)
 		if errors.Is(err, errProcessNotFound) {
 			return syscall.ESRCH
@@ -262,17 +271,11 @@ func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
 		if current.pgid != handle.identity.pgid || !current.matches(handle.identity.recorded()) {
 			return syscall.ESRCH
 		}
-		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
-		if errors.Is(err, errProcessNotFound) {
-			return syscall.ESRCH
-		}
-		if err != nil {
-			last = err
-			continue
-		}
 		err = signalProcessBirth(handle.identity.pid, unique.PIDVersion, signal)
 		if errors.Is(err, syscall.ESRCH) {
-			last = err
+			// A stale incarnation token does not prove the birth is gone.
+			// Keep exhaustion actionable to both single-process and group callers.
+			last = fmt.Errorf("process incarnation changed during delivery")
 			continue
 		}
 		return err

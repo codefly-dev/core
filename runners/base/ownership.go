@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // ErrProcessGroupNotRegistered is returned when no authenticated record exists
@@ -136,4 +137,37 @@ func (group *TrackedProcessGroup) Terminate(ctx context.Context) error {
 		return ErrProcessGroupNotRegistered
 	}
 	return terminateAuthenticatedGroup(ctx, group.record)
+}
+
+// SignalProcess delivers a signal only to the recorded process birth. Unlike
+// TrackedProcessGroup.Signal, it addresses one process and requires no group
+// registration, for owners of detached processes. The kernel handle binds
+// delivery to the identity, including when the PID is reused during the call.
+// An absent or replaced birth returns ErrProcessNotFound.
+func SignalProcess(ctx context.Context, identity ProcessIdentity, signal syscall.Signal) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if identity.PID <= 1 || identity.PGID <= 0 || identity.BootID == "" || identity.StartID == 0 {
+		return fmt.Errorf("signal process: a complete process identity is required")
+	}
+	handle, err := openProcessSignalHandle(processIdentity{
+		pid: identity.PID, pgid: identity.PGID, bootID: identity.BootID,
+		startID: identity.StartID, executable: identity.Executable,
+	})
+	if errors.Is(err, errProcessGroupIdentityChanged) {
+		return ErrProcessNotFound
+	}
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := handle.Signal(signal); errors.Is(err, syscall.ESRCH) {
+		return ErrProcessNotFound
+	} else {
+		return err
+	}
 }

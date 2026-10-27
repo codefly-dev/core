@@ -1,11 +1,13 @@
 package runnable_test
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -163,10 +165,14 @@ func TestAGetMemberAQueryCannotSpellIsRefusedByName(t *testing.T) {
 // whose members are its parameters, and there is nothing else to spell.
 func TestAGetInputThatIsNotOneObjectIsRefused(t *testing.T) {
 	for name, input := range map[string]string{
-		"an array": `[1,2]`,
-		"a string": `"repo"`,
-		"nothing":  ``,
-		"not JSON": `{`,
+		"null":        `null`,
+		"spaced null": " \n null \t",
+		"a number":    `42`,
+		"a boolean":   `true`,
+		"an array":    `[1,2]`,
+		"a string":    `"repo"`,
+		"nothing":     ``,
+		"not JSON":    `{`,
 	} {
 		if _, err := runnable.CallRequestFor(routedBinding(http.MethodGet, "/v1/releases/history"), []byte(input)); err == nil {
 			t.Fatalf("%s was accepted as a GET's input", name)
@@ -193,7 +199,7 @@ func TestARestVerbOutsideTheThreeIsRefusedByName(t *testing.T) {
 // refused: the query of a call is the input's, and a route carrying one would
 // put a second input on the wire.
 func TestARouteThatIsNotAnAbsolutePathIsRefused(t *testing.T) {
-	for _, path := range []string{"v1/releases", "/v1/releases?limit=1", "/v1/releases#top", "/v1/releases/", "/v1 releases"} {
+	for _, path := range []string{"v1/releases", "/v1/releases?limit=1", "/v1/releases#top", "/v1 releases"} {
 		if _, err := runnable.CallRequestFor(routedBinding(http.MethodGet, path), []byte(`{}`)); err == nil {
 			t.Fatalf("route %q was addressed", path)
 		}
@@ -216,5 +222,40 @@ func TestABindingWithNoRouteIsRefusedNamingItsOperation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "GET /v1/releases/history") {
 		t.Fatalf("the refusal does not name the operation: %v", err)
+	}
+}
+
+func TestCallRequestPreservesRootAndTrailingSlashRoutes(t *testing.T) {
+	for _, path := range []string{"/", "/v1/releases/"} {
+		binding := restBinding()
+		binding.Operation.Spelling = runnable.Route(http.MethodGet, path)
+		binding.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: http.MethodGet, Path: path}}
+		binding.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+		binding.Policy.InvokeScopes[0].Actions = []string{"read"}
+		binding.Policy.LookupScopes = nil
+		decoded, err := runnable.DecodePrepared(encoded(t, binding))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := runnable.CallRequestFor(decoded, []byte(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Path != path {
+			t.Fatalf("route %q became %q", path, request.Path)
+		}
+	}
+}
+
+func TestCallQueryRejectsNullAsInvalid(t *testing.T) {
+	for _, input := range []string{"null", " \n null \t"} {
+		_, err := runnable.CallQuery([]byte(input))
+		if !errors.Is(err, runnable.ErrInvalid) {
+			t.Fatalf("CallQuery(%q): %v", input, err)
+		}
+		_, err = runnable.CallRequestFor(routedBinding(http.MethodGet, "/"), []byte(input))
+		if !errors.Is(err, runnable.ErrInvalid) {
+			t.Fatalf("CallRequestFor(%q): %v", input, err)
+		}
 	}
 }
