@@ -80,15 +80,16 @@ func forwardLines(r io.Reader, w io.Writer) {
 // an upgrade, so ReapStaleProcessGroups also reconciles them — corroborating a
 // live leader's wall-clock start time against the record's spawn second in
 // place of the authentication token those records predate. Namespaced contracts
-// live in subdirectories and are never scanned; only loose files matching the
-// exact legacy schema are reconciled. That schema predates namespacing and was
+// live in subdirectories; only explicitly supported namespaces and loose files
+// matching the exact legacy schema are reconciled. That schema predates namespacing and was
 // shared by every agent on this runner, so a group is only ever terminated once
 // it is proven orphaned — a recognized record that names a live, owner-managed
 // group is preserved regardless of which agent wrote it.
 
 const (
 	pgidRootDirName       = "runs"
-	pgidRegistryNamespace = "authenticated-v1"
+	pgidRegistryNamespace = "authenticated-v2"
+	pgidPreviousNamespace = "authenticated-v1"
 	pgidLockName          = ".reaper.lock"
 	pgidLockRetry         = 25 * time.Millisecond
 	sigtermGrace          = 3 * time.Second
@@ -139,11 +140,19 @@ type recordedProcessIdentity struct {
 	Executable string `json:"executable"`
 }
 
+// pgidRecord retains the exact v1 wire shape. LaunchWorkspace is serialized
+// only by the v2 envelope, never as an additive field in authenticated-v1.
 type pgidRecord struct {
-	PGID           int                     `json:"pgid"`
-	Leader         recordedProcessIdentity `json:"leader"`
-	Owner          recordedProcessIdentity `json:"owner"`
-	Authentication string                  `json:"authentication"`
+	LaunchWorkspace string                  `json:"-"`
+	PGID            int                     `json:"pgid"`
+	Leader          recordedProcessIdentity `json:"leader"`
+	Owner           recordedProcessIdentity `json:"owner"`
+	Authentication  string                  `json:"authentication"`
+}
+
+type pgidRecordV2 struct {
+	pgidRecord
+	Workspace string `json:"launch_workspace"`
 }
 
 type recordSnapshot struct {
@@ -153,7 +162,8 @@ type recordSnapshot struct {
 // TrackedProcessGroup is the identity-bearing handle returned for a process
 // group whose private registry record was durably published.
 type TrackedProcessGroup struct {
-	record pgidRecord
+	namespace string
+	record    pgidRecord
 }
 
 type processSignalHandle interface {
@@ -192,14 +202,17 @@ func (identity processIdentity) checkBootIdentity(recorded recordedProcessIdenti
 }
 
 func pgidStateDir() (string, error) {
+	return pgidNamespaceDir(pgidRegistryNamespace)
+}
+
+func pgidNamespaceDir(namespace string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	// The namespace is part of the current record contract. Codefly agents are
-	// released independently; an agent with another contract must neither parse
-	// nor quarantine these records, and this reaper must never inspect theirs.
-	dir := filepath.Join(home, ".codefly", pgidRootDirName, pgidRegistryNamespace)
+	// The namespace is part of the record contract. Independently released
+	// readers must not parse or quarantine a format they do not support.
+	dir := filepath.Join(home, ".codefly", pgidRootDirName, namespace)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("cannot create pgid dir: %w", err)
 	}
@@ -468,11 +481,12 @@ func captureProcessGroup(pgid int, authentication, executable string) (*TrackedP
 	if leader.bootID != owner.bootID {
 		return nil, errors.New("process identities do not belong to the current boot")
 	}
-	return &TrackedProcessGroup{record: pgidRecord{
-		PGID:           pgid,
-		Leader:         leader.recorded(),
-		Owner:          owner.recorded(),
-		Authentication: authentication,
+	return &TrackedProcessGroup{namespace: pgidRegistryNamespace, record: pgidRecord{
+		LaunchWorkspace: os.Getenv(LaunchWorkspaceEnv),
+		PGID:            pgid,
+		Leader:          leader.recorded(),
+		Owner:           owner.recorded(),
+		Authentication:  authentication,
 	}}, nil
 }
 
@@ -503,11 +517,14 @@ func (group *TrackedProcessGroup) persist() (returnErr error) {
 		return fmt.Errorf("inspect process-group record: %w", err)
 	}
 
-	content, err := json.Marshal(rec)
+	content, err := json.Marshal(pgidRecordV2{pgidRecord: rec, Workspace: rec.LaunchWorkspace})
 	if err != nil {
 		return fmt.Errorf("encode process-group record: %w", err)
 	}
 	content = append(content, '\n')
+	if len(content) > maxRecordSize {
+		return errors.New("process-group record is too large")
+	}
 	file, err := os.CreateTemp(dir, ".pgid-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create process-group record: %w", err)
@@ -548,7 +565,8 @@ func sameProcessGroupRegistration(first, second pgidRecord) bool {
 	return first.PGID == second.PGID &&
 		first.Leader == second.Leader &&
 		first.Owner == second.Owner &&
-		first.Authentication == second.Authentication
+		first.Authentication == second.Authentication &&
+		first.LaunchWorkspace == second.LaunchWorkspace
 }
 
 // Signal delivers signal only to process instances authenticated as members
@@ -665,7 +683,7 @@ func (group *TrackedProcessGroup) RemoveIfDeadContext(ctx context.Context) (retu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, err := pgidStateDir()
+	dir, err := pgidNamespaceDir(group.namespace)
 	if err != nil {
 		return err
 	}
@@ -754,14 +772,29 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	var rec pgidRecord
-	if err := decoder.Decode(&rec); err != nil {
-		return pgidRecord{}, snapshot, err
+	switch filepath.Base(filepath.Dir(path)) {
+	case pgidRegistryNamespace:
+		var envelope pgidRecordV2
+		if err := decoder.Decode(&envelope); err != nil {
+			return pgidRecord{}, snapshot, err
+		}
+		rec = envelope.pgidRecord
+		rec.LaunchWorkspace = envelope.Workspace
+	case pgidPreviousNamespace:
+		if err := decoder.Decode(&rec); err != nil {
+			return pgidRecord{}, snapshot, err
+		}
+	default:
+		return pgidRecord{}, snapshot, errors.New("unsupported process-group record namespace")
 	}
 	if err := ensureJSONEOF(decoder); err != nil {
 		return pgidRecord{}, snapshot, err
 	}
 	if err := rec.validate(); err != nil {
 		return pgidRecord{}, snapshot, err
+	}
+	if filepath.Base(path) != fmt.Sprintf("%d.pgid", rec.PGID) {
+		return pgidRecord{}, snapshot, errors.New("process-group record does not match its filename")
 	}
 	return rec, snapshot, nil
 }
@@ -862,17 +895,25 @@ func IsProcessAlive(pid int) bool {
 }
 
 // ReapStaleProcessGroups reconciles authenticated records in the current
-// contract namespace. Live owners are preserved; groups with dead or reused
-// owners are terminated. Stable malformed records are quarantined without
+// and previous contract namespaces. Live owners are preserved; groups with
+// dead or reused owners are terminated. Stable malformed records are quarantined without
 // signaling any process; records that cannot prove a stable file identity
 // remain active and are reported. Incompatible boot evidence for a live leader
 // with an unchanged start identity is also preserved and reported, not retired
 // as PID reuse. Codefly's own legacy plaintext records,
 // written loose in the registry root by an older release, are reconciled too
 // so their groups cannot leak across an upgrade.
-func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
+func ReapStaleProcessGroups(ctx context.Context) error {
+	var failures []error
+	for _, namespace := range []string{pgidRegistryNamespace, pgidPreviousNamespace} {
+		failures = append(failures, reapProcessGroupNamespace(ctx, namespace))
+	}
+	return errors.Join(failures...)
+}
+
+func reapProcessGroupNamespace(ctx context.Context, namespace string) (returnErr error) {
 	w := wool.Get(ctx).In("base.ReapStaleProcessGroups")
-	dir, err := pgidStateDir()
+	dir, err := pgidNamespaceDir(namespace)
 	if err != nil {
 		return err
 	}
@@ -900,7 +941,7 @@ func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
 			break
 		}
 	}
-	if ctx.Err() == nil {
+	if ctx.Err() == nil && namespace == pgidPreviousNamespace {
 		legacyReaped, legacyErr := sweepLegacyRecords(ctx, filepath.Dir(dir))
 		if legacyErr != nil {
 			failures = append(failures, legacyErr)
