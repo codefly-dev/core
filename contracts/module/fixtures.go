@@ -61,6 +61,8 @@ func Fixtures() ([]Fixture, error) {
 		outcome                   Outcome
 		sentinel                  error
 	}{
+		{name: "owner-aware", file: "owner-aware.yaml", outcome: OutcomeAccepted},
+		{name: "owner-aware-string", file: "owner-aware-string.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "owner_aware must be a boolean", rule: ruleOwnerAwareBoolean},
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
 		{name: "binding-names-calls", file: "binding-names-calls.yaml", outcome: OutcomeAccepted},
@@ -69,6 +71,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "foreign-methods", file: "foreign-methods.yaml", outcome: OutcomeAccepted},
 		{name: "roles", file: "roles.yaml", outcome: OutcomeAccepted},
 		{name: "roles-grant-bindings", file: "roles-grant-bindings.yaml", outcome: OutcomeAccepted},
+		{name: "roles-installation-owned", file: "roles-installation-owned.yaml", outcome: OutcomeAccepted},
 		{name: "binding-self-audience", file: "binding-self-audience.yaml", outcome: OutcomeAccepted},
 
 		{name: "self-beside-from", file: "self-beside-from.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding occurrences audience slot writes self beside from "assistant/evidence-audience"`, rule: ruleSlotSelfBesideFrom},
@@ -199,6 +202,10 @@ func Fixtures() ([]Fixture, error) {
 		{name: "role-beyond-own-ceiling", file: "role-beyond-own-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants assistant.tasks:delete`, rule: ruleRoleWithinRequest},
 		{name: "role-beyond-consumption", file: "role-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants tracing.trace:read`, rule: ruleRoleWithinRequest},
 		{name: "role-headless-permission", file: "role-headless-permission.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants evaluation.definitions:publish`, rule: ruleRoleWithinRequest},
+		{name: "role-installation-owned-ids", file: "role-installation-owned-ids.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "resource_ids", rule: ruleKnownFields},
+		{name: "role-installation-owned-beyond-consumption", file: "role-installation-owned-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" grants installation-owned documents.collection:write`, rule: ruleRoleWithinRequest},
+		{name: "role-installation-owned-kind-without-action", file: "role-installation-owned-kind-without-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" grants installation-owned resource kind "documents.collection" no action`, rule: ruleRoleKindHasAction},
+		{name: "role-installation-owned-kind-named-twice", file: "role-installation-owned-kind-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" names installation-owned resource kind "documents.collection" twice`, rule: ruleRoleKindUnique},
 	}
 	result := make([]Fixture, 0, len(table))
 	for _, entry := range table {

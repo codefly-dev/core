@@ -87,10 +87,88 @@ child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
 
-`WorkScopeV1` is `(resource_kind, actions, resource_ids)`. Attenuation
-(`workcontext.ScopeContained`) lets a child narrow a wildcard parent to
-explicit ids and never the reverse, and never name an action the parent does
-not hold.
+### Scopes and the resource owner
+
+`WorkScopeV1` is `(resource_kind, actions, resource_ids, resource_owner_id)`.
+Attenuation (`workcontext.ScopeContained`) lets a child narrow a wildcard
+parent to explicit ids and never the reverse, and never name an action the
+parent does not hold. `resource_owner_id` selects the resources one principal
+owns (an installed solution's principal), and narrows the same way: a child
+may add an owner to a row that names none, never drop or change one. With ids,
+a resource is covered only when both match. The owner is at most 512 bytes of
+printable ASCII other than space and `*` (`^[!-)+-~]*$`, 0x21–0x29 and
+0x2B–0x7E), the schema's rule, which `protovalidate` enforces at mint and at
+decode. It is an allowlist on purpose: a list of excluded Unicode categories
+let through characters that print as nothing or as another letter (U+034F,
+U+FE0F, U+3164, U+2800, NFD accents, Cyrillic lookalikes), and Go and Python
+protovalidate disagreed on unassigned code points. With ASCII, two owners that
+print alike are the same bytes and every regex engine gives one answer;
+`workcontext/testdata/resource_owner_vectors.json` holds the vectors both are
+checked against. Principal ids are UUIDs, which fit.
+
+A reader asks with the resource's owner. An ask naming no owner is never
+covered by an owner-selected row, so an owner-blind check **built on
+`ScopeContained`** (or `ScopesAttenuate`) fails closed rather than reading the
+scope as the whole kind. That guarantee is the function's, not the field's. A
+reader that inspects `WorkScopeV1` itself — flattening a scope with no ids to
+`kind:action`, or copying kind, actions and ids into a type of its own — reads
+an owner-selected scope as the whole kind once its core pin knows field 4,
+because the unknown-field refusal that used to reject the whole token no longer
+fires. Until such a reader compares owners it must refuse, or grant nothing
+from, any scope with a non-empty `resource_owner_id`, and an issuer must not
+mint an owner-selected scope to its audience. The readers known to inspect
+scopes directly, read at each repository's main on 2026-10-25 (reviews r109,
+r128 and r142; the authority at d091cc7a). It is the list known so far, not a
+proof that no other exists. The first three rows are owner-aware at authority
+main since #18 (f688c549); a consumer pinned before that commit still has the
+owner-blind version:
+
+| Reader | Where | Owner-blind because |
+| --- | --- | --- |
+| authority hop library (Go) | `libraries/hop/go/hop.go:183` (`flatten`) | owner-aware since f688c549: skips an owner-selected scope, so `Identity.Has` never reads it as the whole kind. Before it, stamped `kind:action` for every scope without ids |
+| authority client (Python) | `authority_client/work_context.py:113` (`Scope`), `:218` (`scope_contained`) | owner-aware since f688c549: `Scope` keeps `resource_owner_id` and containment compares it. Before it, the tuple dropped the owner |
+| authority hop (Python) | `codefly_hop/__init__.py:232` (`_flatten`) | owner-aware since f688c549: skips an owner-selected scope, as the Go hop does |
+| authority issuer, `ListResources` | `modules/authority/services/local/code/pkg/business/issuer/issuer.go:88-126` (`whole` at `:103-104`), `state.go:1346` (`coverageOf`, whole kind at `:1359`) | owner-blind: a held scope with no ids sets `whole`, which returns every grant (or the human owner's) for the kind. Unreachable with an owner-selected scope while the issuer mints none (below) |
+| module-annotations | `pkg/infra/workcontext/authority.go` | reads kind, actions and ids field by field |
+| module-evaluation | `identity.go` | reads kind, actions and ids field by field |
+| module-record-store | `adapters/operations.go` | reads kind, actions and ids field by field |
+| module-document-store | `modules/documents/services/documents/code/pkg/business/workclaims/claims.go:191-199` | a matching scope with no resource ids returns allow |
+| module-runtime | `pkg/runnable/installation.go:225`, `pkg/infra/accounts/authority.go:297` | copies kind, actions and ids into its own `Scope` / `WorkContextScope` and drops the owner |
+| saas-sdk-python | `src/saas_sdk/work_context.py:158-163` (`WorkScope`), `:638-646` (`_scopes_of`), `:322-327` (`require_scope`) | `WorkScope` has no owner, `_scopes_of` drops it, and `require_scope` allows the whole kind. It refuses the unknown field today, so it widens once it regenerates from this core |
+| module-saas-starter, module-saas-starter-security accounts | `module/services/accounts/code/pkg/adapters/` (`work_context_rpcs.go`, `delegated_read_audience.go`) | copy kind, actions and ids into their own types and drop the owner |
+| cli execution recorder | `pkg/executionrecorder/work_context_authority.go` | reads kind, actions and ids field by field |
+
+The authority's `Claims.Allows` builds on `ScopeContained` and fails closed,
+but its issuer does not use it. The authority has one service, `local`, and
+one `Issuer`. Since #18 (f688c549) its `Issue` (`issuer.go:205`) and
+`Delegate` (`:662`) refuse, by name, scopes that name a resource owner
+(`refuseOwners`, `:750`: "this authority issues no owner-selected scope
+yet"). Its `ListResources` still reads scopes itself and is owner-blind; it
+can meet an owner-selected scope only once the issuer mints one, so it must be
+made owner-aware before that.
+
+Runnable operations never carry an owner: not in the owner's declaration, not
+in an installation's binding, not in a composition's scope-slot selection —
+each refusal says which, and says `owner-scoped parent`. The owner comes from
+the capability the operation is invoked under. A runtime minting an operation
+child under an owner-scoped parent passes the operation's owner-less scopes
+through `workcontext.InheritResourceOwner(requested, parent.EffectiveScopes())`
+and mints the child with the result: a scope the parent covers as written is
+kept, one the parent covers only under an owner gets that owner, and it is
+refused — never guessed — when no owner covers it, when several do (mint one
+child per owner), when only several owners' rows together cover it (the
+refusal says so rather than "not covered", and advises one invocation per
+owner only when the owners split it by resource; when they split its actions
+no child can hold the whole scope, and the parent must hold it under one
+owner), or when the scope already names another owner. An inherited owner applies to the whole scope:
+under the parent `[doc:read, doc:write@P]` the operation scope
+`doc:{read,write}` becomes `doc:{read,write}@P`, so the child reads only P's
+documents although the parent reads all of them. That is intended and fails
+closed — an operation invoked under an owner-scoped capability is confined to
+that owner's resources — and `TestInheritResourceOwner` pins it. Minting the
+operation's scopes as written under an owner-scoped parent is refused by
+`Child` as a widening, because an owner-less child is never covered by an
+owner row.
 
 Every exchange deep-copies the parent's claims. Sharing hop or scope messages
 would let a mutation of the new capability rewrite what the parent is

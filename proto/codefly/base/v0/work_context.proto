@@ -187,7 +187,10 @@ message WorkOperationBindingV1 {
 
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
 // resource_ids means every resource of resource_kind; a child may narrow that
-// wildcard to explicit IDs but may never widen an explicit parent set.
+// wildcard to explicit IDs but may never widen an explicit parent set. A
+// non-empty resource_owner_id narrows the scope to the resources that
+// principal owns; a child may add an owner to a scope that names none, but
+// may never drop or change one.
 message WorkScopeV1 {
   // resource_kind is the class of resource the scope grants against.
   string resource_kind = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
@@ -196,6 +199,16 @@ message WorkScopeV1 {
   // resource_ids narrows the scope to specific resources. Empty means every
   // resource of resource_kind.
   repeated string resource_ids = 3;
+  // resource_owner_id narrows the scope to the resources this principal owns
+  // (an installed solution's principal). Empty means the scope selects no
+  // owner. With resource_ids, a resource is covered only when both match. A
+  // reader that cannot compare a resource's owner must not treat an
+  // owner-selected scope as covering the whole kind. It is at most 512 bytes
+  // of printable ASCII other than space and "*" (0x21-0x29, 0x2B-0x7E): no
+  // whitespace, control, non-ASCII, invisible or lookalike character, so two
+  // owners that print alike are the same bytes and every regex engine answers
+  // the rule the same way.
+  string resource_owner_id = 4 [(buf.validate.field).string.max_bytes = 512, (buf.validate.field).string.pattern = "^[!-)+-~]*$"];
 }
 
 // WorkActorV1 is one verified delegated actor. granted_scopes are the actor's

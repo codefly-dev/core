@@ -125,6 +125,18 @@ local plugins: it compiles the `*_pb2` messages and `*_pb2_grpc` stubs with the
 own, and their gencode outran the protobuf runtime a generated library
 declares. It ships in companion version 0.0.17.
 
+The Python facade plugin (`facades/python/protoc_gen_codefly_facade_python.py`)
+calls the gateway seam named for each RPC's shape: `unary`, `unary_stream`,
+`stream_unary` or `stream_stream`. It ships in companion version 0.0.18. An
+earlier `0.0.17` image renders every RPC as `unary`; 0.0.17 was republished
+with the streaming plugin, and a machine that had pulled it before keeps the
+old image.
+
+A change to any of a companion's image inputs (its Dockerfile and every
+build-context `COPY` source, `BuildSpec.Inputs`) must bump its
+`info.codefly.yaml`: `internal/companionbump`, the required `Companion version`
+check on every pull request, refuses one that does not.
+
 Rust generation stages output before publishing it. `.codefly-rust-output.json`
 records the generated files and their hashes; only unchanged, tracked files may
 be replaced or removed. Unrelated files are preserved. A collision with an

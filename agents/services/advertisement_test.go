@@ -1,8 +1,10 @@
 package services
 
 import (
+	"slices"
 	"testing"
 
+	"github.com/codefly-dev/core/agents/contract"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 )
 
@@ -52,5 +54,21 @@ func TestAdvertisementEffectiveInputs(t *testing.T) {
 	info := (Advertisement{EffectiveInputsVersions: []uint32{1}}).Build()
 	if got := info.GetEffectiveInputsVersions(); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("discovery versions: %v", got)
+	}
+}
+
+func TestAdvertisementOwnsItsBackendDeclarationOnlyWhenAsked(t *testing.T) {
+	if info := (Advertisement{}).Build(); info.GetContract() != nil {
+		t.Fatalf("a plugin that did not claim a complete declaration advertised a contract: %v", info.GetContract())
+	}
+	info := (Advertisement{BackendsComplete: true}).Build()
+	if got := info.GetContract().GetCapabilities(); !slices.Contains(got, contract.RuntimeBackendDeclaration) {
+		t.Fatalf("capabilities = %v, want %s", got, contract.RuntimeBackendDeclaration)
+	}
+	if got := info.GetContract().GetProtocolVersion(); got != contract.Current().GetProtocolVersion() {
+		t.Fatalf("protocol version = %d, want the shared contract's", got)
+	}
+	if slices.Contains(contract.Current().GetCapabilities(), contract.RuntimeBackendDeclaration) {
+		t.Fatal("the shared contract promised a complete backend declaration for every plugin built on this Core")
 	}
 }

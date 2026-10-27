@@ -73,7 +73,11 @@ func New(ctx context.Context, r *Resource) *Provider {
 	return p
 }
 
-// WithConsole sets a console logger at the given level.
+// WithConsole sets a console logger whose threshold is lvl: a Wool from this
+// provider drops a record below lvl or below the global level, whichever is
+// stricter, unless a CODEFLY_LOG scope rule decides that record's level (see
+// Wool.LogLevel). lvl never makes the console louder than the global level, and
+// never undoes a scope rule that raises one component.
 func (p *Provider) WithConsole(lvl Loglevel) *Provider {
 	p.logger = &Console{level: lvl}
 	return p
@@ -123,7 +127,11 @@ func (p *Provider) Get(ctx context.Context) *Wool {
 
 // --- Console logger ---
 
-// Console is a simple stdout LogProcessor.
+// Console is a simple stdout LogProcessor. It prints every record it is
+// handed: the level decision is made once, by Wool.LogLevel, which reads a
+// console's threshold (set by WithConsole) as one of its inputs. Filtering again
+// here at a copy of the global level is what kept a CODEFLY_LOG scope from ever
+// being louder than the global level.
 type Console struct {
 	level       Loglevel
 	messageOnly bool
@@ -131,13 +139,10 @@ type Console struct {
 
 // NewMessageConsole returns a Console that only prints the message text.
 func NewMessageConsole() *Console {
-	return &Console{level: GlobalLogLevel(), messageOnly: true}
+	return &Console{messageOnly: true}
 }
 
 func (c Console) Process(msg *Log) {
-	if msg.Level < c.level {
-		return
-	}
 	line := msg.Message
 	if !c.messageOnly {
 		line = msg.String()

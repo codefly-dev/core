@@ -199,6 +199,19 @@ vocabulary: every kind is one of its `scope_ceilings` and every action within
 that ceiling, and the list names each method once, each requiring at least one
 action. The render delivers them beside the methods its published contracts
 declare, so the hop in front of the module decides them like any other.
+An entry may name `service:` to select its serving service. The composition
+requires that service to publish a gRPC or Connect listener; without a selector
+it must find exactly one such service. This selects routing, not authority.
+
+**A module declares owner-aware checking explicitly.** Top-level
+`owner_aware: true` declares that the module enforces resource-owner selectors
+in Work Context scopes. Omitted or `false` declares no such checking. The field
+is a boolean; strings, including YAML 1.1 spellings such as `yes`, are refused.
+`Parse`, `Encode` and `Resolve` preserve this declaration. Roles and
+`installation_owned_scopes` never imply it. A solution must declare it before
+the authority issues a person capability to it; the CLI carries the declaration
+in the signed composition authority document's `owner_aware` field (field 7).
+This declares an enforcement capability, not an owner identity or a grant.
 
 **A unit a person uses declares its roles beside its own vocabulary.** A
 solution is reached by people, and who may do what on an installation of it is
@@ -253,6 +266,33 @@ that binding's resolved audience for a consumed one (a ceiling that spells
 scopes out belongs to a binding with one audience, never a list). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
 then names the binding it means in `bindings`.
+
+**A role may grant a scope only on what the installation owns.**
+`installation_owned_scopes` lists scopes the role grants only on the resources
+the installation it is held on owns — those created or attached through it —
+spelled like `scopes`:
+
+```yaml
+roles:
+  - name: viewer
+    scopes:
+      - {resource_kind: wiki.page, actions: [read]}
+    installation_owned_scopes:
+      - {resource_kind: documents.collection, actions: [read]}
+```
+
+Each names a kind and actions and never resource ids, since ids are each
+installation's own: the entry has no field for them, so one naming
+`resource_ids` is refused as an unknown field. It is held to every rule a role
+scope is — kind and action grammar, each kind once in the list, at least one
+action, within the unit's own ceilings or a scope a binding spells out for
+`invoke` or `lookup` — and refused under the same rule names, its message
+saying "installation-owned". A role may grant through it alone, and a kind may
+appear in both lists, each with its own actions. `Resolved.Roles` addresses it
+exactly as a literal scope, in `InstallationOwnedGrants`. The authority
+resolves it per installation into the same scope limited to the ids that
+installation owns of the kind; a kind it owns nothing of grants nothing, never
+the whole kind.
 
 One of the roles is `installer`, which whoever installs the unit holds; each
 role is a lowercase name declared once and grants at least one kind or binding,
@@ -400,7 +440,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (125 documents) ships
+`modulecontract.Fixtures()` (132 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

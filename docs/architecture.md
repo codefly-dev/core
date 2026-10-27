@@ -410,6 +410,18 @@ The same code runs in four contexts:
 
 `CODEFLY__RUNTIME_CONTEXT` environment variable controls which context is active. `NetworkAccessFromRuntimeContext()` maps context to the correct network access type.
 
+A requested context is a **preference**, not an assertion every service of a run
+can honour. Each plugin declares which execution backends it can use on this
+host in `AgentInformation.supported_backends`, and
+`services.PlanRuntimeContexts` reconciles the request against that declaration
+before anything boots: a service that can only run as a container runs as one
+under `native`, and a service left with no usable backend is named up front
+rather than failing deep in its own Init. Each decision says whose fact caused
+it — the plugin's declaration or the host's own report that a backend is
+unusable — and flags the one substitution that is more than a preference, giving
+up a container image whose engine version wrote the service's state. See
+[the runtime contexts a plugin can run in](agent-contract.md#the-runtime-contexts-a-plugin-can-run-in).
+
 `kubernetes` is written by the builder into every Kubernetes render's
 ConfigMap (all output profiles), so a deployed service can tell it is deployed
 without comparing environment names. It is not a run context: it is absent from
@@ -504,3 +516,15 @@ and an unrestricted one judges them all, and `Closure.Verify` takes the phase
 the plan is for — the closure walk follows every declared edge, so judging them
 all would make a build input's verdict depend on whether the walk happened to
 reach its consumer.
+
+### Signaling a detached process
+
+An owner persists a detached process's birth (`PID`, `BootID`, `StartID`) from
+`runners/base.InspectProcess`. Before signaling, it re-inspects and compares that
+birth, then supplies the current full `ProcessIdentity` to `SignalProcess`.
+Process group and executable describe execution state that can change within a
+birth. Core binds
+kernel delivery to that birth (Linux pidfd, Darwin audit token); a missing or
+replaced process returns `ErrProcessNotFound`. A PID-only record is refused.
+The consumer still owns its shutdown policy and process lifecycle. Registered
+process groups continue to use `TrackedProcessGroup.Signal` for group delivery.

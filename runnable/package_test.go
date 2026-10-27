@@ -943,6 +943,17 @@ func TestEveryFacilityInstallsUnderAWorkContext(t *testing.T) {
 			_, err = runnable.PrepareBinding(widened, pkg)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			require.ErrorContains(t, err, "read-only")
+
+			// An owner written into an installation's authority is refused as
+			// the installation's, with the reason: the owner comes from the
+			// capability the operation is invoked under.
+			_, owned := packageForFacility(t, facility)
+			owned.Authority = sampleAuthority()
+			owned.Authority.InvokeScopes[0].ResourceOwnerId = "principal-u"
+			_, err = runnable.PrepareBinding(owned, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "in its installation binding; owner-scoped parent:")
+			require.ErrorContains(t, err, facility.String())
 		})
 	}
 }

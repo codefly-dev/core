@@ -155,3 +155,22 @@ func TestTheGuardedWriterReadsBackEveryAcceptedFixture(t *testing.T) {
 		t.Fatal("no accepted fixture was exercised")
 	}
 }
+
+func TestForeignMethodServiceSurvivesEncoding(t *testing.T) {
+	c, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.ForeignMethods = []ForeignMethod{{Service: "worker", Method: "/foreign.v1.Service/Read", Requires: []CeilingScope{{ResourceKind: c.ScopeCeilings[0].ResourceKind, Actions: c.ScopeCeilings[0].Actions}}}}
+	raw, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ForeignMethods[0].Service != "worker" {
+		t.Fatalf("lost service selector: %s", raw)
+	}
+}

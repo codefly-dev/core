@@ -5,7 +5,10 @@
 // pluggable Provider that ships them to stdout, gRPC, OpenTelemetry, or
 // any custom sink. Levels in increasing severity are TRACE, DEBUG, INFO,
 // FOCUS, WARN, ERROR — FOCUS is a highlighted milestone shown at INFO and
-// above. Per-scope level overrides come from CODEFLY_LOG (see SetLogScopes).
+// above. Per-scope level overrides come from CODEFLY_LOG (see SetLogScopes); a
+// scope can be made louder or quieter than the global level. The level is
+// decided once, by Wool.LogLevel, before any sink sees a record: a Console
+// prints what that decision admitted and does not filter again.
 //
 // Typical usage:
 //
