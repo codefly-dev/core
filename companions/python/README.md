@@ -36,3 +36,7 @@ event, completes configuration, and then collects the start response. Debugpy
 defers that response until `configurationDone`; waiting for it first deadlocks.
 The connection probe also preserves early adapter telemetry bytes so the
 protocol reader receives complete frames.
+Launch omits unspecified arguments and environment overrides instead of sending
+JSON null, which debugpy rejects. Explicit argument lists and environment maps
+are preserved. This behavior belongs to the DAP client; ordinary application
+image execution does not use this debugging handshake.

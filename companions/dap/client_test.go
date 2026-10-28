@@ -21,6 +21,12 @@ func TestStartDebugSessionProtocol(t *testing.T) {
 	for _, command := range []string{"launch", "attach"} {
 		for _, behavior := range []string{"deferred", "early", "rejected", "configuration-error", "disconnect", "cancel"} {
 			t.Run(command+"/"+behavior, func(t *testing.T) {
+				var args []string
+				var env map[string]string
+				if behavior == "early" {
+					args = []string{"--example", "value"}
+					env = map[string]string{"EXAMPLE": "value"}
+				}
 				ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 				defer cancel()
 				conn, peer := net.Pipe()
@@ -32,6 +38,17 @@ func TestStartDebugSessionProtocol(t *testing.T) {
 					reader := bufio.NewReader(peer)
 					start := readProtocolRequest(t, reader)
 					require.Equal(t, command, start.Command)
+					if command == "launch" {
+						wire := start.Arguments.(map[string]interface{})
+						t.Logf("launch wire arguments: %v", wire)
+						if args == nil {
+							require.NotContains(t, wire, "args")
+							require.NotContains(t, wire, "env")
+						} else {
+							require.Equal(t, []interface{}{"--example", "value"}, wire["args"])
+							require.Equal(t, map[string]interface{}{"EXAMPLE": "value"}, wire["env"])
+						}
+					}
 					if behavior == "cancel" {
 						cancel()
 						return
@@ -58,7 +75,7 @@ func TestStartDebugSessionProtocol(t *testing.T) {
 				}()
 				var err error
 				if command == "launch" {
-					err = client.Launch(ctx, "/workspace/main.py", nil, nil)
+					err = client.Launch(ctx, "/workspace/main.py", args, env)
 				} else {
 					err = client.Attach(ctx, 42)
 				}

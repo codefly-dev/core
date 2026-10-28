@@ -164,10 +164,16 @@ func (c *companionClient) configurationDone(ctx context.Context) error {
 func (c *companionClient) Launch(ctx context.Context, program string, args []string, env map[string]string) error {
 	launchArgs := map[string]interface{}{
 		"program":     program,
-		"args":        args,
-		"env":         env,
 		"cwd":         "/workspace",
 		"stopOnEntry": false,
+	}
+	// Nil means no override. JSON null is not a valid argument array or
+	// environment object for adapters such as debugpy.
+	if args != nil {
+		launchArgs["args"] = args
+	}
+	if env != nil {
+		launchArgs["env"] = env
 	}
 	return c.startDebugSession(ctx, "launch", launchArgs)
 }
