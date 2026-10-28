@@ -316,8 +316,8 @@ protobuf contract rule in [architecture](architecture.md#contract-source-of-trut
 Core retains the existing strict JSON storage contract so it can recover records
 from independently released owners without rewriting their birth evidence.
 The versioned namespace isolates incompatible readers. Consumers use the Core
-ownership API instead of implementing a JSON decoder; this exception does not
-introduce another public serialization surface or relax the protobuf default.
+ownership API instead of implementing a JSON decoder; the explicit recovery receipt described below is its only selection transport,
+and the exception does not relax the protobuf default elsewhere.
 
 The v1 wire format is unchanged. Older strict readers ignore the v2 directory;
 they cannot recover its groups and must upgrade before claiming scoped cleanup
@@ -333,6 +333,56 @@ proof of PID reuse or successful cleanup, and Core neither rewrites the birth
 identity nor signals the unverified process. Inspection, stale recovery and
 explicit signals share this refusal; an actual different start identity retains
 the existing reused-process handling.
+
+## Explicit orphan-generation recovery
+
+`runners/base.PreviewProcessGroupRecovery(ctx, pgid)` is a separate, read-only
+admission path for an explicitly operator-selected orphan registration. It is
+not workspace-scoped stop, startup reaping, or permission to include unknown
+workspaces. CLI owns selection, authorization and reporting; Core owns decoding,
+registration identity, birth authentication, delivery and conditional removal.
+The operation never assigns a workspace or rewrites stored boot evidence.
+
+The preview returns `ProcessGroupRecoveryExpectation`: namespace, SHA-256 of the
+exact registration bytes, PGID, recorded leader and owner identities, and the
+currently authenticated member identities. Recorded identities retain their
+original boot representation; the owner's PGID is zero because it is not stored.
+Members carry current boot/start identities for kernel-bound signal delivery.
+The receipt is untrusted input, not a credential. Preserve it with `json.Marshal`
+and read it with Core's `ParseProcessGroupRecoveryExpectation`, which refuses
+unknown fields, duplicate JSON keys, nulls, trailing values and missing birth
+proof. This bounded local JSON receipt extends the registry exception above;
+it is not a new agent protocol or a parallel registry. Core reuses its existing
+`internal/wire` document checks and JSON decoding, not a consumer parser.
+
+`RecoverProcessGroup(ctx, expected)` locks both supported namespaces in a fixed
+order and independently authenticates the current registration. Missing or
+changed registration bytes, namespace ambiguity, changed expected births,
+incomplete proof, a live original owner, or uncertain inspection refuse before
+signals. The full initial member set must still match at admission; take a fresh
+preview if it changed. Each subsequent signal sweep rechecks the registration,
+owner absence and group authentication. Existing escalation can reach surviving
+same-generation descendants; this is not a frozen list of PIDs or authority over
+a replacement group. PID, boot and start evidence remains required.
+
+Only this explicit path accepts Darwin's historical `sec:usec` boot format, and
+only by exact equality to the kernel's current `kern.boottime`. A changed clock
+value refuses; no UUID conversion, approximate match, producer-version roster,
+or weakening of ordinary incompatible-boot refusal is permitted. Current
+kernel-bound delivery is reused unchanged: Darwin acquires PIDVersion before
+checking birth on every attempt, preserving safety across PID reuse and exec.
+The old reader's signal implementation is not used.
+
+Both namespace locks remain held through termination and conditional removal.
+The private file snapshot and expected bytes are rechecked before effects and
+removal; a replacement record is retained. Cooperating writers use these registry
+locks; this does not claim atomicity against a same-user actor deliberately
+bypassing the filesystem protocol. The result reports proven `GroupDead` and
+`RecordRemoved` postconditions. Success requires a nil error and both true.
+An error may follow partial termination; false means that postcondition was not
+established, not proof that the process is alive. A replacement or uncertain
+record is never reported removed. A nil `RemoveIfDeadContext` alone is not used
+as evidence of successful recovery. This operation deletes no container or data.
 
 ## Startup container recovery scope
 
