@@ -2060,19 +2060,26 @@ func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resource
 
 }
 
+// ImageExists reports whether the daemon can resolve the exact reference imag
+// names — a tag (name:tag) or a digest (name@sha256:…) — the way the later
+// container create will have to. It asks the daemon rather than reading the
+// image list: a digest reference resolves only under the repository name the
+// image carries it as, so the same bytes under another name, or an image whose
+// ID merely equals the digest, are NOT this reference, and a scan that matched
+// them reported an image present that the create then could not find. Before
+// this it compared RepoTags alone, which read every digest reference — the form
+// a local build hands back — as absent and sent the caller to pull it.
+//
+// Not found is an answer, false with no error; any other daemon failure is an
+// error, because "cannot tell" must not become "pull it".
 func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := c.ImageList(ctx, image.ListOptions{})
-	if err != nil {
-		return false, w.Wrapf(err, "cannot list images")
-	}
-	for i := range images {
-		img := &images[i]
-		for _, repoTag := range img.RepoTags {
-			if repoTag == imag.FullName() {
-				return true, nil
-			}
+	reference := imag.FullName()
+	if _, err := c.ImageInspect(ctx, reference); err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
 		}
+		return false, w.Wrapf(err, "cannot inspect image %s", reference)
 	}
-	return false, nil
+	return true, nil
 }
