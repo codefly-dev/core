@@ -533,3 +533,11 @@ kernel delivery to that birth (Linux pidfd, Darwin audit token); a missing or
 replaced process returns `ErrProcessNotFound`. A PID-only record is refused.
 The consumer still owns its shutdown policy and process lifecycle. Registered
 process groups continue to use `TrackedProcessGroup.Signal` for group delivery.
+
+Inspection failure is not proof of absence. On Linux, `/proc/PID/exe` can
+disappear after the thread-group leader exits while other threads still run.
+Core rechecks process stat before classifying a missing executable as an absent
+process. If stat remains present but the full identity is unavailable, inspection
+returns an ordinary error; consumers must preserve that uncertainty. The Linux
+regression uses a real pthread worker after leader exit and requires `cc` on
+the test host; it also verifies absence after the worker exits and is reaped.
