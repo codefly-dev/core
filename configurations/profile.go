@@ -318,7 +318,7 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot load configurations from profile %s", path.Base(layer))
 		}
-		loaded, err = loadModuleArtifactBindings(layer, loaded)
+		loaded, err = loadModuleArtifactBindings(ctx, layer, loaded)
 		if err != nil {
 			return nil, err
 		}

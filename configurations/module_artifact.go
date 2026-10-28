@@ -33,7 +33,7 @@ func (local *ConfigurationInformationLocalReader) WithModuleArtifactResolver(res
 const moduleArtifactsFile = "module-artifacts.codefly.json"
 const maxModuleArtifactDeclarationBytes = 64 << 10
 
-func loadModuleArtifactBindings(dir string, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
+func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
 	file, err := os.OpenFile(filepath.Join(dir, moduleArtifactsFile), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if os.IsNotExist(err) {
 		return infos, nil
@@ -88,7 +88,13 @@ func loadModuleArtifactBindings(dir string, infos []*basev0.ConfigurationInforma
 		if value := findConfigurationValue(group, binding.Key); value != nil && !moduleArtifactSlot(value) {
 			return nil, fmt.Errorf("module artifact conflicts with literal: %w", ErrConfigurationConflict)
 		}
-		setConfigurationValue(group, &basev0.ConfigurationValue{Key: binding.Key, ModuleArtifact: proto.Clone(binding.Source).(*basev0.ConfigurationModuleArtifactReference)})
+		value := &basev0.ConfigurationValue{Key: binding.Key, ModuleArtifact: proto.Clone(binding.Source).(*basev0.ConfigurationModuleArtifactReference)}
+		if trace := configurationOriginsFrom(ctx); trace != nil {
+			if err := trace.record(&basev0.ConfigurationInformation{Name: group.Name, ConfigurationValues: []*basev0.ConfigurationValue{value}}, filepath.Join(dir, moduleArtifactsFile)); err != nil {
+				return nil, err
+			}
+		}
+		setConfigurationValue(group, value)
 	}
 	return infos, nil
 }
@@ -105,6 +111,13 @@ func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, 
 				if ref == nil {
 					continue
 				}
+				fail := func(reason string) error {
+					where := fmt.Sprintf("module artifact %q path %q for %q/%q/%q", ref.Module, ref.Path, conf.Origin, info.Name, value.Key)
+					if trace := configurationOriginsFrom(ctx); trace != nil && trace.values[value] != "" {
+						where += fmt.Sprintf(" declared in %q", trace.values[value])
+					}
+					return fmt.Errorf("%s: %s", where, reason)
+				}
 				if err := resources.ValidateModuleArtifactReference(ref); err != nil {
 					return err
 				}
@@ -112,18 +125,18 @@ func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, 
 					return fmt.Errorf("module artifact conflicts with literal, secret or template")
 				}
 				if resolve == nil {
-					return fmt.Errorf("selected module artifact requires a resolver")
+					return fail("selected module artifact requires a resolver")
 				}
 				key := ref.Module + "\x00" + ref.Path
 				content, found := acquired[key]
 				if !found {
 					data, err := resolve(ctx, proto.Clone(ref).(*basev0.ConfigurationModuleArtifactReference))
 					if err != nil {
-						return fmt.Errorf("cannot acquire selected module artifact")
+						return fail("cannot acquire selected module artifact")
 					}
 					content = string(data) // copied; resolver cannot mutate the delivered bytes
 					if err := resources.ValidateModuleArtifactBytes(content); err != nil {
-						return err
+						return fail(err.Error())
 					}
 					acquired[key] = content
 				}

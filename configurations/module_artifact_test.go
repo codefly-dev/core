@@ -106,14 +106,14 @@ func TestModuleArtifactStrictDeclarationsAndLiteralTransition(t *testing.T) {
 		t.Run(contents[:min(35, len(contents))], func(t *testing.T) {
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, moduleArtifactsFile), []byte(contents), 0600))
-			_, err := loadModuleArtifactBindings(dir, nil)
+			_, err := loadModuleArtifactBindings(t.Context(), dir, nil)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "PRIVATE-CANARY")
 		})
 	}
 	for _, literal := range []*basev0.ConfigurationValue{{Key: "CONFIG", Value: "public"}, {Key: "CONFIG", Value: ProfileValueMarker, Secret: true}, {Key: "CONFIG", Value: "prefix" + ProfileValueMarker}} {
 		root, _ := artifactFixture(t)
-		_, err := loadModuleArtifactBindings(filepath.Join(root, "configurations/local"), []*basev0.ConfigurationInformation{{Name: "install", ConfigurationValues: []*basev0.ConfigurationValue{literal}}})
+		_, err := loadModuleArtifactBindings(t.Context(), filepath.Join(root, "configurations/local"), []*basev0.ConfigurationInformation{{Name: "install", ConfigurationValues: []*basev0.ConfigurationValue{literal}}})
 		require.Error(t, err)
 	}
 	root, _ := artifactFixture(t)
@@ -213,7 +213,7 @@ func TestModuleArtifactSelectedProfileDoesNotFallThrough(t *testing.T) {
 func TestModuleArtifactDeclarationRefusesFIFOWithoutOpeningPeer(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, syscall.Mkfifo(filepath.Join(dir, moduleArtifactsFile), 0600))
-	_, err := loadModuleArtifactBindings(dir, nil)
+	_, err := loadModuleArtifactBindings(t.Context(), dir, nil)
 	require.ErrorContains(t, err, "regular file")
 }
 

@@ -114,6 +114,11 @@ have `Document=true` and an empty key. Object identity preserves equal-valued
 overrides through profile selection and composition, including retained defaults
 cloned during workspace per-key overlays. Resolver behavior is unchanged. Only
 surviving results have origins, never values, secret URIs or content hashes.
+Module-artifact values name the supplying `module-artifacts.codefly.json`,
+including profile replacements and retained composed clones. Registering a bound
+key does not reattribute unrelated keys in its group. Acquisition refusals name
+the declared module/path and destination, and the declaration file when traced;
+arbitrary resolver errors and artifact contents are not echoed.
 Origins cover disk composition before invocation overrides, reference
 resolution and injection. They are not a complete input fingerprint, history of
 shadowed candidates or evidence of deployed/runtime values.
