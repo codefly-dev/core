@@ -1171,3 +1171,58 @@ installation: the prepared binding, and the resolved policy receipt
 audience and scopes from. `BindingMatchesResolvedPolicy` holds the two to each
 other by operation, value and `PolicyDigest`; that gate, not the runtime's own
 equality check, is what proves one resolution produced both.
+
+### Current call-only admission and JSON field validation
+
+`runnable.ValidateOneAttemptCall(prepared)` is the narrow admission rule for a
+caller that can durably attempt a synchronous operation once but has no usable
+receipt lookup. It first runs `VerifyPrepared`, then requires **explicit**
+`RECOVERY_RECEIPT`, `COMPLETION_CALL`, `max_attempts: 1`, no retryable codes,
+and no lookup method or scopes. Unspecified recovery does not satisfy this
+rule. No enum, prepared-binding field or transport protocol is added.
+
+A caller may use this rule only with its durable dispatch ledger. A lost,
+malformed or schema-invalid response remains unknown; the caller must neither
+re-dispatch nor mint another effect automatically. It must short-circuit the
+unsupported lookup before issuing lookup authority or making a network call.
+Admission does not establish receipt availability, exactly-once execution or
+handler implementation. A receipt-capable binding follows its supported lookup
+path; this rule is not a fallback after a lookup or invocation fails. A fresh
+invocation after unknown is a separate user decision, not recovery. Core owns
+this policy check; Runtime owns ledger enforcement and outcome presentation.
+
+`runnable.SchemaJSON(schema)` renders the current bounded profile into JSON
+Schema for an existing registry. Before compiling it, call
+`runnable.ConfigureJSONSchemaCompiler(compiler)` on the existing
+`github.com/santhosh-tekuri/jsonschema/v6` compiler. This registers Core's formats
+and enables format assertions: copying format annotations without enabling
+those checks does not implement the contract. No second registry or JSON parser
+is introduced. Callers retain their normal payload-size, unambiguous JSON and
+UTF-8 admission checks.
+
+The mapper keeps exactly the declared names, required versus optional keys,
+nullable values, enum names, closed object members and array items. INTEGER is
+a signed 64-bit JSON integer, never a quoted number. STRING `int64`/`uint64`
+carries canonical decimal strings in the declared range. NUMBER admits JSON
+numbers and only the three non-finite strings `NaN`, `Infinity`, `-Infinity`.
+JSON admits arbitrary JSON (with `object`/`array` restrictions when declared),
+and null only when nullable. No snake/camel aliases, all-optional rewrite,
+integer/string union or coercion is added.
+
+String formats use the maintained protobuf scalar codecs to check canonical
+ProtoJSON spelling: UTC timestamps, protobuf durations, field masks, padded
+standard base64 bytes, and signed/unsigned decimal integers. Decodable but
+noncanonical alternative spellings refuse. Malformed schemas, unknown formats,
+cycles, excessive depth and field budgets refuse before compilation.
+
+The Connect response profile is ordinary omitted-default ProtoJSON:
+`UseProtoNames`, `UseEnumNumbers`, `EmitUnpopulated`, `EmitDefaultValues` and
+`AllowPartial` are false. Absent ordinary messages/timestamps are omitted, not
+emitted as null; explicitly nullable Value/wrapper fields remain distinct.
+Transport owners configure their existing codec and preserve its resolver and
+unknown-input handling. An upstream JSON pass-through must not bypass that
+profile. This is separate from `CanonicalJSON`, which fingerprints protobuf
+records using proto field names, and from REST-specific serialization choices.
+A descriptor-free consumer receives bounded JSON directly; the generic receipt
+protocol's protobuf-wire response cannot be decoded as that JSON or fabricated
+from a bounded field schema.
