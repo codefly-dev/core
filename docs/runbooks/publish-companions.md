@@ -143,3 +143,18 @@ Consumers must adopt the new Core/agent selections and rebuild their service
 images; a source merge or a successful tag-existence check does not refresh
 an already published service image. NYL acceptance requires its re-scan of
 those resulting images, including vulnerability and secret policies.
+
+## Follow-up dependency refresh
+
+The scan of the published codefly 0.0.5 binary found GO-2026-6860 and
+GO-2026-6866 in `golang.org/x/net` 0.61.0; both are fixed in 0.62.0.
+Core 0.19.12 raises that dependency and selects new companion versions:
+codefly 0.0.6, Python 0.0.7, Go 0.0.13, Node 0.0.15, proto 0.0.20 and
+execution 0.0.2. Every companion carries the CLI, so every image needs a
+new version even where its Dockerfile otherwise stays the same.
+
+Publish this set only after the CLI dependency refresh is merged: the
+publisher compiles the CLI checkout, and a Core dependency bump alone does
+not change that executable. Verify the published executable's module
+versions and scan it again before recording the fixes as delivered. Keep
+previous tags immutable, and adopt the new Python index digest in FastAPI.

@@ -16,7 +16,7 @@
 # companion image it builds on, and the builder resolves that to a registry.
 # The default keeps a plain `docker build` working and is pinned to the version
 # in companions/codefly/info.codefly.yaml.
-ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.5
+ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.6
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
 # --- Builder stage: compile every Go plugin from source --------------
