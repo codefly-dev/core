@@ -120,7 +120,10 @@ Python bindings come from the companion's own plugin, `protoc-gen-codefly-python
 (`facades/python/protoc_gen_codefly_python.py`), as Go's and Rust's come from
 local plugins: it compiles the `*_pb2` messages and `*_pb2_grpc` stubs with the
 `grpc_tools` pinned in the image's venv (`grpcio-tools==1.71.0`,
-`protobuf==5.29.3`), so the gencode is versioned with the image. buf's remote
+`protobuf==5.29.3`), so the gencode is versioned with the image. The Docker
+runtime uses digest-pinned Python 3.13.18 on Alpine 3.24: these generator pins
+have Python 3.13 wheels, and moving the generator to support a newer interpreter
+would also change the generated-code runtime requirements. buf's remote
 `protocolbuffers/python` and `grpc/python` plugins it replaces moved on their
 own, and their gencode outran the protobuf runtime a generated library
 declares. It ships in companion version 0.0.17.

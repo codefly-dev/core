@@ -127,7 +127,8 @@ Checklist — do this once per package: `codefly`, `execution`, `go`, `node`,
 Core 0.19.11 selects codefly 0.0.5 and Python 0.0.6. Python now uses
 Python 3.14.10 on Alpine 3.24; both it and the codefly Alpine 3.24.2 base
 are digest-pinned. The go 0.0.12, node 0.0.14 and proto 0.0.19 companions
-also move to the refreshed codefly base. Published tags are not overwritten.
+also carry the refreshed codefly CLI. Proto retains its generator versions
+on a digest-pinned Python 3.13.18 runtime compatible with their wheels. Published tags are not overwritten.
 Alpine package repositories supply current fixes during the build; a base
 version does not freeze the packages installed by `apk`.
 
