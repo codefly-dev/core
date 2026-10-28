@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -156,7 +157,8 @@ type pgidRecordV2 struct {
 }
 
 type recordSnapshot struct {
-	info os.FileInfo
+	info   os.FileInfo
+	digest string
 }
 
 // TrackedProcessGroup is the identity-bearing handle returned for a process
@@ -764,7 +766,7 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	if !sameRecordFile(before, after) || !sameRecordFile(after, current) {
 		return pgidRecord{}, recordSnapshot{}, errors.New("record changed while being read")
 	}
-	snapshot := recordSnapshot{info: current}
+	snapshot := recordSnapshot{info: current, digest: fmt.Sprintf("%x", sha256.Sum256(data))}
 	if len(data) > maxRecordSize {
 		return pgidRecord{}, snapshot, errors.New("record is too large")
 	}

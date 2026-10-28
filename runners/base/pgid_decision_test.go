@@ -39,11 +39,17 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		defer signal.Stop(stopping)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
 		<-stopping
+	case "recovery-replace-on-term":
+		stopping := armTerminationSignal()
+		defer signal.Stop(stopping)
+		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
+		<-stopping
+		rewriteRecord(t, recordPath(t, os.Getpid()), func(rec *pgidRecord) { rec.Authentication = strings.Repeat("0", groupAuthBytes*2) })
 	case "ignores-term":
 		signal.Ignore(syscall.SIGTERM)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
 		select {}
-	case "owner", "stubborn-owner", "live-owner", "workspace-owner":
+	case "owner", "stubborn-owner", "live-owner", "workspace-owner", "recovery-replacement-owner":
 		var stopping chan os.Signal
 		if os.Getenv(processGroupRoleEnv) == "live-owner" {
 			stopping = armTerminationSignal()
@@ -52,6 +58,9 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		leaderRole := "member"
 		if os.Getenv(processGroupRoleEnv) == "stubborn-owner" {
 			leaderRole = "ignores-term"
+		}
+		if os.Getenv(processGroupRoleEnv) == "recovery-replacement-owner" {
+			leaderRole = "recovery-replace-on-term"
 		}
 		leader := registryHelperCommand(leaderRole)
 		leader.Env = append(leader.Env, processGroupReadyFileEnv+"="+os.Getenv(processGroupReadyFileEnv))
