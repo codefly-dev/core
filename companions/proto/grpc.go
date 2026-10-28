@@ -89,11 +89,6 @@ type TypeScriptConfiguration struct {
 	IncludeImports bool
 }
 
-type RustConfiguration struct {
-	Destination    string
-	IncludeImports bool
-}
-
 // BufConfigurationOption tunes the rendered buf configuration. It is variadic so
 // existing callers keep compiling unchanged.
 type BufConfigurationOption func(*bufConfigurationOptions)
@@ -143,16 +138,10 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 			return w.Wrapf(err, "cannot templatize")
 		}
 		return nil
-	case languages.RUST:
-		err := templateRustConfiguration(ctx, bufDir, options.includeImports)
-		if err != nil {
-			return w.Wrapf(err, "cannot templatize")
-		}
-		return nil
 	case languages.NotSupported:
 		return w.NewError("language not supported")
 	}
-	return w.NewError("unknown language")
+	return w.NewError("unsupported proto generation language %q; supported languages: go, python, typescript", language)
 }
 
 func templateGoConfiguration(ctx context.Context, bufDir string, goPackagePrefix string, facade FacadeOptions, goPackageOverrides map[string]string) error {
@@ -200,20 +189,6 @@ func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade 
 		IncludeImports: includeImports,
 	}
 	err := templator.CopyAndApply(ctx, typescriptFS, "templates/typescript", bufDir, conf)
-	if err != nil {
-		return w.Wrapf(err, "cannot copy and apply template")
-	}
-	return nil
-}
-
-func templateRustConfiguration(ctx context.Context, bufDir string, includeImports bool) error {
-	w := wool.Get(ctx).In("templateRustConfiguration", wool.Field("bufDir", bufDir))
-	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
-	conf := RustConfiguration{
-		Destination:    outputDir,
-		IncludeImports: includeImports,
-	}
-	err := templator.CopyAndApply(ctx, rustFS, "templates/rust", bufDir, conf)
 	if err != nil {
 		return w.Wrapf(err, "cannot copy and apply template")
 	}
@@ -294,6 +269,3 @@ var pythonFS embed.FS
 
 //go:embed templates/typescript
 var typescriptFS embed.FS
-
-//go:embed templates/rust
-var rustFS embed.FS

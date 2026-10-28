@@ -2,8 +2,11 @@
 
 The codefly proto companion bundles `buf`, `protoc`, `protoc-gen-*`,
 `swagger`, `grpcio-tools`, and the JS/TS generators into one OCI
-image. Used by `codefly generate proto` and the
-`codefly generate openAPI` pipeline.
+image. All proto generation runs through Codefly (`codefly generate proto`
+and `codefly generate client`), which owns the pinned companion invocation.
+Supported client languages are Go, Python, and TypeScript. The image and its
+build contain no Rust toolchain or Rust generation plugins; unsupported
+language requests fail before writing output.
 
 ## Build
 
@@ -92,32 +95,16 @@ may also contain handwritten Go, so only files carrying Go's standard
 
 ## Versioning
 
-`info.codefly.yaml` carries the image version (`0.0.10` at time of
-writing). Bump via `scripts/tag.sh` — same convention as every other
-companion. Both the Dockerfile build and the Nix build read this
-value so the tag stays consistent.
-## Rust client imports
+`info.codefly.yaml` carries the image version. Version 0.0.21 removes Rust
+generation and its build dependencies. Publish through `codefly companion
+publish` using the [publication procedure](../../docs/runbooks/publish-companions.md);
+changing the manifest alone does not publish an image. Core 0.19.13 selects
+this companion.
 
-The proto companion supplies local `protoc-gen-prost` and `protoc-gen-tonic`
-0.5.0, targeting prost/tonic 0.14. Rust clients retain googleapis and
-protovalidate message bindings beside the application's bindings. Standard
-`google.protobuf` types continue to resolve through `prost-types`.
-
-Client generation validates descriptor-set type references before invoking the
-plugins. Both source and descriptor-set generation are covered by a Cargo
-compile and encode/decode regression containing `google.rpc.Status` and
-`buf.validate.Violations`:
-
-```sh
-go test ./companions/proto -tags=proto_companion_required -run TestRustClientRetainsImportedMessageFields -timeout=180s
-```
-
-This requires the built proto companion and Cargo. The updated plugins ship in
-companion version 0.0.16; bumping the manifest alone does not publish that image.
-Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).
+## Python generation
 
 Python bindings come from the companion's own plugin, `protoc-gen-codefly-python`
-(`facades/python/protoc_gen_codefly_python.py`), as Go's and Rust's come from
+(`facades/python/protoc_gen_codefly_python.py`), as Go's come from
 local plugins: it compiles the `*_pb2` messages and `*_pb2_grpc` stubs with the
 `grpc_tools` pinned in the image's venv (`grpcio-tools==1.71.0`,
 `protobuf==5.29.3`), so the gencode is versioned with the image. The Docker
@@ -139,11 +126,3 @@ A change to any of a companion's image inputs (its Dockerfile and every
 build-context `COPY` source, `BuildSpec.Inputs`) must bump its
 `info.codefly.yaml`: `internal/companionbump`, the required `Companion version`
 check on every pull request, refuses one that does not.
-
-Rust generation stages output before publishing it. `.codefly-rust-output.json`
-records the generated files and their hashes; only unchanged, tracked files may
-be replaced or removed. Unrelated files are preserved. A collision with an
-untracked file or an edited binding is an error, including when adopting output
-created before ownership tracking. Generate into an empty output directory in
-that case; do not discard local edits. Failed generation leaves existing output
-untouched, and publication errors roll back changed files.
