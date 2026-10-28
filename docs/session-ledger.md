@@ -351,7 +351,14 @@ Members carry current boot/start identities for kernel-bound signal delivery.
 The receipt is untrusted input, not a credential. Preserve it with `json.Marshal`
 and read it with Core's `ParseProcessGroupRecoveryExpectation`, which refuses
 unknown fields, duplicate JSON keys, nulls, trailing values and missing birth
-proof. This bounded local JSON receipt extends the registry exception above;
+proof. `MaxProcessGroupRecoveryExpectationBytes` limits a whole receipt to
+1 MiB, independently of the unchanged 16 KiB registration cap. Preview reserves
+one byte beyond compact `json.Marshal` output for the newline emitted by the
+CLI's default `json.Encoder.Encode`; unsupported previews fail instead of emitting
+an unusable receipt. Parsing enforces both this canonical-output budget and the
+inclusive input-byte limit, so extra formatting also counts toward the limit.
+Consumers use the exported owner limit when bounding file reads. This bounded
+local JSON receipt extends the registry exception above;
 it is not a new agent protocol or a parallel registry. Core reuses its existing
 `internal/wire` document checks and JSON decoding, not a consumer parser.
 
