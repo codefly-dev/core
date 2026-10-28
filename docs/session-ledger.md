@@ -393,6 +393,11 @@ as evidence of successful recovery. This operation deletes no container or data.
 
 ## Startup container recovery scope
 
+Explicit operator-selected stop without ledger adoption is documented in
+[container-stop.md](container-stop.md). It compares fresh custody evidence and
+stops a full immutable Docker ID while retaining the object and mounts. It does
+not fabricate an invocation label or modify ledger ownership.
+
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`
 label before checking owner liveness. The label hashes canonical Codefly home,
 workspace path and resolved naming scope. A different home, workspace or scope
