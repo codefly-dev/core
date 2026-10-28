@@ -39,7 +39,11 @@ func SchemaJSON(schema *basev0.RunnableSchema) (json.RawMessage, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	return json.Marshal(schemaObject(schema.GetFields()))
+	projected := schemaObject(schema.GetFields())
+	// Draft 7 asserts registered formats by its own dialect semantics. This
+	// choice travels with the projected schema, never as a compiler-wide flag.
+	projected["$schema"] = "http://json-schema.org/draft-07/schema#"
+	return json.Marshal(projected)
 }
 
 func boundSchema(fields []*basev0.RunnableField, depth int, budget *int) error {
@@ -83,7 +87,7 @@ func schemaField(field *basev0.RunnableField) map[string]any {
 	case basev0.RunnableField_STRING:
 		value["type"] = "string"
 		if field.GetFormat() != "" {
-			value["format"] = field.GetFormat()
+			value["format"] = runnableFormat(field.GetFormat())
 		}
 		if len(field.GetValues()) != 0 {
 			value["enum"] = field.GetValues()
@@ -112,8 +116,9 @@ func schemaField(field *basev0.RunnableField) map[string]any {
 }
 
 // ConfigureJSONSchemaCompiler installs the bounded profile's string formats
-// on an existing v6 compiler and enables format assertions. It adds no loader,
-// registry or parser. Use it before compiling schemas returned by SchemaJSON.
+// under private names on an existing v6 compiler. It changes neither standard
+// formats nor dialect/annotation defaults. SchemaJSON itself selects draft 7,
+// whose format assertions enforce these checks. No loader/registry is added.
 // The formats describe canonical ProtoJSON output, not every spelling that a
 // permissive protobuf input decoder may also accept.
 func ConfigureJSONSchemaCompiler(compiler *jsonschema.Compiler) error {
@@ -131,11 +136,12 @@ func ConfigureJSONSchemaCompiler(compiler *jsonschema.Compiler) error {
 		{FormatInt64, &wrapperspb.Int64Value{}},
 		{FormatUint64, &wrapperspb.UInt64Value{}},
 	} {
-		compiler.RegisterFormat(&jsonschema.Format{Name: format.name, Validate: canonicalProtoString(format.message)})
+		compiler.RegisterFormat(&jsonschema.Format{Name: runnableFormat(format.name), Validate: canonicalProtoString(format.message)})
 	}
-	compiler.AssertFormat()
 	return nil
 }
+
+func runnableFormat(name string) string { return "codefly-runnable/" + name }
 
 func canonicalProtoString(prototype proto.Message) func(any) error {
 	return func(value any) error {

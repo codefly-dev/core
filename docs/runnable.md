@@ -1194,10 +1194,13 @@ this policy check; Runtime owns ledger enforcement and outcome presentation.
 `runnable.SchemaJSON(schema)` renders the current bounded profile into JSON
 Schema for an existing registry. Before compiling it, call
 `runnable.ConfigureJSONSchemaCompiler(compiler)` on the existing
-`github.com/santhosh-tekuri/jsonschema/v6` compiler. This registers Core's formats
-and enables format assertions: copying format annotations without enabling
-those checks does not implement the contract. No second registry or JSON parser
-is introduced. Callers retain their normal payload-size, unambiguous JSON and
+`github.com/santhosh-tekuri/jsonschema/v6` compiler. This registers only Core-private
+`codefly-runnable/<format>` names. `SchemaJSON` emits an explicit draft-07
+dialect, whose format assertions enforce these names through the same installed
+schema JSON in Service and Engine. Registration does not call `AssertFormat`,
+change the compiler default dialect, or replace standard `date-time`. Ordinary
+release/interaction/event schemas retain their own dialect semantics, including
+newer-dialect format annotations. No second registry or JSON parser is introduced. Callers retain their normal payload-size, unambiguous JSON and
 UTF-8 admission checks.
 
 The mapper keeps exactly the declared names, required versus optional keys,

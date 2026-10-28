@@ -153,3 +153,34 @@ func TestCurrentProfileRejectsMalformedAndUnboundedSchemas(t *testing.T) {
 	_, err = runnable.SchemaJSON(wide)
 	require.ErrorContains(t, err, "field budget")
 }
+
+func TestProfileRegistrationLeavesOrdinarySchemaDialectAndFormatsAlone(t *testing.T) {
+	c := jsonschema.NewCompiler()
+	require.NoError(t, runnable.ConfigureJSONSchemaCompiler(c))
+	for _, test := range []struct {
+		name, raw string
+		accepted  []string
+		rejected  []string
+	}{
+		{"draft7", `{"$schema":"http://json-schema.org/draft-07/schema#","type":"string","format":"date-time"}`, []string{`"2026-10-28T01:00:00+01:00"`, `"2026-10-28T00:00:00.1Z"`}, []string{`"invalid"`}},
+		{"draft2020", `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"string","format":"date-time"}`, []string{`"2026-10-28T01:00:00+01:00"`, `"2026-10-28T00:00:00.1Z"`, `"invalid"`}, nil},
+		{"default", `{"type":"string","format":"date-time"}`, []string{`"invalid"`}, nil},
+	} {
+		value, err := jsonschema.UnmarshalJSON(bytes.NewBufferString(test.raw))
+		require.NoError(t, err)
+		url := "urn:ordinary:" + test.name
+		require.NoError(t, c.AddResource(url, value))
+		schema, err := c.Compile(url)
+		require.NoError(t, err)
+		for _, raw := range test.accepted {
+			profileAccepts(t, schema, raw, true)
+		}
+		for _, raw := range test.rejected {
+			profileAccepts(t, schema, raw, false)
+		}
+	}
+	strict := compiledProfile(t, &basev0.RunnableField{Name: "value", Type: basev0.RunnableField_STRING, Format: runnable.FormatDateTime})
+	for _, raw := range []string{`{"value":"2026-10-28T01:00:00+01:00"}`, `{"value":"2026-10-28T00:00:00.1Z"}`} {
+		profileAccepts(t, strict, raw, false)
+	}
+}
