@@ -23,29 +23,38 @@ _sym_db = _symbol_database.Default()
 
 
 from codefly.base.v0 import scope_pb2 as codefly_dot_base_dot_v0_dot_scope__pb2
+from codefly.base.v0 import source_pb2 as codefly_dot_base_dot_v0_dot_source__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#codefly/base/v0/configuration.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x63odefly/base/v0/scope.proto\"\x9d\x01\n\x12\x43onfigurationValue\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n\x06secret\x18\x03 \x01(\x08R\x06secret\x12G\n\x08template\x18\x04 \x01(\x0b\x32+.codefly.base.v0.ConfigurationValueTemplateR\x08template\"l\n\x1a\x43onfigurationValueTemplate\x12N\n\x08segments\x18\x01 \x03(\x0b\x32\x32.codefly.base.v0.ConfigurationValueTemplateSegmentR\x08segments\"\x98\x01\n!ConfigurationValueTemplateSegment\x12\x1a\n\x07literal\x18\x01 \x01(\tH\x00R\x07literal\x12L\n\treference\x18\x02 \x01(\x0b\x32,.codefly.base.v0.ConfigurationValueReferenceH\x00R\treferenceB\t\n\x07\x63ontent\"\x98\x01\n\x1b\x43onfigurationValueReference\x12$\n\rconfiguration\x18\x01 \x01(\tR\rconfiguration\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12\x41\n\x06\x65scape\x18\x03 \x01(\x0e\x32).codefly.base.v0.ConfigurationValueEscapeR\x06\x65scape\"Y\n\x11\x43onfigurationData\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n\x07\x63ontent\x18\x02 \x01(\x0cR\x07\x63ontent\x12\x16\n\x06secret\x18\x03 \x01(\x08R\x06secret\"\xbe\x01\n\x18\x43onfigurationInformation\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12V\n\x14\x63onfiguration_values\x18\x02 \x03(\x0b\x32#.codefly.base.v0.ConfigurationValueR\x13\x63onfigurationValues\x12\x36\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\".codefly.base.v0.ConfigurationDataR\x04\x64\x61ta\"\xb2\x01\n\rConfiguration\x12\x16\n\x06origin\x18\x01 \x01(\tR\x06origin\x12H\n\x0fruntime_context\x18\x02 \x01(\x0b\x32\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12?\n\x05infos\x18\x03 \x03(\x0b\x32).codefly.base.v0.ConfigurationInformationR\x05infos*\x98\x01\n\x18\x43onfigurationValueEscape\x12*\n&CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED\x10\x00\x12+\n\'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x01\x12#\n\x1f\x43ONFIGURATION_VALUE_ESCAPE_NONE\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#codefly/base/v0/configuration.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x63odefly/base/v0/scope.proto\x1a\x1c\x63odefly/base/v0/source.proto\"\xed\x02\n\x12\x43onfigurationValue\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n\x06secret\x18\x03 \x01(\x08R\x06secret\x12G\n\x08template\x18\x04 \x01(\x0b\x32+.codefly.base.v0.ConfigurationValueTemplateR\x08template\x12^\n\x0fmodule_artifact\x18\x05 \x01(\x0b\x32\x35.codefly.base.v0.ConfigurationModuleArtifactReferenceR\x0emoduleArtifact\x12n\n\x18resolved_module_artifact\x18\x06 \x01(\x0b\x32\x34.codefly.base.v0.ResolvedConfigurationModuleArtifactR\x16resolvedModuleArtifact\"R\n$ConfigurationModuleArtifactReference\x12\x16\n\x06module\x18\x01 \x01(\tR\x06module\x12\x12\n\x04path\x18\x02 \x01(\tR\x04path\"\x9d\x01\n#ProfileModuleArtifactConfigurations\x12%\n\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12O\n\x08\x62indings\x18\x02 \x03(\x0b\x32\x33.codefly.base.v0.ConfigurationModuleArtifactBindingR\x08\x62indings\"\xab\x01\n\"ConfigurationModuleArtifactBinding\x12$\n\rconfiguration\x18\x01 \x01(\tR\rconfiguration\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12M\n\x06source\x18\x03 \x01(\x0b\x32\x35.codefly.base.v0.ConfigurationModuleArtifactReferenceR\x06source\"\xc8\x01\n#ResolvedConfigurationModuleArtifact\x12S\n\treference\x18\x01 \x01(\x0b\x32\x35.codefly.base.v0.ConfigurationModuleArtifactReferenceR\treference\x12L\n\x11\x61rtifact_identity\x18\x02 \x01(\x0b\x32\x1f.codefly.base.v0.SourceIdentityR\x10\x61rtifactIdentity\"l\n\x1a\x43onfigurationValueTemplate\x12N\n\x08segments\x18\x01 \x03(\x0b\x32\x32.codefly.base.v0.ConfigurationValueTemplateSegmentR\x08segments\"\x98\x01\n!ConfigurationValueTemplateSegment\x12\x1a\n\x07literal\x18\x01 \x01(\tH\x00R\x07literal\x12L\n\treference\x18\x02 \x01(\x0b\x32,.codefly.base.v0.ConfigurationValueReferenceH\x00R\treferenceB\t\n\x07\x63ontent\"\x98\x01\n\x1b\x43onfigurationValueReference\x12$\n\rconfiguration\x18\x01 \x01(\tR\rconfiguration\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12\x41\n\x06\x65scape\x18\x03 \x01(\x0e\x32).codefly.base.v0.ConfigurationValueEscapeR\x06\x65scape\"Y\n\x11\x43onfigurationData\x12\x12\n\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n\x07\x63ontent\x18\x02 \x01(\x0cR\x07\x63ontent\x12\x16\n\x06secret\x18\x03 \x01(\x08R\x06secret\"\xbe\x01\n\x18\x43onfigurationInformation\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12V\n\x14\x63onfiguration_values\x18\x02 \x03(\x0b\x32#.codefly.base.v0.ConfigurationValueR\x13\x63onfigurationValues\x12\x36\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\".codefly.base.v0.ConfigurationDataR\x04\x64\x61ta\"\xb2\x01\n\rConfiguration\x12\x16\n\x06origin\x18\x01 \x01(\tR\x06origin\x12H\n\x0fruntime_context\x18\x02 \x01(\x0b\x32\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12?\n\x05infos\x18\x03 \x03(\x0b\x32).codefly.base.v0.ConfigurationInformationR\x05infos*\x98\x01\n\x18\x43onfigurationValueEscape\x12*\n&CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED\x10\x00\x12+\n\'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x01\x12#\n\x1f\x43ONFIGURATION_VALUE_ESCAPE_NONE\x10\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'codefly.base.v0.configuration_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CONFIGURATIONVALUEESCAPE']._serialized_start=1131
-  _globals['_CONFIGURATIONVALUEESCAPE']._serialized_end=1283
-  _globals['_CONFIGURATIONVALUE']._serialized_start=86
-  _globals['_CONFIGURATIONVALUE']._serialized_end=243
-  _globals['_CONFIGURATIONVALUETEMPLATE']._serialized_start=245
-  _globals['_CONFIGURATIONVALUETEMPLATE']._serialized_end=353
-  _globals['_CONFIGURATIONVALUETEMPLATESEGMENT']._serialized_start=356
-  _globals['_CONFIGURATIONVALUETEMPLATESEGMENT']._serialized_end=508
-  _globals['_CONFIGURATIONVALUEREFERENCE']._serialized_start=511
-  _globals['_CONFIGURATIONVALUEREFERENCE']._serialized_end=663
-  _globals['_CONFIGURATIONDATA']._serialized_start=665
-  _globals['_CONFIGURATIONDATA']._serialized_end=754
-  _globals['_CONFIGURATIONINFORMATION']._serialized_start=757
-  _globals['_CONFIGURATIONINFORMATION']._serialized_end=947
-  _globals['_CONFIGURATION']._serialized_start=950
-  _globals['_CONFIGURATION']._serialized_end=1128
+  _globals['_CONFIGURATIONVALUEESCAPE']._serialized_start=1990
+  _globals['_CONFIGURATIONVALUEESCAPE']._serialized_end=2142
+  _globals['_CONFIGURATIONVALUE']._serialized_start=116
+  _globals['_CONFIGURATIONVALUE']._serialized_end=481
+  _globals['_CONFIGURATIONMODULEARTIFACTREFERENCE']._serialized_start=483
+  _globals['_CONFIGURATIONMODULEARTIFACTREFERENCE']._serialized_end=565
+  _globals['_PROFILEMODULEARTIFACTCONFIGURATIONS']._serialized_start=568
+  _globals['_PROFILEMODULEARTIFACTCONFIGURATIONS']._serialized_end=725
+  _globals['_CONFIGURATIONMODULEARTIFACTBINDING']._serialized_start=728
+  _globals['_CONFIGURATIONMODULEARTIFACTBINDING']._serialized_end=899
+  _globals['_RESOLVEDCONFIGURATIONMODULEARTIFACT']._serialized_start=902
+  _globals['_RESOLVEDCONFIGURATIONMODULEARTIFACT']._serialized_end=1102
+  _globals['_CONFIGURATIONVALUETEMPLATE']._serialized_start=1104
+  _globals['_CONFIGURATIONVALUETEMPLATE']._serialized_end=1212
+  _globals['_CONFIGURATIONVALUETEMPLATESEGMENT']._serialized_start=1215
+  _globals['_CONFIGURATIONVALUETEMPLATESEGMENT']._serialized_end=1367
+  _globals['_CONFIGURATIONVALUEREFERENCE']._serialized_start=1370
+  _globals['_CONFIGURATIONVALUEREFERENCE']._serialized_end=1522
+  _globals['_CONFIGURATIONDATA']._serialized_start=1524
+  _globals['_CONFIGURATIONDATA']._serialized_end=1613
+  _globals['_CONFIGURATIONINFORMATION']._serialized_start=1616
+  _globals['_CONFIGURATIONINFORMATION']._serialized_end=1806
+  _globals['_CONFIGURATION']._serialized_start=1809
+  _globals['_CONFIGURATION']._serialized_end=1987
 # @@protoc_insertion_point(module_scope)

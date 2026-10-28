@@ -114,6 +114,11 @@ have `Document=true` and an empty key. Object identity preserves equal-valued
 overrides through profile selection and composition, including retained defaults
 cloned during workspace per-key overlays. Resolver behavior is unchanged. Only
 surviving results have origins, never values, secret URIs or content hashes.
+Module-artifact values name the supplying `module-artifacts.codefly.json`,
+including profile replacements and retained composed clones. Registering a bound
+key does not reattribute unrelated keys in its group. Acquisition refusals name
+the declared module/path and destination, and the declaration file when traced;
+arbitrary resolver errors and artifact contents are not echoed.
 Origins cover disk composition before invocation overrides, reference
 resolution and injection. They are not a complete input fingerprint, history of
 shadowed candidates or evidence of deployed/runtime values.
@@ -164,3 +169,79 @@ configuration values and documents for provisioning; serializing the entire
 `WorkspaceConfigurations` result exposes them. Changing plaintext, inline
 secrets, secret references or document contents without changing their source
 selection leaves the serialized evidence unchanged, including shadowed sources.
+
+## Public module artifacts per load
+
+A profile can declare `module-artifacts.codefly.json` using
+`ProfileModuleArtifactConfigurations` protobuf JSON:
+
+```json
+{"schemaVersion":1,"bindings":[{"configuration":"runtime-installations","key":"INSTALLATION","source":{"module":"documents","path":"public/installation.json"}}]}
+```
+
+The composition author explicitly asserts these selected bytes are public for
+this destination. Confinement and SHA256 do not establish publicness: a mistaken
+assertion can disclose content and a dictionary-testable digest. There is no
+secret scanner, publicness catalog or inferred filename rule.
+
+Use the existing first-existing profile and explicit base-first inheritance.
+Bindings enter before precedence. An inherited reference may be replaced by a
+reference; ordinary literals, secrets, templates, structured replacements and
+invocation overrides cannot overwrite a bound destination, even with equal
+bytes. Only the exact non-secret `${profile}` slot with no template can yield to
+a binding. Moving a literal to a reference requires an explicit source edit
+removing the literal, including conflicting inherited offers. Other keys retain
+ordinary precedence, ownership and root/module delivery scope.
+
+`ConfigurationInformationLocalReader.WithModuleArtifactResolver` supplies a
+`ModuleArtifactResolver`; pure `ReadWorkspaceConfigurations` takes the same
+optional resolver. Core invokes it once per effective module/path in each load,
+copies exact bytes and generates `resolved_module_artifact` evidence on the
+value. The resolver must use the final selected module and preserve its selection
+kind and provenance. Explicit path/worktree selection can lack a release
+receipt; receipt-required materialization must not downgrade to local because
+its overlay resolves to a directory. It must confine bounded, nonblocking regular
+file reads and refuse traversal, special files and observed read instability.
+Core neither downloads modules nor calls providers to acquire these artifacts.
+
+The declaration document is limited to 64 KiB. Artifact values use the existing
+inclusive `resources.FileCarrierThreshold` (32 KiB), valid UTF-8, no NUL and no
+recognized endpoint/profile interpolation. Whitespace and newlines are preserved.
+There is no compaction, file/mount fallback or `ConfigurationData` substitution.
+Missing sources/resolvers and conflicting offers fail; diagnostics omit values.
+Runtime still owns installation semantics.
+
+`module_artifact` is unresolved declaration field 5; generated field 6 is
+`resolved_module_artifact`, with reference and `SourceIdentity` SHA256/byte count.
+Authored evidence is refused. Core emission validates the evidence against the
+actual non-secret, non-template Value before filtering. Unresolved declarations,
+stale digests, wrong sizes and unsupported identity algorithms refuse. Typed
+clones retain evidence. This is an observation, not a signature against malicious
+in-process callers or proof of release authenticity.
+
+`resources.ValidateModuleArtifactDelivery(baseline, contributions, overrides)`
+checks all ordered typed offers before merging and the exact once-computed
+process override map. Baseline is initial selected delivery, or the detached
+actual successful Init payload later; it is comparison state, not a request to
+emit again. Every additional response/dependency offer must remain in
+contributions. A second occurrence matching a bound destination refuses,
+including equal, annotated, unannotated, public/secret and file-carrier aliases.
+Ordinary unbound/unbound precedence remains unchanged. The owner matcher keeps
+origin/group/key scope; a trailing-key comparison is insufficient.
+
+CLI must validate Init before dispatch, response contributions before exposure,
+Start against retained Init (not a later manager load), and excluded-root export
+against its actual selected delivery. Its complete output preflight includes
+configuration, runtime overrides, identity, fixtures and endpoints. The raw
+output writer additionally refuses invalid SDK key grammar and LF/CR/NUL in
+**every** emitted value before the first batch write, including unbound records,
+and enforces the same rule at the lower-level writer. It serializes the same
+strings it checked; no codec or normalization is implied. Multiline direct
+process delivery remains supported. Core's schema/value checks do not qualify
+the CLI writer or SDK roundtrip.
+
+Every later normal load may change, add or remove references. Planning and check
+are observations of their own loads; generated credentials remain visible to the
+normal post-provisioning load. Extend retains ordinary reload behavior. Already
+running workers keep their actual delivery: no flow-wide freeze, watcher,
+automatic adoption or composition-wide transaction is introduced.

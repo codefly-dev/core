@@ -3,6 +3,7 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 )
@@ -86,8 +87,13 @@ func DecodeServiceConfigurationOverrides(encoded string) ([]ServiceConfiguration
 		return nil, nil
 	}
 	var overrides []ServiceConfigurationOverride
-	if err := json.Unmarshal([]byte(encoded), &overrides); err != nil {
-		return nil, fmt.Errorf("decode service configuration overrides: %w", err)
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&overrides); err != nil {
+		return nil, fmt.Errorf("invalid service configuration override fields")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("invalid trailing service configuration overrides")
 	}
 	validated, err := validateServiceConfigurationOverrides(overrides)
 	if err != nil {
