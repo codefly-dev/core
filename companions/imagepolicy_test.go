@@ -31,11 +31,9 @@ import (
 // core release flow — so moving a base means republishing the companion. See
 // docs/runbooks/publish-companions.md.
 var unpinnedUpstreamBases = []string{
-	"alpine:3.24.2",
 	"docker:29-dind",
 	"golang:1.27-alpine",
 	"node:26.3.0-alpine3.22",
-	"python:3.14.1-alpine3.21",
 	"rust:1.99-alpine",
 }
 

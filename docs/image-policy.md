@@ -72,7 +72,7 @@ The companion base-image argument's tag default is exempted only from the
 unpinned-base refusal: the publisher overrides it with the digest it just
 published. Existing companion build-spec tests enforce that default's shape.
 
-Six distinct floating upstream bases remain explicitly listed in
+Four distinct floating upstream bases remain explicitly listed in
 `unpinnedUpstreamBases`. This is a **temporary stopgap**, not completed pinning:
 new references fail and stale exceptions fail once no companion uses them.
 Pinning them requires the companion build/publish contract in
