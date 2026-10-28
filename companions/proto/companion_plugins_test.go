@@ -313,7 +313,7 @@ func TestTsFacadeLockfileMatchesTheRuntime(t *testing.T) {
 // neighbour — the reader then checks the wrong line, finds something plausible,
 // and moves on.
 var runbookCitations = map[string]string{
-	"Dockerfile:94": "@bufbuild/protoc-gen-es@",
+	"Dockerfile:89": "@bufbuild/protoc-gen-es@",
 	"flake.nix:51":  "protocGenEsVersion =",
 	"flake.nix:59":  "hash =",
 	"flake.nix:61":  "npmDepsHash =",
