@@ -47,6 +47,19 @@ func TestSelectedProtoCompanionShipsGoimports(t *testing.T) {
 	require.Contains(t, string(output), "goimports")
 }
 
+// Linux runs companions as the host UID. Build-time checks must not leave
+// root-owned caches that pass on macOS (root in Docker) and fail on Linux.
+func TestSelectedProtoCompanionCachesWorkAsNonRoot(t *testing.T) {
+	ctx := t.Context()
+	testutil.RequireProtoImage(t, ctx)
+	img, err := proto.CompanionImage(ctx)
+	require.NoError(t, err)
+	output, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
+		"--user", "1001:1001", "--entrypoint", "sh", img.FullName(), "-ec",
+		"buf ls-files /workspace && swagger version && npm cache verify").CombinedOutput()
+	require.NoError(t, err, "the selected companion must create its caches as an arbitrary host UID: %s", output)
+}
+
 // goimports names a package through `go list` in the consumer's module and
 // refuses a module whose go.mod requires a newer Go than the image carries,
 // then formats syntax only. Ask the selected image which Go it runs and hold

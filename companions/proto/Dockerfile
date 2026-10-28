@@ -76,11 +76,6 @@ COPY --from=codeflybase /bin/codefly /bin/codefly
 #   - Go-built plugins (buf, protoc-gen-*) ARE static (CGO_ENABLED=0
 #     explicitly in the builder), so we COPY just those binaries
 #     without bringing the Go runtime.
-# HOME=/tmp so the companion works when run as an arbitrary non-root UID
-# (codefly runs it as the host user on Linux CI). buf and npm/npx write
-# their caches under $HOME; the default /root isn't writable by that user.
-ENV HOME=/tmp
-
 # python3 + a dedicated /venv host the Python facade + strip plugins. The venv
 # is built here (not copied from the builder) so it is bound to this stage's
 # Python 3.13 — the builder may ship a different Python minor version, and a
@@ -146,11 +141,20 @@ RUN printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_
 
 # Exercise target executables in both architecture builds. A successful native
 # compile alone would not catch copying the host Go distribution into runtime.
+# Keep installation caches under /root, then use the runtime home as a non-root
+# UID. The temporary mount prevents smoke checks from baking owned caches into
+# /tmp, where a different host UID must create its own Buf/Go/npm caches.
+ENV HOME=/tmp
+USER 65532:65532
 ARG TARGETARCH
-RUN test "$(go env GOARCH)" = "$TARGETARCH" && \
+RUN --mount=type=tmpfs,target=/tmp \
+    test "$(go env GOARCH)" = "$TARGETARCH" && \
     buf --version && \
+    buf ls-files /tmp && \
     protoc-gen-go --version && \
     protoc-gen-go-grpc --version && \
-    swagger version
+    swagger version && \
+    npm cache verify
 
+USER 0:0
 WORKDIR /workspace
