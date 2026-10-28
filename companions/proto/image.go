@@ -1,14 +1,12 @@
 package proto
 
 import (
-	"fmt"
 	"path"
 	"strings"
 
 	"github.com/codefly-dev/core/languages"
 	"google.golang.org/protobuf/encoding/protowire"
 	googleproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -165,12 +163,9 @@ func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Langua
 	// Go and Python name a dropped file's package absolutely — a rewritten
 	// go_package, an untouched `from buf.validate import validate_pb2` — so
 	// every foreign namespace resolves to whatever the consumer installed.
-	// TypeScript and Rust do so only for their runtime-supplied protobuf types.
+	// TypeScript does so only for its runtime-supplied protobuf types.
 	if language == languages.TYPESCRIPT {
 		return protobufESRuntimeFiles[file.GetName()]
-	}
-	if language == languages.RUST {
-		return file.GetPackage() == "google.protobuf" || strings.HasPrefix(file.GetPackage(), "google.protobuf.")
 	}
 	return true
 }
@@ -182,7 +177,7 @@ func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Langua
 //
 // Which namespaces those are depends on language, because dropping one only
 // works if the generator refers to it by package name: Go and Python do that for
-// all of them, TypeScript and Rust only for runtime-supplied protobuf types.
+// all of them, TypeScript only for runtime-supplied protobuf types.
 // See foreignNamespace.
 //
 // A descriptor set handed to GenerateClient is a *plain* FileDescriptorSet —
@@ -198,7 +193,7 @@ func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Langua
 // bindings importing a package nothing generated. The returned map is fed back
 // into buf.gen.yaml as managed.override.GO_PACKAGE so each marked file keeps
 // the go_package it declares, and the module's bindings reference the canonical
-// upstream package (google.golang.org/genproto/..., prost-types, ...) exactly
+// upstream package (google.golang.org/genproto/..., ...) exactly
 // as they do on the Sources path.
 //
 // `buf generate --exclude-path google/protobuf` would drop the well-known types
@@ -224,11 +219,6 @@ func MarkForeignImports(descriptorSet []byte, language languages.Language, goReq
 	var set descriptorpb.FileDescriptorSet
 	if err := googleproto.Unmarshal(descriptorSet, &set); err != nil {
 		return nil, nil, err
-	}
-	if language == languages.RUST {
-		if _, err := protodesc.NewFiles(&set); err != nil {
-			return nil, nil, fmt.Errorf("resolve Rust client descriptor types: %w", err)
-		}
 	}
 	isImport := protowire.AppendVarint(protowire.AppendTag(nil, bufImageFileIsImportField, protowire.VarintType), 1)
 	extension := protowire.AppendBytes(protowire.AppendTag(nil, bufImageFileExtensionField, protowire.BytesType), isImport)

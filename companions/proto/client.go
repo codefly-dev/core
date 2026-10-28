@@ -113,6 +113,12 @@ type clientSpec struct {
 func generateClient(ctx context.Context, spec clientSpec) error {
 	w := wool.Get(ctx).In("generateClient", wool.DirField(spec.destination))
 
+	switch spec.language {
+	case languages.GO, languages.PYTHON, languages.TYPESCRIPT:
+	default:
+		return w.NewError("unsupported proto generation language %q; supported languages: go, python, typescript", spec.language)
+	}
+
 	image, err := CompanionImage(ctx)
 	if err != nil {
 		return w.Wrapf(err, "cannot get companion image")
@@ -152,9 +158,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	// Sources only: a descriptor set carries its foreign files already marked as
 	// buf image imports, and re-targeting them would put a second Timestamp next
 	// to the consumer's runtime one.
-	// Rust also needs imported bindings; prost keeps google.protobuf external
-	// through its default prost-types mapping.
-	includeImports := len(spec.sources) > 0 && (spec.language == languages.TYPESCRIPT || spec.language == languages.RUST)
+	includeImports := len(spec.sources) > 0 && spec.language == languages.TYPESCRIPT
 
 	if err = CreateBufConfiguration(ctx, tmpDir, spec.service, spec.language, spec.facade,
 		WithGoPackageOverrides(goPackageOverrides), WithIncludeImports(includeImports)); err != nil {
@@ -209,12 +213,6 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 
 	if _, err = shared.CheckDirectoryOrCreate(ctx, spec.destination); err != nil {
 		return w.Wrapf(err, "cannot create destination")
-	}
-	if spec.language == languages.RUST {
-		return generateRustOutput(ctx, spec.destination, func(output string) error {
-			name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
-			return runBuf(ctx, name, image, tmpDir, output, false, depUpdate, generateArgs, before)
-		})
 	}
 
 	if includeImports {

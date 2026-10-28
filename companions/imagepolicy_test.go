@@ -34,7 +34,6 @@ var unpinnedUpstreamBases = []string{
 	"docker:29-dind",
 	"golang:1.27-alpine",
 	"node:26.3.0-alpine3.22",
-	"rust:1.99-alpine",
 }
 
 // corePolicy is what core requires of its own images. It is an ordinary

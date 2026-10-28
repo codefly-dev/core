@@ -283,7 +283,7 @@ func TestEveryLanguageResolvesTheSameSharedProtos(t *testing.T) {
 			t.Fatalf("Go resolves no %s", module)
 		}
 	}
-	for _, language := range []languages.Language{languages.PYTHON, languages.TYPESCRIPT, languages.RUST} {
+	for _, language := range []languages.Language{languages.PYTHON, languages.TYPESCRIPT} {
 		if got := deps(language); got != want {
 			t.Errorf("%s resolves\n%s\nwhere Go resolves\n%s", language, got, want)
 		}

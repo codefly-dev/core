@@ -21,19 +21,6 @@ import (
 // content hashes — fail the Nix build rather than any test here.
 const protocGenEsRuntimeVersion = "2.11.0"
 
-func TestCompanionInstallsLocalRustPlugins(t *testing.T) {
-	for _, file := range []string{"Dockerfile", "flake.nix", "templates/rust/buf.gen.yaml.tmpl"} {
-		assertMentionsAll(t, file, []string{"protoc-gen-prost", "protoc-gen-tonic"})
-	}
-	content, err := os.ReadFile("templates/rust/buf.gen.yaml.tmpl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(content), "buf.build/") {
-		t.Fatal("Rust generation must use the companion's local plugins")
-	}
-}
-
 // bumpRunbook records why the pin sits where it does and what moving it costs.
 // The guards below keep it honest, because a stale runbook is worse than none:
 // it still reads as current.
@@ -326,10 +313,10 @@ func TestTsFacadeLockfileMatchesTheRuntime(t *testing.T) {
 // neighbour — the reader then checks the wrong line, finds something plausible,
 // and moves on.
 var runbookCitations = map[string]string{
-	"Dockerfile:104": "@bufbuild/protoc-gen-es@",
-	"flake.nix:51":   "protocGenEsVersion =",
-	"flake.nix:59":   "hash =",
-	"flake.nix:61":   "npmDepsHash =",
+	"Dockerfile:99": "@bufbuild/protoc-gen-es@",
+	"flake.nix:51":  "protocGenEsVersion =",
+	"flake.nix:59":  "hash =",
+	"flake.nix:61":  "npmDepsHash =",
 }
 
 func TestRunbookCitationsPointAtWhatTheyName(t *testing.T) {
@@ -402,7 +389,7 @@ func TestTypeScriptTemplateUsesTheBakedProtocGenEs(t *testing.T) {
 	}
 }
 
-// Python's bindings come from the companion's own plugin, as Go's and Rust's do:
+// Python's bindings come from the companion's own plugin, as Go's do:
 // buf's remote python plugins moved on their own, and their gencode outran the
 // protobuf runtime a generated library declares. Both build definitions ship
 // the plugin, and the image pins the grpc_tools it runs.
@@ -418,4 +405,18 @@ func TestCompanionGeneratesPythonWithItsLocalPlugin(t *testing.T) {
 		t.Fatal("Python generation must use the companion's local plugin")
 	}
 	assertMentionsAll(t, "Dockerfile", []string{"protobuf==5.29.3", "grpcio-tools==1.71.0"})
+}
+
+func TestCompanionBuildsWithoutRust(t *testing.T) {
+	for _, file := range []string{"Dockerfile", "flake.nix"} {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tool := range []string{"rust:", "rust-builder", "cargo", "protoc-gen-prost", "protoc-gen-tonic"} {
+			if strings.Contains(string(data), tool) {
+				t.Errorf("%s includes removed Rust tooling %q", file, tool)
+			}
+		}
+	}
 }

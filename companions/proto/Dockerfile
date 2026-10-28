@@ -52,11 +52,6 @@ RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
 
-FROM rust:1.99-alpine AS rust-builder
-RUN apk add --no-cache musl-dev && \
-    cargo install --locked protoc-gen-prost --version 0.5.0 && \
-    cargo install --locked protoc-gen-tonic --version 0.5.0
-
 # Keep the interpreter compatible with the pinned generator's wheels and
 # gencode contract. Alpine's python3 moves independently; grpcio-tools 1.71
 # has Python 3.13 wheels, not 3.14 wheels. As in the Python companion, copy
@@ -124,8 +119,6 @@ COPY --from=builder /go/bin/swagger /usr/local/bin/
 # the plugins — a formatter that moves with @latest moves the committed shape.
 COPY --from=builder /go/bin/goimports /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
-COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-prost /usr/local/bin/
-COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-tonic /usr/local/bin/
 
 # Facade plugin sources (Python scripts + the TS npm package).
 COPY companions/proto/facades/python /opt/codefly-facades/python
