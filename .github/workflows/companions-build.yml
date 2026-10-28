@@ -48,8 +48,8 @@ jobs:
   build:
     needs: plan
     runs-on: ubuntu-latest
-    # The proto companion compiles ~10 Go plugins from source and its arm64
-    # half runs under QEMU emulation.
+    # Go tools cross-compile natively. Target runtime package installation
+    # and executable smoke checks still use QEMU for the arm64 half.
     timeout-minutes: 180
     strategy:
       # One companion failing to build must not hide whether the others do.

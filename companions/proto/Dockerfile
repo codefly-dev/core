@@ -144,4 +144,13 @@ RUN printf '#!/bin/sh\nexec /venv/bin/python /opt/codefly-facades/python/protoc_
     chmod +x /usr/local/bin/protoc-gen-codefly-python /usr/local/bin/protoc-gen-codefly-facade-python /usr/local/bin/codefly-proto-strip-options && \
     ln -sf protoc-gen-codefly-facade-python /usr/local/bin/protoc-gen-solution_facade
 
+# Exercise target executables in both architecture builds. A successful native
+# compile alone would not catch copying the host Go distribution into runtime.
+ARG TARGETARCH
+RUN test "$(go env GOARCH)" = "$TARGETARCH" && \
+    buf --version && \
+    protoc-gen-go --version && \
+    protoc-gen-go-grpc --version && \
+    swagger version
+
 WORKDIR /workspace

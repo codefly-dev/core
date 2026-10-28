@@ -61,7 +61,9 @@ The Dockerfile assembles the same set via apk + `go install`. The Go builder
 runs on `BUILDPLATFORM` and cross-compiles static plugins for `TARGETARCH`;
 it never compiles under ARM emulation. A separate target-platform Go image
 supplies the runtime `go`/`gofmt`, so cross-building cannot accidentally ship
-the build host's compiler. Upstream downloads were checked: Buf 1.73.0's
+the build host's compiler. Each image build executes Buf, the Go generators,
+Swagger and the runtime Go architecture check on its target platform.
+Upstream downloads were checked: Buf 1.73.0's
 prebuilt binary carries Go 1.26.8 and x/net 0.58.0, including fixed findings,
 and several other plugin downloads carry still older Go toolchains. Retaining
 source builds preserves the current Go compiler instead of importing those
