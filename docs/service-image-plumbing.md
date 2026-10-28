@@ -199,3 +199,18 @@ The credential boundary and repository dispatch restrictions are described in
 `cmd/image-sbom` stays in the services: it chooses service images, platforms,
 output paths, and CLI behavior using these APIs. Adoption follows the core
 release by pinning it and removing service-local copies.
+
+
+## Image presence at run time
+
+Before a local container run pulls an image, `runners/dockerrun.ImageExists`
+asks the daemon to resolve the **exact reference** the run names — `name:tag`
+or `name@sha256:…` — with `ImageInspect`, the same resolution the later
+container create performs. A digest reference resolves only under the
+repository name the image carries it as: the same bytes under another name,
+or an image whose ID merely equals the digest, are not that reference, and a
+match on them would report present an image the create then cannot find. A
+reference the daemon cannot resolve is an answer (`false`, no error) and the
+pull follows; any other daemon failure is an error, so "cannot tell" never
+becomes "pull it". An image built or imported locally and never pushed is
+present under its own `name@sha256:<ID>` and under its tag, and is not pulled.

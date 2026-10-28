@@ -2,6 +2,8 @@ package resources_test
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,6 +79,59 @@ jobs:
 	require.NoError(t, err)
 	require.Equal(t, []string{"existing", "api"}, serviceReferenceNames(reloaded.Services))
 	require.Equal(t, []string{"migrate"}, jobReferenceNames(reloaded.Jobs))
+}
+
+func TestWorkspaceInspectionRefusesMigrationThroughoutImports(t *testing.T) {
+	for _, depth := range []int{0, 1, 2} {
+		for _, legacy := range []string{"kind: module\nname: legacy\nservices:\n  - name: api\n", "services: [malformed"} {
+			t.Run(fmt.Sprintf("depth-%d/%s", depth, legacy), func(t *testing.T) {
+				root := t.TempDir()
+				files := map[string]string{}
+				for i := 0; i <= depth; i++ {
+					dir := filepath.Join(root, fmt.Sprintf("workspace-%d", i))
+					require.NoError(t, os.Mkdir(dir, 0o700))
+					manifest := fmt.Sprintf("name: workspace-%d\nlayout: flat\n", i)
+					if i < depth {
+						manifest = fmt.Sprintf("name: workspace-%d\nlayout: modules\nworkspaces:\n  - name: workspace-%d\n    path: ../workspace-%d\n", i, i+1, i+1)
+					} else {
+						files[filepath.Join(dir, resources.ModuleConfigurationName)] = legacy
+					}
+					files[filepath.Join(dir, resources.WorkspaceConfigurationName)] = manifest
+				}
+				for path, content := range files {
+					require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+				}
+				ctx := resources.WithWorkspaceMigrationRefusal(context.Background())
+				_, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "workspace-0"))
+				require.ErrorContains(t, err, "inspection refuses before rewriting workspace files")
+				for path, content := range files {
+					got, err := os.ReadFile(path)
+					require.NoError(t, err)
+					require.Equal(t, content, string(got))
+				}
+				var found []string
+				require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+					if err == nil && !entry.IsDir() {
+						found = append(found, path)
+					}
+					return err
+				}))
+				require.Len(t, found, len(files), "inspection creates no files")
+			})
+		}
+	}
+}
+
+func TestWorkspaceInspectionLoadsCurrentFlatWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	manifest := []byte("name: current-workspace\nlayout: flat\nservices:\n  - name: api\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.WorkspaceConfigurationName), manifest, 0o600))
+	ws, err := resources.LoadWorkspaceFromDir(resources.WithWorkspaceMigrationRefusal(context.Background()), dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"api"}, serviceReferenceNames(ws.Services))
+	got, err := os.ReadFile(filepath.Join(dir, resources.WorkspaceConfigurationName))
+	require.NoError(t, err)
+	require.Equal(t, manifest, got)
 }
 
 func TestFlatWorkspaceMigrationKeepsUnrepresentableLegacyData(t *testing.T) {
