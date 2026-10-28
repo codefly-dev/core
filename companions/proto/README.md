@@ -63,6 +63,10 @@ it never compiles under ARM emulation. A separate target-platform Go image
 supplies the runtime `go`/`gofmt`, so cross-building cannot accidentally ship
 the build host's compiler. Each image build executes Buf, the Go generators,
 Swagger and the runtime Go architecture check on its target platform.
+These checks run as a non-root user with temporary caches that never enter the
+image. Installation caches stay under `/root`; runtime tools use `/tmp` so
+Linux callers with arbitrary host UIDs can create their own Buf, Go, and npm
+caches. The tagged companion suite verifies this with a different non-root UID.
 Upstream downloads were checked: Buf 1.73.0's
 prebuilt binary carries Go 1.26.8 and x/net 0.58.0, including fixed findings,
 and several other plugin downloads carry still older Go toolchains. Retaining
@@ -111,8 +115,9 @@ may also contain handwritten Go, so only files carrying Go's standard
 
 `info.codefly.yaml` carries the image version. Version 0.0.21 removes Rust
 generation and its build dependencies; 0.0.22 removes emulated Go compilation.
+Version 0.0.23 fixes non-root runtime caches left owned by root in 0.0.22.
 Publish through `codefly companion publish` using the [publication procedure](../../docs/runbooks/publish-companions.md);
-changing the manifest alone does not publish an image. Core 0.19.14 selects
+changing the manifest alone does not publish an image. Core 0.19.15 selects
 this companion.
 
 ## Python generation
