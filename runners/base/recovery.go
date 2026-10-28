@@ -7,13 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/codefly-dev/core/internal/wire"
-	"github.com/gofrs/flock"
-	"gopkg.in/yaml.v3"
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/codefly-dev/core/internal/wire"
+	"github.com/gofrs/flock"
+	"gopkg.in/yaml.v3"
 )
+
+// MaxProcessGroupRecoveryExpectationBytes bounds a complete serialized recovery
+// receipt, including the newline emitted by json.Encoder.Encode. One MiB allows
+// thousands of ordinary member identities without borrowing the much smaller
+// registry-record limit. Consumers may use this bound when reading a receipt.
+const MaxProcessGroupRecoveryExpectationBytes = 1 << 20
 
 // ProcessGroupRecoveryExpectation is an untrusted, owner-produced selection
 // receipt. Persist the complete receipt from PreviewProcessGroupRecovery;
@@ -33,7 +40,7 @@ type ProcessGroupRecoveryExpectation struct {
 // Parsing is not authentication; RecoverProcessGroup revalidates every fact.
 func ParseProcessGroupRecoveryExpectation(data []byte) (ProcessGroupRecoveryExpectation, error) {
 	var expected ProcessGroupRecoveryExpectation
-	if len(data) > maxRecordSize {
+	if len(data) > MaxProcessGroupRecoveryExpectationBytes {
 		return expected, errors.New("recovery expectation is too large")
 	}
 	// Reuse Core's document checks for duplicate keys/nulls; JSON syntax and
@@ -89,7 +96,10 @@ func PreviewProcessGroupRecovery(ctx context.Context, pgid int) (expected *Proce
 	if !ok || len(members) == 0 {
 		return nil, errors.New("recovery requires an authenticated live generation")
 	}
-	expected = recoveryExpectation(group, snapshot, members)
+	expected, err = recoveryPreviewExpectation(group, snapshot, members)
+	if err != nil {
+		return nil, err
+	}
 	// A noncooperating writer must not change the receipt during observation.
 	if _, _, err = readExpectedRecoveryRegistration(*expected, snapshot); err != nil {
 		return nil, err
@@ -233,6 +243,14 @@ func readRecoveryRegistration(pgid int) (*TrackedProcessGroup, recordSnapshot, e
 	return &TrackedProcessGroup{namespace: group.namespace, record: rec}, snapshot, nil
 }
 
+func recoveryPreviewExpectation(group *TrackedProcessGroup, snapshot recordSnapshot, members []processIdentity) (*ProcessGroupRecoveryExpectation, error) {
+	expected := recoveryExpectation(group, snapshot, members)
+	if err := expected.validate(); err != nil {
+		return nil, err
+	}
+	return expected, nil
+}
+
 func recoveryExpectation(group *TrackedProcessGroup, snapshot recordSnapshot, members []processIdentity) *ProcessGroupRecoveryExpectation {
 	recorded := func(identity recordedProcessIdentity, pgid int) ProcessIdentity {
 		return ProcessIdentity{PID: identity.PID, PGID: pgid, BootID: identity.BootID, StartID: identity.StartID, Executable: identity.Executable}
@@ -336,6 +354,15 @@ func authenticateRecoveryGroup(ctx context.Context, rec pgidRecord) ([]processId
 }
 
 func (expected ProcessGroupRecoveryExpectation) validate() error {
+	// The producer and parser share the same canonical output budget. The CLI's
+	// default json.Encoder uses Marshal's escaping and appends one newline.
+	encoded, err := json.Marshal(expected)
+	if err != nil {
+		return err
+	}
+	if len(encoded)+1 > MaxProcessGroupRecoveryExpectationBytes {
+		return errors.New("recovery expectation is too large")
+	}
 	digest, err := hex.DecodeString(expected.RecordSHA256)
 	if err != nil || len(digest) != 32 || expected.RecordSHA256 != strings.ToLower(expected.RecordSHA256) || expected.PGID <= 1 || (expected.Namespace != pgidRegistryNamespace && expected.Namespace != pgidPreviousNamespace) || len(expected.Members) == 0 {
 		return errors.New("recovery expectation is incomplete or malformed")
