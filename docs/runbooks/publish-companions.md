@@ -121,3 +121,24 @@ curl -sI -H "Authorization: Bearer $token" \
 
 Checklist — do this once per package: `codefly`, `execution`, `go`, `node`,
 `proto`, `python`.
+
+## October 2026 image refresh
+
+Core 0.19.11 selects codefly 0.0.5 and Python 0.0.6. Python now uses
+Python 3.14.10 on Alpine 3.24; both it and the codefly Alpine 3.24.2 base
+are digest-pinned. The go 0.0.12, node 0.0.14 and proto 0.0.19 companions
+also move to the refreshed codefly base. Published tags are not overwritten.
+Alpine package repositories supply current fixes during the build; a base
+version does not freeze the packages installed by `apk`.
+
+The PR build derives a Buildx Bake graph from `companions.BuildSpecs()`.
+Each dependent uses a `target:` context for its declared base, so it tests
+the base from the same checkout before that new tag is published. CI stages
+the released CLI executable for this check; the CLI publishing workflow
+builds its own binary from source, as described above.
+
+After publishing, record the actual image digests and scan those images.
+Consumers must adopt the new Core/agent selections and rebuild their service
+images; a source merge or a successful tag-existence check does not refresh
+an already published service image. NYL acceptance requires its re-scan of
+those resulting images, including vulnerability and secret policies.
