@@ -37,3 +37,23 @@ func TestPlatformsJoinAsBuildxAcceptsThem(t *testing.T) {
 		require.NotContains(t, e.Platforms, " ")
 	}
 }
+
+// A dependent must build its checkout's base, not pull the unpublished tag.
+// The matrix also needs that base's real CLI executable staged before baking.
+func TestBakeDependenciesHaveLocalTargetsAndStagedBinaries(t *testing.T) {
+	specs, err := companions.BuildSpecs()
+	require.NoError(t, err)
+	targets := bakeFile(specs)["target"]
+	for _, entry := range entries(specs) {
+		target := targets[entry.Companion]
+		if entry.Base == "" {
+			require.Empty(t, target.Contexts)
+			continue
+		}
+		base, ok := targets[entry.Base]
+		require.True(t, ok, "base must be in the same build graph")
+		require.Equal(t, base.Platforms, target.Platforms)
+		require.Equal(t, "target:"+entry.Base, target.Contexts[target.Args[companions.BaseImageArg]])
+		require.NotEmpty(t, entry.BaseCLIBinary)
+	}
+}

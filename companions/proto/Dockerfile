@@ -16,7 +16,8 @@
 # companion image it builds on, and the builder resolves that to a registry.
 # The default keeps a plain `docker build` working and is pinned to the version
 # in companions/codefly/info.codefly.yaml.
-ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.4
+ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.5
+FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
 # --- Builder stage: compile every Go plugin from source --------------
 
@@ -56,7 +57,12 @@ RUN apk add --no-cache musl-dev && \
     cargo install --locked protoc-gen-prost --version 0.5.0 && \
     cargo install --locked protoc-gen-tonic --version 0.5.0
 
-FROM ${CODEFLY_BASE_IMAGE}
+# Keep the interpreter compatible with the pinned generator's wheels and
+# gencode contract. Alpine's python3 moves independently; grpcio-tools 1.71
+# has Python 3.13 wheels, not 3.14 wheels. As in the Python companion, copy
+# the freshly built CLI into a language-specific runtime base.
+FROM python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+COPY --from=codeflybase /bin/codefly /bin/codefly
 
 # Runtime dependencies:
 #   - nodejs + npm: for the TypeScript generators below (unavoidable).
@@ -87,11 +93,11 @@ ENV HOME=/tmp
 
 # python3 + a dedicated /venv host the Python facade + strip plugins. The venv
 # is built here (not copied from the builder) so it is bound to this stage's
-# python — the builder's alpine ships a different python minor version, and a
+# Python 3.13 — the builder may ship a different Python minor version, and a
 # venv is not portable across them.
-RUN apk add --no-cache nodejs npm protobuf python3 py3-pip && \
+RUN apk add --no-cache bash ca-certificates curl git jq procps tzdata nodejs npm protobuf && \
     python3 -m venv /venv && \
-    /venv/bin/pip install --no-cache-dir protobuf==5.29.3 grpcio-tools==1.71.0 && \
+    /venv/bin/pip install --no-cache-dir --only-binary=:all: protobuf==5.29.3 grpcio-tools==1.71.0 && \
     npm install -g \
         openapi-typescript@7.13.0 \
         swagger2openapi@7.0.8 \

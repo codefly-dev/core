@@ -1,11 +1,10 @@
 # Python runtime companion — opinionated, uv-based (no poetry).
 #
 # Version pinning strategy (matches codefly base):
-#   - Base image: python:3.13.1-alpine3.21 — pins both Python patch and
-#     Alpine minor release.
-#   - apk packages: not individually pinned — Alpine point release
-#     freezes its repo, so `apk add git` yields the same version at
-#     every build.
+#   - Base image: Python 3.14.10 on Alpine 3.24, pinned by digest.
+#   - apk packages: not individually pinned — the Alpine repository
+#     supplies current fixes at build time. The published image digest,
+#     rather than the package repository, identifies the resulting bytes.
 #   - uv: pinned via the install-script URL (version is part of the
 #     path), bumping = editing this line + bumping info.codefly.yaml.
 #   - codefly CLI: copied from the pinned codefly companion base.
@@ -14,10 +13,10 @@
 # companion image it builds on, and the builder resolves that to a registry.
 # The default keeps a plain `docker build` working and is pinned to the version
 # in companions/codefly/info.codefly.yaml.
-ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.4
+ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.5
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
-FROM python:3.14.1-alpine3.21
+FROM python:3.14.10-alpine3.24@sha256:cfe4b5079e5852da965ae14f74a6e2b137ece05b918d27c575fb70de3c85db2b
 
 # Re-install alpine dev tools so the python companion's runtime carries
 # the same toolbox as the codefly base. Dropped from the list:
