@@ -150,7 +150,9 @@ ARG TARGETARCH
 RUN --mount=type=tmpfs,target=/tmp \
     test "$(go env GOARCH)" = "$TARGETARCH" && \
     buf --version && \
-    buf ls-files /tmp && \
+    mkdir /tmp/proto-check && \
+    printf 'syntax = "proto3";\npackage cachecheck;\nmessage Check {}\n' > /tmp/proto-check/check.proto && \
+    buf build /tmp/proto-check --output /tmp/proto-check.bin && \
     protoc-gen-go --version && \
     protoc-gen-go-grpc --version && \
     swagger version && \

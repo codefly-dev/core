@@ -54,9 +54,10 @@ func TestSelectedProtoCompanionCachesWorkAsNonRoot(t *testing.T) {
 	testutil.RequireProtoImage(t, ctx)
 	img, err := proto.CompanionImage(ctx)
 	require.NoError(t, err)
+	fixture := filepath.Join(repoRoot(t), "companions", "proto", "testdata", "facade", "streaming")
 	output, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
-		"--user", "1001:1001", "--entrypoint", "sh", img.FullName(), "-ec",
-		"buf ls-files /workspace && swagger version && npm cache verify").CombinedOutput()
+		"--user", "1001:1001", "-v", fixture+":/proto-check:ro", "--entrypoint", "sh", img.FullName(), "-ec",
+		"buf build /proto-check --output /tmp/proto-check.bin && swagger version && npm cache verify").CombinedOutput()
 	require.NoError(t, err, "the selected companion must create its caches as an arbitrary host UID: %s", output)
 }
 
