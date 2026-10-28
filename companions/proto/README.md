@@ -7,6 +7,8 @@ and `codefly generate client`), which owns the pinned companion invocation.
 Supported client languages are Go, Python, and TypeScript. The image and its
 build contain no Rust toolchain or Rust generation plugins; unsupported
 language requests fail before writing output.
+The generation runner keeps the companion alive while executing its tools,
+including Swagger client generation; it does not rely on the base image's default command.
 
 ## Build
 
