@@ -59,7 +59,20 @@ RUN curl -LsSf https://astral.sh/uv/0.5.29/install.sh | env UV_INSTALL_DIR=/usr/
 #
 # --break-system-packages is required because the alpine base marks the system
 # env as externally managed.
-RUN pip install --no-cache-dir --break-system-packages debugpy==1.8.21
+RUN pip install --no-cache-dir --break-system-packages debugpy==1.8.21 && \
+    python -m pip uninstall --yes --break-system-packages pip && \
+    python -c 'import pathlib, shutil, sysconfig; shutil.rmtree(pathlib.Path(sysconfig.get_path("stdlib")) / "ensurepip")'
+
+# This runtime uses uv. Remove both installed pip (including its vendored
+# dependencies) and the ensurepip bootstrap wheel, which can restore the same
+# vulnerable vendors. Keep debugpy and its metadata intact; inventories must
+# describe the actual remaining packages, not edited vendor/SBOM declarations.
+RUN python -c 'import importlib.util, debugpy.adapter; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None' && \
+    python -m debugpy.adapter --help && \
+    uv venv --offline --python /usr/local/bin/python /tmp/python-runtime-check && \
+    uv pip install --no-cache --python /tmp/python-runtime-check/bin/python debugpy==1.8.21 && \
+    /tmp/python-runtime-check/bin/python -c 'import debugpy; assert debugpy.__version__ == "1.8.21"' && \
+    rm -rf /tmp/python-runtime-check
 
 # uv venv convention used by python-fastapi (see DockerEnvPath in its
 # runtime). Plugins mount /venv so venvs survive container restarts.
