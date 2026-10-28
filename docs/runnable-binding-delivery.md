@@ -198,6 +198,18 @@ the value whichever carrier delivered it.
 
 Everything fails closed, and as early as the information exists:
 
+Native and Nix preparation first keeps the last occurrence of each exact
+environment key, matching `os/exec` precedence: process entries override
+environment defaults. The complete winning `EnvironmentVariable`, including
+`File` and `Secret`, survives before materialization and size accounting.
+Repeated delivery of the same bindings therefore does not double their size.
+Kubernetes rendering applies the same normalization within public and secret
+categories, after restricted-profile admission and before file splitting,
+matching its existing last-key-wins maps. Categories are not merged. Inline
+and `CODEFLY__FILE__` keys remain distinct; normalization neither resolves nor
+conceals conflicting delivery forms. It changes no catalog, threshold or size
+limit, and a genuinely oversized effective environment still refuses.
+
 - **Plan and render time.** `resources.CheckProcessEnvironment` refuses a
   process environment in which any one `KEY=VALUE` string reaches 128 KiB, or
   in which the Codefly-emitted carriers together exceed

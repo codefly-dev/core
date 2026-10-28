@@ -969,6 +969,9 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	}
 	// A value too large for the environment reaches the workload as a file
 	// in a mounted volume; the environment carries only its path.
+	// Normalize within each category after restricted-profile checks, matching
+	// the last-key-wins ConfigMap/Secret maps without erasing secret inputs.
+	configurations = resources.EffectiveEnvironmentVariables(configurations)
 	fileCarriers := &FileCarrierDelivery{ConfigMap: map[string]string{}, Secret: map[string]string{}}
 	if configurations, err = splitFileCarriers(configurations, resources.KubernetesFileCarrierMount, fileCarriers.ConfigMap); err != nil {
 		return fail(err)
@@ -980,7 +983,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	var secretMap EnvironmentMap
 	var inlineSecrets []*resources.EnvironmentVariable
 	if profile.InlineSecrets() {
-		secrets := append(secretValues, deploymentContext.Secrets...)
+		secrets := resources.EffectiveEnvironmentVariables(secretValues, deploymentContext.Secrets)
 		if inlineSecrets, err = splitFileCarriers(secrets, resources.KubernetesSecretFileCarrierMount, fileCarriers.Secret); err != nil {
 			return fail(err)
 		}
