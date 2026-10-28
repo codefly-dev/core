@@ -79,9 +79,9 @@ func TestDockerfileShipsGoimportsInRuntime(t *testing.T) {
 // go.mod requirement makes it refuse — after which goimports quietly formats
 // syntax only and emits no alias where a package's name is not its path's
 // last element. That is the committed shape, so every consumer drifts by
-// exactly those lines, and nothing errors. The builder stage's Go is the
-// ecosystem's; the runtime must carry that one, not whatever apk ships.
-func TestDockerfileRuntimeGoIsTheBuilderToolchain(t *testing.T) {
+// exactly those lines, and nothing errors. The target toolchain stage supplies
+// the ecosystem's Go for the runtime architecture, not the native builder's.
+func TestDockerfileRuntimeGoIsTheTargetToolchain(t *testing.T) {
 	dockerfile, err := os.ReadFile("Dockerfile")
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
@@ -94,8 +94,8 @@ func TestDockerfileRuntimeGoIsTheBuilderToolchain(t *testing.T) {
 	if regexp.MustCompile(`(?m)^RUN apk add[^\n]*\bgo\b`).MatchString(runtimeStage) {
 		t.Error("Dockerfile installs go from apk in the runtime stage; that is the base alpine's Go, older than consumers' go.mod require, and goimports then degrades silently (see the runtime-dependencies note)")
 	}
-	if !regexp.MustCompile(`(?m)^COPY --from=builder /usr/local/go /usr/local/go`).MatchString(runtimeStage) {
-		t.Error("Dockerfile does not COPY the builder's Go toolchain into the runtime stage")
+	if !regexp.MustCompile(`(?m)^COPY --from=toolchain /usr/local/go /usr/local/go`).MatchString(runtimeStage) {
+		t.Error("Dockerfile does not COPY the target platform's Go toolchain into the runtime stage")
 	}
 	if !regexp.MustCompile(`(?m)^FROM golang:1\.27`).MatchString(string(dockerfile)) {
 		t.Error("the builder stage is not golang:1.27; the runtime Go it hands the formatter would not satisfy modules that require go 1.27")
@@ -313,7 +313,7 @@ func TestTsFacadeLockfileMatchesTheRuntime(t *testing.T) {
 // neighbour — the reader then checks the wrong line, finds something plausible,
 // and moves on.
 var runbookCitations = map[string]string{
-	"Dockerfile:99": "@bufbuild/protoc-gen-es@",
+	"Dockerfile:94": "@bufbuild/protoc-gen-es@",
 	"flake.nix:51":  "protocGenEsVersion =",
 	"flake.nix:59":  "hash =",
 	"flake.nix:61":  "npmDepsHash =",

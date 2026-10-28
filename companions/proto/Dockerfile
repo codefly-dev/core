@@ -1,16 +1,9 @@
 # Proto compilation companion for `codefly generate proto`.
 #
-# Size strategy:
-#   1. Multi-stage: build all the Go plugins in a golang:1.27-alpine
-#      builder stage, copy only the static binaries into the runtime.
-#   2. Strip Go binaries with -ldflags="-s -w" during install — drops
-#      DWARF + symbol tables, typically 20-30% smaller per binary.
-#   3. Clean $GOMODCACHE + $GOCACHE after the last install — those
-#      caches are scaffolding the runtime doesn't need.
-#   4. Runtime FROM the codefly companion base instead of golang:1.26-
-#      alpine — saves ~170 MB of Go stdlib we don't need since the
-#      binaries are statically compiled. Still need apk-installed
-#      nodejs+npm for TypeScript generation.
+# Compile pinned Go tools on the build host and cross-compile static binaries
+# for the target. Target-platform emulation is only needed by runtime package
+# installation, never by the Go compiler. Upstream prebuilt plugins often carry
+# older Go runtimes and dependencies, so downloading them is not equivalent.
 
 # The codefly base image is a build argument: this repository declares which
 # companion image it builds on, and the builder resolves that to a registry.
@@ -19,16 +12,18 @@
 ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.6
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
-# --- Builder stage: compile every Go plugin from source --------------
+# The runtime needs the TARGET architecture's Go distribution for goimports
+# and Swagger. This stage only supplies files; it executes no target compiler.
+FROM golang:1.27-alpine AS toolchain
 
-FROM golang:1.27-alpine AS builder
+# --- Native builder: cross-compile the pinned plugins ----------------
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+ARG TARGETARCH
+ENV GOOS=linux GOARCH=${TARGETARCH} CGO_ENABLED=0
+RUN apk add --no-cache git
 
-RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
-
-# Install the Go-based plugins, stripped, in one RUN so the cache
-# cleanup at the end actually takes effect in the final image layer.
-# Each binary is copied out individually in the runtime stage; the
-# module cache is not.
+# Install stripped plugins in one layer. Only their binaries are copied
+# into the runtime; the source and build caches remain in this stage.
 RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.73.0 && \
     go install -ldflags="-s -w" google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
     go install -ldflags="-s -w" google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1 && \
@@ -39,16 +34,16 @@ RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.73.0 && \
     go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1 && \
     go install -ldflags="-s -w" golang.org/x/tools/cmd/goimports@v0.50.0
 
+# go install puts cross-compiled commands in $GOPATH/bin/linux_<arch>.
+# Normalize the output location for the runtime COPY instructions below.
+RUN if [ "$TARGETARCH" != "$(go env GOHOSTARCH)" ]; then \
+        mv /go/bin/linux_"$TARGETARCH"/* /go/bin/; \
+    fi
+
 # Go facade plugin (protoc-gen-codefly-facade-go), built from in-tree source.
 COPY companions/proto/facades/go /src/facade-go
 RUN cd /src/facade-go && \
     go build -ldflags="-s -w" -o /go/bin/protoc-gen-codefly-facade-go .
-
-# Python grpcio-tools for the builder's own grpc_* helper binaries, copied
-# out of /usr/bin below. This venv is NOT copied into the runtime stage — the
-# runtime builds its own /venv, which is where grpcio-tools has to be
-# installed for `python -m grpc_tools.protoc` to exist in the image.
-RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
 
@@ -75,11 +70,11 @@ COPY --from=codeflybase /bin/codefly /bin/codefly
 #     committed shape, so the companion's output drifts from every
 #     consumer by exactly those lines. The apk go is whatever the base
 #     alpine ships (1.23 on 3.21); the toolchain is COPYed from the
-#     builder below instead, so the runtime Go is the ecosystem's Go
+#     target toolchain below instead, so the runtime Go is the ecosystem's Go
 #     by construction. The Go-built plugins (buf, protoc-gen-*) are
 #     static and never need it. Adds ~270 MB; unavoidable.
 #   - Go-built plugins (buf, protoc-gen-*) ARE static (CGO_ENABLED=0
-#     by default for `go install`), so we COPY just those binaries
+#     explicitly in the builder), so we COPY just those binaries
 #     without bringing the Go runtime.
 # HOME=/tmp so the companion works when run as an arbitrary non-root UID
 # (codefly runs it as the host user on Linux CI). buf and npm/npx write
@@ -99,10 +94,10 @@ RUN apk add --no-cache bash ca-certificates curl git jq procps tzdata nodejs npm
         @bufbuild/protoc-gen-es@2.11.0 && \
     npm cache clean --force
 
-# The builder's toolchain, not apk's: goimports and swagger both shell out
+# The target toolchain, not apk's: goimports and swagger both shell out
 # to `go`, and a Go older than what consumers' go.mod files require makes
 # goimports degrade silently (see the runtime-dependencies note above).
-COPY --from=builder /usr/local/go /usr/local/go
+COPY --from=toolchain /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:$PATH
 COPY --from=builder /go/bin/buf /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-go /usr/local/bin/
@@ -118,7 +113,6 @@ COPY --from=builder /go/bin/swagger /usr/local/bin/
 # companion formats what buf wrote before it hands the tree back. Pinned like
 # the plugins — a formatter that moves with @latest moves the committed shape.
 COPY --from=builder /go/bin/goimports /usr/local/bin/
-COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
 
 # Facade plugin sources (Python scripts + the TS npm package).
 COPY companions/proto/facades/python /opt/codefly-facades/python
