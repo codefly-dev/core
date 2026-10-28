@@ -38,6 +38,45 @@ the default Encoder newline. Preview, parser and direct execution validate the
 same canonical-output budget; oversized inspections refuse instead of emitting
 unusable receipts. CLI uses that constant and parser, not its own schema.
 
+## Contract exception and lifecycle
+
+Core explicitly chooses a narrow exception to the default protobuf contract rule
+in [architecture](architecture.md#contract-source-of-truth) for
+`ContainerStopExpectation` and its `ContainerStopResult` disposition. This is a
+local operator inspection/compare/stop receipt, including when the CLI saves it
+to a file. It is not covered implicitly by the process-group registry exception.
+
+The evidence owner is Docker: Core reuses the existing Docker inspection identity,
+label map and complete native `container.MountPoint` values, then compares them
+against a new inspection of the same immutable ID. Keeping those native mount
+values avoids a second translated mount model that could omit custody fields
+while still claiming complete comparison. The exception is bounded to this
+operation and these types; it does not authorize JSON agent contracts, remote
+recovery APIs, a new registry, or a general evidence format. Core owns the one
+strict parser; consumers import it and never reproduce the schema.
+
+The current unversioned receipt shape is fixed, not an extensible protocol.
+Preview and execution use the same reviewed Core implementation, and the saved
+receipt has only the lifetime of that operator-selected attempt and unchanged
+object. It is untrusted comparison input, never a reusable authorization grant.
+Execution always obtains current evidence independently; an unchanged stopped
+object may be rechecked, but changed or missing evidence requires a fresh preview
+and operator selection. An archived result records only the observed disposition,
+not continuing stopped state or permission for later effects.
+
+There is no cross-release migration or compatibility fallback. Unknown fields,
+case aliases, duplicates, missing required fields and nulls refuse rather than
+being discarded or filled in. After changing the executing implementation, take
+a fresh preview rather than relying on an older saved receipt. Any future change
+to this shape or its evidence meaning must use a separately versioned contract
+and entrypoint under the protobuf default, unless a new explicit owner exception
+is reviewed. Do not add optional fields or silently reinterpret this shape.
+Docker dependency changes affecting `MountPoint` must requalify complete field
+comparison and producer/parser roundtrip; they cannot inherit this exception as
+permission to accept an incomplete projection. This lifecycle policy is a caller
+requirement: the receipt carries no binary identity or version discriminator,
+and Core does not claim to detect which release wrote identical receipt bytes.
+
 ## Conditional stop and disposition
 
 `StopContainer(ctx, expected)` independently inspects the same full ID, refuses
