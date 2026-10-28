@@ -62,6 +62,11 @@ that has no serialization or compatibility meaning. An exception at a public
 boundary must be explicit and documented; convenience alone is not an
 exception.
 
+The local operator container-stop receipt has a separate, narrowly scoped
+[Docker evidence exception](container-stop.md#contract-exception-and-lifecycle),
+including its fixed shape, fresh-comparison lifecycle and refusal on incompatible
+evidence. It does not extend the process-group registry exception to other state.
+
 Per-consumer module update evidence and verdicts use `codefly.update.v0`.
 See [module updates](module-updates.md) for the offline comparison, authenticated
 release artifacts, usage completeness requirements, and delivery ownership.
