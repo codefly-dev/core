@@ -32,9 +32,10 @@ type ConfigurationInformationWrapper struct {
 }
 
 type ConfigurationInformationLocalReader struct {
-	workspace      *resources.Workspace
-	dns            []*basev0.DNS
-	configurations []*basev0.Configuration
+	moduleArtifactResolver ModuleArtifactResolver
+	workspace              *resources.Workspace
+	dns                    []*basev0.DNS
+	configurations         []*basev0.Configuration
 
 	// Names of the workspace configurations that originate from the composition
 	// root itself, as opposed to those brought in from composed modules. See
@@ -139,7 +140,7 @@ type WorkspaceConfigurations struct {
 // its resolver without collecting evidence it would discard, then applies
 // invocation-scoped overrides. Evidence paths are slash-separated and relative
 // to workspace.Dir(), including ../ paths for external compositions.
-func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
+func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment, resolvers ...ModuleArtifactResolver) (*WorkspaceConfigurations, error) {
 	trace, err := newConfigurationOrigins(workspace.Dir())
 	if err != nil {
 		return nil, err
@@ -147,6 +148,16 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 	ctx = context.WithValue(ctx, configurationOriginsKey{}, trace)
 	provided, err := readWorkspaceConfigurations(ctx, workspace, env)
 	if err != nil {
+		return nil, err
+	}
+	if len(resolvers) > 1 {
+		return nil, fmt.Errorf("one module artifact resolver is supported")
+	}
+	var resolve ModuleArtifactResolver
+	if len(resolvers) == 1 {
+		resolve = resolvers[0]
+	}
+	if err := resolveModuleArtifacts(ctx, []*basev0.Configuration{{Origin: resources.ConfigurationWorkspace, Infos: provided.Infos}}, resolve); err != nil {
 		return nil, err
 	}
 	provided.Origins = trace.project(provided.Infos)
@@ -238,6 +249,14 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 		childUnsupplied := contributed.Unsupplied
 		for _, info := range contributed.Infos {
 			fromComposed[info.Name] = true
+			for _, own := range infos {
+				if resources.Match(own.Name, info.Name) {
+					_, extended := workspace.ConfigurationExtensions[info.Name]
+					if err := checkArtifactOverlay(info, own, owned[info.Name] && !extended); err != nil {
+						return nil, err
+					}
+				}
+			}
 			if _, extend := workspace.ConfigurationExtensions[info.Name]; owned[info.Name] && !extend {
 				if trace := configurationOriginsFrom(ctx); trace != nil {
 					trace.shadowedImport(workspace.Name, child.Name, info, infos)
@@ -419,6 +438,9 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	}); len(remaining) > 0 {
 		return w.Wrap(&UnsuppliedProfileValuesError{Requirements: remaining})
 	}
+	if err := resolveModuleArtifacts(ctx, confs, local.moduleArtifactResolver); err != nil {
+		return err
+	}
 	local.configurations = confs
 	return nil
 }
@@ -586,9 +608,16 @@ func newComposedModuleOffers(workspaceNames int, profiles []string) *composedMod
 }
 
 // offer records what one composed module provides, from one of its directories.
-func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
+func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) error {
 	w := wool.Get(ctx).In("configurations.composedModuleOffers.offer")
 	for _, info := range infos {
+		for _, root := range offers.workspaceInfos {
+			if resources.Match(root.Name, info.Name) {
+				if err := checkArtifactOverlay(info, root, offers.replacing[info.Name]); err != nil {
+					return err
+				}
+			}
+		}
 		if offers.replacing[info.Name] {
 			if trace := configurationOriginsFrom(ctx); trace != nil {
 				trace.shadowedDefault(module, info, offers.workspaceInfos)
@@ -611,6 +640,9 @@ func (offers *composedModuleOffers) offer(ctx context.Context, module string, re
 		}
 		if existing.conflict != nil {
 			continue
+		}
+		if err := checkArtifactOverlay(existing.info, info, false); err != nil {
+			return err
 		}
 		// A module directory and the root of the repository holding it are
 		// not two competing providers: they are one artifact, where the
@@ -635,6 +667,7 @@ func (offers *composedModuleOffers) offer(ctx context.Context, module string, re
 			"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
 			info.Name, existing.module, module, ErrConfigurationConflict)
 	}
+	return nil
 }
 
 // readOnce reads one configuration directory, the first time it is asked for it,
@@ -710,14 +743,18 @@ func (offers *composedModuleOffers) gather(ctx context.Context, workspace *resou
 			if readErr != nil {
 				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offers.offer(ctx, mod.Name, repo, true, infos)
+			if err := offers.offer(ctx, mod.Name, repo, true, infos); err != nil {
+				return err
+			}
 		}
 		if foreign && !resources.SameDir(mod.Dir(), repoDir) {
 			infos, readErr := offers.readOnce(ctx, mod.Dir())
 			if readErr != nil {
 				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offers.offer(ctx, mod.Name, repo, false, infos)
+			if err := offers.offer(ctx, mod.Name, repo, false, infos); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -839,6 +876,9 @@ func overlayWorkspaceConfigurationOverride(
 	override *basev0.ConfigurationInformation,
 	module string,
 ) (*basev0.ConfigurationInformation, error) {
+	if err := checkArtifactOverlay(base, override, false); err != nil {
+		return nil, err
+	}
 	overlaid, ok := proto.Clone(base).(*basev0.ConfigurationInformation)
 	if !ok {
 		return nil, fmt.Errorf("cannot clone composed module configuration %q", base.GetName())
@@ -982,6 +1022,9 @@ func applyWorkspaceConfigurationOverrides(
 	}
 	overridden := make(map[string]bool, len(overrides))
 	for _, override := range overrides {
+		if err := checkArtifactOverride(infos, override.Name, override.Key); err != nil {
+			return nil, nil, err
+		}
 		var name string
 		infos, name = applyConfigurationValueOverride(infos, override.Name, override.Key, override.Value, override.Secret)
 		overridden[name] = true
@@ -1025,6 +1068,9 @@ func applyServiceConfigurationOverrides(
 		if conf == nil {
 			conf = &basev0.Configuration{Origin: origin}
 			confs[origin] = conf
+		}
+		if err := checkArtifactOverride(conf.Infos, override.Name, override.Key); err != nil {
+			return nil, err
 		}
 		conf.Infos, _ = applyConfigurationValueOverride(conf.Infos, override.Name, override.Key, override.Value, override.Secret)
 	}

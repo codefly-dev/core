@@ -318,6 +318,10 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot load configurations from profile %s", path.Base(layer))
 		}
+		loaded, err = loadModuleArtifactBindings(layer, loaded)
+		if err != nil {
+			return nil, err
+		}
 		if err := overlay.add(layer, loaded); err != nil {
 			return nil, err
 		}
@@ -378,6 +382,9 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 				overlay.writtenIn[profileValueKey(info.GetName(), value.GetKey())] = layer
 			}
 			continue
+		}
+		if err := checkArtifactOverlay(existing, info, false); err != nil {
+			return err
 		}
 		if (info.GetData() != nil) != (existing.GetData() != nil) {
 			return fmt.Errorf("configuration %q is a structured document in one profile and key/value pairs in %q: %w",
@@ -491,6 +498,9 @@ func duplicateConfigurationKey(info *basev0.ConfigurationInformation) (string, s
 // all: no text, and no template to assemble one. A value that supplies nothing
 // does not discharge a ProfileValueMarker — see ErrEmptyProfileValue.
 func configurationValueSuppliesNothing(value *basev0.ConfigurationValue) bool {
+	if hasModuleArtifact(value) {
+		return false
+	}
 	return value.GetValue() == "" && value.GetTemplate() == nil
 }
 

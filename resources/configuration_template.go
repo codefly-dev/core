@@ -140,6 +140,9 @@ func validateConfigurationValueEscape(escape basev0.ConfigurationValueEscape) er
 // template is well formed: a template belongs only on a secret value that
 // carries no value of its own, since a value and its assembly could disagree.
 func ValidateTemplatedConfigurationValue(value *basev0.ConfigurationValue) error {
+	if err := ValidateModuleArtifactValue(value); err != nil {
+		return err
+	}
 	if value == nil {
 		return fmt.Errorf("configuration value is nil")
 	}
