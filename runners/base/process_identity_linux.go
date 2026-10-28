@@ -77,7 +77,12 @@ func inspectProcess(pid int) (processIdentity, error) {
 	executable, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return processIdentity{}, errProcessNotFound
+			// The executable link also disappears when the thread-group leader
+			// exits while other threads remain alive. Only missing process stat
+			// confirms absence; otherwise identity inspection is incomplete.
+			if _, statErr := readLinuxProcessStat(pid); statErr != nil {
+				return processIdentity{}, statErr
+			}
 		}
 		return processIdentity{}, err
 	}

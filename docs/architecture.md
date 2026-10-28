@@ -62,6 +62,11 @@ that has no serialization or compatibility meaning. An exception at a public
 boundary must be explicit and documented; convenience alone is not an
 exception.
 
+The local operator container-stop receipt has a separate, narrowly scoped
+[Docker evidence exception](container-stop.md#contract-exception-and-lifecycle),
+including its fixed shape, fresh-comparison lifecycle and refusal on incompatible
+evidence. It does not extend the process-group registry exception to other state.
+
 Per-consumer module update evidence and verdicts use `codefly.update.v0`.
 See [module updates](module-updates.md) for the offline comparison, authenticated
 release artifacts, usage completeness requirements, and delivery ownership.
@@ -516,3 +521,23 @@ and an unrestricted one judges them all, and `Closure.Verify` takes the phase
 the plan is for — the closure walk follows every declared edge, so judging them
 all would make a build input's verdict depend on whether the walk happened to
 reach its consumer.
+
+### Signaling a detached process
+
+An owner persists a detached process's birth (`PID`, `BootID`, `StartID`) from
+`runners/base.InspectProcess`. Before signaling, it re-inspects and compares that
+birth, then supplies the current full `ProcessIdentity` to `SignalProcess`.
+Process group and executable describe execution state that can change within a
+birth. Core binds
+kernel delivery to that birth (Linux pidfd, Darwin audit token); a missing or
+replaced process returns `ErrProcessNotFound`. A PID-only record is refused.
+The consumer still owns its shutdown policy and process lifecycle. Registered
+process groups continue to use `TrackedProcessGroup.Signal` for group delivery.
+
+Inspection failure is not proof of absence. On Linux, `/proc/PID/exe` can
+disappear after the thread-group leader exits while other threads still run.
+Core rechecks process stat before classifying a missing executable as an absent
+process. If stat remains present but the full identity is unavailable, inspection
+returns an ordinary error; consumers must preserve that uncertainty. The Linux
+regression uses a real pthread worker after leader exit and requires `cc` on
+the test host; it also verifies absence after the worker exits and is reaped.

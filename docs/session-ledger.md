@@ -9,7 +9,8 @@ Codefly already had two ownership mechanisms, and neither answers the question
 cleanup actually asks.
 
 - **Process groups** (`runners/base`) persist an authenticated record per spawned
-  group under `~/.codefly/runs/authenticated-v1/`. It is PID-reuse safe and
+  group under `~/.codefly/runs/authenticated-v2/` (with explicit reads of the
+  earlier `authenticated-v1` contract). It is PID-reuse safe and
   proves which groups a dead CLI left behind — but it knows nothing about
   containers, volumes, data, or whether a resource was ours to begin with.
 - **Docker containers** carried the spawning CLI's PID in a
@@ -291,7 +292,111 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
 
+## Native launch workspace
+
+Native tracked spawns transport the CLI's `CODEFLY_RUN_WORKSPACE` marker from
+the current parent environment at spawn time. This includes materialized Nix
+processes: an old cached export cannot override the current launch workspace,
+and a parent without the marker clears any cached marker. Service processes
+whose working directories live outside the workspace need durable attribution:
+Redis, for example, can rewrite the process metadata that exposes the marker.
+
+New tracked spawns persist the current parent marker as `launch_workspace` in
+`~/.codefly/runs/authenticated-v2/<pgid>.pgid` before releasing the start gate.
+The record carries the same leader/owner birth identities and group credential.
+`ListProcessGroups` discovers registrations without consumer format knowledge.
+`LookupProcessGroup` reads v2 and v1, refusing duplicate registrations across
+namespaces. Discovery errors return no partial list and do not modify evidence. `InspectOwnership` returns `LaunchWorkspace` only when the group
+authenticates; an empty value means no recorded attribution, including all v1
+records. Scope selection and refusal policy remain with the CLI. Metadata never
+authorizes signaling: callers must use the existing identity-checking methods.
+
+The process-group registry is an explicit exception to the default generated
+protobuf contract rule in [architecture](architecture.md#contract-source-of-truth).
+Core retains the existing strict JSON storage contract so it can recover records
+from independently released owners without rewriting their birth evidence.
+The versioned namespace isolates incompatible readers. Consumers use the Core
+ownership API instead of implementing a JSON decoder; the explicit recovery receipt described below is its only selection transport,
+and the exception does not relax the protobuf default elsewhere.
+
+The v1 wire format is unchanged. Older strict readers ignore the v2 directory;
+they cannot recover its groups and must upgrade before claiming scoped cleanup
+of new producers. New Core explicitly reaps both formats, locking each namespace
+with its existing lock. It never copies or rewrites live v1 evidence. Unknown
+namespaces remain untouched. The versioned record is the only durable provenance
+source; no parallel sidecar registry or argv/environment inference is required.
+
+If a live recorded leader has the same process-start identity but a different
+boot identity, Core reports incompatible evidence and preserves the record.
+This includes older Darwin records using clock-derived boot times. It is not
+proof of PID reuse or successful cleanup, and Core neither rewrites the birth
+identity nor signals the unverified process. Inspection, stale recovery and
+explicit signals share this refusal; an actual different start identity retains
+the existing reused-process handling.
+
+## Explicit orphan-generation recovery
+
+`runners/base.PreviewProcessGroupRecovery(ctx, pgid)` is a separate, read-only
+admission path for an explicitly operator-selected orphan registration. It is
+not workspace-scoped stop, startup reaping, or permission to include unknown
+workspaces. CLI owns selection, authorization and reporting; Core owns decoding,
+registration identity, birth authentication, delivery and conditional removal.
+The operation never assigns a workspace or rewrites stored boot evidence.
+
+The preview returns `ProcessGroupRecoveryExpectation`: namespace, SHA-256 of the
+exact registration bytes, PGID, recorded leader and owner identities, and the
+currently authenticated member identities. Recorded identities retain their
+original boot representation; the owner's PGID is zero because it is not stored.
+Members carry current boot/start identities for kernel-bound signal delivery.
+The receipt is untrusted input, not a credential. Preserve it with `json.Marshal`
+and read it with Core's `ParseProcessGroupRecoveryExpectation`, which refuses
+unknown fields, duplicate JSON keys, nulls, trailing values and missing birth
+proof. `MaxProcessGroupRecoveryExpectationBytes` limits a whole receipt to
+1 MiB, independently of the unchanged 16 KiB registration cap. Preview reserves
+one byte beyond compact `json.Marshal` output for the newline emitted by the
+CLI's default `json.Encoder.Encode`; unsupported previews fail instead of emitting
+an unusable receipt. Parsing enforces both this canonical-output budget and the
+inclusive input-byte limit, so extra formatting also counts toward the limit.
+Consumers use the exported owner limit when bounding file reads. This bounded
+local JSON receipt extends the registry exception above;
+it is not a new agent protocol or a parallel registry. Core reuses its existing
+`internal/wire` document checks and JSON decoding, not a consumer parser.
+
+`RecoverProcessGroup(ctx, expected)` locks both supported namespaces in a fixed
+order and independently authenticates the current registration. Missing or
+changed registration bytes, namespace ambiguity, changed expected births,
+incomplete proof, a live original owner, or uncertain inspection refuse before
+signals. The full initial member set must still match at admission; take a fresh
+preview if it changed. Each subsequent signal sweep rechecks the registration,
+owner absence and group authentication. Existing escalation can reach surviving
+same-generation descendants; this is not a frozen list of PIDs or authority over
+a replacement group. PID, boot and start evidence remains required.
+
+Only this explicit path accepts Darwin's historical `sec:usec` boot format, and
+only by exact equality to the kernel's current `kern.boottime`. A changed clock
+value refuses; no UUID conversion, approximate match, producer-version roster,
+or weakening of ordinary incompatible-boot refusal is permitted. Current
+kernel-bound delivery is reused unchanged: Darwin acquires PIDVersion before
+checking birth on every attempt, preserving safety across PID reuse and exec.
+The old reader's signal implementation is not used.
+
+Both namespace locks remain held through termination and conditional removal.
+The private file snapshot and expected bytes are rechecked before effects and
+removal; a replacement record is retained. Cooperating writers use these registry
+locks; this does not claim atomicity against a same-user actor deliberately
+bypassing the filesystem protocol. The result reports proven `GroupDead` and
+`RecordRemoved` postconditions. Success requires a nil error and both true.
+An error may follow partial termination; false means that postcondition was not
+established, not proof that the process is alive. A replacement or uncertain
+record is never reported removed. A nil `RemoveIfDeadContext` alone is not used
+as evidence of successful recovery. This operation deletes no container or data.
+
 ## Startup container recovery scope
+
+Explicit operator-selected stop without ledger adoption is documented in
+[container-stop.md](container-stop.md). It compares fresh custody evidence and
+stops a full immutable Docker ID while retaining the object and mounts. It does
+not fabricate an invocation label or modify ledger ownership.
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`
 label before checking owner liveness. The label hashes canonical Codefly home,
@@ -316,6 +421,30 @@ explicit owner recovery, even when runtime configurations match. Each Docker
 environment retains its scope from first use so another flow changing the process
 marker cannot redirect its cleanup. Cross-scope recovery authorizes orphan
 sweeping only; it never authorizes adopting another invocation's container.
+
+Agents bind each service-owned Docker environment before first use with
+`WithServiceIdentity(s.Identity)`, using the identity supplied by `Base.Load`.
+The runner snapshots the exact module/service into `codefly.service`; it never
+derives a parent from flattened container names, sidecar suffixes or the agent
+process identity. Service version is excluded so upgrades can reuse state.
+Changing the source identity afterward cannot redirect the environment, and
+rebinding after first use returns an error.
+
+`dockerrun.ContainerServiceIdentity(labels)` reads this same attribution for
+consumers such as the CLI's port guard. Missing attribution returns `nil, nil`;
+a malformed present label is an error. A present conflicting label refuses
+adoption and runtime-configuration replacement, including by an unbound runner.
+The label alone does not authorize reuse or cleanup: consumers still check exact
+recovery scope, compatible namespace, actual/logical container name and lifecycle
+and publication constraints relevant to their operation.
+
+Legacy unlabeled containers retain the existing exact-name reuse behavior, but
+remain unproven to a parent-service lookup. Core neither relabels them nor
+replaces them solely to acquire attribution. In particular, a suffixed name is
+not evidence that a retained container belongs to a service. Rollout requires
+the creating agent to adopt this API for each container; upgrading the CLI alone
+cannot attribute containers from an older agent. Recovery of old retained state
+remains an explicit owner operation, never a broad cleanup.
 
 The marker and that header are owned by `runners/recoveryscope`, which holds no
 Docker client: an agent validates and echoes what it inherited but never calls a

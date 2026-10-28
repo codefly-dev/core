@@ -73,6 +73,14 @@ existing recovery check and publishing CLI compatibility notes, is tracked in
 [codefly-dev/cli#747](https://github.com/codefly-dev/cli/issues/747). Until that
 lands, this is a Core contract implementation, not a completed CLI rollout.
 
+## Saving agent settings
+
+Core writes and reads typed service settings through YAML semantics, including
+inline fields and custom marshalers. Updates merge top-level keys into the
+existing spec: explicit values replace old values, while omitted and extension
+keys remain. A conversion failure leaves the spec unchanged. This does not
+repair already-malformed saved declarations; their owner must correct them.
+
 ## Container recovery
 
 `container-recovery-scope/v1` promises validation of the inherited process
@@ -389,13 +397,24 @@ trusting their contents. Single underscores remain valid in names and release
 labels. Existing unambiguous cache paths are unchanged.
 
 GitHub agent downloads use `GITHUB_TOKEN`, then `GH_TOKEN`, when supplied.
-Authenticated acquisition resolves the exact published tag and asset through
-the GitHub API, then streams the asset through its authenticated API endpoint.
-The bounded download client follows asset redirects without API credentials.
-Draft releases, duplicate assets and an asset URL that disagrees with the loader
-selection are refused. Without a token, the public download path is unchanged.
-`manager.OpenReleaseAsset` lets a publisher verify the same selected asset with
-its existing authenticated client; a private release is not a public URL probe.
+`manager.GitHubReleaseToken` exposes this selection to consumers verifying
+installability; a `gh` CLI login is not a loader credential. Both anonymous and
+authenticated acquisition resolve the exact published tag and asset through the
+GitHub API. The bounded download client follows asset redirects without API
+credentials. Draft releases, duplicate assets and an asset URL that disagrees
+with the loader selection are refused. An unauthenticated 404 can mean a missing
+release/platform asset or a private release; supply a token with repository
+access for the latter. Services do not need that download credential.
+
+Before extraction, downloads compare the archive's SHA-256 with its producer's
+published `*checksums.txt` entry, or GitHub's asset digest when no checksum file
+exists. Missing entries, malformed or duplicate checksum entries, lookup/read
+failures and digest mismatches are errors. A release confirmed to offer neither
+digest remains installable with an explicit unverified warning for historical
+releases. Checksums provide an integrity comparison, not signed provenance.
+`manager.FetchReleaseAsset` exposes the same archive and expected digest to
+consumers; `OpenReleaseAsset` retains its reader/size API. Existing local and OCI
+cache selection and live admission rules are unchanged.
 
 Agent downloads finish extraction before publishing a binary. Publication copies
 into a temporary file beside the destination, sets permissions, flushes and closes

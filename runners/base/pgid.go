@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +23,11 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/shirou/gopsutil/v3/process"
 )
+
+// LaunchWorkspaceEnv carries the launching workspace chosen by the CLI.
+// Process runners transport this marker; scope selection remains the caller's
+// policy and signaling still requires authenticated process-birth evidence.
+const LaunchWorkspaceEnv = "CODEFLY_RUN_WORKSPACE"
 
 // forwardLines reads r line by line and writes each line — WITH its trailing
 // newline — as a single Write to w. This preserves log-prefix boundaries
@@ -74,15 +81,16 @@ func forwardLines(r io.Reader, w io.Writer) {
 // an upgrade, so ReapStaleProcessGroups also reconciles them — corroborating a
 // live leader's wall-clock start time against the record's spawn second in
 // place of the authentication token those records predate. Namespaced contracts
-// live in subdirectories and are never scanned; only loose files matching the
-// exact legacy schema are reconciled. That schema predates namespacing and was
+// live in subdirectories; only explicitly supported namespaces and loose files
+// matching the exact legacy schema are reconciled. That schema predates namespacing and was
 // shared by every agent on this runner, so a group is only ever terminated once
 // it is proven orphaned — a recognized record that names a live, owner-managed
 // group is preserved regardless of which agent wrote it.
 
 const (
 	pgidRootDirName       = "runs"
-	pgidRegistryNamespace = "authenticated-v1"
+	pgidRegistryNamespace = "authenticated-v2"
+	pgidPreviousNamespace = "authenticated-v1"
 	pgidLockName          = ".reaper.lock"
 	pgidLockRetry         = 25 * time.Millisecond
 	sigtermGrace          = 3 * time.Second
@@ -133,21 +141,31 @@ type recordedProcessIdentity struct {
 	Executable string `json:"executable"`
 }
 
+// pgidRecord retains the exact v1 wire shape. LaunchWorkspace is serialized
+// only by the v2 envelope, never as an additive field in authenticated-v1.
 type pgidRecord struct {
-	PGID           int                     `json:"pgid"`
-	Leader         recordedProcessIdentity `json:"leader"`
-	Owner          recordedProcessIdentity `json:"owner"`
-	Authentication string                  `json:"authentication"`
+	LaunchWorkspace string                  `json:"-"`
+	PGID            int                     `json:"pgid"`
+	Leader          recordedProcessIdentity `json:"leader"`
+	Owner           recordedProcessIdentity `json:"owner"`
+	Authentication  string                  `json:"authentication"`
+}
+
+type pgidRecordV2 struct {
+	pgidRecord
+	Workspace string `json:"launch_workspace"`
 }
 
 type recordSnapshot struct {
-	info os.FileInfo
+	info   os.FileInfo
+	digest string
 }
 
 // TrackedProcessGroup is the identity-bearing handle returned for a process
 // group whose private registry record was durably published.
 type TrackedProcessGroup struct {
-	record pgidRecord
+	namespace string
+	record    pgidRecord
 }
 
 type processSignalHandle interface {
@@ -175,15 +193,28 @@ func (identity processIdentity) matches(recorded recordedProcessIdentity) bool {
 	return identity.pid == recorded.PID && identity.bootID == recorded.BootID && identity.startID == recorded.StartID
 }
 
+// A changed boot representation with an unchanged start witness is not proof
+// of PID reuse. Older Darwin writers used the mutable clock-derived boot time.
+// Keep that evidence and refuse ownership rather than retiring a live record.
+func (identity processIdentity) checkBootIdentity(recorded recordedProcessIdentity) error {
+	if identity.pid == recorded.PID && identity.startID == recorded.StartID && identity.bootID != recorded.BootID {
+		return errors.New("incompatible boot identity for unchanged process start; preserve the record and recover through its owner")
+	}
+	return nil
+}
+
 func pgidStateDir() (string, error) {
+	return pgidNamespaceDir(pgidRegistryNamespace)
+}
+
+func pgidNamespaceDir(namespace string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	// The namespace is part of the current record contract. Codefly agents are
-	// released independently; an agent with another contract must neither parse
-	// nor quarantine these records, and this reaper must never inspect theirs.
-	dir := filepath.Join(home, ".codefly", pgidRootDirName, pgidRegistryNamespace)
+	// The namespace is part of the record contract. Independently released
+	// readers must not parse or quarantine a format they do not support.
+	dir := filepath.Join(home, ".codefly", pgidRootDirName, namespace)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("cannot create pgid dir: %w", err)
 	}
@@ -369,7 +400,16 @@ func startProcessGroupGate(cmd *exec.Cmd, authentication string) (*processGroupG
 	gateFDValue := strconv.Itoa(gateFD)
 	cmd.Path = shell
 	cmd.Args = append([]string{"sh", "-c", "IFS= read -r codefly_gate < \"$CODEFLY_PROCESS_GROUP_GATE\" || exit 125; eval \"exec ${CODEFLY_PROCESS_GROUP_GATE_FD}<&-\"; unset CODEFLY_PROCESS_GROUP_GATE CODEFLY_PROCESS_GROUP_GATE_FD; exec \"$@\"", "codefly-process-group-gate", originalPath}, originalArgs[1:]...)
-	cmd.Env = append(cmd.Environ(),
+	// Materialized Nix environments need not inherit the parent's environment,
+	// and cached exports may describe a previous run. Launch attribution always
+	// comes from the current parent at spawn, never from those cached exports.
+	launchEnv := slices.DeleteFunc(cmd.Environ(), func(entry string) bool {
+		return strings.HasPrefix(entry, LaunchWorkspaceEnv+"=")
+	})
+	if workspace, present := os.LookupEnv(LaunchWorkspaceEnv); present {
+		launchEnv = append(launchEnv, LaunchWorkspaceEnv+"="+workspace)
+	}
+	cmd.Env = append(launchEnv,
 		groupAuthEnv+"="+authentication,
 		"CODEFLY_PROCESS_GROUP_GATE=/dev/fd/"+gateFDValue,
 		"CODEFLY_PROCESS_GROUP_GATE_FD="+gateFDValue)
@@ -443,11 +483,12 @@ func captureProcessGroup(pgid int, authentication, executable string) (*TrackedP
 	if leader.bootID != owner.bootID {
 		return nil, errors.New("process identities do not belong to the current boot")
 	}
-	return &TrackedProcessGroup{record: pgidRecord{
-		PGID:           pgid,
-		Leader:         leader.recorded(),
-		Owner:          owner.recorded(),
-		Authentication: authentication,
+	return &TrackedProcessGroup{namespace: pgidRegistryNamespace, record: pgidRecord{
+		LaunchWorkspace: os.Getenv(LaunchWorkspaceEnv),
+		PGID:            pgid,
+		Leader:          leader.recorded(),
+		Owner:           owner.recorded(),
+		Authentication:  authentication,
 	}}, nil
 }
 
@@ -478,11 +519,14 @@ func (group *TrackedProcessGroup) persist() (returnErr error) {
 		return fmt.Errorf("inspect process-group record: %w", err)
 	}
 
-	content, err := json.Marshal(rec)
+	content, err := json.Marshal(pgidRecordV2{pgidRecord: rec, Workspace: rec.LaunchWorkspace})
 	if err != nil {
 		return fmt.Errorf("encode process-group record: %w", err)
 	}
 	content = append(content, '\n')
+	if len(content) > maxRecordSize {
+		return errors.New("process-group record is too large")
+	}
 	file, err := os.CreateTemp(dir, ".pgid-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create process-group record: %w", err)
@@ -523,7 +567,8 @@ func sameProcessGroupRegistration(first, second pgidRecord) bool {
 	return first.PGID == second.PGID &&
 		first.Leader == second.Leader &&
 		first.Owner == second.Owner &&
-		first.Authentication == second.Authentication
+		first.Authentication == second.Authentication &&
+		first.LaunchWorkspace == second.LaunchWorkspace
 }
 
 // Signal delivers signal only to process instances authenticated as members
@@ -640,7 +685,7 @@ func (group *TrackedProcessGroup) RemoveIfDeadContext(ctx context.Context) (retu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, err := pgidStateDir()
+	dir, err := pgidNamespaceDir(group.namespace)
 	if err != nil {
 		return err
 	}
@@ -721,7 +766,7 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	if !sameRecordFile(before, after) || !sameRecordFile(after, current) {
 		return pgidRecord{}, recordSnapshot{}, errors.New("record changed while being read")
 	}
-	snapshot := recordSnapshot{info: current}
+	snapshot := recordSnapshot{info: current, digest: fmt.Sprintf("%x", sha256.Sum256(data))}
 	if len(data) > maxRecordSize {
 		return pgidRecord{}, snapshot, errors.New("record is too large")
 	}
@@ -729,14 +774,29 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	var rec pgidRecord
-	if err := decoder.Decode(&rec); err != nil {
-		return pgidRecord{}, snapshot, err
+	switch filepath.Base(filepath.Dir(path)) {
+	case pgidRegistryNamespace:
+		var envelope pgidRecordV2
+		if err := decoder.Decode(&envelope); err != nil {
+			return pgidRecord{}, snapshot, err
+		}
+		rec = envelope.pgidRecord
+		rec.LaunchWorkspace = envelope.Workspace
+	case pgidPreviousNamespace:
+		if err := decoder.Decode(&rec); err != nil {
+			return pgidRecord{}, snapshot, err
+		}
+	default:
+		return pgidRecord{}, snapshot, errors.New("unsupported process-group record namespace")
 	}
 	if err := ensureJSONEOF(decoder); err != nil {
 		return pgidRecord{}, snapshot, err
 	}
 	if err := rec.validate(); err != nil {
 		return pgidRecord{}, snapshot, err
+	}
+	if filepath.Base(path) != fmt.Sprintf("%d.pgid", rec.PGID) {
+		return pgidRecord{}, snapshot, errors.New("process-group record does not match its filename")
 	}
 	return rec, snapshot, nil
 }
@@ -837,15 +897,25 @@ func IsProcessAlive(pid int) bool {
 }
 
 // ReapStaleProcessGroups reconciles authenticated records in the current
-// contract namespace. Live owners are preserved; groups with dead or reused
-// owners are terminated. Stable malformed records are quarantined without
+// and previous contract namespaces. Live owners are preserved; groups with
+// dead or reused owners are terminated. Stable malformed records are quarantined without
 // signaling any process; records that cannot prove a stable file identity
-// remain active and are reported. Codefly's own legacy plaintext records,
+// remain active and are reported. Incompatible boot evidence for a live leader
+// with an unchanged start identity is also preserved and reported, not retired
+// as PID reuse. Codefly's own legacy plaintext records,
 // written loose in the registry root by an older release, are reconciled too
 // so their groups cannot leak across an upgrade.
-func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
+func ReapStaleProcessGroups(ctx context.Context) error {
+	var failures []error
+	for _, namespace := range []string{pgidRegistryNamespace, pgidPreviousNamespace} {
+		failures = append(failures, reapProcessGroupNamespace(ctx, namespace))
+	}
+	return errors.Join(failures...)
+}
+
+func reapProcessGroupNamespace(ctx context.Context, namespace string) (returnErr error) {
 	w := wool.Get(ctx).In("base.ReapStaleProcessGroups")
-	dir, err := pgidStateDir()
+	dir, err := pgidNamespaceDir(namespace)
 	if err != nil {
 		return err
 	}
@@ -873,7 +943,7 @@ func ReapStaleProcessGroups(ctx context.Context) (returnErr error) {
 			break
 		}
 	}
-	if ctx.Err() == nil {
+	if ctx.Err() == nil && namespace == pgidPreviousNamespace {
 		legacyReaped, legacyErr := sweepLegacyRecords(ctx, filepath.Dir(dir))
 		if legacyErr != nil {
 			failures = append(failures, legacyErr)
@@ -1302,6 +1372,9 @@ func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIde
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
+			if err := member.checkBootIdentity(rec.Leader); err != nil {
+				return nil, false, errors.Join(inspectErr, err)
+			}
 			if member.matches(rec.Leader) {
 				return members, true, inspectErr
 			}
@@ -1550,8 +1623,9 @@ func signalGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenti
 // readProcessGroupAuthentication.
 //
 // The two ways this declines to authenticate are deliberately distinct. A
-// member sitting on the pgid that is not the recorded leader proves the group
-// is not ours, and the caller may retire it. A readable member that lacks the
+// member sitting on the pgid with a different start identity proves the group
+// is not ours, and the caller may retire it. Incompatible boot evidence with
+// the same start identity is undecidable and reported. A readable member that lacks the
 // credential proves only that we cannot tell, so it is reported rather than
 // retired.
 func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
@@ -1561,6 +1635,9 @@ func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]proce
 	}
 	for _, member := range members {
 		if member.pid == rec.PGID {
+			if err := member.checkBootIdentity(rec.Leader); err != nil {
+				return nil, false, errors.Join(inspectErr, err)
+			}
 			if member.matches(rec.Leader) {
 				return members, true, inspectErr
 			}

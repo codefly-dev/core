@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -86,40 +88,28 @@ var agentDownloadClient = &http.Client{
 	},
 }
 
-// fetchRelease issues the asset GET under the caller's context, so cancelling
-// it aborts the transfer at any point — including mid-body, which no timeout
-// on the request can cover.
-//
-// It does not check the host: callers must pass a URL they have already put
-// through ValidURL, as Download does. The check lives there rather than here
-// because the tests that cover the stall and cancellation paths have to reach
-// a local server.
-func fetchRelease(ctx context.Context, releaseURL string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	return agentDownloadClient.Do(req)
-}
-
-// writeArchive streams body into f and closes it. extractTarGz reopens the
-// archive by path, so the write handle must not outlive the copy — every
-// return here closes it, including the ones that fail.
-func writeArchive(f *os.File, body io.Reader, size int64) error {
+// writeArchive streams body into f, digesting it on the way, and closes it.
+// extractTarGz reopens the archive by path, so the write handle must not
+// outlive the copy — every return here closes it, including the ones that fail.
+func writeArchive(f *os.File, body io.Reader, size int64) (digest string, err error) {
 	defer func() { _ = f.Close() }()
 
 	bar := pb.Full.Start64(size)
 	bar.Set(pb.Bytes, true) // Display in bytes instead of default kilobytes
 
-	if _, err := io.Copy(bar.NewProxyWriter(f), body); err != nil {
-		return err
+	hash := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(bar.NewProxyWriter(f), hash), body); err != nil {
+		return "", err
 	}
 	bar.Finish()
 
 	// Closed here rather than only by the defer: a write error that surfaces
 	// at close must reach the caller instead of appearing after the archive
 	// has already been extracted.
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func Download(ctx context.Context, p *resources.Agent) error {
@@ -141,11 +131,11 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	w.Info(fmt.Sprintf("Downloading agent %s", p.Identifier()))
 	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
-	body, size, err := openAgentRelease(ctx, releaseURL)
+	asset, err := openAgentRelease(ctx, releaseURL)
 	if err != nil {
 		return w.Wrapf(err, "cannot download agent")
 	}
-	defer body.Close()
+	defer asset.Body.Close()
 
 	tmp, err := os.CreateTemp("", "agent-*.tar.gz")
 	if err != nil {
@@ -158,8 +148,16 @@ func Download(ctx context.Context, p *resources.Agent) error {
 			w.Error("cannot remove temp file", wool.ErrField(err))
 		}
 	}(tmp.Name())
-	if err = writeArchive(tmp, body, size); err != nil {
+	archiveDigest, err := writeArchive(tmp, asset.Body, asset.Size)
+	if err != nil {
 		return w.Wrapf(err, "cannot copy agent")
+	}
+	warning, err := checkArchiveDigest(p.Identifier(), asset, archiveDigest)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	if warning != "" {
+		w.Warn(warning, wool.Field("url", releaseURL))
 	}
 
 	tmpDir, err := os.MkdirTemp("", "agent-*")
@@ -194,6 +192,20 @@ func Download(ctx context.Context, p *resources.Agent) error {
 		return w.Wrapf(err, "cannot install binary")
 	}
 	return nil
+}
+
+// checkArchiveDigest holds downloaded bytes to the digest the release records
+// for them, before anything is extracted. Without a digest nothing can be held,
+// and that is said rather than passed over: the archive is then trusted on its
+// name alone, which is the state every install was in before this check.
+func checkArchiveDigest(identifier string, asset *ReleaseAsset, archiveDigest string) (warning string, err error) {
+	switch {
+	case asset.Digest == "":
+		return "release publishes no digest for this archive; installing it unverified", nil
+	case archiveDigest != asset.Digest:
+		return "", fmt.Errorf("refusing to install %s: the downloaded archive is sha256:%s but the release's %s record says sha256:%s", identifier, archiveDigest, asset.DigestSource, asset.Digest)
+	}
+	return "", nil
 }
 
 // extractTarGz decompresses gzip then extracts the tar archive at src into

@@ -466,6 +466,11 @@ func TestAuthenticateOwnedProcessGroupLeaderlessDecision(t *testing.T) {
 // executable the one under test: until the exec chain settles the member is
 // still sh or env, whose environment darwin withholds, and every case would
 // take the unobservable branch no matter what the descendant carries.
+// The platform binary has no ready-file protocol. Wait for its executable and,
+// on Linux, its inherited credential before testing the leaderless decision.
+// /proc can expose sleep's executable while environ is still empty during exec.
+// This is fixture readiness, not a retry of the authentication under test; a
+// missing credential fails setup. Darwin deliberately withholds that evidence.
 func startLeaderlessOwnedGroup(t *testing.T, script string, usesHelper bool) *OwnedProcessGroup {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", script)
@@ -495,10 +500,19 @@ func startLeaderlessOwnedGroup(t *testing.T, script string, usesHelper bool) *Ow
 			if member.pid == group.PGID() {
 				return false
 			}
+			if !usesHelper && filepath.Base(member.executable) != "sleep" {
+				return false
+			}
+			if !usesHelper && runtime.GOOS == "linux" {
+				value, observed, err := readProcessGroupAuthentication(member.pid)
+				if err != nil || !observed || value != group.record.Authentication {
+					return false
+				}
+			}
 		}
 		return true
 	}) {
-		t.Skip("could not observe a leaderless group holding the pgid")
+		t.Fatal("could not observe a ready leaderless group holding the pgid")
 	}
 	return group
 }

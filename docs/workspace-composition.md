@@ -384,6 +384,15 @@ and consumers must make it relative to their composition root before exporting
 a diagnostic. Its declaration digest is separate from configuration-origin
 evidence, whose paths are already relative and which carries no content hashes.
 
+### Inspection without legacy migration
+
+Hosts that inspect a workspace without rewriting legacy inputs pass
+`WithWorkspaceMigrationRefusal(ctx)` to the loader. The policy follows every
+recursive workspace import and refuses a flat workspace carrying a legacy
+`module.codefly.yaml` before reading or migrating that module. Ordinary loads
+retain automatic migration. This policy does not constrain acquisition callbacks;
+an inspection host must also supply a resolver that does not fetch or write.
+
 ### API catalogs for implemented interfaces
 
 A protobuf listener can publish services from several packages, including

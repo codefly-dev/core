@@ -308,6 +308,11 @@ type Contract struct {
 // by its full gRPC name, and what a call to it must hold, in the module's own
 // vocabulary.
 type ForeignMethod struct {
+	// Service names the Codefly service that serves this method when the module
+	// publishes more than one RPC service. Omission retains single-service
+	// inference. The composition validates the selection against published
+	// services, never an address.
+	Service  string         `yaml:"service,omitempty"`
 	Method   string         `yaml:"method"`
 	Requires []CeilingScope `yaml:"requires"`
 }

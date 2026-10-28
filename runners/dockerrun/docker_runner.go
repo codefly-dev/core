@@ -107,6 +107,8 @@ type DockerEnvironment struct {
 	// Recovery ownership is fixed on first use. A later flow changing the
 	// process marker must not redirect this environment's lookup or shutdown.
 	recoveryScope *ContainerRecoveryScope
+	// serviceIdentity is a module/service snapshot, frozen with recoveryScope.
+	serviceIdentity string
 	// carriers are the container's file-delivered configuration values,
 	// copied into it between create and start (copyCarriers).
 	carriers []resources.FileCarrier
@@ -233,6 +235,9 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		}
 		if ownershipErr := validateContainerRecoveryReuse(inspect.Config, containerConfig); ownershipErr != nil {
 			return w.Wrapf(ownershipErr, "cannot reuse container %s; recover its owner explicitly before retrying", docker.instance.ID)
+		}
+		if ownershipErr := validateContainerServiceReuse(inspect.Config.Labels, containerConfig.Labels[LabelCodeflyService]); ownershipErr != nil {
+			return w.Wrapf(ownershipErr, "cannot reuse container %s", docker.instance.ID)
 		}
 		owned = true
 		actualFingerprint := ""
@@ -572,6 +577,11 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation
 	}
+	docker.mu.Lock()
+	if docker.serviceIdentity != "" {
+		config.Labels[LabelCodeflyService] = docker.serviceIdentity
+	}
+	docker.mu.Unlock()
 
 	if len(docker.cmd) > 0 {
 		w.Debug("overriding command", wool.Field("cmd", base.CommandSummary(docker.cmd)))
@@ -881,6 +891,9 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		c := containers[i]
 		for _, name := range c.Names {
 			if name == "/"+docker.name {
+				if err := validateContainerServiceReuse(c.Labels, docker.serviceIdentity); err != nil {
+					return false, err
+				}
 				if c.Labels[LabelCodeflyRecoveryScope] != scope.id ||
 					(scope.id != "" && c.Labels[LabelCodeflyOwner] != labelTrue) {
 					return false, fmt.Errorf("container %s belongs to a different or unresolved recovery scope; refusing adoption or replacement", docker.name)
@@ -2047,19 +2060,26 @@ func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resource
 
 }
 
+// ImageExists reports whether the daemon can resolve the exact reference imag
+// names — a tag (name:tag) or a digest (name@sha256:…) — the way the later
+// container create will have to. It asks the daemon rather than reading the
+// image list: a digest reference resolves only under the repository name the
+// image carries it as, so the same bytes under another name, or an image whose
+// ID merely equals the digest, are NOT this reference, and a scan that matched
+// them reported an image present that the create then could not find. Before
+// this it compared RepoTags alone, which read every digest reference — the form
+// a local build hands back — as absent and sent the caller to pull it.
+//
+// Not found is an answer, false with no error; any other daemon failure is an
+// error, because "cannot tell" must not become "pull it".
 func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := c.ImageList(ctx, image.ListOptions{})
-	if err != nil {
-		return false, w.Wrapf(err, "cannot list images")
-	}
-	for i := range images {
-		img := &images[i]
-		for _, repoTag := range img.RepoTags {
-			if repoTag == imag.FullName() {
-				return true, nil
-			}
+	reference := imag.FullName()
+	if _, err := c.ImageInspect(ctx, reference); err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
 		}
+		return false, w.Wrapf(err, "cannot inspect image %s", reference)
 	}
-	return false, nil
+	return true, nil
 }

@@ -7,9 +7,9 @@ packages = [{include = "codefly_cli"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-pydantic = "^2.14.0"
+pydantic = "^2.14.1"
 PyYAML = "^6.0.3"
-grpcio = "^1.84.0"
+grpcio = "^1.84.1"
 protobuf = "^7.36.2"
 grpclib = "^0.4.9"
 codefly-sdk = "^0.0.14"
