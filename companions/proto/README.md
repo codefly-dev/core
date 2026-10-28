@@ -57,8 +57,20 @@ the existing `tag.sh` version-bump flow continues to work.
 codefly companion build proto
 ```
 
-The Dockerfile assembles the same set via apk + `go install`. Less
-reproducible than Nix (apk packages vary across Alpine releases) but
+The Dockerfile assembles the same set via apk + `go install`. The Go builder
+runs on `BUILDPLATFORM` and cross-compiles static plugins for `TARGETARCH`;
+it never compiles under ARM emulation. A separate target-platform Go image
+supplies the runtime `go`/`gofmt`, so cross-building cannot accidentally ship
+the build host's compiler. Each image build executes Buf, the Go generators,
+Swagger and the runtime Go architecture check on its target platform.
+Upstream downloads were checked: Buf 1.73.0's
+prebuilt binary carries Go 1.26.8 and x/net 0.58.0, including fixed findings,
+and several other plugin downloads carry still older Go toolchains. Retaining
+source builds preserves the current Go compiler instead of importing those
+additional findings. Plugin dependency versions are unchanged by this build
+speed fix; it does not claim a clean vulnerability scan of every plugin.
+
+This path is less reproducible than Nix (apk packages vary across Alpine releases) but
 needs no Linux builder VM, which is why the publish workflow uses it.
 
 ## What's in the image
@@ -98,9 +110,9 @@ may also contain handwritten Go, so only files carrying Go's standard
 ## Versioning
 
 `info.codefly.yaml` carries the image version. Version 0.0.21 removes Rust
-generation and its build dependencies. Publish through `codefly companion
-publish` using the [publication procedure](../../docs/runbooks/publish-companions.md);
-changing the manifest alone does not publish an image. Core 0.19.13 selects
+generation and its build dependencies; 0.0.22 removes emulated Go compilation.
+Publish through `codefly companion publish` using the [publication procedure](../../docs/runbooks/publish-companions.md);
+changing the manifest alone does not publish an image. Core 0.19.14 selects
 this companion.
 
 ## Python generation
