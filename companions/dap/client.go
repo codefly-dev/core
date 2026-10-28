@@ -169,22 +169,58 @@ func (c *companionClient) Launch(ctx context.Context, program string, args []str
 		"cwd":         "/workspace",
 		"stopOnEntry": false,
 	}
-	_, err := c.tp.request(ctx, "launch", launchArgs)
-	if err != nil {
-		return err
-	}
-	return c.configurationDone(ctx)
+	return c.startDebugSession(ctx, "launch", launchArgs)
 }
 
 func (c *companionClient) Attach(ctx context.Context, pid int) error {
 	attachArgs := map[string]interface{}{
 		"processId": pid,
 	}
-	_, err := c.tp.request(ctx, "attach", attachArgs)
+	return c.startDebugSession(ctx, "attach", attachArgs)
+}
+
+// Adapters may defer the launch/attach response until configuration is done.
+// Send the start request first, wait for the adapter's initialized event, then
+// complete configuration before awaiting the start response.
+func (c *companionClient) startDebugSession(ctx context.Context, command string, args map[string]interface{}) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	wait, err := c.tp.sendRequest(command, args)
 	if err != nil {
 		return err
 	}
-	return c.configurationDone(ctx)
+	result := make(chan error, 1)
+	go func() {
+		_, err := wait(ctx)
+		result <- err
+	}()
+	var response <-chan error = result
+	for {
+		select {
+		case err := <-response:
+			if err != nil {
+				return err
+			}
+			response = nil // Early success still requires initialized/configurationDone.
+		case <-c.tp.initialized:
+			if err := c.configurationDone(ctx); err != nil {
+				return err
+			}
+			if response == nil {
+				return nil
+			}
+			select {
+			case err := <-response:
+				return err
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		case <-c.tp.done:
+			return fmt.Errorf("%s: transport closed before configuration completed", command)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func (c *companionClient) SetBreakpoints(ctx context.Context, file string, lines []int) ([]BreakpointResult, error) {

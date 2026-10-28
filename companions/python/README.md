@@ -30,3 +30,9 @@ Downstream security clearance requires rebuilding services and scanning their
 exact image digests; a source change or companion tag is not that evidence.
 Removal affects the merged runtime filesystem; historical immutable base-layer
 blobs still contain their original bytes.
+
+The DAP client sends launch/attach, waits for the adapter's `initialized`
+event, completes configuration, and then collects the start response. Debugpy
+defers that response until `configurationDone`; waiting for it first deadlocks.
+The connection probe also preserves early adapter telemetry bytes so the
+protocol reader receives complete frames.

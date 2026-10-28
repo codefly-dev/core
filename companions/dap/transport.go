@@ -2,6 +2,7 @@ package dap
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,10 +59,13 @@ type transport struct {
 	reader *bufio.Reader
 	ctx    context.Context
 
-	mu        sync.Mutex
-	seq       int64
-	pending   map[int]chan *dapResponse
-	readerErr error // set when the reader goroutine exits with an error
+	mu              sync.Mutex
+	seq             int64
+	pending         map[int]chan *dapResponse
+	readerErr       error // set when the reader goroutine exits with an error
+	initialized     chan struct{}
+	initializedOnce sync.Once
+	done            chan struct{}
 
 	// Event handlers (protected by eventMu).
 	eventMu      sync.RWMutex
@@ -78,10 +82,12 @@ type transport struct {
 // causes readMessages to return. This is independent of an explicit close().
 func newTransport(ctx context.Context, conn net.Conn) *transport {
 	t := &transport{
-		conn:    conn,
-		reader:  bufio.NewReader(conn),
-		ctx:     ctx,
-		pending: make(map[int]chan *dapResponse),
+		conn:        conn,
+		reader:      bufio.NewReader(conn),
+		ctx:         ctx,
+		pending:     make(map[int]chan *dapResponse),
+		initialized: make(chan struct{}),
+		done:        make(chan struct{}),
 	}
 	go t.readMessages()
 	return t
@@ -89,10 +95,26 @@ func newTransport(ctx context.Context, conn net.Conn) *transport {
 
 // request sends a DAP request and waits for the matching response.
 func (t *transport) request(ctx context.Context, command string, arguments interface{}) (*dapResponse, error) {
+	wait, err := t.sendRequest(command, arguments)
+	if err != nil {
+		return nil, err
+	}
+	return wait(ctx)
+}
+
+// sendRequest writes the request before returning its response waiter. Launch
+// and attach must be sent before configurationDone, but their responses may
+// remain pending until configurationDone has been acknowledged.
+func (t *transport) sendRequest(command string, arguments interface{}) (func(context.Context) (*dapResponse, error), error) {
 	seq := int(atomic.AddInt64(&t.seq, 1))
 
 	ch := make(chan *dapResponse, 1)
 	t.mu.Lock()
+	if t.readerErr != nil {
+		err := t.readerErr
+		t.mu.Unlock()
+		return nil, fmt.Errorf("%s: transport reader error: %w", command, err)
+	}
 	t.pending[seq] = ch
 	t.mu.Unlock()
 
@@ -110,25 +132,32 @@ func (t *transport) request(ctx context.Context, command string, arguments inter
 		return nil, err
 	}
 
-	select {
-	case resp, ok := <-ch:
-		if !ok {
-			// Channel closed by reader goroutine due to error.
+	return func(ctx context.Context) (*dapResponse, error) {
+		defer func() {
 			t.mu.Lock()
-			err := t.readerErr
+			delete(t.pending, seq)
 			t.mu.Unlock()
-			if err != nil {
-				return nil, fmt.Errorf("%s: transport reader error: %w", command, err)
+		}()
+		select {
+		case resp, ok := <-ch:
+			if !ok {
+				// Channel closed by reader goroutine due to error.
+				t.mu.Lock()
+				err := t.readerErr
+				t.mu.Unlock()
+				if err != nil {
+					return nil, fmt.Errorf("%s: transport reader error: %w", command, err)
+				}
+				return nil, fmt.Errorf("%s: transport closed", command)
 			}
-			return nil, fmt.Errorf("%s: transport closed", command)
+			if !resp.Success {
+				return nil, fmt.Errorf("%s: %s", command, resp.Message)
+			}
+			return resp, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		if !resp.Success {
-			return nil, fmt.Errorf("%s: %s", command, resp.Message)
-		}
-		return resp, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	}, nil
 }
 
 // send marshals and writes a DAP message with Content-Length framing.
@@ -152,6 +181,7 @@ func (t *transport) send(msg interface{}) error {
 // readMessages reads DAP messages and dispatches responses to pending callers
 // and events to registered handlers.
 func (t *transport) readMessages() {
+	defer close(t.done)
 	// Closing the connection on cancellation unblocks the blocking reads
 	// below so the goroutine exits even when no I/O error occurs on its own.
 	stop := make(chan struct{})
@@ -230,6 +260,8 @@ func (t *transport) dispatchEvent(ev dapEvent) {
 	defer t.eventMu.RUnlock()
 
 	switch ev.Event {
+	case "initialized":
+		t.initializedOnce.Do(func() { close(t.initialized) })
 	case "stopped":
 		if t.onStopped != nil {
 			var body struct {
@@ -289,6 +321,13 @@ func (t *transport) close() error {
 	return t.conn.Close()
 }
 
+type bufferedConnection struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (c *bufferedConnection) Read(p []byte) (int, error) { return c.reader.Read(p) }
+
 // waitForConnection retries TCP connection until the DAP server is actually
 // ready. A simple TCP dial is NOT enough -- Docker's port proxy accepts
 // connections before the DAP server inside the container is listening.
@@ -310,27 +349,30 @@ func waitForConnection(ctx context.Context, port int) (net.Conn, error) {
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
-			// Verify the connection is actually alive by checking it
-			// doesn't get reset immediately. Docker's port proxy accepts
-			// connections before the backend is ready and then resets them.
-			conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-			probe := make([]byte, 1)
-			_, err = conn.Read(probe)
-			conn.SetReadDeadline(time.Time{}) // clear deadline
+			ready, err := probeConnection(conn)
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					// Timeout on read = no data yet = connection is alive.
-					// DAP server won't send anything until we do.
-					return conn, nil
-				}
-				// EOF or connection reset = Docker proxy forwarded to a
-				// non-ready backend. Retry.
 				conn.Close()
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
-			// Got data (unexpected from DAP), but connection works.
-			return conn, nil
+			return ready, nil
 		}
 	}
+}
+
+// probeConnection detects a reset without discarding startup DAP frames.
+func probeConnection(conn net.Conn) (net.Conn, error) {
+	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	probe := make([]byte, 1)
+	n, err := conn.Read(probe)
+	conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return conn, nil
+		}
+		return nil, err
+	}
+	// debugpy sends telemetry immediately on connection. Dropping this byte
+	// corrupts Content-Length before the protocol reader can initialize.
+	return &bufferedConnection{Conn: conn, reader: io.MultiReader(bytes.NewReader(probe[:n]), conn)}, nil
 }
