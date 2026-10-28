@@ -44,6 +44,31 @@ func EnvironmentVariableAsStrings(envs []*EnvironmentVariable) []string {
 	return result
 }
 
+// EffectiveEnvironmentVariables keeps the last occurrence of each exact key,
+// matching process environment precedence. It preserves the complete winning
+// variable, including File and Secret, and the order of surviving occurrences.
+// Call before file expansion: inline keys and file-carrier keys are distinct
+// and must not be collapsed into one another. Inputs are not modified.
+func EffectiveEnvironmentVariables(sets ...[]*EnvironmentVariable) []*EnvironmentVariable {
+	var all []*EnvironmentVariable
+	last := map[string]int{}
+	for _, set := range sets {
+		for _, env := range set {
+			if env != nil {
+				last[env.Key] = len(all)
+				all = append(all, env)
+			}
+		}
+	}
+	out := make([]*EnvironmentVariable, 0, len(last))
+	for index, env := range all {
+		if last[env.Key] == index {
+			out = append(out, env)
+		}
+	}
+	return out
+}
+
 type EnvironmentVariableManager struct {
 	// Environment
 	environment *basev0.Environment

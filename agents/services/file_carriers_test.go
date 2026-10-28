@@ -141,6 +141,53 @@ func TestARenderWithoutLargeValuesMountsNothing(t *testing.T) {
 	require.NotContains(t, string(deployment), "codefly-configuration-files")
 }
 
+func TestRenderedEnvironmentCountsEffectiveBindings(t *testing.T) {
+	info := &basev0.ConfigurationInformation{Name: "runnable-bindings"}
+	for i := 0; i < 134; i++ {
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{Key: fmt.Sprintf("OP_%03d", i), Value: strings.Repeat("x", 2800)})
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration, configuration)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
+	for _, value := range info.ConfigurationValues {
+		require.Equal(t, value.Value, environment[resources.ConfigurationValueEnvironmentKey(configuration, info.Name, value)])
+	}
+	_, err = os.Stat(filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
+	require.True(t, os.IsNotExist(err), "no new file delivery")
+}
+
+func TestRenderedEnvironmentNormalizesBeforeFileSplit(t *testing.T) {
+	key := "CODEFLY__WORKSPACE_CONFIGURATION__SETTINGS__MODE"
+	large := &resources.EnvironmentVariable{Key: key, Value: strings.Repeat("x", resources.FileCarrierThreshold+1), File: true}
+	small := resources.Env(key, "last")
+	for _, fileWins := range []bool{false, true} {
+		t.Run(fmt.Sprint(fileWins), func(t *testing.T) {
+			destination, response, err := renderPrepared(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, func(_ context.Context, d *KustomizeDeploymentContext) error {
+				if fileWins {
+					d.AddConfigMap(small, large, large)
+				} else {
+					d.AddConfigMap(large, small)
+				}
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+			environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
+			if fileWins {
+				require.NotContains(t, environment, key)
+				require.Contains(t, environment, resources.FileCarrierKey(key))
+				files := readDocuments(t, filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
+				require.Equal(t, large.Value, files[0]["data"].(map[string]any)[key])
+			} else {
+				require.Equal(t, "last", environment[key])
+				require.NotContains(t, environment, resources.FileCarrierKey(key))
+			}
+		})
+	}
+}
+
 // A local apply carries secret values; a large secret is a Secret volume,
 // readable by the pod's group and nobody else, never a ConfigMap entry.
 func TestALargeSecretIsDeliveredByASecretVolume(t *testing.T) {
