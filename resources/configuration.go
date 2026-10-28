@@ -83,6 +83,9 @@ func FilterConfigurationInformation(_ context.Context, name string, infos ...*ba
 func ConfigurationValue(_ context.Context, confInfo *basev0.ConfigurationInformation, key string) (string, error) {
 	for _, value := range confInfo.ConfigurationValues {
 		if Match(value.Key, key) {
+			if err := ValidateModuleArtifactValue(value); err != nil {
+				return "", err
+			}
 			// An assembly resolves against the whole Configuration its producer
 			// published, which one information does not carry. Returning
 			// value.Value here would hand back an empty credential, so say what

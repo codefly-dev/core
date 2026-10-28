@@ -79,7 +79,7 @@ func extendWorkspaceConfiguration(ctx context.Context, base, addition *basev0.Co
 		if !appendValue {
 			return nil, conflict(value.Key, "already declared by the imported group")
 		}
-		if previous.Secret || value.Secret || previous.Template != nil || value.Template != nil || strings.Contains(previous.Value+value.Value, ProfileValueMarker) {
+		if hasModuleArtifact(previous) || hasModuleArtifact(value) || previous.Secret || value.Secret || previous.Template != nil || value.Template != nil || strings.Contains(previous.Value+value.Value, ProfileValueMarker) {
 			return nil, conflict(value.Key, "append requires supplied plaintext values without templates")
 		}
 		seen := map[string]bool{}

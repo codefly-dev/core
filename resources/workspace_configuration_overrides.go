@@ -3,6 +3,7 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 )
@@ -79,8 +80,13 @@ func DecodeWorkspaceConfigurationOverrides(encoded string) ([]WorkspaceConfigura
 		return nil, nil
 	}
 	var overrides []WorkspaceConfigurationOverride
-	if err := json.Unmarshal([]byte(encoded), &overrides); err != nil {
-		return nil, fmt.Errorf("decode workspace configuration overrides: %w", err)
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&overrides); err != nil {
+		return nil, fmt.Errorf("invalid workspace configuration override fields")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("invalid trailing workspace configuration overrides")
 	}
 	validated, err := validateWorkspaceConfigurationOverrides(overrides)
 	if err != nil {

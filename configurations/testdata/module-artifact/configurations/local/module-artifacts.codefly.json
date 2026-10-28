@@ -1,0 +1,1 @@
+{"schemaVersion":1,"bindings":[{"configuration":"install","key":"CONFIG","source":{"module":"documents","path":"public.json"}},{"configuration":"second","key":"CONFIG","source":{"module":"documents","path":"public.json"}}]}
