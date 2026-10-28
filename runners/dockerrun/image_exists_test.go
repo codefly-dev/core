@@ -1,3 +1,5 @@
+//go:build !skip_infra
+
 package dockerrun_test
 
 import (
