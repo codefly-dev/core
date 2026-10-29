@@ -311,9 +311,11 @@ type Contract struct {
 	RequireMethodPolicies bool `yaml:"require_method_policies,omitempty"`
 }
 
-// EdgeDependency declares a module the host resolves through its catalogue.
+// EdgeDependency names an exact signed module principal. The host resolves it
+// through its existing catalogue to a target and binding; it is not a target ID.
 // An empty list and an omitted list both declare no edge dependencies.
 type EdgeDependency struct {
+	// Module is the signed principal, never a route alias, binding ID or release.
 	Module   string `yaml:"module" json:"module"`
 	Presence string `yaml:"presence" json:"presence"` // "required" or "optional", with no default.
 }

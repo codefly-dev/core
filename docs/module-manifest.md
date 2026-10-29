@@ -214,3 +214,6 @@ Absent fields add no keys; nil and empty dependency lists encode identically,
 so older manifest bytes and signatures remain unchanged. CLI owns populating
 these fields from the resolved contract and pairing the Authority document;
 Authority and the host own installation semantics and catalogue resolution.
+Each dependency's `module` is the exact signed module principal. The existing
+host catalogue resolves it to the target and binding; the principal is never
+treated as a target UUID, nor replaced by a route alias, binding ID or release.

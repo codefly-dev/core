@@ -229,11 +229,14 @@ edge_dependencies:
   - {module: annotations, presence: optional}
 ```
 
-`edge_dependencies` names explicit module identities, each once, with mandatory
+`edge_dependencies[].module` names the exact signed module principal (the
+Authority domain's `Module.Principal`), each once, with mandatory
 `presence: required|optional`. It grants no authority and declares no operations
-or scopes. The host resolves these identities through its catalogue; Core does
-not require them to exist in a local composition. Neither binding IDs nor
-resolved audiences are inferred as entries. Absent and empty lists mean the
+or scopes. The host resolves the principal through its existing catalogue to
+the live target and binding; a principal is not itself a target UUID. Route
+aliases, binding IDs and release strings are never fallbacks. Core does not
+require a principal to exist in a local composition. Entries are explicit;
+none are inferred from bindings. Absent and empty lists mean the
 same thing. Selector and module values with surrounding whitespace are refused,
 never trimmed; declaration fields must be strings.
 
