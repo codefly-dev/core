@@ -959,6 +959,10 @@ message BuildCapabilitiesResponse {
   bool buildx_selection = 1;
   // execution_contracts lists artifact bindings honored by Build and Deploy.
   repeated string execution_contracts = 2;
+  // image_inputs declares the loaded service's external image roles and
+  // supported recipe variants. Meaningful only with base-image-bindings/v1;
+  // it must reflect service settings, including native-library requirements.
+  repeated BuildImageInput image_inputs = 3;
 }
 
 // Builder is responsible for:

@@ -433,3 +433,11 @@ that service before admitting the replacement. Identical bytes remain reusable
 after atomic reinstallation. Startup also rejects a concurrently replaced
 executable before publishing the connection. These checks do not establish
 publisher authority or qualify a rebuilt runtime output.
+
+## Environment image selection
+
+`base-image-bindings/v1` is an optional builder operation: the running agent
+advertises its loaded service's image roles and recipe variants, validates
+selected immutable bindings and renders them into its recipe. See
+[environment image bindings](build-image-bindings.md). Callers selecting this
+policy require the live advertisement; unconfigured builds remain unchanged.

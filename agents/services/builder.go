@@ -45,6 +45,19 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 		}
 	}
 	selected := req.GetBuildContext().GetDockerBuildContext().GetBuildxBuilder()
+	bindings := req.GetBuildContext().GetDockerBuildContext().GetImageBindings()
+	if len(bindings) > 0 {
+		capabilities, err := b.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{}, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("cannot verify image binding support before execution: %w", err)
+		}
+		if err = RequireBuildImageBindings(capabilities); err != nil {
+			return nil, err
+		}
+		if _, err = ResolveBuildImages(capabilities.GetImageInputs(), bindings); err != nil {
+			return nil, err
+		}
+	}
 	if selected != "" {
 		capabilities, err := b.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{}, opts...)
 		if err != nil {
