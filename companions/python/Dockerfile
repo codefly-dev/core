@@ -13,7 +13,7 @@
 # companion image it builds on, and the builder resolves that to a registry.
 # The default keeps a plain `docker build` working and is pinned to the version
 # in companions/codefly/info.codefly.yaml.
-ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.6
+ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.7
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
 FROM python:3.14.10-alpine3.24@sha256:cfe4b5079e5852da965ae14f74a6e2b137ece05b918d27c575fb70de3c85db2b
