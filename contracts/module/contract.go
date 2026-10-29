@@ -314,8 +314,8 @@ type Contract struct {
 // EdgeDependency declares a module the host resolves through its catalogue.
 // An empty list and an omitted list both declare no edge dependencies.
 type EdgeDependency struct {
-	Module   string `yaml:"module"`
-	Presence string `yaml:"presence"` // "required" or "optional", with no default.
+	Module   string `yaml:"module" json:"module"`
+	Presence string `yaml:"presence" json:"presence"` // "required" or "optional", with no default.
 }
 
 // ForeignMethod is one served method of a protocol the module does not own,

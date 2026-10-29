@@ -230,10 +230,18 @@ type Endpoint struct {
 }
 
 // Authority is what a module asks to be granted. Every list is a request; an
-// empty one asks for nothing on that axis.
+// empty one asks for nothing on that axis. Installation declarations express
+// machine-role selection and edge presence, and confer no authority themselves.
 type Authority struct {
 	// Principal is the module's principal: its name. Opaque here.
 	Principal string `yaml:"principal" json:"principal"`
+
+	// InstallationRole is the Core-validated selector, carried verbatim: empty
+	// is undeclared; "none" declares no standing grant; otherwise a role name.
+	InstallationRole string `yaml:"installation_role,omitempty" json:"installation_role,omitempty"`
+	// EdgeDependencies preserve declaration order and grant no authority.
+	// Their identities are resolved by the host, never inferred from bindings.
+	EdgeDependencies []modulecontract.EdgeDependency `yaml:"edge_dependencies,omitempty" json:"edge_dependencies,omitempty"`
 
 	// Bindings are the operation bindings the module asks to redeem.
 	Bindings []AuthorityBinding `yaml:"bindings,omitempty" json:"bindings,omitempty"`
@@ -611,10 +619,12 @@ func (manifest *ModuleManifest) CanonicalBytes() ([]byte, error) {
 
 func (authority *Authority) canonical() *Authority {
 	normalized := Authority{
-		Principal:     authority.Principal,
-		Queues:        sortedOrNil(authority.Queues),
-		Namespaces:    sortedOrNil(authority.Namespaces),
-		ResourceKinds: sortedOrNil(authority.ResourceKinds),
+		InstallationRole: authority.InstallationRole,
+		EdgeDependencies: slices.Clone(authority.EdgeDependencies),
+		Principal:        authority.Principal,
+		Queues:           sortedOrNil(authority.Queues),
+		Namespaces:       sortedOrNil(authority.Namespaces),
+		ResourceKinds:    sortedOrNil(authority.ResourceKinds),
 	}
 	for _, binding := range authority.Bindings {
 		operations := make(map[string][]string, len(binding.Operations))

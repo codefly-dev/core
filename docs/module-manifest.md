@@ -197,3 +197,20 @@ the grant a module's request is intersected with — is the host's record, not
 part of this document; see the host's documentation. What a module asks for is
 declared in its module contract, which the CLI resolves into `authority`; see
 [module-contract.md](module-contract.md).
+
+## Installation declarations in the signed carrier
+
+`authority.installation_role` and `authority.edge_dependencies` carry the
+module contract's validated installation declarations verbatim. The selector
+is empty when undeclared, literal `none` for no standing machine grant, or a
+role name. Dependencies reuse `modulecontract.EdgeDependency` with `module`
+and `presence` fields; they grant no authority. Core's module-contract parser
+validates these declarations; this carrier adds no selection, defaulting or
+second declaration validator.
+
+Canonical encoding retains dependency declaration order and includes both
+fields in the signed payload and digest. It does not sort, trim or infer them.
+Absent fields add no keys; nil and empty dependency lists encode identically,
+so older manifest bytes and signatures remain unchanged. CLI owns populating
+these fields from the resolved contract and pairing the Authority document;
+Authority and the host own installation semantics and catalogue resolution.
