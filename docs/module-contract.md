@@ -477,7 +477,10 @@ reason, named — the same reason whichever reader refused it. **The kits.**
 `modulecontract.Fixtures()` (144 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
-reader's own entrypoint through them. `AllResolutionFixtures()` (120
+reader's own entrypoint through them. Accepted documents declare
+`principal: assistant`; a consuming renderer uses module `assistant` and passes
+the fixture bytes unchanged, preserving its principal/identity guard.
+`AllResolutionFixtures()` (120
 configurations) does the same for resolution, driven by `RunResolution(t,
 provider)`. **Both counts are pinned by a test**, and the resolution kit
 is pinned by NAME and by cases-per-role as well: a documented count written by

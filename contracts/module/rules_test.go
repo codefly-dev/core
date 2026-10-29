@@ -77,6 +77,15 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 	names := make([]string, 0, len(all))
 	for _, fixture := range all {
 		names = append(names, fixture.Name)
+		if fixture.Outcome == OutcomeAccepted {
+			contract, err := Parse(fixture.Document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contract.Principal != "assistant" {
+				t.Errorf("accepted fixture %s declares principal %q; consumers render these unmodified documents as module assistant", fixture.Name, contract.Principal)
+			}
+		}
 	}
 	sort.Strings(names)
 	want := []string{
