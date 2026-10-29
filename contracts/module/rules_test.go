@@ -77,6 +77,15 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 	names := make([]string, 0, len(all))
 	for _, fixture := range all {
 		names = append(names, fixture.Name)
+		if fixture.Outcome == OutcomeAccepted {
+			contract, err := Parse(fixture.Document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contract.Principal != "assistant" {
+				t.Errorf("accepted fixture %s declares principal %q; consumers render these unmodified documents as module assistant", fixture.Name, contract.Principal)
+			}
+		}
 	}
 	sort.Strings(names)
 	want := []string{
@@ -97,11 +106,14 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"destination-endpoint-not-a-name", "destination-id-not-a-name",
 		"destination-kind-cluster-scoped", "destination-kind-public",
 		"destination-service-not-a-name", "duplicate-binding",
+		"edge-duplicate", "edge-empty-module", "edge-presence", "edge-presence-unknown", "edge-whitespace",
 		"explicit-scope-action-declared-twice", "explicit-scope-action-not-a-name",
 		"explicit-scope-action-wildcard", "foreign-method-beyond-ceiling",
 		"foreign-method-declared-twice", "foreign-method-not-a-method",
 		"foreign-method-other-kind", "foreign-method-requires-nothing",
-		"foreign-method-scope-without-action", "foreign-methods", "kind-named-twice",
+		"foreign-method-scope-without-action", "foreign-methods",
+		"installation-named", "installation-none", "installation-nonstring", "installation-reserved",
+		"installation-solution-none", "installation-unknown", "installation-whitespace", "kind-named-twice",
 		"kind-with-no-action", "literal-audience", "lookup-method-not-a-name",
 		"lookup-method-without-lookup", "merge-key", "mixed-ceiling",
 		"namespace-declared-twice", "namespace-not-a-name", "namespaces-omitted",

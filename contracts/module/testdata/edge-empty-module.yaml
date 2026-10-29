@@ -1,0 +1,8 @@
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings: []
+bindings: []
+destinations: []
+edge_dependencies: [{module: "", presence: required}]

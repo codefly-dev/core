@@ -40,6 +40,15 @@ const (
 	ruleKeyIsAName        = "key-is-a-name"
 	ruleWholeNumbers      = "numbers-are-whole"
 
+	ruleInstallationStrings        = "installation-declaration-strings"
+	ruleInstallationRole           = "installation-role"
+	ruleInstallationRoleWhitespace = "installation-role-whitespace"
+	ruleRoleReserved               = "role-reserved"
+	ruleEdgeModuleName             = "edge-module-name"
+	ruleEdgeModuleWhitespace       = "edge-module-whitespace"
+	ruleEdgeModuleUnique           = "edge-module-unique"
+	ruleEdgePresence               = "edge-presence"
+
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
 	ruleListEntryName   = "list-entry-name"
@@ -129,6 +138,14 @@ func rules() []rule {
 		{name: ruleNoNulls, check: func(*Contract) error { return nil }},
 		{name: ruleKeyIsAName, check: func(*Contract) error { return nil }},
 		{name: ruleWholeNumbers, check: func(*Contract) error { return nil }},
+		{name: ruleInstallationStrings, check: func(*Contract) error { return nil }},
+		{name: ruleInstallationRoleWhitespace, check: checkInstallationRoleWhitespace},
+		{name: ruleInstallationRole, check: checkInstallationRole},
+		{name: ruleRoleReserved, check: checkRoleReserved},
+		{name: ruleEdgeModuleName, check: checkEdgeModuleNames},
+		{name: ruleEdgeModuleWhitespace, check: checkEdgeModuleWhitespace},
+		{name: ruleEdgeModuleUnique, check: checkEdgeModulesUnique},
+		{name: ruleEdgePresence, check: checkEdgePresence},
 		{name: rulePrincipal, check: checkPrincipal},
 		{name: ruleListsDeclared, check: checkListsDeclared},
 		{name: ruleListEntryName, check: checkListEntryNames},
@@ -1197,6 +1214,74 @@ func checkRolesWithinRequest(contract *Contract) error {
 					}
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func checkInstallationRoleWhitespace(contract *Contract) error {
+	if strings.TrimSpace(contract.InstallationRole) != contract.InstallationRole {
+		return fmt.Errorf("%w: installation_role %q has surrounding whitespace; declare the exact role name or none", ErrInvalid, contract.InstallationRole)
+	}
+	return nil
+}
+
+func checkInstallationRole(contract *Contract) error {
+	if contract.InstallationRole == "" || contract.InstallationRole == "none" {
+		return nil
+	}
+	names := make([]string, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		if role.Name == contract.InstallationRole {
+			return nil
+		}
+		names = append(names, role.Name)
+	}
+	return fmt.Errorf("%w: installation_role %q is not a declared role; declared roles: %v (or declare none)", ErrInvalid, contract.InstallationRole, names)
+}
+
+func checkRoleReserved(contract *Contract) error {
+	for _, role := range contract.Roles {
+		if role.Name == "none" {
+			return fmt.Errorf("%w: role name none is reserved for the installation_role declaration of no standing grant", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+func checkEdgeModuleNames(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		if edge.Module == "" {
+			return fmt.Errorf("%w: edge_dependencies module must be non-empty", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+func checkEdgeModuleWhitespace(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		if strings.TrimSpace(edge.Module) != edge.Module {
+			return fmt.Errorf("%w: edge_dependencies module %q has surrounding whitespace", ErrInvalid, edge.Module)
+		}
+	}
+	return nil
+}
+
+func checkEdgeModulesUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.EdgeDependencies))
+	for _, edge := range contract.EdgeDependencies {
+		names = append(names, edge.Module)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: edge_dependencies module %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkEdgePresence(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		if edge.Presence != "required" && edge.Presence != "optional" {
+			return fmt.Errorf("%w: edge_dependencies module %q presence %q must be required or optional", ErrInvalid, edge.Module, edge.Presence)
 		}
 	}
 	return nil

@@ -1,0 +1,10 @@
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings: [{resource_kind: example.items, actions: [read]}]
+bindings: []
+destinations: []
+roles:
+  - name: none
+    scopes: [{resource_kind: example.items, actions: [read]}]
