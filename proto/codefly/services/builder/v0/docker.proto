@@ -12,6 +12,24 @@ message DockerBuildContext {
   BuildCacheOptions cache = 3;
   // buildx_builder selects the caller-owned Buildx executor for in-agent builds.
   string buildx_builder = 4;
+  // image_bindings selects exact external images for agent-declared roles.
+  // Requires the live base-image-bindings/v1 execution contract. The agent
+  // renders these references; callers must never rewrite its Dockerfile.
+  repeated BuildImageInput image_bindings = 5;
+}
+
+// BuildImageInput names an external image and the recipe variant consuming it.
+// In capabilities it declares a role's default; in a build request it binds
+// that role to an immutable replacement. Roles and variants are agent-owned.
+message BuildImageInput {
+  // role is unique within the loaded service's image inputs.
+  string role = 1;
+  // reference is a fully qualified image pinned by sha256 digest, or scratch.
+  string reference = 2;
+  // variant names the recipe's compatibility requirements, such as its OS/ABI
+  // and toolchain family. A different variant requires agent implementation;
+  // a registry relocation alone does not change it.
+  string variant = 3;
 }
 
 // DockerBuildResult captures Docker image references produced by a build.
