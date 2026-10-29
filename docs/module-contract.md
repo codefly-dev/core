@@ -213,6 +213,37 @@ the authority issues a person capability to it; the CLI carries the declaration
 in the signed composition authority document's `owner_aware` field (field 7).
 This declares an enforcement capability, not an owner identity or a grant.
 
+**Installation declarations express machine intent and edge presence separately.**
+`installation_role` is optional: absent or `""` leaves the legacy installer
+selection unchanged; literal `none` declares no standing machine grant; any
+other value must exactly name a declared role. This never assigns a role to a
+person or team. `none` is reserved and cannot be a role name. Existing rules
+still refuse every role that grants nothing and still require `installer` when
+roles exist; selecting a role does not relax them. A bare module can declare
+`none` without declaring roles.
+
+```yaml
+installation_role: none
+edge_dependencies:
+  - {module: robin, presence: required}
+  - {module: annotations, presence: optional}
+```
+
+`edge_dependencies` names explicit module identities, each once, with mandatory
+`presence: required|optional`. It grants no authority and declares no operations
+or scopes. The host resolves these identities through its catalogue; Core does
+not require them to exist in a local composition. Neither binding IDs nor
+resolved audiences are inferred as entries. Absent and empty lists mean the
+same thing. Selector and module values with surrounding whitespace are refused,
+never trimmed; declaration fields must be strings.
+
+`Parse`, `Validate`, `Encode` and `Resolve` use the existing contract rules and
+carry accepted values unchanged. The new fields use `omitempty`, so contracts
+that declare neither retain their previous encoded bytes. CLI owns signed
+projection; Authority owns honoring `none` without a synthetic role or standing
+grant; SaaS owns dependency review and activation. Parser acceptance alone does
+not establish that those consumer paths support installation.
+
 **A unit a person uses declares its roles beside its own vocabulary.** A
 solution is reached by people, and who may do what on an installation of it is
 a role the installation grants, never the organisation's. `roles:` lists each
@@ -440,7 +471,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (132 documents) ships
+`modulecontract.Fixtures()` (144 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

@@ -61,6 +61,18 @@ func Fixtures() ([]Fixture, error) {
 		outcome                   Outcome
 		sentinel                  error
 	}{
+		{name: "installation-none", file: "installation-none.yaml", outcome: OutcomeAccepted},
+		{name: "installation-named", file: "installation-named.yaml", outcome: OutcomeAccepted},
+		{name: "installation-solution-none", file: "installation-solution-none.yaml", outcome: OutcomeAccepted},
+		{name: "edge-presence", file: "edge-presence.yaml", outcome: OutcomeAccepted},
+		{name: "installation-unknown", file: "installation-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a declared role", rule: ruleInstallationRole},
+		{name: "installation-whitespace", file: "installation-whitespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "has surrounding whitespace", rule: ruleInstallationRoleWhitespace},
+		{name: "installation-reserved", file: "installation-reserved.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "role name none is reserved", rule: ruleRoleReserved},
+		{name: "installation-nonstring", file: "installation-nonstring.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be a string", rule: ruleInstallationStrings},
+		{name: "edge-empty-module", file: "edge-empty-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "module must be non-empty", rule: ruleEdgeModuleName},
+		{name: "edge-whitespace", file: "edge-whitespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "has surrounding whitespace", rule: ruleEdgeModuleWhitespace},
+		{name: "edge-duplicate", file: "edge-duplicate.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is declared twice", rule: ruleEdgeModuleUnique},
+		{name: "edge-presence-unknown", file: "edge-presence-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be required or optional", rule: ruleEdgePresence},
 		{name: "owner-aware", file: "owner-aware.yaml", outcome: OutcomeAccepted},
 		{name: "owner-aware-string", file: "owner-aware-string.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "owner_aware must be a boolean", rule: ruleOwnerAwareBoolean},
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},

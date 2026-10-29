@@ -283,6 +283,13 @@ type Contract struct {
 	// on a person's behalf. One of them is InstallerRole. A bare module, whose
 	// access is the organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
+	// InstallationRole selects the agent's standing role: empty is undeclared,
+	// "none" declares no standing grant, otherwise an exact declared role name.
+	// It never selects a role for a person or team.
+	InstallationRole string `yaml:"installation_role,omitempty"`
+	// EdgeDependencies name modules reached with the person's Work Context.
+	// They declare presence only, confer no authority, and are not binding IDs.
+	EdgeDependencies []EdgeDependency `yaml:"edge_dependencies,omitempty"`
 	// Bindings are the operation bindings the module redeems, outward.
 	Bindings []Binding `yaml:"bindings"`
 	// Destinations are the endpoints the module exposes for something else to
@@ -302,6 +309,13 @@ type Contract struct {
 	// is the deliverer's call, made from what the host consumes; the hop in
 	// front of the module refuses an undeclared method per call either way.
 	RequireMethodPolicies bool `yaml:"require_method_policies,omitempty"`
+}
+
+// EdgeDependency declares a module the host resolves through its catalogue.
+// An empty list and an omitted list both declare no edge dependencies.
+type EdgeDependency struct {
+	Module   string `yaml:"module"`
+	Presence string `yaml:"presence"` // "required" or "optional", with no default.
 }
 
 // ForeignMethod is one served method of a protocol the module does not own,
@@ -773,6 +787,11 @@ func parse(data []byte, without string) (*Contract, error) {
 			return nil, mapping.Err
 		}
 	}
+	if without != ruleInstallationStrings {
+		if err := checkInstallationStrings(tree.Content[0]); err != nil {
+			return nil, err
+		}
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)
 	var contract Contract
@@ -796,14 +815,18 @@ func (contract *Contract) Validate() error { return contract.validate("") }
 // Resolved is a contract with every slot resolved to the value the composition
 // supplies, ready to be derived into a manifest's authority.
 type Resolved struct {
-	OwnerAware     bool
-	Principal      string
-	Namespaces     []string
-	Queues         []string
-	ScopeCeilings  []ScopeCeiling
-	Bindings       []ResolvedBinding
-	Destinations   []Destination
-	ForeignMethods []ForeignMethod
+	// Installation declarations are carried verbatim, without catalogue lookup
+	// or deriving dependencies from resolved binding audiences.
+	InstallationRole string
+	EdgeDependencies []EdgeDependency
+	OwnerAware       bool
+	Principal        string
+	Namespaces       []string
+	Queues           []string
+	ScopeCeilings    []ScopeCeiling
+	Bindings         []ResolvedBinding
+	Destinations     []Destination
+	ForeignMethods   []ForeignMethod
 	// Roles are the contract's roles, in declaration order, each grant
 	// addressed to the audience it is held at.
 	Roles []ResolvedRole
@@ -885,13 +908,15 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, err
 	}
 	resolved := &Resolved{
-		OwnerAware:     contract.OwnerAware,
-		Principal:      contract.Principal,
-		Namespaces:     slices.Clone(contract.Namespaces),
-		Queues:         slices.Clone(contract.Queues),
-		ScopeCeilings:  slices.Clone(contract.ScopeCeilings),
-		Destinations:   slices.Clone(contract.Destinations),
-		ForeignMethods: slices.Clone(contract.ForeignMethods),
+		InstallationRole: contract.InstallationRole,
+		EdgeDependencies: slices.Clone(contract.EdgeDependencies),
+		OwnerAware:       contract.OwnerAware,
+		Principal:        contract.Principal,
+		Namespaces:       slices.Clone(contract.Namespaces),
+		Queues:           slices.Clone(contract.Queues),
+		ScopeCeilings:    slices.Clone(contract.ScopeCeilings),
+		Destinations:     slices.Clone(contract.Destinations),
+		ForeignMethods:   slices.Clone(contract.ForeignMethods),
 	}
 	var unresolved, secret, ambiguous, calls []string
 	own := contract.ownCeilings()
