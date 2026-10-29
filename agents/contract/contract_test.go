@@ -11,7 +11,8 @@ import (
 )
 
 func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
+	require.Equal(t, []string{"base-image-bindings/v1", artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
+	require.NotContains(t, Current().Capabilities, "base-image-bindings/v1")
 	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
 	require.NotContains(t, Current().Capabilities, RuntimeInitDependencyMappings)
 	require.NotContains(t, Current().Capabilities, RuntimeInitImage)
@@ -29,7 +30,7 @@ func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
 	// supported_backends unset look like one that can run nowhere on this host.
 	require.NotContains(t, Current().Capabilities, RuntimeBackendDeclaration)
 	SupportedOperationContracts()[0] = "changed"
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
+	require.Equal(t, []string{"base-image-bindings/v1", artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", "codefly.dev/docker-build-recipe/v5", "codefly.dev/docker-build-recipe/v6", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance, RuntimeStartedArtifact, RuntimeBackendDeclaration}, SupportedOperationContracts())
 }
 
 func TestCheck(t *testing.T) {
