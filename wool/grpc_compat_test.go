@@ -3,6 +3,7 @@ package wool
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,5 +94,42 @@ func TestMetadataFromRequestDropsEmptyWorkContext(t *testing.T) {
 
 	if got := md.Get("x-codefly-work-context"); len(got) != 0 {
 		t.Fatalf("empty work context must not be forwarded, got %v", got)
+	}
+}
+
+// These are opaque carriers, not inferred authority: the bridge preserves
+// spelling/bytes, while the receiving SDK checks them against the signed seal.
+func TestMetadataFromRequestCarriesInstallationVerbatim(t *testing.T) {
+	req := newRequest(t)
+	req.Header.Set(WorkContextHeader, testWorkContext)
+	req.Header.Set("X-Codefly-Installation-Id", "installation-A")
+	req.Header.Set("X-Codefly-Installation-Revision", "0007")
+	md := MetadataFromRequest(context.Background(), req)
+	for key, want := range map[string]string{
+		"x-codefly-installation-id":       "installation-A",
+		"x-codefly-installation-revision": "0007",
+	} {
+		if got := md.Get(key); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s = %v, want [%s]", key, got, want)
+		}
+	}
+}
+
+func TestMetadataFromRequestDoesNotRepairInstallationCarriers(t *testing.T) {
+	for _, header := range []string{"X-Codefly-Installation-Id", "X-Codefly-Installation-Revision"} {
+		for _, values := range [][]string{nil, {""}, {"one", "two"}, {"same", "same"}} {
+			t.Run(header+strings.Join(values, "/"), func(t *testing.T) {
+				req := newRequest(t)
+				req.Header.Set(WorkContextHeader, testWorkContext)
+				for _, value := range values {
+					req.Header.Add(header, value)
+				}
+				req.Header.Set("Grpc-Metadata-"+header, "alternative")
+				md := MetadataFromRequest(context.Background(), req)
+				if got := md.Get(strings.ToLower(header)); !slices.Equal(got, values) {
+					t.Fatalf("carrier repaired: got %v, want %v", got, values)
+				}
+			})
+		}
 	}
 }
