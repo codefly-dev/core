@@ -18,6 +18,10 @@ import (
 
 const Localhost = "localhost"
 
+// NativeLoopbackHost matches IPv4-only local container publication. Using a
+// hostname can select IPv6 and reach a different listener or a resetting proxy.
+const NativeLoopbackHost = "127.0.0.1"
+
 // RuntimeManager tracks per-port allocation across the entire
 // service graph. The CLI fan-allocates ports for parallel services,
 // so concurrent GenerateNetworkMappings / AllocateTemporaryPort calls share
@@ -51,7 +55,7 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 }
 
 func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
-	host := Localhost
+	host := NativeLoopbackHost
 	var instance *basev0.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
@@ -62,7 +66,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	return instance
 }
 
-// NativeFor computes the deterministic native (localhost) NetworkInstance an
+// NativeFor computes the deterministic native loopback NetworkInstance an
 // endpoint binds to under a normal `codefly run` — WITHOUT a running flow.
 //
 // It mirrors RuntimeManager.GenerateNetworkMappings' Native() path exactly

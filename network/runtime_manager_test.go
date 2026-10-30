@@ -30,7 +30,7 @@ func TestConnectNetworkInstancesUseHTTPAddresses(t *testing.T) {
 	} {
 		require.Contains(t, instance.Address, "://", name)
 	}
-	require.Equal(t, "http://localhost:8081", network.Native(endpoint, 8081).Address)
+	require.Equal(t, "http://127.0.0.1:8081", network.Native(endpoint, 8081).Address)
 	require.Equal(
 		t,
 		"https://accounts.example.test:443",
@@ -50,7 +50,7 @@ func TestDeclaredTLSEndpointsUseHTTPSMappings(t *testing.T) {
 		}},
 	}
 
-	require.Equal(t, "https://localhost:8443", network.Native(endpoint, 8443).Address)
+	require.Equal(t, "https://127.0.0.1:8443", network.Native(endpoint, 8443).Address)
 	require.Equal(t, "https://host.docker.internal:8443", network.Container(endpoint, 8443).Address)
 	require.Equal(t, "https://localhost:8443", network.PublicDefault(endpoint, 8443).Address)
 }
