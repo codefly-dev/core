@@ -12,7 +12,7 @@
 // the CLI's remotenetwork package.
 //
 // Three NetworkAccess types describe how a peer reaches an instance:
-// Native (localhost), Container (host.docker.internal), and Public
+// Native (127.0.0.1), Container (host.docker.internal), and Public
 // (load balancer / ingress). Callers filter mappings by access type
 // to pick the right address for their context.
 //

@@ -6,7 +6,7 @@ Connection strings change across environments:
 
 | Environment | Postgres address |
 |---|---|
-| Local (native) | `localhost:5432` |
+| Local (native) | `127.0.0.1:5432` |
 | Local (Docker) | `host.docker.internal:5432` |
 | k8s (same namespace) | `postgres.default.svc:5432` |
 | Production | `db.prod.internal:5432` |
@@ -21,7 +21,7 @@ Every endpoint gets a **NetworkMapping** containing multiple **NetworkInstances*
 mapping := &basev0.NetworkMapping{
     Endpoint: grpcEndpoint,  // the logical endpoint
     Instances: []*basev0.NetworkInstance{
-        Native(endpoint, port),    // localhost:PORT
+        Native(endpoint, port),    // 127.0.0.1:PORT
         Container(endpoint, port), // host.docker.internal:PORT
         Public(endpoint, port),    // configurable hostname:PORT
     },
@@ -33,14 +33,14 @@ At runtime, the consumer filters for the access type matching its context:
 ```go
 access := resources.NewNativeNetworkAccess() // or Container, Public
 instance := resources.FilterNetworkInstance(ctx, mapping.Instances, access)
-// instance.Address = "localhost:34523"
+// instance.Address = "127.0.0.1:34523"
 ```
 
 ### Access Types
 
 | Type | Hostname | When to use |
 |---|---|---|
-| `native` | `localhost` | Process runs directly on host |
+| `native` | `127.0.0.1` | Process runs directly on host |
 | `container` | `host.docker.internal` | Process runs in Docker, connecting to host |
 | `public` | configurable | Production, external access |
 
@@ -106,7 +106,7 @@ configs := []*basev0.Configuration{
             {
                 Name: "connection",
                 ConfigurationValues: []*basev0.ConfigurationValue{
-                    {Key: "url", Value: "postgresql://localhost:5432/mydb"},
+                    {Key: "url", Value: "postgresql://127.0.0.1:5432/mydb"},
                     {Key: "password", Value: "secret", Secret: true},
                 },
             },
@@ -120,7 +120,7 @@ configs := []*basev0.Configuration{
 The CLI resolves the dependency graph, collects configs from all upstream services, and injects them as environment variables:
 
 ```
-CODEFLY__SERVICE_CONFIGURATION__STORE__POSTGRES__CONNECTION__URL=postgresql://localhost:5432/mydb
+CODEFLY__SERVICE_CONFIGURATION__STORE__POSTGRES__CONNECTION__URL=postgresql://127.0.0.1:5432/mydb
 CODEFLY__SERVICE_SECRET_CONFIGURATION__STORE__POSTGRES__CONNECTION__PASSWORD=secret
 ```
 
@@ -534,10 +534,10 @@ When the CLI starts:
 
 1. Starts `postgres` agent → Docker container on deterministic port (e.g., 23450)
 2. Generates NetworkMapping:
-   - Native: `localhost:23450`
+   - Native: `127.0.0.1:23450`
    - Container: `host.docker.internal:23450`
 3. Starts `api-server` agent, passes postgres NetworkMapping
-4. Sets env var: `CODEFLY__SERVICE_CONFIGURATION__STORE__POSTGRES__CONNECTION__URL=postgresql://localhost:23450/postgres`
+4. Sets env var: `CODEFLY__SERVICE_CONFIGURATION__STORE__POSTGRES__CONNECTION__URL=postgresql://127.0.0.1:23450/postgres`
 5. API server reads env var, connects to postgres
 
 If the API server runs in Docker instead of natively, the CLI detects `CODEFLY__RUNTIME_CONTEXT=container` and the env var becomes:
