@@ -474,7 +474,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (144 documents) ships
+`modulecontract.Fixtures()` (152 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare
@@ -510,3 +510,17 @@ lands, the second copies of this model still exist. What each one owes:
 an unscoped solution: it asks for no operation. When a module also publishes a
 contract, an empty consumption request does not compete with that contract;
 nonempty competing requests remain an authoring conflict.
+
+### Installation-only setup
+
+`setup` selects `{binding, methods}` separately from roles. Each binding must
+be required and invoke one foreign audience. Exact, unique methods are resolved
+through that audience's method policies and must fit its invoke ceiling. Core
+retains both methods and derived scopes; equal requirements do not grant another
+method. The signed authority carrier retains that resolved selection. Empty
+setup grants nothing, and `installation_role: none` remains valid.
+
+`owner_aware_resource_kinds` lists the served kinds whose resource-owner selectors
+the module enforces. It cannot accompany `owner_aware: true` (all kinds). Unknown
+or duplicate kinds refuse. Empty means none. Delivery preserves the sorted list;
+withdrawal must invalidate outstanding owner-selected authority at the host.

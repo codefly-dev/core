@@ -268,6 +268,9 @@ type Contract struct {
 	// or false declares no owner-aware checking. Solutions must declare it to
 	// receive person capabilities from the authority.
 	OwnerAware bool `yaml:"owner_aware,omitempty"`
+	// OwnerAwareResourceKinds restricts the owner-aware promise to served kinds.
+	// It is mutually exclusive with the module-wide OwnerAware declaration.
+	OwnerAwareResourceKinds []string `yaml:"owner_aware_resource_kinds,omitempty"`
 	// Namespaces are the namespaces the module declares — the audit namespaces
 	// it emits under, which an operator binds to its principal.
 	Namespaces []string `yaml:"namespaces"`
@@ -287,6 +290,9 @@ type Contract struct {
 	// "none" declares no standing grant, otherwise an exact declared role name.
 	// It never selects a role for a person or team.
 	InstallationRole string `yaml:"installation_role,omitempty"`
+	// Setup selects exact calls allowed only during installation, separately
+	// from standing roles. Requirements are derived from the selected callee.
+	Setup []Setup `yaml:"setup,omitempty"`
 	// EdgeDependencies name modules reached with the person's Work Context.
 	// They declare presence only, confer no authority, and are not binding IDs.
 	EdgeDependencies []EdgeDependency `yaml:"edge_dependencies,omitempty"`
@@ -819,16 +825,18 @@ func (contract *Contract) Validate() error { return contract.validate("") }
 type Resolved struct {
 	// Installation declarations are carried verbatim, without catalogue lookup
 	// or deriving dependencies from resolved binding audiences.
-	InstallationRole string
-	EdgeDependencies []EdgeDependency
-	OwnerAware       bool
-	Principal        string
-	Namespaces       []string
-	Queues           []string
-	ScopeCeilings    []ScopeCeiling
-	Bindings         []ResolvedBinding
-	Destinations     []Destination
-	ForeignMethods   []ForeignMethod
+	InstallationRole        string
+	Setup                   []ResolvedSetup
+	EdgeDependencies        []EdgeDependency
+	OwnerAware              bool
+	OwnerAwareResourceKinds []string
+	Principal               string
+	Namespaces              []string
+	Queues                  []string
+	ScopeCeilings           []ScopeCeiling
+	Bindings                []ResolvedBinding
+	Destinations            []Destination
+	ForeignMethods          []ForeignMethod
 	// Roles are the contract's roles, in declaration order, each grant
 	// addressed to the audience it is held at.
 	Roles []ResolvedRole
@@ -910,15 +918,16 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, err
 	}
 	resolved := &Resolved{
-		InstallationRole: contract.InstallationRole,
-		EdgeDependencies: slices.Clone(contract.EdgeDependencies),
-		OwnerAware:       contract.OwnerAware,
-		Principal:        contract.Principal,
-		Namespaces:       slices.Clone(contract.Namespaces),
-		Queues:           slices.Clone(contract.Queues),
-		ScopeCeilings:    slices.Clone(contract.ScopeCeilings),
-		Destinations:     slices.Clone(contract.Destinations),
-		ForeignMethods:   slices.Clone(contract.ForeignMethods),
+		InstallationRole:        contract.InstallationRole,
+		EdgeDependencies:        slices.Clone(contract.EdgeDependencies),
+		OwnerAware:              contract.OwnerAware,
+		OwnerAwareResourceKinds: slices.Sorted(slices.Values(contract.OwnerAwareResourceKinds)),
+		Principal:               contract.Principal,
+		Namespaces:              slices.Clone(contract.Namespaces),
+		Queues:                  slices.Clone(contract.Queues),
+		ScopeCeilings:           slices.Clone(contract.ScopeCeilings),
+		Destinations:            slices.Clone(contract.Destinations),
+		ForeignMethods:          slices.Clone(contract.ForeignMethods),
 	}
 	var unresolved, secret, ambiguous, calls []string
 	own := contract.ownCeilings()
@@ -1101,6 +1110,11 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	}
 	if len(calls) > 0 {
 		return nil, callsError(calls)
+	}
+	var err error
+	resolved.Setup, err = contract.resolveSetup(resolved, opts.callees)
+	if err != nil {
+		return nil, err
 	}
 	return resolved, nil
 }

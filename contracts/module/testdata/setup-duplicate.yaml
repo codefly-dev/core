@@ -1,0 +1,18 @@
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings: []
+destinations: []
+installation_role: none
+bindings:
+  - id: schemas
+    audience: {from: assistant/records-audience}
+    operations: [invoke]
+    calls:
+      invoke: [/records.v1.RecordsService/DefineRecordType]
+setup:
+  - binding: schemas
+    methods: [/records.v1.RecordsService/DefineRecordType]
+  - binding: schemas
+    methods: [/records.v1.RecordsService/DefineRecordType]

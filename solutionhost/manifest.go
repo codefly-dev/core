@@ -236,9 +236,14 @@ type Authority struct {
 	// Principal is the module's principal: its name. Opaque here.
 	Principal string `yaml:"principal" json:"principal"`
 
+	// OwnerAwareResourceKinds preserves the bounded owner-aware declaration.
+	OwnerAwareResourceKinds []string `yaml:"owner_aware_resource_kinds,omitempty" json:"owner_aware_resource_kinds,omitempty"`
+
 	// InstallationRole is the Core-validated selector, carried verbatim: empty
 	// is undeclared; "none" declares no standing grant; otherwise a role name.
 	InstallationRole string `yaml:"installation_role,omitempty" json:"installation_role,omitempty"`
+	// Setup is the resolved, reviewed installation-only method grant.
+	Setup []modulecontract.ResolvedSetup `yaml:"setup,omitempty" json:"setup,omitempty"`
 	// EdgeDependencies preserve declaration order and grant no authority.
 	// Their identities are resolved by the host, never inferred from bindings.
 	EdgeDependencies []modulecontract.EdgeDependency `yaml:"edge_dependencies,omitempty" json:"edge_dependencies,omitempty"`
@@ -619,12 +624,14 @@ func (manifest *ModuleManifest) CanonicalBytes() ([]byte, error) {
 
 func (authority *Authority) canonical() *Authority {
 	normalized := Authority{
-		InstallationRole: authority.InstallationRole,
-		EdgeDependencies: slices.Clone(authority.EdgeDependencies),
-		Principal:        authority.Principal,
-		Queues:           sortedOrNil(authority.Queues),
-		Namespaces:       sortedOrNil(authority.Namespaces),
-		ResourceKinds:    sortedOrNil(authority.ResourceKinds),
+		InstallationRole:        authority.InstallationRole,
+		Setup:                   slices.Clone(authority.Setup),
+		EdgeDependencies:        slices.Clone(authority.EdgeDependencies),
+		Principal:               authority.Principal,
+		OwnerAwareResourceKinds: sortedOrNil(authority.OwnerAwareResourceKinds),
+		Queues:                  sortedOrNil(authority.Queues),
+		Namespaces:              sortedOrNil(authority.Namespaces),
+		ResourceKinds:           sortedOrNil(authority.ResourceKinds),
 	}
 	for _, binding := range authority.Bindings {
 		operations := make(map[string][]string, len(binding.Operations))

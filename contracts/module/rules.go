@@ -33,6 +33,7 @@ const (
 	ruleSchema            = "schema"
 	ruleKnownFields       = "known-fields"
 	ruleOwnerAwareBoolean = "owner-aware-boolean"
+	ruleOwnerAwareKinds   = "owner-aware-kinds"
 	ruleOneDocument       = "one-document"
 	ruleMappingKeysOnce   = "mapping-keys-once"
 	ruleNoMergeKeys       = "no-merge-keys"
@@ -42,6 +43,11 @@ const (
 
 	ruleInstallationStrings        = "installation-declaration-strings"
 	ruleInstallationRole           = "installation-role"
+	ruleSetupBinding               = "setup-binding"
+	ruleSetupTarget                = "setup-target"
+	ruleSetupMethods               = "setup-methods"
+	ruleSetupMethod                = "setup-method"
+	ruleSetupUnique                = "setup-unique"
 	ruleInstallationRoleWhitespace = "installation-role-whitespace"
 	ruleRoleReserved               = "role-reserved"
 	ruleEdgeModuleName             = "edge-module-name"
@@ -132,6 +138,7 @@ func rules() []rule {
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
 		{name: ruleOwnerAwareBoolean, check: func(*Contract) error { return nil }},
+		{name: ruleOwnerAwareKinds, check: checkOwnerAwareKinds},
 		{name: ruleOneDocument, check: func(*Contract) error { return nil }},
 		{name: ruleMappingKeysOnce, check: func(*Contract) error { return nil }},
 		{name: ruleNoMergeKeys, check: func(*Contract) error { return nil }},
@@ -141,6 +148,11 @@ func rules() []rule {
 		{name: ruleInstallationStrings, check: func(*Contract) error { return nil }},
 		{name: ruleInstallationRoleWhitespace, check: checkInstallationRoleWhitespace},
 		{name: ruleInstallationRole, check: checkInstallationRole},
+		{name: ruleSetupUnique, check: checkSetupUnique},
+		{name: ruleSetupBinding, check: checkSetupBinding},
+		{name: ruleSetupTarget, check: checkSetupTarget},
+		{name: ruleSetupMethods, check: checkSetupMethods},
+		{name: ruleSetupMethod, check: checkSetupMethod},
 		{name: ruleRoleReserved, check: checkRoleReserved},
 		{name: ruleEdgeModuleName, check: checkEdgeModuleNames},
 		{name: ruleEdgeModuleWhitespace, check: checkEdgeModuleWhitespace},
@@ -1283,6 +1295,66 @@ func checkEdgePresence(contract *Contract) error {
 		if edge.Presence != "required" && edge.Presence != "optional" {
 			return fmt.Errorf("%w: edge_dependencies module %q presence %q must be required or optional", ErrInvalid, edge.Module, edge.Presence)
 		}
+	}
+	return nil
+}
+
+func checkSetupUnique(c *Contract) error {
+	seen := map[string]bool{}
+	for _, entry := range c.Setup {
+		if entry.Binding == "" || seen[entry.Binding] {
+			return fmt.Errorf("%w: setup binding must be non-empty and unique", ErrInvalid)
+		}
+		seen[entry.Binding] = true
+	}
+	return nil
+}
+func checkSetupBinding(c *Contract) error {
+	for _, entry := range c.Setup {
+		if !slices.ContainsFunc(c.Bindings, func(b Binding) bool { return b.ID == entry.Binding }) {
+			return fmt.Errorf("%w: setup binding %q is not declared", ErrInvalid, entry.Binding)
+		}
+	}
+	return nil
+}
+func checkSetupTarget(c *Contract) error {
+	for _, entry := range c.Setup {
+		for _, b := range c.Bindings {
+			if b.ID == entry.Binding && (b.Optional || b.Audience.Self || b.Audiences != nil || !slices.Contains(b.Operations, OperationInvoke)) {
+				return fmt.Errorf("%w: setup binding %q must be required and invoke one foreign audience", ErrInvalid, entry.Binding)
+			}
+		}
+	}
+	return nil
+}
+func checkSetupMethods(c *Contract) error {
+	for _, entry := range c.Setup {
+		if len(entry.Methods) == 0 {
+			return fmt.Errorf("%w: setup binding %q requires exact methods", ErrInvalid, entry.Binding)
+		}
+	}
+	return nil
+}
+func checkSetupMethod(c *Contract) error {
+	for _, entry := range c.Setup {
+		seen := map[string]bool{}
+		for _, method := range entry.Methods {
+			if !callPattern.MatchString(method) || strings.ContainsAny(method, "*{}") || seen[method] {
+				return fmt.Errorf("%w: setup method %q must be exact and unique", ErrInvalid, method)
+			}
+			seen[method] = true
+		}
+	}
+	return nil
+}
+
+func checkOwnerAwareKinds(c *Contract) error {
+	seen := map[string]bool{}
+	for _, kind := range c.OwnerAwareResourceKinds {
+		if c.OwnerAware || seen[kind] || !namePattern.MatchString(kind) || !slices.ContainsFunc(c.ScopeCeilings, func(s ScopeCeiling) bool { return s.ResourceKind == kind }) {
+			return fmt.Errorf("%w: owner_aware_resource_kinds must be unique served kinds without owner_aware true: %q", ErrInvalid, kind)
+		}
+		seen[kind] = true
 	}
 	return nil
 }

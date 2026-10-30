@@ -15,6 +15,8 @@ func TestInstallationDeclarationsSurviveSignedDelivery(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			manifest := valid(t)
 			manifest.Authority.InstallationRole = role
+			manifest.Authority.Setup = []modulecontract.ResolvedSetup{{Binding: "model", Methods: []string{"/model.v1.Model/Generate"}, Scopes: []string{"model:invoke"}}}
+			manifest.Authority.OwnerAwareResourceKinds = []string{"example.items"}
 			// Deliberately not sorted; order is part of the authored declaration.
 			manifest.Authority.EdgeDependencies = []modulecontract.EdgeDependency{
 				{Module: "z.catalogue", Presence: "required"},
@@ -41,12 +43,16 @@ func TestInstallationDeclarationsSurviveSignedDelivery(t *testing.T) {
 			got, err := delivered.Manifest()
 			require.NoError(t, err)
 			require.Equal(t, role, got.Authority.InstallationRole)
+			require.Equal(t, manifest.Authority.Setup, got.Authority.Setup)
+			require.Equal(t, manifest.Authority.OwnerAwareResourceKinds, got.Authority.OwnerAwareResourceKinds)
 			require.Equal(t, manifest.Authority.EdgeDependencies, got.Authority.EdgeDependencies)
 			require.Equal(t, "model", got.Authority.Bindings[0].ID)
 
 			// Changing either declaration invalidates the original signature.
 			for _, mutate := range []func(*solutionhost.Authority){
 				func(a *solutionhost.Authority) { a.InstallationRole = "another-role" },
+				func(a *solutionhost.Authority) { a.Setup[0].Methods[0] = "/model.v1.Model/Other" },
+				func(a *solutionhost.Authority) { a.OwnerAwareResourceKinds = []string{"different.kind"} },
 				func(a *solutionhost.Authority) { a.EdgeDependencies[0].Presence = "optional" },
 			} {
 				changed, err := solutionhost.Parse(payload)
