@@ -61,6 +61,12 @@ func Fixtures() ([]Fixture, error) {
 		outcome                   Outcome
 		sentinel                  error
 	}{
+		{name: "setup-duplicate", file: "setup-duplicate.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be non-empty and unique", rule: ruleSetupUnique},
+		{name: "setup-optional", file: "setup-optional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be required", rule: ruleSetupTarget},
+		{name: "setup-empty-methods", file: "setup-empty-methods.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "requires exact methods", rule: ruleSetupMethods},
+		{name: "setup-wildcard", file: "setup-wildcard.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be exact and unique", rule: ruleSetupMethod},
+		{name: "setup", file: "setup.yaml", outcome: OutcomeAccepted},
+		{name: "setup-unknown-binding", file: "setup-unknown-binding.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not declared", rule: ruleSetupBinding},
 		{name: "installation-none", file: "installation-none.yaml", outcome: OutcomeAccepted},
 		{name: "installation-named", file: "installation-named.yaml", outcome: OutcomeAccepted},
 		{name: "installation-solution-none", file: "installation-solution-none.yaml", outcome: OutcomeAccepted},
@@ -73,6 +79,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "edge-whitespace", file: "edge-whitespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "has surrounding whitespace", rule: ruleEdgeModuleWhitespace},
 		{name: "edge-duplicate", file: "edge-duplicate.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is declared twice", rule: ruleEdgeModuleUnique},
 		{name: "edge-presence-unknown", file: "edge-presence-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be required or optional", rule: ruleEdgePresence},
+		{name: "owner-aware-kinds", file: "owner-aware-kinds.yaml", outcome: OutcomeAccepted},
+		{name: "owner-aware-kinds-unknown", file: "owner-aware-kinds-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must be unique served kinds", rule: ruleOwnerAwareKinds},
 		{name: "owner-aware", file: "owner-aware.yaml", outcome: OutcomeAccepted},
 		{name: "owner-aware-string", file: "owner-aware-string.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "owner_aware must be a boolean", rule: ruleOwnerAwareBoolean},
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},

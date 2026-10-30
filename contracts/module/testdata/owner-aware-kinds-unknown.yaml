@@ -1,0 +1,12 @@
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings: [{resource_kind: example.items, actions: [read]}]
+bindings: []
+destinations: []
+roles:
+  - name: installer
+    scopes: [{resource_kind: example.items, actions: [read]}]
+installation_role: none
+owner_aware_resource_kinds: [unknown.items]

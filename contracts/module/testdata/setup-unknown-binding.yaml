@@ -1,0 +1,10 @@
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings: []
+destinations: []
+bindings: []
+setup:
+  - binding: unknown
+    methods: [/records.v1.RecordsService/DefineRecordType]

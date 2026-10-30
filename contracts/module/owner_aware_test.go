@@ -77,3 +77,22 @@ func TestOwnerAwareDecodingIsStrict(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnerAwareKindsAreExplicitServedKinds(t *testing.T) {
+	c := setupContract(t)
+	c.ScopeCeilings = []ScopeCeiling{{ResourceKind: "example.items", Actions: []string{"read"}}}
+	for _, kinds := range [][]string{{"missing"}, {"example.items", "example.items"}, {"*"}} {
+		c.OwnerAwareResourceKinds = kinds
+		if err := c.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("accepted %v: %v", kinds, err)
+		}
+	}
+	c.OwnerAwareResourceKinds = []string{"example.items"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.OwnerAware = true
+	if err := c.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("both declarations accepted: %v", err)
+	}
+}
