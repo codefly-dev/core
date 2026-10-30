@@ -52,30 +52,37 @@ func (workspace *Workspace) ResolveRunProfile(ctx context.Context, name string, 
 	return inventory.resolve(combined)
 }
 
-func (workspace *Workspace) validateRunProfiles(ctx context.Context) error {
+// validateRunProfiles checks each declared profile's SHAPE at load: a non-empty
+// name, and every exclusion a non-empty, well-formed reference. It deliberately
+// does not check that the references exist. That needs the service inventory,
+// and a composition of pinned modules has none until the CLI has materialized
+// them — which happens after this load, so an inventory check here refused every
+// such workspace at load, `doctor` included. ResolveRunProfile checks the
+// references at run time, once the composition is loadable, and is where an
+// unknown service or workspace configuration is reported.
+func (workspace *Workspace) validateRunProfiles(_ context.Context) error {
 	names := make([]string, 0, len(workspace.RunProfiles))
-	needsInventory := false
-	for name, profile := range workspace.RunProfiles {
+	for name := range workspace.RunProfiles {
 		if strings.TrimSpace(name) == "" {
 			return fmt.Errorf("run profile name cannot be empty")
 		}
 		names = append(names, name)
-		needsInventory = needsInventory ||
-			len(profile.ExcludeDependencies) > 0 ||
-			len(profile.ExcludeWorkspaceConfigurations) > 0
 	}
-	if !needsInventory {
-		return nil
-	}
-
 	slices.Sort(names)
-	inventory, err := workspace.loadRunProfileInventory(ctx)
-	if err != nil {
-		return err
-	}
 	for _, name := range names {
-		if _, err := inventory.resolve(workspace.RunProfiles[name]); err != nil {
-			return fmt.Errorf("run profile %q: %w", name, err)
+		profile := workspace.RunProfiles[name]
+		for _, dependency := range profile.ExcludeDependencies {
+			if strings.TrimSpace(dependency) == "" {
+				return fmt.Errorf("run profile %q: an excluded dependency cannot be empty", name)
+			}
+			if _, err := ParseServiceWithOptionalModule(strings.TrimSpace(dependency)); err != nil {
+				return fmt.Errorf("run profile %q: excluded dependency %q: %w", name, dependency, err)
+			}
+		}
+		for _, configuration := range profile.ExcludeWorkspaceConfigurations {
+			if strings.TrimSpace(configuration) == "" {
+				return fmt.Errorf("run profile %q: an excluded workspace configuration cannot be empty", name)
+			}
 		}
 	}
 	return nil
