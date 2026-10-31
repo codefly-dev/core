@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -17,7 +18,7 @@ type goModule struct {
 	Path    string    `json:"Path"`
 	Version string    `json:"Version"`
 	Main    bool      `json:"Main"`
-	GoMod   string    `json:"GoMod"`
+	Dir     string    `json:"Dir"`
 	Replace *goModule `json:"Replace,omitempty"`
 }
 
@@ -49,7 +50,9 @@ func GolangWithOptions(ctx context.Context, dir string, options GolangOptions) (
 	if err != nil {
 		return nil, fmt.Errorf("go module inventory: %w", err)
 	}
-	modules, root, byToken, err := parseGoModules(modulesOut, sourceGoMod)
+	// GOMOD locates the module root even when -modfile selects a different
+	// manifest. Compare directories, not the selected manifest filenames.
+	modules, root, byToken, err := parseGoModules(modulesOut, filepath.Dir(sourceGoMod))
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +80,8 @@ func runGo(ctx context.Context, dir string, options GolangOptions, args ...strin
 	return stdout.Bytes(), nil
 }
 
-func parseGoModules(data []byte, sourceGoMod string) ([]*agentv0.Component, *agentv0.Component, map[string]string, error) {
-	source, err := os.Stat(sourceGoMod)
+func parseGoModules(data []byte, sourceDir string) ([]*agentv0.Component, *agentv0.Component, map[string]string, error) {
+	source, err := os.Stat(sourceDir)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("stat Go source module: %w", err)
 	}
@@ -119,7 +122,7 @@ func parseGoModules(data []byte, sourceGoMod string) ([]*agentv0.Component, *age
 		byToken[token] = component.BomRef
 		isRoot := false
 		if module.Main {
-			info, err := os.Stat(module.GoMod)
+			info, err := os.Stat(module.Dir)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("stat main module %q: %w", module.Path, err)
 			}
@@ -127,7 +130,7 @@ func parseGoModules(data []byte, sourceGoMod string) ([]*agentv0.Component, *age
 		}
 		if isRoot {
 			if root != nil {
-				return nil, nil, nil, fmt.Errorf("multiple main modules match source go.mod %q", sourceGoMod)
+				return nil, nil, nil, fmt.Errorf("multiple main modules match source directory %q", sourceDir)
 			}
 			root = component
 		} else {
@@ -135,7 +138,7 @@ func parseGoModules(data []byte, sourceGoMod string) ([]*agentv0.Component, *age
 		}
 	}
 	if root == nil {
-		return nil, nil, nil, fmt.Errorf("no main module matches source go.mod %q", sourceGoMod)
+		return nil, nil, nil, fmt.Errorf("no main module matches source directory %q", sourceDir)
 	}
 	return components, root, byToken, nil
 }

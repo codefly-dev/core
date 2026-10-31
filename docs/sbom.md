@@ -15,8 +15,9 @@ written before image scope existed keep working unchanged.
 `sbom.Golang` disables ambient workspaces. `GolangWithOptions` can preserve the
 workspace selected by the caller's build; source discovery, module listing and
 the requirement graph all use that same mode. The source subject is the main
-module whose `go.mod` Go selects for the requested directory, including nested
-directories and filesystem aliases. Missing or ambiguous subjects are errors.
+module whose directory Go selects for the requested source, including nested
+directories and filesystem aliases. Alternate manifests selected by `-modfile`
+retain that root and supply their own graph. Missing or ambiguous subjects are errors.
 Other workspace main modules remain components. Versioned requirements on them
 resolve to their selected workspace identities, without attributing outgoing
 edges from an unselected released version to the local module. `AttachArtifact`

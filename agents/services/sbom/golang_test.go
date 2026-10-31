@@ -111,15 +111,44 @@ func goBOMGraph(t *testing.T, bom *agentv0.Bom) (map[string]bool, map[string][]s
 func TestParseGoModulesRequiresUniqueSource(t *testing.T) {
 	goMod := filepath.Join(t.TempDir(), "go.mod")
 	require.NoError(t, os.WriteFile(goMod, []byte("module example.test/app\n"), 0600))
-	main := fmt.Sprintf(`{"Path":"example.test/app","Main":true,"GoMod":%q}`, goMod)
+	main := fmt.Sprintf(`{"Path":"example.test/app","Main":true,"Dir":%q}`, filepath.Dir(goMod))
 	for _, test := range []struct{ name, modules, want string }{
 		{"missing", `{ "Path":"example.test/lib", "Version":"v1.0.0" }`, "no main module matches"},
 		{"duplicate", main + "\n" + main, "multiple main modules match"},
 		{"unreadable", `{"Path":"example.test/app","Main":true}`, "stat main module"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, _, _, err := parseGoModules([]byte(test.modules), goMod)
+			_, _, _, err := parseGoModules([]byte(test.modules), filepath.Dir(goMod))
 			require.ErrorContains(t, err, test.want)
+		})
+	}
+}
+
+func TestGolangHonorsAlternateModuleFile(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	dependency := filepath.Join(root, "dependency")
+	require.NoError(t, os.Mkdir(source, 0700))
+	require.NoError(t, os.Mkdir(dependency, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "go.mod"), []byte("module example.test/app\n\ngo 1.27.0\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dependency, "go.mod"), []byte("module example.test/alternate-dependency\n\ngo 1.27.0\n"), 0600))
+	alternate := filepath.Join(source, "alternate.mod")
+	require.NoError(t, os.WriteFile(alternate, []byte("module example.test/app\n\ngo 1.27.0\nrequire example.test/alternate-dependency v1.0.0\nreplace example.test/alternate-dependency => ../dependency\n"), 0600))
+	t.Setenv("GOFLAGS", "")
+	ordinary, err := Golang(t.Context(), source)
+	require.NoError(t, err)
+	require.Empty(t, ordinary.Bom.GetComponents())
+	for _, modfile := range []string{"alternate.mod", alternate} {
+		t.Run(modfile, func(t *testing.T) {
+			t.Setenv("GOFLAGS", "-modfile="+modfile)
+			result, err := Golang(t.Context(), source)
+			require.NoError(t, err)
+			const appRef = "pkg:golang/example.test/app"
+			const depRef = "pkg:golang/example.test/alternate-dependency@v1.0.0"
+			require.Equal(t, appRef, result.Bom.GetMetadata().GetComponent().GetBomRef())
+			refs, edges := goBOMGraph(t, result.Bom)
+			require.Contains(t, refs, depRef)
+			require.Equal(t, []string{depRef}, edges[appRef])
 		})
 	}
 }
