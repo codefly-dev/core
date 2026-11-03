@@ -87,6 +87,63 @@ child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
 
+### Every instant the capability claims is checked, `iat` included
+
+A capability states three instants, and all three are now read:
+
+| claim | rule | refusal |
+| --- | --- | --- |
+| `not_before_unix` | `now + Skew` is not before it | `not valid before <t>` |
+| `expires_at_unix` | `now - Skew` is before it | `expired at <t>` |
+| `issued_at_unix` | present; not before `not_before_unix`; before `expires_at_unix`; not after `now + Skew` | `no issued-at`, `issued at <t>, before its window opens at <t>`, `issued at <t>, after it expires at <t>`, `issued at <t>, which is in the future` |
+
+Every one is `ErrInvalid`, and every one is decided in `checkWindow` — the one
+body a callee's `Verify`, a verify-only `Authenticate`, a forwarding hop's
+`Inspect`, the issuer's `ReadBack` and `Recheck` all reach. `Decode` does not,
+deliberately: a structural read of one's own credential checks no window, and
+refusing there would be claiming to have verified something.
+
+**`issued_at_unix` was not read at all.** The verifier checked the signature,
+the issuer, the audience, both ends of the window, the structure, the
+authorization revision, the seal, the grant hop and the nonce — and the third
+instant was the one claim on the wire that no rule touched, so a token could
+carry any value in it, or none, and verify. The whole conformance kit passed
+such a token, because the kit mints its fixtures and the minter always filled
+the field. That is the recurring shape here, one step further along than an
+unchecked path: a field in the schema, filled by the issuer, named in the docs,
+and load-bearing nowhere. An unread claim is not a weaker check than a wrong
+one; it is the absence of a check.
+
+Four rules rather than one, because they fail independently and an operator
+needs to know which:
+
+- **Present.** Zero is *absent*, not 1970 — proto3 has no third reading for a
+  scalar. Treating it as a timestamp instead would have made the second rule
+  catch most absences by accident, and report "before its window opens" about a
+  field nobody filled.
+- **Not before `not_before_unix`.** A window that opens after the capability
+  was minted is post-dated: the issuer's state at mint time no longer stands
+  behind a credential held across that boundary. **Equality is the normal
+  case** and is accepted — `Authority.Start` and the derivation behind
+  `Authority.Child` and `Authority.Grant` set the two to the same instant.
+- **Before `expires_at_unix`.** Minted at or after it expired is incoherent on
+  its face, and is *not* implied by the rule below: `Skew` is wider than a
+  short window, so an issued-at inside `now + Skew` can still sit past an
+  expiry a few seconds out.
+- **Not after `now + Skew`.** The clock rule, checked last — the two above hold
+  whenever they are read, by any verifier, while this one depends on this
+  verifier's clock. An operator told "issued in the future" about a token that
+  says it was minted after it expired goes hunting NTP.
+
+The issued-at is checked *after* both ends of the window for the same reason:
+a hand-forged not-yet-valid token necessarily violates one of these rules too,
+and "not valid before" is the more specific diagnosis of what is wrong with it.
+
+The kit carries a fixture per rule — `no-issued-at`,
+`issued-before-its-window`, `issued-after-its-expiry`, `issued-in-the-future` —
+so a verifier that reads the claim and tests only one of the four fails on the
+other three.
+
 ### Scopes and the resource owner
 
 `WorkScopeV1` is `(resource_kind, actions, resource_ids, resource_owner_id)`.
