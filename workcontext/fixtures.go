@@ -946,6 +946,54 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "a capability whose window has not opened; not_before is a bound, not decoration",
 	})
 
+	// The ISSUED-AT, which nothing read at all until it was required: a
+	// capability could carry any value in that field, or none, and verify. The
+	// four cases are separate fixtures because they are four rules, and a
+	// verifier that reads the field but only tests one of them must fail the
+	// kit on the other three.
+	//
+	// Each rewrites ONLY issued_at_unix, leaving the sound session's window
+	// alone, so the window checks pass and the refusal below is the issued-at.
+	// The sound session carries not_before == issued_at == now and expires in
+	// an hour, which is what makes each of these one variable.
+	for _, claim := range []struct {
+		name    string
+		issued  time.Time
+		message string
+		rule    string
+	}{
+		{
+			name: "no-issued-at", issued: time.Unix(0, 0), message: "no issued-at",
+			rule: "a capability stating no instant it was minted at; zero is absent, and a verifier that never reads the field accepts it",
+		},
+		{
+			name: "issued-before-its-window", issued: now.Add(-time.Hour), message: "before its window opens",
+			rule: "post-dated: minted an hour before the window it opens, so the issuer's state at mint time no longer stands behind it",
+		},
+		{
+			name: "issued-after-its-expiry", issued: now.Add(time.Hour + time.Minute), message: "after it expires",
+			rule: "minted after it expired, which is incoherent on its face. This token is past the skew tolerance too and the " +
+				"expiry rule reports it because it is checked first; the case only that rule can refuse is a window SHORTER " +
+				"than the skew band, which needs a mint of its own and has a test rather than a fixture",
+		},
+		{
+			name: "issued-in-the-future", issued: now.Add(time.Minute), message: "in the future",
+			rule: "minted beyond the verifier's skew tolerance; the clock rule, checked after the two that hold whenever they are read",
+		},
+	} {
+		altered := cloneClaims(session.Context())
+		altered.IssuedAtUnix = claim.issued.Unix()
+		token, err := resign(altered)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: claim.name, Form: FormSession, Token: token,
+			Outcome: OutcomeRejected, Err: ErrInvalid, Message: claim.message,
+			Reason: claim.rule,
+		})
+	}
+
 	otherIssuer := cloneClaims(session.Context())
 	otherIssuer.Issuer = "https://authority.elsewhere.test"
 	otherIssuerToken, err := resign(otherIssuer)

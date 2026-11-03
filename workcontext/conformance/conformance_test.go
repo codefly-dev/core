@@ -373,12 +373,24 @@ func TestPublicKeysCarriesTheSameMaterialAsKeys(t *testing.T) {
 // prevent, so each omission is asserted to be caught.
 func TestTheKitFailsAVerifierThatSkipsACheck(t *testing.T) {
 	for name, skip := range map[string]func(error) error{
-		"expiry":                func(err error) error { return nilIfContains(err, "expired at") },
-		"not-before":            func(err error) error { return nilIfContains(err, "not valid before") },
-		"the issuer":            func(err error) error { return nilIfContains(err, "issued by") },
-		"the revision":          func(err error) error { return nilIfContains(err, "issuer is at") },
-		"a revoked binding":     func(err error) error { return nilIfContains(err, "is revoked") },
-		"a binding incarnation": func(err error) error { return nilIfContains(err, "incarnation") },
+		"expiry":     func(err error) error { return nilIfContains(err, "expired at") },
+		"not-before": func(err error) error { return nilIfContains(err, "not valid before") },
+		// The issued-at, one entry per rule. A verifier that reads the claim
+		// and tests only one of the four passes the other three's fixtures,
+		// which is exactly what this sweep is for: the field was on the wire,
+		// filled by the minter and documented, and no rule read it.
+		"a missing issued-at": func(err error) error { return nilIfContains(err, "no issued-at") },
+		"a post-dated issued-at": func(err error) error {
+			return nilIfContains(err, "before its window opens")
+		},
+		"an issued-at past the expiry": func(err error) error {
+			return nilIfContains(err, "after it expires")
+		},
+		"an issued-at in the future": func(err error) error { return nilIfContains(err, "in the future") },
+		"the issuer":                 func(err error) error { return nilIfContains(err, "issued by") },
+		"the revision":               func(err error) error { return nilIfContains(err, "issuer is at") },
+		"a revoked binding":          func(err error) error { return nilIfContains(err, "is revoked") },
+		"a binding incarnation":      func(err error) error { return nilIfContains(err, "incarnation") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			settings := conformance.New(time.Now())
