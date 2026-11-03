@@ -48,6 +48,10 @@ const (
 	ruleEdgeModuleWhitespace       = "edge-module-whitespace"
 	ruleEdgeModuleUnique           = "edge-module-unique"
 	ruleEdgePresence               = "edge-presence"
+	ruleEdgePresenceOneSpelling    = "edge-presence-one-spelling"
+	ruleEdgePresenceDeclared       = "edge-presence-declared"
+	ruleEdgePresenceClass          = "edge-presence-class"
+	ruleEdgePresenceClassValue     = "edge-presence-class-value"
 
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
@@ -145,7 +149,11 @@ func rules() []rule {
 		{name: ruleEdgeModuleName, check: checkEdgeModuleNames},
 		{name: ruleEdgeModuleWhitespace, check: checkEdgeModuleWhitespace},
 		{name: ruleEdgeModuleUnique, check: checkEdgeModulesUnique},
+		{name: ruleEdgePresenceOneSpelling, check: checkEdgePresenceOneSpelling},
+		{name: ruleEdgePresenceDeclared, check: checkEdgePresenceDeclared},
 		{name: ruleEdgePresence, check: checkEdgePresence},
+		{name: ruleEdgePresenceClass, check: checkEdgePresenceClasses},
+		{name: ruleEdgePresenceClassValue, check: checkEdgePresenceClassValues},
 		{name: rulePrincipal, check: checkPrincipal},
 		{name: ruleListsDeclared, check: checkListsDeclared},
 		{name: ruleListEntryName, check: checkListEntryNames},
@@ -1278,10 +1286,67 @@ func checkEdgeModulesUnique(contract *Contract) error {
 	return nil
 }
 
+// checkEdgePresenceOneSpelling holds an edge to ONE of the two spellings of
+// its presence. Two answers to one question let whichever spelling a reader
+// happened to prefer be the answer — which is how an edge ends up optional in
+// production, because someone added the per-class form and left the old line
+// above it.
+func checkEdgePresenceOneSpelling(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		if edge.Presence != "" && edge.perClass() {
+			return fmt.Errorf("%w: edge_dependencies module %q declares both presence and presence_by_class; a presence is declared in one spelling — presence for the same presence everywhere, presence_by_class for a presence that differs along the promotion path", ErrInvalid, edge.Module)
+		}
+	}
+	return nil
+}
+
+// checkEdgePresenceDeclared refuses an edge that declares neither spelling. An
+// edge dependency's presence has no default, in either spelling: a module
+// either must resolve or need not, and silence is not the second one.
+func checkEdgePresenceDeclared(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		if edge.Presence == "" && !edge.perClass() {
+			return fmt.Errorf("%w: edge_dependencies module %q declares no presence; declare presence: %s or %s, or presence_by_class naming the classes its presence differs by", ErrInvalid, edge.Module, PresenceRequired, PresenceOptional)
+		}
+	}
+	return nil
+}
+
 func checkEdgePresence(contract *Contract) error {
 	for _, edge := range contract.EdgeDependencies {
-		if edge.Presence != "required" && edge.Presence != "optional" {
+		if edge.perClass() {
+			// The per-class spelling's values are their own rule.
+			continue
+		}
+		if edge.Presence != PresenceRequired && edge.Presence != PresenceOptional {
 			return fmt.Errorf("%w: edge_dependencies module %q presence %q must be required or optional", ErrInvalid, edge.Module, edge.Presence)
+		}
+	}
+	return nil
+}
+
+// checkEdgePresenceClasses holds every key of a per-class presence to the
+// environment-class vocabulary, so a contract cannot declare a presence for
+// "prod" or "dev" and have it answer for nothing: the class it names is never
+// the class a deliverer resolves, and the refusal would come at delivery
+// against a misspelling the contract could have refused.
+func checkEdgePresenceClasses(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		for _, class := range slices.Sorted(maps.Keys(edge.PresenceByClass)) {
+			if !KnownEnvironmentClass(class) {
+				return fmt.Errorf("%w: edge_dependencies module %q declares a presence for %q, which is not an environment class (%s)", ErrInvalid, edge.Module, class, strings.Join(EnvironmentClasses(), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func checkEdgePresenceClassValues(contract *Contract) error {
+	for _, edge := range contract.EdgeDependencies {
+		for _, class := range slices.Sorted(maps.Keys(edge.PresenceByClass)) {
+			if presence := edge.PresenceByClass[class]; presence != PresenceRequired && presence != PresenceOptional {
+				return fmt.Errorf("%w: edge_dependencies module %q presence %q in class %s must be required or optional", ErrInvalid, edge.Module, presence, class)
+			}
 		}
 	}
 	return nil

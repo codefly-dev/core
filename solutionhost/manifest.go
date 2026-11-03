@@ -567,6 +567,20 @@ func (authority *Authority) validate() error {
 			}
 		}
 	}
+	// A DELIVERED edge dependency carries the one presence the environment's
+	// class resolved (modulecontract.ResolveEdgeDependencies), never the
+	// per-class declaration it was resolved from. A manifest carrying both
+	// would say two things about one edge and let a host pick, which is the
+	// whole point of resolving at delivery; a host never learns what an
+	// environment class is.
+	for _, edge := range authority.EdgeDependencies {
+		switch {
+		case len(edge.PresenceByClass) > 0:
+			return fmt.Errorf("%w: authority edge dependency %q carries a per-environment-class presence; a delivered manifest carries the presence the environment's class resolved to, and the deliverer resolves it", ErrInvalid, edge.Module)
+		case edge.Presence != modulecontract.PresenceRequired && edge.Presence != modulecontract.PresenceOptional:
+			return fmt.Errorf("%w: authority edge dependency %q presence %q must be %s or %s", ErrInvalid, edge.Module, edge.Presence, modulecontract.PresenceRequired, modulecontract.PresenceOptional)
+		}
+	}
 	for _, list := range []struct {
 		label  string
 		values []string
