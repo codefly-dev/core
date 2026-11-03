@@ -48,19 +48,6 @@ func awaitWatch(t *testing.T, events <-chan Change, predicate func(Change) bool)
 		}
 	}
 }
-func drainWatch(events <-chan Change) {
-	for {
-		select {
-		case _, ok := <-events:
-			if !ok {
-				return
-			}
-		default:
-			return
-		}
-	}
-}
-
 func TestWatcherExplicitTreeRecoversMissingAndRecreatedRoot(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "missing", "source")
@@ -103,24 +90,34 @@ func TestWatcherRegistersPopulatedIncomingTreeAndDeletion(t *testing.T) {
 }
 
 func TestWatcherExplicitExclusionsDoNotHideIgnoredInputs(t *testing.T) {
-	base := t.TempDir()
-	root := filepath.Join(base, "source")
-	for _, dir := range []string{"node_modules", "ignored", "dist"} {
-		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0755))
-	}
-	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0644))
-	_, events := recoveryWatcher(t, base, WatchTree{Root: root, Exclude: func(p string) bool { return filepath.Base(p) == "dist" }})
-	for _, name := range []string{"node_modules/embedded.json", "ignored/named.tgz"} {
-		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("input"), 0644))
-		awaitWatch(t, events, func(c Change) bool { return c.Path == filepath.Join("source", name) })
-	}
-	drainWatch(events)
-	require.NoError(t, os.WriteFile(filepath.Join(root, "dist", "output.js"), []byte("output"), 0644))
-	select {
-	case c := <-events:
-		t.Fatalf("excluded output produced %#v", c)
-	case <-time.After(150 * time.Millisecond):
-	}
+	t.Run("ignored inputs are observed", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "source")
+		for _, dir := range []string{"node_modules", "ignored", "dist"} {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0755))
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0644))
+		_, events := recoveryWatcher(t, base, WatchTree{Root: root, Exclude: func(p string) bool { return filepath.Base(p) == "dist" }})
+		for _, name := range []string{"node_modules/embedded.json", "ignored/named.tgz"} {
+			require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("input"), 0644))
+			awaitWatch(t, events, func(c Change) bool { return c.Path == filepath.Join("source", name) })
+		}
+	})
+
+	t.Run("excluded output is not observed", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "source")
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "dist"), 0755))
+		_, events := recoveryWatcher(t, base, WatchTree{Root: root, Exclude: func(p string) bool { return filepath.Base(p) == "dist" }})
+		require.NoError(t, os.WriteFile(filepath.Join(root, "dist", "output.js"), []byte("output"), 0644))
+		select {
+		case c := <-events:
+			t.Fatalf("excluded output produced %#v", c)
+		case <-time.After(150 * time.Millisecond):
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(root, "input.json"), []byte("input"), 0644))
+		awaitWatch(t, events, func(c Change) bool { return c.Path == filepath.Join("source", "input.json") })
+	})
 }
 
 func TestWatcherLegacyTreeKeepsScopeAfterRemoval(t *testing.T) {
