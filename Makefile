@@ -89,3 +89,16 @@ buf-breaking:
 
 # Companions: build images with scripts (run from core/)
 #   ./companions/scripts/build_companions.sh
+
+# Core-pin drift: how far behind core a CONSUMER's go.mod files are pinned.
+# Core does not pin core, so this takes the consumer as an argument; in CI it
+# runs in each consumer through .github/workflows/core-pin-drift.yml. See
+# docs/core-pin-drift.md for the thresholds and the required context name.
+#
+#   make check-core-pin REPO=../cli
+.PHONY: check-core-pin
+check-core-pin:
+	@test -n "$(REPO)" || { \
+		echo "usage: make check-core-pin REPO=<path to a repository that pins core>" >&2; \
+		echo "core does not pin core, so there is no default." >&2; exit 2; }
+	go run ./internal/corepindrift "$(REPO)"
