@@ -1,0 +1,104 @@
+name: core-pin-drift
+
+# Reports how far behind core a consumer's pins are, and fails when one has
+# been behind for too long. Called by every repository that pins core; see
+# docs/core-pin-drift.md for the snippet, the thresholds and the required
+# context name.
+#
+# Core owns the Work Context, the signed capability every v2 service verifies
+# on every call. A verification rule tightened here is true in a consumer only
+# once that consumer bumps, and nothing reported which consumers those were
+# (codefly-dev/core#891). This is the thing that reports it.
+#
+# THE CONTEXT NAME IS PART OF THE CONTRACT. GitHub names a reusable workflow's
+# check `<caller job id> / <this job id>`, so the context an administrator
+# requires depends on the id the CALLER gives its job, which is not a value
+# this file can set. docs/core-pin-drift.md therefore ships the snippet
+# verbatim and names the resulting context, and
+# internal/ciguard/core_pin_drift_test.go fails when the two stop agreeing.
+# Pasting the snippet with a different job id produces a different context,
+# which is the mistake that leaves protection requiring a name nothing
+# reports.
+#
+# ZERO INPUTS, deliberately. The thresholds are core's numbers, written down
+# once (codefly-dev/core#891 asks for exactly that), so there is nothing here
+# for a caller to loosen. A repository that needs different numbers is having a
+# conversation, not editing a YAML value. It also means no `run:` in this file
+# interpolates anything a caller chose — see
+# internal/ciguard/run_interpolation_test.go.
+
+on:
+  workflow_call: {}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      # Reusable: this job reads the CALLING repository's tree, at a ref that
+      # repository chooses, which may be a pull request's head. Declared here
+      # rather than inherited, because an inherited grant is one neither side
+      # can read. See internal/ciguard/untrusted_code_test.go.
+      #
+      # Read is all it needs: the gate reports, it does not bump. Closing the
+      # gap is `codefly agent deps --pin`, run by a person in the consumer
+      # repository — the CLI owns the fleet verbs, and `agent release --pin`
+      # runs the consumer's CI before it tags anything. A gate that opened its
+      # own bump pull requests would be core reaching into nine repositories
+      # with a write token, which is a different and much larger thing than
+      # the one codefly-dev/core#891 asks for.
+      contents: read
+    steps:
+      - name: check out the calling repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: consumer
+          # Nothing here pushes, and the caller's tree is unreviewed code: a
+          # credential left in .git/config is one a later step could read.
+          persist-credentials: false
+
+      - name: check out the core that ships this gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: codefly-dev/core
+          # The commit this workflow file itself came from, so the checker that
+          # runs is the one that shipped alongside these instructions. Not
+          # `main` — a consumer referencing an older ref would otherwise get a
+          # checker it never saw — and not a release tag, which would make
+          # every change here wait for core's next release to take effect.
+          ref: ${{ github.job_workflow_sha }}
+          path: core
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # core's go.mod, not the consumer's: the program being built is
+          # core's. A consumer on an older Go line still gets a checker that
+          # compiles.
+          go-version-file: core/go.mod
+          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
+          # downloads the toolchain module into the cache; setup-go's cache tar
+          # then corrupts it on restore (tar: .../toolchain@.../*: File
+          # exists). Skip the cache so every run uses an intact toolchain.
+          cache: false
+
+      - name: report how far behind core this repository is pinned
+        # From core's tree, over the consumer's. Deliberately not the other way
+        # round: `go run` inside the consumer's checkout would build and
+        # execute code from a tree this job has not reviewed, and the consumer
+        # is DATA to this gate, never a program it runs.
+        working-directory: core
+        env:
+          # For the AUTHENTICATED rate limit on the one API call that asks
+          # whether a pinned core commit is still on core's main. The API
+          # answers for a public repository without a token, but GitHub's
+          # hosted runners share IPs and the anonymous limit is per IP, so an
+          # unauthenticated run would be rate limited into reporting
+          # "reachability not verified" on every pin.
+          #
+          # This is GITHUB_TOKEN, scoped by the `contents: read` above, on a
+          # public repository: the weakest credential available, and the one
+          # ciguard's secret rules exempt because it is injected into every job
+          # regardless. It cannot write, so this job is not a credential job in
+          # the sense docs/ci-credentials.md governs.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./internal/corepindrift ../consumer

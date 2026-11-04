@@ -40,6 +40,49 @@ go get github.com/codefly-dev/core
 `core` is self-contained — no `replace` directives, no internal codefly
 imports beyond its own module.
 
+### Keep the pin current, and prove it
+
+`core` owns the Work Context, the signed capability every v2 service verifies
+on every call. A verification rule tightened here is in force in your
+repository only once your pin moves — so a stale pin is a security posture, not
+untidiness.
+
+Move a pin with the CLI, never by hand: `codefly agent deps --pin v<version>`
+updates every lock a module owns (`go.mod`, nested base fixtures, and their
+factory templates) and verifies the build. A `go.mod` edit reaches the first of
+those and silently leaves the rest behind.
+
+To have CI say how far behind you are, add one line — a job calling the gate
+`core` ships:
+
+```yaml
+# .github/workflows/core-pin-drift.yml
+name: core-pin-drift
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  core-pin-drift:
+    uses: codefly-dev/core/.github/workflows/core-pin-drift.yml@main
+```
+
+It checks **every** `go.mod` in the repository against core's newest **tag**
+(never core's `main` — merging into core is not shipping), warns when an update
+has been available for 3 days and fails at 10, and names the version, the gap
+and the command to close it. It also refuses a pin to a core commit that is not
+on core's `main`: such a commit resolves today and stops existing the moment its
+branch is squash-merged, which is how a repository's `main` goes red for every
+Go job at once.
+
+Then require the context `core-pin-drift / drift` on your default branch —
+until an administrator does, it reports without blocking anything.
+
+Full behaviour, the argument for those numbers, and how to exempt a module
+that is pinned elsewhere on purpose: [docs/core-pin-drift.md](docs/core-pin-drift.md).
+
 ## Quick example
 
 ```go

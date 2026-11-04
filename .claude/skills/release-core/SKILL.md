@@ -117,6 +117,21 @@ minor versions behind, so "bump core" is rarely one edit per repo. `codefly agen
 list` shows every agent pinned in the workspace and whether it resolves, and
 `codefly agent versions` shows an agent's versions and their resolvability.
 
+**The drift is reported, not remembered.** Each consumer runs core's
+`core-pin-drift` gate, which reads every `go.mod` in that repository and fails
+once an update has been available for 10 days. Run it against any checkout
+without waiting for CI:
+
+```bash
+make check-core-pin REPO=../cli
+```
+
+Read it for what a release leaves behind, with the thresholds and the per-pin
+verdicts in [core-pin drift](../../../docs/core-pin-drift.md). Trust what it
+reports over what the pin looks like: 23 of the fleet's 40 pins are
+pseudo-versions, so "the version in `go.mod`" is usually an untagged commit and
+not a release at all.
+
 ## Companions are a separate contract
 
 Companion images are not released by this flow. They are built from their own
