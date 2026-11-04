@@ -51,7 +51,7 @@ RUN cd /src/facade-go && \
 # gencode contract. Alpine's python3 moves independently; grpcio-tools 1.71
 # has Python 3.13 wheels, not 3.14 wheels. As in the Python companion, copy
 # the freshly built CLI into a language-specific runtime base.
-FROM python:3.13.18-alpine3.24@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+FROM python:3.15.0-alpine3.24@sha256:2699b90f4d562a22e2dd076c82f964032f64814204bff36d271a54ba4cc2c7e2
 COPY --from=codeflybase /bin/codefly /bin/codefly
 
 # Runtime dependencies:
