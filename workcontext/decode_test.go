@@ -62,6 +62,15 @@ func TestDecodeAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		// chain, and attenuation is structure: Decode runs checkStructure.
 		"owner-dropped-by-hop": workcontext.ErrInvalid,
 		"owner-changed-by-hop": workcontext.ErrInvalid,
+		// A window END NOT STATED, which is structural and so sits here while
+		// `expired` and `not-yet-valid` do not: whether a claim was made is a
+		// property of the bytes, answerable with no clock and no issuer state,
+		// and Decode already subtracts these two instants for the lifetime
+		// bound. The line this draws is the one the kit draws everywhere: what
+		// the capability SAYS is structure; what it says MEASURED AGAINST NOW
+		// is a verifier's question.
+		"no-not-before": workcontext.ErrInvalid,
+		"no-expiry":     workcontext.ErrInvalid,
 	}
 	seen := map[string]bool{}
 	for _, fixture := range fixtures {

@@ -129,21 +129,97 @@ func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []by
 	return nil
 }
 
-// checkWindow is THE window check, both ends, called by Verify and by
+// checkWindow is THE check of every instant a capability claims — both ends
+// of the window AND the issued-at — called by Verify, through inspect, and by
 // Recheck. Recheck had its own and it omitted not-before.
 // It RETURNS the clock it used, so a caller that needs the same instant for a
 // later check shares this sample instead of taking its own. Two samples are two
 // clocks: a grant window compared against a different `now` than the
 // capability's window is a second reading of the same question.
+//
+// It does not ask whether the two window ends are STATED, because by the time
+// it runs they are: checkWindowStated decides that in the one decode path,
+// where the lifetime bound it is a precondition of lives. See it for why that
+// presence rule splits from here while the issued-at's does not.
+//
+// The issued-at comes LAST, and that ordering is load-bearing: a capability
+// whose window has closed or has not opened is reported as such, which is the
+// more specific diagnosis, and the fixtures that exist for those two ends keep
+// their own messages. A hand-forged not-yet-valid token necessarily carries an
+// issued-at that one of the rules below also refuses — core's minter sets
+// not_before and issued_at to the same instant — so whichever check runs first
+// is the one an operator reads.
 func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) (time.Time, error) {
 	now, skew := v.now(), v.skew()
-	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
+	notBefore, expires := time.Unix(wc.GetNotBeforeUnix(), 0), time.Unix(wc.GetExpiresAtUnix(), 0)
+	if now.Add(skew).Before(notBefore) {
 		return now, fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
 	}
-	if expires := time.Unix(wc.GetExpiresAtUnix(), 0); !now.Add(-skew).Before(expires) {
+	if !now.Add(-skew).Before(expires) {
 		return now, fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
 	}
+	if err := checkIssuedAt(wc, notBefore, expires, now, skew); err != nil {
+		return now, err
+	}
 	return now, nil
+}
+
+// checkIssuedAt is the issued-at half of the window check: the claim that says
+// WHEN the issuer minted this capability.
+//
+// Nothing read it. The verifier checked the signature, the issuer, the
+// audience, not-before, expiry, the structure, the revision, the seal, the
+// grant and the nonce, and `issued_at_unix` was the one claim on the wire that
+// no rule touched — so a token could carry any value in it, or none, and
+// verify. That is the shape this package keeps finding: a field present in the
+// schema, filled by the minter, described in the docs, and load-bearing
+// nowhere. An unread claim is not a weaker check than a wrong one; it is the
+// absence of a check, which is why it survived every fixture in the kit.
+//
+// Four rules, in this order, each its own named refusal:
+//
+//   - PRESENT. Zero is absent, not 1970: proto3 cannot tell the two apart for
+//     a scalar, so the only readings available are "the issuer stated nothing"
+//     and "the issuer stated the epoch", and neither is a capability. Reading
+//     it as a timestamp instead would mean the not-before rule below happened
+//     to catch most absences — every capability whose window opens after 1970
+//     — and said "before its window opens" about a field that was never
+//     filled. A rule that is right by accident is the one that gets deleted by
+//     someone who tests it. checkWindowStated above says why the same rule
+//     belongs to the other two instants, and what it cost to leave it here.
+//   - NOT BEFORE not_before. A capability whose window opens AFTER it was
+//     minted is post-dated: the issuer is asserting, now, authority that
+//     begins later, and a credential held across that boundary is one the
+//     issuer's state at mint time no longer stands behind. Equality is the
+//     normal case and is accepted — Start and derive both set the two to the
+//     same instant.
+//   - BEFORE expires_at. Minted at or after it expired is incoherent on its
+//     face. It is NOT implied by the rule below: the skew band is wider than a
+//     short window, so an issued-at inside `now + skew` can still sit past an
+//     expiry a few seconds out.
+//   - NOT AFTER now + skew. The clock rule, and the last one, because the two
+//     above are properties of the claims themselves — incoherent whenever they
+//     are read, by any verifier — while this one depends on this verifier's
+//     clock. An operator told "issued in the future" about a token that says
+//     it was minted after it expired goes hunting NTP.
+func checkIssuedAt(wc *basev0.WorkContextV1, notBefore, expires, now time.Time, skew time.Duration) error {
+	if wc.GetIssuedAtUnix() == 0 {
+		return fmt.Errorf("%w: no issued-at; a capability states the instant its issuer minted it", ErrInvalid)
+	}
+	issuedAt := time.Unix(wc.GetIssuedAtUnix(), 0)
+	if issuedAt.Before(notBefore) {
+		return fmt.Errorf("%w: issued at %s, before its window opens at %s",
+			ErrInvalid, issuedAt.UTC().Format(time.RFC3339), notBefore.UTC().Format(time.RFC3339))
+	}
+	if !issuedAt.Before(expires) {
+		return fmt.Errorf("%w: issued at %s, after it expires at %s",
+			ErrInvalid, issuedAt.UTC().Format(time.RFC3339), expires.UTC().Format(time.RFC3339))
+	}
+	if issuedAt.After(now.Add(skew)) {
+		return fmt.Errorf("%w: issued at %s, which is in the future",
+			ErrInvalid, issuedAt.UTC().Format(time.RFC3339))
+	}
+	return nil
 }
 
 func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {

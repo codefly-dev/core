@@ -32,8 +32,23 @@ func checkInstallationStrings(root *yaml.Node) error {
 			if value.Kind == yaml.SequenceNode {
 				for _, entry := range value.Content {
 					fields := wire.ReadMapping(unalias(entry), func(field string, node *yaml.Node) (bool, error) {
-						if field == "module" || field == "presence" {
+						switch field {
+						case "module", "presence":
 							return true, check("edge_dependencies."+field, node)
+						case "presence_by_class":
+							// Each per-class presence is checked as its own
+							// scalar, for the reason the plain spelling is:
+							// yaml's typed decoder turns `production: 1` into
+							// the string "1", which then fails the value rule
+							// quoting a presence nobody wrote.
+							node = unalias(node)
+							if node.Kind != yaml.MappingNode {
+								return true, nil
+							}
+							classes := wire.ReadMapping(node, func(class string, value *yaml.Node) (bool, error) {
+								return true, check("edge_dependencies.presence_by_class."+class, value)
+							})
+							return true, classes.Err
 						}
 						return true, nil
 					})

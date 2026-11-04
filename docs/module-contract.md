@@ -240,6 +240,36 @@ none are inferred from bindings. Absent and empty lists mean the
 same thing. Selector and module values with surrounding whitespace are refused,
 never trimmed; declaration fields must be strings.
 
+**A presence may differ along the promotion path.** An edge whose presence is
+genuinely not the same everywhere — optional on a development cell that has not
+installed the module, required in production, which needs it — declares it per
+ENVIRONMENT CLASS instead:
+
+```yaml
+edge_dependencies:
+  - {module: robin, presence: required}
+  - module: annotations
+    presence_by_class: {development: optional, production: required}
+```
+
+An environment class is the release stage of the environment being delivered
+to — `development`, `staging` or `production`, the axis a coordinate already
+names — and it is the DELIVERER's, never the contract's: the deliverer states
+it per environment and passes it as `Resolve(values,
+WithEnvironmentClass(class))`. An edge declares exactly ONE of the two
+spellings; `presence` alone is the presence everywhere and needs no class, so
+every contract that declares it is unaffected by this field and no environment
+has to declare anything for it.
+
+Resolution produces one presence per edge, and that is all a DELIVERED manifest
+carries: `solutionhost` refuses an authority block whose edge carries a
+per-class declaration, so a host reads `presence` exactly as before and never
+learns what an environment class is. A class the map does not name — and an
+environment that declares no class at all — is refused naming the module, the
+classes the contract names and the class asked for; neither resolves to a
+default, because a default is how a production cell ships without a module it
+needs.
+
 `Parse`, `Validate`, `Encode` and `Resolve` use the existing contract rules and
 carry accepted values unchanged. The new fields use `omitempty`, so contracts
 that declare neither retain their previous encoded bytes. CLI owns signed
@@ -474,7 +504,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (144 documents) ships
+`modulecontract.Fixtures()` (149 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

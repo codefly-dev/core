@@ -77,6 +77,47 @@ Two layers enforcing one rule is not two implementations of one decision. A
 consumer pinning its own ceiling to `workcontext.MaxTTLCeiling` reads core's
 constant rather than carrying a number that can drift from it.
 
+### The lifetime has a floor too, because the wire has a resolution
+
+`MinTTL` is one second, and no configuration lowers it, because it is not a
+policy: the three instants reach the wire as `t.Unix()`, so one second is the
+shortest window a capability can *state*.
+
+The minter's guards compared the clock at **nanosecond** precision while
+writing **whole seconds**, and the mint answered a question at a resolution its
+answer was not true at. Two shapes got through:
+
+- **A sub-second TTL.** `Start(TTL: 500ms)` at `10:00:00.100` minted
+  `iat == exp`; the same call at `10:00:00.900` minted a one-second window.
+  Neither is 500ms, the first is refused by every verifier, and which one a
+  caller got depended on the sub-second phase of the authority's clock.
+  `MinTTL` is checked in `checkTTL`, beside the TTL's other two bounds, so the
+  refusal is deterministic rather than phase-dependent.
+- **A bound that is nobody's TTL.** A `Grant` whose approval closes at
+  `10:00:00.800`, minted at `10:00:00.100`, asked for a sound minute and was
+  clamped to `grant.NotAfter` — 700ms by the clock, nothing at all on the wire.
+  No TTL floor reaches this: the bound comes from the approvals engine, which is
+  product-level and owes this package no rounding. The same holds for a parent
+  session's expiry.
+
+So the two mint paths write their instants through one body, `stateWindow`,
+which refuses a window with no whole second in it. `Grant`'s *"leaves no usable
+window"* and `derive`'s *"parent session expired"* stay as the specific
+diagnoses they are; `stateWindow` is the one that answers at the resolution it
+writes.
+
+The direction is not arbitrary. Rounding a short window **up** to the next
+whole second would hand out up to a second more authority than `grant.NotAfter`
+or the parent session permits, and in a capability system that is the wrong
+way to resolve an ambiguity. Refusing cannot be wrong: every mint it refuses is
+one that previously reported success and was then refused by every verifier
+with *"issued at T, after it expires at T"* — in another process, as an
+authentication error. That is precisely the failure `derive`'s comment says its
+own refusal exists to prevent (*"Clamping to it would mint a capability that is
+born dead and report success"*); truncation reintroduced it one resolution
+down, and it stayed invisible for as long as nothing read the issued-at — a
+verifier checking only the two ends accepts a closed window for `Skew`.
+
 A verifier accepts a capability for `Skew` past its expiry, so a caller can
 hold a `*Verified` that has already expired. Exchanging one is refused rather
 than clamped: a capability minted with an expiry in the past would report
@@ -86,6 +127,101 @@ read through `Authority.Revisions` — inheriting the parent's would produce a
 child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
+
+### Every instant the capability claims is checked, `iat` included
+
+A capability states three instants, all three are read, and **all three must
+be stated**: zero is *absent*, not 1970.
+
+| claim | rule | refusal |
+| --- | --- | --- |
+| `not_before_unix` | stated; `now + Skew` is not before it | `no not-before`, `not valid before <t>` |
+| `expires_at_unix` | stated; `now - Skew` is before it | `no expiry`, `expired at <t>` |
+| `issued_at_unix` | stated; not before `not_before_unix`; before `expires_at_unix`; not after `now + Skew` | `no issued-at`, `issued at <t>, before its window opens at <t>`, `issued at <t>, after it expires at <t>`, `issued at <t>, which is in the future` |
+
+Every one is `ErrInvalid`. The *comparisons* are all decided in `checkWindow` —
+the one body a callee's `Verify`, a verify-only `Authenticate`, a forwarding
+hop's `Inspect`, the issuer's `ReadBack` and `Recheck` all reach. `Decode` does
+not reach it, deliberately: a structural read of one's own credential checks no
+window, and refusing there would be claiming to have verified something.
+
+The **presence** of the two window ends is decided one step earlier, in
+`decodeClaims`, and that placement is the rule and not an accident:
+`decodeClaims` bounds the lifetime by subtracting those two instants, and a
+bound cannot be computed from a claim that was never made. Placed after the
+subtraction it is a rule the subtraction answers first — which is what
+happened. A capability with no `not_before` was refused, but for being a
+*fifty-seven-year* capability (`the capability's lifetime is 498267h48m54s`),
+which sends a reader hunting a minter with a bad TTL; and that refusal depends
+on the expiry, so a capability stating *neither* end has a lifetime of zero and
+the only rule catching absence stops catching it. A capability with no
+`expires_at` reached `checkWindow` and came back `expired at
+1970-01-01T00:00:00Z`, sending an operator after a clock that is fine. Both
+were refusals that were *right by accident*, which is the kind this package has
+now had to come back for twice.
+
+`Decode` therefore answers presence too, and should: it reads no clock, but it
+already answers the lifetime, and a holder asking `Decode` what window it holds
+is better told `no expiry` than handed a number derived from the epoch. The
+issued-at's presence stays in `checkWindow` for the opposite reason — no rule
+in the decode path reads it, and `Decode` deliberately passes an unsound
+issued-at.
+
+**`issued_at_unix` was not read at all.** The verifier checked the signature,
+the issuer, the audience, both ends of the window, the structure, the
+authorization revision, the seal, the grant hop and the nonce — and the third
+instant was the one claim on the wire that no rule touched, so a token could
+carry any value in it, or none, and verify. The whole conformance kit passed
+such a token, because the kit mints its fixtures and the minter always filled
+the field. That is the recurring shape here, one step further along than an
+unchecked path: a field in the schema, filled by the issuer, named in the docs,
+and load-bearing nowhere. An unread claim is not a weaker check than a wrong
+one; it is the absence of a check.
+
+Four rules rather than one, because they fail independently and an operator
+needs to know which:
+
+- **Present.** Zero is *absent*, not 1970 — proto3 has no third reading for a
+  scalar. Treating it as a timestamp instead would have made the second rule
+  catch most absences by accident, and report "before its window opens" about a
+  field nobody filled.
+- **Not before `not_before_unix`.** A window that opens after the capability
+  was minted is post-dated: the issuer's state at mint time no longer stands
+  behind a credential held across that boundary. **Equality is the normal
+  case** and is accepted — `Authority.Start` and the derivation behind
+  `Authority.Child` and `Authority.Grant` set the two to the same instant.
+- **Before `expires_at_unix`.** Minted at or after it expired is incoherent on
+  its face, and is *not* implied by the rule below: `Skew` is wider than a
+  short window, so an issued-at inside `now + Skew` can still sit past an
+  expiry a few seconds out.
+- **Not after `now + Skew`.** The clock rule, checked last — the two above hold
+  whenever they are read, by any verifier, while this one depends on this
+  verifier's clock. An operator told "issued in the future" about a token that
+  says it was minted after it expired goes hunting NTP.
+
+The issued-at is checked *after* both ends of the window for the same reason:
+a hand-forged not-yet-valid token necessarily violates one of these rules too,
+and "not valid before" is the more specific diagnosis of what is wrong with it.
+
+The kit carries a fixture per rule — `no-issued-at`,
+`issued-before-its-window`, `issued-after-its-expiry`, `issued-in-the-future`,
+plus `no-not-before` and `no-expiry` — so a verifier that reads a claim and
+tests only one of its rules fails on the rest.
+
+`issued-in-the-future` sits **thirty minutes** out, and the offset is bounded at
+both ends. It was one minute, which a conforming verifier configured with a
+`Skew` of 60s or more correctly accepts under its own policy: the kit failed it
+for the kit's own reason, asserting a skew policy the kit does not own, while
+its sibling window fixtures (`expired`, `not-yet-valid`) sit an hour out. It
+cannot be an hour either, because the sound session it is built from expires an
+hour from `now` and the expiry rule runs first, which would hand the fixture
+the other rule's message. Thirty minutes is sixty times `DefaultSkew` and half
+an hour inside the expiry.
+
+`no-not-before` and `no-expiry` are classified **structural**, so `Decode`
+refuses them while it passes `expired` and `not-yet-valid`. That is the line
+the kit draws everywhere: what the capability *says* is structure; what it says
+*measured against now* is a verifier's question.
 
 ### Scopes and the resource owner
 

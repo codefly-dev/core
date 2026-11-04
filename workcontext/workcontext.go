@@ -85,6 +85,25 @@ const MaxTokenSize = 32 << 10
 // number.
 const DefaultMaxTTL = time.Hour
 
+// MinTTL is the shortest window ANY authority will mint, because it is the
+// shortest one a capability can STATE.
+//
+// The three instants on the wire are whole seconds — `not_before_unix`,
+// `issued_at_unix` and `expires_at_unix` are all written as `t.Unix()` — while
+// the minter's own guards ran at the clock's nanosecond precision. A sub-second
+// TTL therefore asked for a window the wire cannot carry, and the mint reported
+// success for whichever of two things the clock's sub-second phase happened to
+// produce: a capability with a one-second window (TTL 500ms at 10:00:00.900),
+// or one with iat == exp that every verifier refuses as "issued at T, after it
+// expires at T" (TTL 500ms at 10:00:00.100). Neither is the window that was
+// asked for, and the second is a credential born dead reported as minted.
+//
+// One second is not a policy choice, so it is not configurable: it is the
+// resolution of the claims. Refusing is the direction that cannot be wrong —
+// rounding a sub-second TTL up would hand out more authority than the caller
+// asked for.
+const MinTTL = time.Second
+
 // MaxTTLCeiling is the longest window ANY authority will mint, whatever its
 // MaxTTL says.
 //
