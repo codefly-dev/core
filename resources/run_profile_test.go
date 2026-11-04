@@ -78,16 +78,16 @@ func TestWorkspaceRunProfileValidation(t *testing.T) {
 			want:        "run profile name cannot be empty",
 		},
 		{
-			name:        "unknown service",
+			name:        "malformed excluded dependency",
 			old:         "users/accounts",
-			replacement: "users/missing",
-			want:        "unknown service",
+			replacement: "users/accounts/extra",
+			want:        "excluded dependency",
 		},
 		{
-			name:        "unknown workspace configuration",
+			name:        "empty excluded workspace configuration",
 			old:         "internal-auth",
-			replacement: "missing-auth",
-			want:        "unknown workspace configuration",
+			replacement: "\"\"",
+			want:        "excluded workspace configuration cannot be empty",
 		},
 	}
 
@@ -164,4 +164,58 @@ func assertRunComposition(
 	order, err := dependencies.OrderTo(ctx, "mind/mind")
 	require.NoError(t, err)
 	require.ElementsMatch(t, want, order)
+}
+
+// TestRunProfileReferencesAreCheckedAtResolveNotLoad: a profile naming a service
+// or workspace configuration the composition does not have still LOADS — the
+// inventory that would tell is not available at load for a composition of
+// pinned modules — and is refused where the inventory exists, at ResolveRunProfile.
+func TestRunProfileReferencesAreCheckedAtResolveNotLoad(t *testing.T) {
+	fixture := "testdata/workspaces/run-profiles"
+	content, err := os.ReadFile(filepath.Join(fixture, resources.WorkspaceConfigurationName))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		old         string
+		replacement string
+		want        string
+	}{
+		{name: "unknown service", old: "users/accounts", replacement: "users/missing", want: "unknown service"},
+		{name: "unknown workspace configuration", old: "internal-auth", replacement: "missing-auth", want: "unknown workspace configuration"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			require.NoError(t, os.CopyFS(root, os.DirFS(fixture)))
+			invalid := strings.Replace(string(content), tt.old, tt.replacement, 1)
+			require.NoError(t, os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(invalid), 0o600))
+
+			workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+			require.NoError(t, err, "a reference the inventory cannot confirm is not a load failure")
+
+			_, err = workspace.ResolveRunProfile(ctx, "local", resources.RunProfile{})
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+// TestRunProfileDoesNotMakeAPinnedCompositionUnloadable: a workspace that
+// composes a pinned module cannot load that module's services until the CLI has
+// materialized it. Declaring a run profile with exclusions must not turn that
+// into "cannot load workspace" — before this, every command refused at load,
+// doctor included.
+func TestRunProfileDoesNotMakeAPinnedCompositionUnloadable(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: wiki\n    source: acme/core-solutions\n    version: \"0a18964f\"\nrun-profiles:\n  local:\n    exclude-dependencies: [documents/docx]\n    exclude-workspace-configurations: [document-formats]\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.Contains(t, workspace.RunProfiles, "local")
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionPinned, resolution.Kind)
 }
