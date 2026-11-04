@@ -142,9 +142,6 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		KeyId:                 a.KeyID,
 		Issuer:                a.Issuer,
 		Audience:              in.Audience,
-		NotBeforeUnix:         now.Unix(),
-		IssuedAtUnix:          now.Unix(),
-		ExpiresAtUnix:         now.Add(in.TTL).Unix(),
 		Nonce:                 uuid.NewString(),
 		AuthorizationRevision: revision,
 		ReplayPolicy:          replay,
@@ -156,6 +153,9 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		AttributionTeamIds:    slices.Clone(in.AttributionTeamIDs),
 		Seal:                  seal,
 		OperationBinding:      binding,
+	}
+	if err := stateWindow(wc, now, now.Add(in.TTL)); err != nil {
+		return "", nil, err
 	}
 	setOptional(&wc.OwnerPrincipalKind, in.OwnerPrincipalKind)
 	setOptional(&wc.OwnerAgentId, in.OwnerAgentID)
@@ -488,9 +488,9 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 	wc.KeyId = a.KeyID
 	wc.Issuer = a.Issuer
 	wc.Audience = audience
-	wc.NotBeforeUnix = now.Unix()
-	wc.IssuedAtUnix = now.Unix()
-	wc.ExpiresAtUnix = expires.Unix()
+	if err := stateWindow(wc, now, expires); err != nil {
+		return nil, err
+	}
 	wc.Nonce = uuid.NewString()
 	wc.AuthorizationRevision = revision
 	wc.ReplayPolicy = replay
@@ -498,6 +498,39 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 	wc.ParentSessionId = &parentSession
 	wc.GrantHop = nil
 	return wc, nil
+}
+
+// stateWindow writes the three instants a capability claims — and refuses a
+// window the capability cannot state.
+//
+// It is the ONE place both mint paths write them, which is the point: Start
+// builds its whole message and derive clones a parent's, so a rule written
+// into either covers half the mints.
+//
+// The guards above this one — Grant's "leaves no usable window" and derive's
+// "parent session expired" — compare the clock at NANOSECOND precision, while
+// the wire carries whole seconds. derive's own comment names the failure it
+// exists to prevent: "Clamping to it would mint a capability that is born dead
+// and report success". Truncation reintroduced it one resolution down. An
+// approval closing 700ms from now passes both guards and lands on the wire as
+// iat == nbf == exp, and every verifier refuses that with "issued at T, after
+// it expires at T" — in another process, as an authentication error, which is
+// precisely the diagnosis those guards were written to avoid handing anyone.
+//
+// MinTTL cannot cover this case: the bound that bit came from the approvals
+// engine's NotAfter or the parent's expiry, not from a requested TTL. So the
+// mint answers the question at the resolution it writes, which is the only
+// resolution the answer is true at.
+func stateWindow(wc *basev0.WorkContextV1, now, expires time.Time) error {
+	if expires.Unix() <= now.Unix() {
+		return fmt.Errorf("%w: a window closing at %s leaves no whole second after the mint instant %s; "+
+			"a capability states whole seconds, so this one would be issued at or after its own expiry and no verifier would accept it",
+			ErrInvalid, expires.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
+	}
+	wc.NotBeforeUnix = now.Unix()
+	wc.IssuedAtUnix = now.Unix()
+	wc.ExpiresAtUnix = expires.Unix()
+	return nil
 }
 
 // revision reads the issuer's current authorization revision.
@@ -682,6 +715,13 @@ func (a *Authority) maxTTL() time.Duration {
 func (a *Authority) checkTTL(what string, ttl time.Duration) error {
 	if ttl <= 0 {
 		return fmt.Errorf("%w: %s needs a positive TTL", ErrInvalid, what)
+	}
+	if ttl < MinTTL {
+		// A positive TTL the wire cannot state. See MinTTL: the refusal is
+		// here, where the TTL's other two bounds are, so it is deterministic
+		// rather than depending on the sub-second phase of the mint clock.
+		return fmt.Errorf("%w: %s asks for a %s window and a capability states whole seconds, so no authority mints below %s",
+			ErrInvalid, what, ttl, MinTTL)
 	}
 	if ttl > MaxTTLCeiling {
 		// The absolute bound, which no configuration raises. Without it

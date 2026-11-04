@@ -23,6 +23,10 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 		return &basev0.WorkContextV1{
 			Typ: Typ, Algorithm: Algorithm, KeyId: "k",
 			Issuer: "https://issuer.test", Audience: "aud",
+			// A STATED window: seal's self-check decodes, and a capability
+			// stating no window decodes under no reader's rules. See
+			// testMintInstant.
+			NotBeforeUnix: testMintInstant, IssuedAtUnix: testMintInstant, ExpiresAtUnix: testWindowEnd,
 			Nonce: "n", ReplayPolicy: ReplayIdempotent,
 			TenantId: "t", OwnerPrincipalId: "p", TaskId: "task", SessionId: "s",
 			AuthorityScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},

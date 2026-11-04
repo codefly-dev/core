@@ -137,6 +137,11 @@ func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []by
 // clocks: a grant window compared against a different `now` than the
 // capability's window is a second reading of the same question.
 //
+// It does not ask whether the two window ends are STATED, because by the time
+// it runs they are: checkWindowStated decides that in the one decode path,
+// where the lifetime bound it is a precondition of lives. See it for why that
+// presence rule splits from here while the issued-at's does not.
+//
 // The issued-at comes LAST, and that ordering is load-bearing: a capability
 // whose window has closed or has not opened is reported as such, which is the
 // more specific diagnosis, and the fixtures that exist for those two ends keep
@@ -180,7 +185,8 @@ func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) (time.Time, error) {
 //     to catch most absences — every capability whose window opens after 1970
 //     — and said "before its window opens" about a field that was never
 //     filled. A rule that is right by accident is the one that gets deleted by
-//     someone who tests it.
+//     someone who tests it. checkWindowStated above says why the same rule
+//     belongs to the other two instants, and what it cost to leave it here.
 //   - NOT BEFORE not_before. A capability whose window opens AFTER it was
 //     minted is post-dated: the issuer is asserting, now, authority that
 //     begins later, and a credential held across that boundary is one the
