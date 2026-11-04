@@ -40,5 +40,10 @@ companions/treesitter/typescript/
 # Local build artifacts from running toolbox/launch demos
 network-victim-toolbox
 
+# `go build ./internal/corepindrift` writes its binary here, named after the
+# package. One was committed in #893 (10MB) because `git add -A` swept it up.
+# Run the checker with `go run ./internal/corepindrift` or `make check-core-pin`.
+corepindrift
+
 # Rust build artifacts
 /target/
