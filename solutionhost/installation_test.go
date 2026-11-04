@@ -75,3 +75,45 @@ func TestInstallationCarrierPreservesLegacyCanonicalBytes(t *testing.T) {
 		require.NotContains(t, string(got), "edge_dependencies")
 	}
 }
+
+// TestADeliveredEdgeCarriesOneResolvedPresence holds the delivered half of
+// the per-environment-class presence: the DELIVERER resolves it, so a manifest
+// reaching a host carries one presence and nothing of the per-class
+// declaration it came from. A manifest carrying both would say two things
+// about one edge and leave a host to choose — and a host has no environment
+// class to choose with.
+func TestADeliveredEdgeCarriesOneResolvedPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		edge  modulecontract.EdgeDependency
+		words string
+	}{
+		{
+			name:  "a per-class declaration",
+			edge:  modulecontract.EdgeDependency{Module: "annotations", PresenceByClass: map[string]string{"production": "required"}},
+			words: "carries a per-environment-class presence",
+		},
+		{
+			name:  "a presence beside a per-class declaration",
+			edge:  modulecontract.EdgeDependency{Module: "annotations", Presence: "optional", PresenceByClass: map[string]string{"production": "required"}},
+			words: "carries a per-environment-class presence",
+		},
+		{
+			name:  "no presence at all",
+			edge:  modulecontract.EdgeDependency{Module: "annotations"},
+			words: `presence "" must be required or optional`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := valid(t)
+			manifest.Authority.EdgeDependencies = []modulecontract.EdgeDependency{tc.edge}
+			err := manifest.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.Contains(t, err.Error(), tc.words)
+			require.Contains(t, err.Error(), "annotations")
+		})
+	}
+	manifest := valid(t)
+	manifest.Authority.EdgeDependencies = []modulecontract.EdgeDependency{{Module: "annotations", Presence: "optional"}}
+	require.NoError(t, manifest.Validate())
+}

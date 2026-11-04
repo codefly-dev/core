@@ -47,6 +47,15 @@ func TestEveryRefusalConditionIsReachedByAFixture(t *testing.T) {
 		"the re-read contract cannot be encoded:":                                       "the re-read model fails to marshal; unreachable while Marshal is deterministic over a parsed model",
 		"the encoded contract reads back as a different contract, so it is not written": "THE OPEN ONE: no model Validate accepts has been found whose encoding changes on re-marshal, so no fixture can reach it; TestTheEncoderIsDeterministic asserts the property this guard rests on, and the reviewer's scratch input would make it a fixture",
 		"contract is required":                                                          "Validate(nil); forced in TestANilModelIsRefused",
+		// The three RESOLUTION refusals of a per-class presence. A document
+		// alone cannot reach them: each needs an environment class beside the
+		// contract, which Parse has none of, so they are reached by name in
+		// TestAPerClassPresenceResolvesPerEnvironmentClass and
+		// TestAnUnnamedEnvironmentClassIsRefusedByName rather than by a
+		// fixture.
+		") and this environment declares no class; declare the class of the environment being delivered to (": "resolution with no class declared; forced in TestAnUnnamedEnvironmentClassIsRefusedByName",
+		"in presence_by_class — an unnamed class is refused rather than resolved to a default":                 "resolution for a class the contract does not name; forced in TestAnUnnamedEnvironmentClassIsRefusedByName",
+		"the environment being delivered to declares class":                                                   "resolution for a class core does not know; forced in TestAnUnnamedEnvironmentClassIsRefusedByName",
 		"a scope ceiling mixes bare actions with {resource_kind, actions} entries; a scope ceiling is written in one spelling": "the WRITER's refusal of the mixed union, reached through Marshal rather than Parse; the mixed-ceiling document fixture reaches Validate's own refusal, and the direct writer test forces this one",
 	}
 

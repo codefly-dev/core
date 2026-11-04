@@ -236,7 +236,22 @@ type Callees interface {
 // ResolveOption shapes one resolution.
 type ResolveOption func(*resolveOptions)
 
-type resolveOptions struct{ callees Callees }
+type resolveOptions struct {
+	callees Callees
+	// class is the environment class the resolution resolves a per-class edge
+	// presence for. Empty is "no class declared", which resolves every plain
+	// presence and refuses a per-class one by name.
+	class string
+}
+
+// WithEnvironmentClass resolves a contract for an environment of this class:
+// the one value each edge dependency's presence has there. Omitted, a
+// per-class presence resolves to nothing and is refused naming the module and
+// the classes it declares — a deliverer that does not say where it is
+// delivering never gets a default.
+func WithEnvironmentClass(class string) ResolveOption {
+	return func(o *resolveOptions) { o.class = class }
+}
 
 // WithCallees resolves the bindings that name calls through callees: each such
 // operation's ceiling is the union of what its calls require.
@@ -316,8 +331,23 @@ type Contract struct {
 // An empty list and an omitted list both declare no edge dependencies.
 type EdgeDependency struct {
 	// Module is the signed principal, never a route alias, binding ID or release.
-	Module   string `yaml:"module" json:"module"`
-	Presence string `yaml:"presence" json:"presence"` // "required" or "optional", with no default.
+	Module string `yaml:"module" json:"module"`
+	// Presence is "required" or "optional", with no default: the presence of
+	// this edge wherever the module is delivered. It is one of the two
+	// spellings of this declaration, and the one a DELIVERED manifest carries,
+	// always resolved to a single value (ResolveEdgeDependencies).
+	Presence string `yaml:"presence,omitempty" json:"presence"`
+	// PresenceByClass is the other spelling: the presence per environment
+	// class, for an edge whose presence genuinely differs along the promotion
+	// path — optional on a development cell that has not installed the module,
+	// required in production, which needs it. A contract declares exactly one
+	// of the two spellings.
+	//
+	// It is read from a contract and never delivered: resolution replaces it
+	// with the one presence the environment's class gives, so the host's
+	// vocabulary is unchanged and no host ever learns what a class is. A class
+	// the map does not name is refused by name, never defaulted.
+	PresenceByClass map[string]string `yaml:"presence_by_class,omitempty" json:"presence_by_class,omitempty"`
 }
 
 // ForeignMethod is one served method of a protocol the module does not own,
@@ -909,9 +939,13 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	if err := contract.Validate(); err != nil {
 		return nil, err
 	}
+	edges, err := contract.ResolveEdgeDependencies(opts.class)
+	if err != nil {
+		return nil, err
+	}
 	resolved := &Resolved{
 		InstallationRole: contract.InstallationRole,
-		EdgeDependencies: slices.Clone(contract.EdgeDependencies),
+		EdgeDependencies: edges,
 		OwnerAware:       contract.OwnerAware,
 		Principal:        contract.Principal,
 		Namespaces:       slices.Clone(contract.Namespaces),
