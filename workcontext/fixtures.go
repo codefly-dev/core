@@ -946,6 +946,48 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "a capability whose window has not opened; not_before is a bound, not decoration",
 	})
 
+	// The two ends of the window UNSTATED. Zero is absent for every instant,
+	// not just the issued-at: a capability with no not_before read as open
+	// since 1970 and verified, and one with no expiry was refused as "expired
+	// at 1970-01-01T00:00:00Z" — a true refusal for a false reason, which is
+	// the version of this that is harder to find than an acceptance.
+	//
+	// Each rewrites ONE end, leaving the other and the issued-at as the
+	// minter wrote them, so the refusal under test is the presence rule.
+	for _, missing := range []struct {
+		name    string
+		apply   func(*basev0.WorkContextV1)
+		message string
+		rule    string
+	}{
+		{
+			name:    "no-not-before",
+			apply:   func(wc *basev0.WorkContextV1) { wc.NotBeforeUnix = 0 },
+			message: "no not-before",
+			rule: "a capability stating no instant its window opens. A verifier reading it as a timestamp treats the window as " +
+				"open since the epoch AND degenerates the post-dated issued-at rule to a no-op, since every issued-at is at or after zero",
+		},
+		{
+			name:    "no-expiry",
+			apply:   func(wc *basev0.WorkContextV1) { wc.ExpiresAtUnix = 0 },
+			message: "no expiry",
+			rule: "a capability stating no instant its window closes. A verifier reading it as a timestamp does refuse this token, " +
+				"but as expired in 1970, which sends an operator after a clock that is fine; the kit asks for the refusal that names the claim",
+		},
+	} {
+		altered := cloneClaims(session.Context())
+		missing.apply(altered)
+		token, err := resign(altered)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: missing.name, Form: FormSession, Token: token,
+			Outcome: OutcomeRejected, Err: ErrInvalid, Message: missing.message,
+			Reason: missing.rule,
+		})
+	}
+
 	// The ISSUED-AT, which nothing read at all until it was required: a
 	// capability could carry any value in that field, or none, and verify. The
 	// four cases are separate fixtures because they are four rules, and a
@@ -977,8 +1019,13 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 				"than the skew band, which needs a mint of its own and has a test rather than a fixture",
 		},
 		{
-			name: "issued-in-the-future", issued: now.Add(time.Minute), message: "in the future",
-			rule: "minted beyond the verifier's skew tolerance; the clock rule, checked after the two that hold whenever they are read",
+			name: "issued-in-the-future", issued: now.Add(30 * time.Minute), message: "in the future",
+			rule: "minted beyond the verifier's skew tolerance; the clock rule, checked after the two that hold whenever they are read. " +
+				"The offset is bounded at BOTH ends and neither bound is slack: it was one minute, which a conforming verifier " +
+				"configured with a Skew of 60s or more correctly accepts under its own policy — so the kit failed it for the kit's " +
+				"own reason, asserting a skew policy it does not own, while its sibling window fixtures sit an hour out. It cannot " +
+				"be an hour, because the sound session expires an hour from now and the expiry rule runs first, which would hand " +
+				"this fixture the other rule's message. Thirty minutes is 60x DefaultSkew and half an hour inside the expiry",
 		},
 	} {
 		altered := cloneClaims(session.Context())

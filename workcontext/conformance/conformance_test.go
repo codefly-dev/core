@@ -375,6 +375,12 @@ func TestTheKitFailsAVerifierThatSkipsACheck(t *testing.T) {
 	for name, skip := range map[string]func(error) error{
 		"expiry":     func(err error) error { return nilIfContains(err, "expired at") },
 		"not-before": func(err error) error { return nilIfContains(err, "not valid before") },
+		// Presence of the two ends, which is a rule of its own and not the
+		// comparison above it: a verifier that reads not_before as a timestamp
+		// passes "not-yet-valid" and accepts a capability that states no window
+		// at all.
+		"a missing not-before": func(err error) error { return nilIfContains(err, "no not-before") },
+		"a missing expiry":     func(err error) error { return nilIfContains(err, "no expiry") },
 		// The issued-at, one entry per rule. A verifier that reads the claim
 		// and tests only one of the four passes the other three's fixtures,
 		// which is exactly what this sweep is for: the field was on the wire,

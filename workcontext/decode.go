@@ -87,6 +87,11 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if !bytes.Equal(canonical, claims) {
 		return nil, nil, nil, fmt.Errorf("%w: the payload is not its own canonical encoding, so it was produced by a different encoder", ErrInvalid)
 	}
+	// Both ends of the window STATED, which is what makes the lifetime below
+	// a subtraction of two instants rather than of one instant and a default.
+	if err := checkWindowStated(wc); err != nil {
+		return nil, nil, nil, err
+	}
 	// The LIFETIME, once the claims are known to be this encoding: a window
 	// wider than MaxTTLCeiling is refused whichever entrypoint asked.
 	//
@@ -104,6 +109,52 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 			ErrInvalid, lifetime, MaxTTLCeiling)
 	}
 	return wc, claims, sig, nil
+}
+
+// checkWindowStated is the presence rule for the two ends of the window: zero
+// is ABSENT, not 1970, for every instant a capability claims and not only for
+// the issued-at.
+//
+// "Zero is absent" arrived with the issued-at and was applied to that one
+// claim, which left the argument for it refuting the other two. Both were
+// read as timestamps, and both answers were wrong in the way a missing rule
+// is usually wrong — not an acceptance, a true refusal for a false reason:
+//
+//   - no not_before made the lifetime below 498267h, so the token was refused
+//     for being a fifty-seven-year capability. A reviewer reading that goes
+//     looking for a minter with a bad TTL. There is no TTL; there is no
+//     not-before. And the refusal depends on the expiry: state neither and the
+//     lifetime is zero, so the only rule catching absence stops catching it.
+//   - no expires_at reached checkWindow and came back "expired at
+//     1970-01-01T00:00:00Z", which sends an operator after a clock that is
+//     fine.
+//
+// Each was a rule that was right by accident, which is the kind this package
+// has had to come back for twice now. proto3 has no third reading of a zero
+// scalar: the readings available are "the issuer stated nothing" and "the
+// issuer stated the epoch", and neither of those is a window.
+//
+// It lives HERE, in the one decode path, and not in checkWindow with the
+// comparisons, because the lifetime bound two lines down subtracts these two
+// instants — a bound cannot be computed from a claim that was never made, and
+// a rule placed after the computation it is a precondition of is a rule the
+// computation answers first. That it also binds Decode is right: Decode reads
+// no clock, but it already answers the lifetime, and a holder asking Decode
+// what window it holds is better told "no expiry" than handed a number
+// derived from the epoch.
+//
+// The issued-at's presence stays in checkWindow for the opposite reason: no
+// rule in this path reads it, and Decode deliberately passes an unsound
+// issued-at — it is the structural read a holder makes of its own credential,
+// and it checks no window.
+func checkWindowStated(wc *basev0.WorkContextV1) error {
+	if wc.GetNotBeforeUnix() == 0 {
+		return fmt.Errorf("%w: no not-before; a capability states the instant its window opens", ErrInvalid)
+	}
+	if wc.GetExpiresAtUnix() == 0 {
+		return fmt.Errorf("%w: no expiry; a capability states the instant its window closes", ErrInvalid)
+	}
+	return nil
 }
 
 // decodeSegment requires the exact unpadded base64url spelling. DecodeString

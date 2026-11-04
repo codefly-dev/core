@@ -46,10 +46,25 @@ func (s *remoteSigner) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
 	return ed25519.Sign(s.private, message), nil
 }
 
+// testMintInstant and testWindowEnd are a STATED window, fixed rather than
+// taken from a clock because seal's self-check decodes and reads none.
+//
+// These claims carried no window at all, and seal signed them: the self-check
+// read a zero not-before as 1970 and the lifetime bound as a subtraction that
+// happened to come out at zero. Requiring both ends to be stated is what makes
+// seal's promise — "this capability decodes under this Core's own rules, so
+// every reader accepts it" — true of a capability that states no window, which
+// no reader accepts.
+const (
+	testMintInstant = 1790416800 // 2026-09-26T10:00:00Z
+	testWindowEnd   = testMintInstant + 3600
+)
+
 func soundClaims() *basev0.WorkContextV1 {
 	return &basev0.WorkContextV1{
 		Typ: Typ, Algorithm: Algorithm, KeyId: "k",
 		Issuer: "https://issuer.test", Audience: "aud",
+		NotBeforeUnix: testMintInstant, IssuedAtUnix: testMintInstant, ExpiresAtUnix: testWindowEnd,
 		Nonce: "n", ReplayPolicy: ReplayIdempotent,
 		TenantId: "t", OwnerPrincipalId: "p", TaskId: "task", SessionId: "s",
 		AuthorityScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
