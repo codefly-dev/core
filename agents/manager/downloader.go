@@ -112,6 +112,52 @@ func writeArchive(f *os.File, body io.Reader, size int64) (digest string, err er
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// releaseDigestFile is the sidecar Download writes beside an installed agent:
+// the SHA-256 of the executable as it was installed from its release, in
+// sha256sum's format. Its name begins with a dot so no scan of the cache
+// directory — local latest, installed inventory, the CLI's version listing —
+// reads it as an agent. Its presence says the executable came from a release
+// through this downloader; its value is what Load holds the executable to.
+func releaseDigestFile(executable string) string {
+	return filepath.Join(filepath.Dir(executable), "."+filepath.Base(executable)+".sha256")
+}
+
+// InstalledReleaseDigest reads the digest an agent was installed from its
+// release with: the hex SHA-256 of its executable at install time. It is ""
+// with no error when the agent is cached but was never installed from a release
+// by this downloader — a local build, or an install older than the sidecar.
+func InstalledReleaseDigest(ctx context.Context, p *resources.Agent) (string, error) {
+	bin, err := p.Path(ctx)
+	if err != nil {
+		return "", err
+	}
+	return readReleaseDigest(bin)
+}
+
+func readReleaseDigest(executable string) (string, error) {
+	raw, err := os.ReadFile(releaseDigestFile(executable))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	entries, err := parseChecksums(raw)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", releaseDigestFile(executable), err)
+	}
+	digest, ok := entries[filepath.Base(executable)]
+	if !ok {
+		return "", fmt.Errorf("%s records no digest for %s", releaseDigestFile(executable), filepath.Base(executable))
+	}
+	return digest, nil
+}
+
+func writeReleaseDigest(executable, digest string) error {
+	line := fmt.Sprintf("%s  %s\n", digest, filepath.Base(executable))
+	return os.WriteFile(releaseDigestFile(executable), []byte(line), 0o600)
+}
+
 func Download(ctx context.Context, p *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
 	registration, err := resources.AgentKindRegistrationFor(p.Kind)
@@ -187,9 +233,21 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	binaryDigest, err := fileSHA256(binary)
+	if err != nil {
+		return w.Wrapf(err, "cannot digest the extracted agent")
+	}
+	// The sidecar is removed first so a failure between here and the install
+	// never leaves a digest beside an executable it does not describe.
+	if err := os.Remove(releaseDigestFile(target)); err != nil && !os.IsNotExist(err) {
+		return w.Wrapf(err, "cannot clear the previous install's digest")
+	}
 	err = CopyFile(binary, target)
 	if err != nil {
 		return w.Wrapf(err, "cannot install binary")
+	}
+	if err := writeReleaseDigest(target, binaryDigest); err != nil {
+		return w.Wrapf(err, "cannot record the installed agent's digest")
 	}
 	return nil
 }
@@ -206,6 +264,19 @@ func checkArchiveDigest(identifier string, asset *ReleaseAsset, archiveDigest st
 		return "", fmt.Errorf("refusing to install %s: the downloaded archive is sha256:%s but the release's %s record says sha256:%s", identifier, archiveDigest, asset.DigestSource, asset.Digest)
 	}
 	return "", nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path) //nolint:gosec // G304: path is the executable this downloader just extracted
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // extractTarGz decompresses gzip then extracts the tar archive at src into
