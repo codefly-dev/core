@@ -4,6 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,12 +15,14 @@ import (
 )
 
 func TestParseGoModulesAndGraph(t *testing.T) {
+	goMod := filepath.Join(t.TempDir(), "go.mod")
+	require.NoError(t, os.WriteFile(goMod, []byte("module example.com/app\n"), 0600))
 	modules := strings.Join([]string{
-		`{"Path":"example.com/app","Main":true}`,
+		fmt.Sprintf(`{"Path":"example.com/app","Main":true,"Dir":%q}`, filepath.Dir(goMod)),
 		`{"Path":"example.com/lib","Version":"v1.2.3"}`,
 		`{"Path":"example.com/indirect","Version":"v0.4.0"}`,
 	}, "\n")
-	components, root, byToken, err := parseGoModules([]byte(modules))
+	components, root, byToken, err := parseGoModules([]byte(modules), filepath.Dir(goMod))
 	require.NoError(t, err)
 	require.Equal(t, "pkg:golang/example.com/app", root.GetBomRef())
 	require.Len(t, components, 2)
@@ -62,11 +67,13 @@ func TestWrapSyftErrorSurfacesStderrAndNoSpace(t *testing.T) {
 }
 
 func TestParseGoModulesPreservesVersionForLocalReplacement(t *testing.T) {
+	goMod := filepath.Join(t.TempDir(), "go.mod")
+	require.NoError(t, os.WriteFile(goMod, []byte("module example.com/app\n"), 0600))
 	modules := strings.Join([]string{
-		`{"Path":"example.com/app","Main":true}`,
+		fmt.Sprintf(`{"Path":"example.com/app","Main":true,"Dir":%q}`, filepath.Dir(goMod)),
 		`{"Path":"github.com/codefly-dev/core","Version":"v0.2.20","Replace":{"Path":"/workspace/core"}}`,
 	}, "\n")
-	components, _, byToken, err := parseGoModules([]byte(modules))
+	components, _, byToken, err := parseGoModules([]byte(modules), filepath.Dir(goMod))
 	require.NoError(t, err)
 	require.Len(t, components, 1)
 	require.Equal(t, "v0.2.20", components[0].GetVersion())
