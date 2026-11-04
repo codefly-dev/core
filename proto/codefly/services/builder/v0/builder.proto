@@ -949,7 +949,35 @@ message ConfigureResponse {
 }
 
 // BuildCapabilitiesRequest queries execution support without running a build.
-message BuildCapabilitiesRequest {}
+message BuildCapabilitiesRequest {
+  // environment names the environment the caller is about to render, so an
+  // agent whose requirements differ per environment answers for that one. It
+  // is read from the loaded service's own settings, never from a cluster: this
+  // probe reaches nothing. Empty asks for what holds in every environment,
+  // which is what a caller that is not rendering asks.
+  string environment = 1;
+}
+
+// RequiredSecretConfiguration is one secret configuration group the loaded
+// service must declare before a render of the requested environment can emit
+// its manifests, and every key that group must carry.
+//
+// The agent is what names these: a host reads a service's declared secret
+// configurations but cannot derive which ones the agent's own manifests
+// reference, so a host that renders without asking first learns of a missing
+// group from the agent's refusal — after every image is built and pushed.
+message RequiredSecretConfiguration {
+  // configuration is the group's name, as the service's
+  // configurations/<environment>/<configuration>.secret.env spells it.
+  string configuration = 1;
+  // keys are the keys the group must carry, in the agent's own spelling.
+  repeated string keys = 2;
+  // profiles are the output profiles that require the group; empty means every
+  // profile. A credential a secret-free render references through a
+  // secretKeyRef is required by RESTRICTED_PORTABLE_V1 and not by a local
+  // apply, which carries the value inline.
+  repeated KubernetesOutputProfile profiles = 3;
+}
 
 // BuildCapabilitiesResponse advertises guarantees of the agent's Build implementation.
 message BuildCapabilitiesResponse {
@@ -963,6 +991,12 @@ message BuildCapabilitiesResponse {
   // supported recipe variants. Meaningful only with base-image-bindings/v1;
   // it must reflect service settings, including native-library requirements.
   repeated BuildImageInput image_inputs = 3;
+  // required_secret_configurations declares the secret configuration groups the
+  // loaded service must carry for the requested environment. Meaningful only
+  // with secret-requirements/v1: without that contract the field is empty
+  // because the agent cannot answer, which a host must never read as "this
+  // service requires none".
+  repeated RequiredSecretConfiguration required_secret_configurations = 4;
 }
 
 // Builder is responsible for:
