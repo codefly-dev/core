@@ -266,8 +266,8 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	values := MapValues{Public: map[string]map[string]string{"assistant": {"agent-audience": "agent"}}}
-	resolved, err := contract.Resolve(values, WithCallees(declaredCallees{"agent": {"/agent.v1.Turns/Run": {"agent.intents:run"}}}))
+	values := MapValues{Public: map[string]map[string]string{"assistant": {"evidence-audience": "agent"}}}
+	resolved, err := contract.Resolve(values)
 	if err != nil {
 		t.Fatal(err)
 	}

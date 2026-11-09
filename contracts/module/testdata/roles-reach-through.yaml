@@ -29,8 +29,9 @@ roles:
 bindings:
     - id: agent
       operations: [invoke]
-      audience: {from: assistant/agent-audience}
-      calls:
+      audience: {from: assistant/evidence-audience}
+      scope_ceiling:
           invoke:
-              - /agent.v1.Turns/Run
+              - resource_kind: agent.intents
+                actions: [run]
 destinations: []
