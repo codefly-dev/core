@@ -262,7 +262,7 @@ func safeChecksOf(t *testing.T, path string, wf workflow) []string {
 			if safe[id] || (job.If != "" && !aggregatesItsNeeds(job)) {
 				continue
 			}
-			if aggregatesItsNeeds(job) && !aggregatorRunsAsWritten(wf) {
+			if aggregatesItsNeeds(job) && !(aggregatorRunsAsWritten(wf) && needsCannotMaskAFailure(wf, job)) {
 				continue
 			}
 			if _, ok := checkNames(id, job); !ok {
@@ -291,7 +291,7 @@ func safeChecksOf(t *testing.T, path string, wf workflow) []string {
 	// tie the ruleset to a matrix's size for no extra protection.
 	covered := map[string]bool{}
 	for id, job := range wf.Jobs {
-		if safe[id] && aggregatesItsNeeds(job) && aggregatorRunsAsWritten(wf) {
+		if safe[id] && aggregatesItsNeeds(job) && aggregatorRunsAsWritten(wf) && needsCannotMaskAFailure(wf, job) {
 			for _, need := range needsOf(job.Needs) {
 				covered[need] = true
 			}
@@ -365,6 +365,21 @@ func aggregatesItsNeeds(job workflowJob) bool {
 // reaches the shell (SHELLOPTS, BASH_ENV) before the script does.
 func aggregatorRunsAsWritten(wf workflow) bool {
 	return wf.Defaults.Kind == 0 && wf.Env.Kind == 0
+}
+
+// needsCannotMaskAFailure reports whether every job an aggregator needs reports
+// its own failure. A job-level `continue-on-error:` lets a job fail and still
+// hand `success` to `needs.<job>.result` (actions/toolkit#581), so the
+// aggregator would pass over it -- and, standing for it, would also have taken
+// its name out of the required set.
+func needsCannotMaskAFailure(wf workflow, job workflowJob) bool {
+	for _, need := range needsOf(job.Needs) {
+		needed, ok := wf.Jobs[need]
+		if !ok || contains(needed.keys, "continue-on-error") {
+			return false
+		}
+	}
+	return true
 }
 
 func onlyKeys(keys []string, allowed ...string) bool {
@@ -658,6 +673,11 @@ jobs:
 			"    permissions: {}\n", "    permissions:\n      contents: write\n", 1), []string{"Shard (1)", "Shard (2)"}},
 		{"workflow-wide default shell", "defaults:\n  run:\n    shell: 'true {0}'\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
 		{"workflow-wide env", "env:\n  SHELLOPTS: noexec\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		// A needed job that fails reports success to `needs`, so the
+		// aggregator cannot stand for it and the shards stay required by name.
+		{"needed job tolerates failure", strings.Replace(job("    if: always()\n", env, script),
+			"    steps:\n      - run: go test\n", "    continue-on-error: true\n    steps:\n      - run: go test\n", 1),
+			[]string{"Shard (1)", "Shard (2)"}},
 		// GitHub runs shard 2 only; the aggregator must not stand for a shard
 		// that never ran, so it is not admitted at all and the guard fails.
 		{"matrix rewritten by exclude", strings.Replace(job("    if: always()\n", env, script),
