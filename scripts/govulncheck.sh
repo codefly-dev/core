@@ -12,16 +12,16 @@
 
 set -euo pipefail
 
-# The govulncheck CI runs. Pinned, not @latest: a new release could change what
-# is reported (or fail to build) on a pull request that changed nothing, and
-# CI would then disagree with the developer who ran this script yesterday.
+# The govulncheck installed when none is on PATH -- which is how CI runs it.
+# Pinned, not @latest: a new release could change what is reported (or fail to
+# build) on a pull request that changed nothing. A govulncheck already on PATH
+# is used as found (scripts/test_govulncheck_gate.py puts a stub scanner there).
 # Bump it deliberately; `go list -m -versions golang.org/x/vuln` lists them.
 GOVULNCHECK_VERSION=v1.9.0
 
-installed="$(command -v govulncheck 2>/dev/null || true)"
-if [ -z "$installed" ] || ! go version -m "$installed" 2>/dev/null | grep -q "golang.org/x/vuln[[:space:]]*${GOVULNCHECK_VERSION}"; then
-    echo "installing govulncheck ${GOVULNCHECK_VERSION}"
-    GOBIN="$(go env GOPATH)/bin" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+if ! command -v govulncheck >/dev/null 2>&1; then
+    echo "govulncheck not installed — installing ${GOVULNCHECK_VERSION}"
+    go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
     export PATH="$(go env GOPATH)/bin:$PATH"
 fi
 

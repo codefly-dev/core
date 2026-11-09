@@ -31,7 +31,10 @@ import (
 func buildAcquiredExecutor(t *testing.T, label string) (string, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "acquired")
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	// A bound on a hung build, not a speed claim: on a cold build cache this
+	// compiles gRPC and protobuf from source while other test binaries compete
+	// for the CPUs, which took longer than a minute on a CI runner.
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-ldflags=-buildid="+label, "-o", path, "../services/testdata/artifactexecutor")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
