@@ -89,6 +89,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "roles", file: "roles.yaml", outcome: OutcomeAccepted},
 		{name: "roles-grant-bindings", file: "roles-grant-bindings.yaml", outcome: OutcomeAccepted},
 		{name: "roles-installation-owned", file: "roles-installation-owned.yaml", outcome: OutcomeAccepted},
+		{name: "roles-reach-through", file: "roles-reach-through.yaml", outcome: OutcomeAccepted},
 		{name: "binding-self-audience", file: "binding-self-audience.yaml", outcome: OutcomeAccepted},
 
 		{name: "self-beside-from", file: "self-beside-from.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding occurrences audience slot writes self beside from "assistant/evidence-audience"`, rule: ruleSlotSelfBesideFrom},
@@ -215,6 +216,10 @@ func Fixtures() ([]Fixture, error) {
 		{name: "role-binding-headless", file: "role-binding-headless.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding "evaluation" operation "headless"; a role grants invoke or lookup`, rule: ruleRoleBindingOp},
 		{name: "role-binding-undeclared-operation", file: "role-binding-undeclared-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding "evidence" operation "lookup", an operation the binding does not declare`, rule: ruleRoleBindingDeclOp},
 		{name: "role-binding-granted-twice", file: "role-binding-granted-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding operation "evidence invoke" twice`, rule: ruleRoleBindingUnique},
+		{name: "foreign-method-requires-through", file: "foreign-method-requires-through.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `foreign method "/opentelemetry.proto.collector.trace.v1.TraceService/Export" requires assistant.spans through "agent"; a requirement is the module's own, reached through nothing`, rule: ruleThroughNotOnCalls},
+		{name: "role-installation-owned-through", file: "role-installation-owned-through.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" installation-owned scope documents names through "agent"; only a role's scopes are reached through a binding`, rule: ruleThroughOnRoles},
+		{name: "role-through-binding-unknown", file: "role-through-binding-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants documents through binding "nowhere", which the contract does not declare`, rule: ruleRoleThroughKnown},
+		{name: "role-through-headless-binding", file: "role-through-headless-binding.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants documents through binding "evaluation", which declares neither invoke nor lookup`, rule: ruleRoleThroughPerson},
 		{name: "role-without-installer", file: "role-without-installer.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `declares 2 role(s) and none is "installer"`, rule: ruleRoleInstaller},
 		{name: "role-beyond-own-ceiling", file: "role-beyond-own-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants assistant.tasks:delete`, rule: ruleRoleWithinRequest},
 		{name: "role-beyond-consumption", file: "role-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants tracing.trace:read`, rule: ruleRoleWithinRequest},

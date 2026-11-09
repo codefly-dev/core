@@ -251,3 +251,55 @@ func TestAnInstallationOwnedScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
 		t.Fatalf("an installation-owned scope two audiences underwrite: %v", err)
 	}
 }
+
+// TestAScopeReachedThroughABindingIsCarriedPerBinding: a role scope naming
+// through is addressed to no audience here — the authority addresses it in
+// the composition — and Resolve carries it per binding in Through, beside
+// what the role grants on the unit itself; a shared ceiling keeps its
+// declaration through Resolve and Encode.
+func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/roles-reach-through.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := MapValues{Public: map[string]map[string]string{"assistant": {"agent-audience": "agent"}}}
+	resolved, err := contract.Resolve(values, WithCallees(declaredCallees{"agent": {"/agent.v1.Turns/Run": {"agent.intents:run"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ResolvedRole{
+		{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
+		{Name: "viewer", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}},
+			Through: map[string][]string{"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"}}},
+	}
+	if !reflect.DeepEqual(resolved.Roles, want) {
+		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
+	}
+	shared := func(ceilings []ScopeCeiling) []string {
+		var out []string
+		for _, ceiling := range ceilings {
+			if ceiling.Shared {
+				out = append(out, ceiling.ResourceKind)
+			}
+		}
+		return out
+	}
+	if got := shared(resolved.ScopeCeilings); !reflect.DeepEqual(got, []string{"assistant.catalogue"}) {
+		t.Fatalf("Resolve kept shared kinds %v", got)
+	}
+	encoded, err := contract.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Parse(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.Roles, contract.Roles) || !reflect.DeepEqual(shared(again.ScopeCeilings), []string{"assistant.catalogue"}) {
+		t.Fatalf("Encode lost a through or a shared declaration")
+	}
+}

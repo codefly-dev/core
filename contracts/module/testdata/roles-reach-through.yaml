@@ -1,0 +1,36 @@
+# A role names what it reaches downstream of one of its bindings: a kind the
+# module that binding reaches serves or consumes, carried onward at each hop.
+# A kind no installation owns is declared shared.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read, run]
+    - resource_kind: assistant.catalogue
+      actions: [read]
+      shared: true
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read, run]
+    - name: viewer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+          - resource_kind: model.profiles
+            actions: [invoke, read]
+            through: agent
+          - resource_kind: documents
+            actions: [read]
+            through: agent
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      calls:
+          invoke:
+              - /agent.v1.Turns/Run
+destinations: []

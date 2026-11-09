@@ -124,6 +124,10 @@ const (
 	ruleRoleBindingUnique = "role-binding-unique"
 	ruleRoleInstaller     = "role-installer"
 	ruleRoleWithinRequest = "role-within-request"
+	ruleThroughOnRoles    = "through-on-role-scopes"
+	ruleThroughNotOnCalls = "through-not-on-requirements"
+	ruleRoleThroughKnown  = "role-through-binding-known"
+	ruleRoleThroughPerson = "role-through-person-operation"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -221,6 +225,10 @@ func rules() []rule {
 		{name: ruleRoleBindingDeclOp, check: checkRoleBindingsDeclaredOperations},
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleRoleInstaller, check: checkInstallerRole},
+		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
+		{name: ruleThroughNotOnCalls, check: checkThroughNotOnRequirements},
+		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
+		{name: ruleRoleThroughPerson, check: checkRoleThroughPersonOperations},
 		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}
 }
@@ -1216,11 +1224,72 @@ func checkRolesWithinRequest(contract *Contract) error {
 	for _, role := range contract.Roles {
 		for _, list := range role.scopeLists() {
 			for _, scope := range list.scopes {
+				if scope.Through != "" {
+					continue // reached downstream of its binding; the authority holds it there
+				}
 				for _, action := range scope.Actions {
 					if !slices.Contains(grantable[scope.ResourceKind], action) {
 						return fmt.Errorf("%w: role %q grants %s%s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, list.label, scope.ResourceKind, action)
 					}
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkThroughOnRoleScopes: through names how a person's role reaches a
+// kind, so among a role's lists only its scopes carry it — never an
+// installation-owned scope, whose ids are its own installation's.
+func checkThroughOnRoleScopes(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.InstallationOwnedScopes {
+			if scope.Through != "" {
+				return fmt.Errorf("%w: role %q installation-owned scope %s names through %q; only a role's scopes are reached through a binding", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkThroughNotOnRequirements: what a call to the module requires is in its
+// own vocabulary, decided where it is served, so it is reached through nothing.
+func checkThroughNotOnRequirements(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			if scope.Through != "" {
+				return fmt.Errorf("%w: foreign method %q requires %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughBindingsKnown: a scope reached through a binding names one
+// the unit declares.
+func checkRoleThroughBindingsKnown(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if scope.Through != "" && contract.declaredBinding(scope.Through) == nil {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, which the contract does not declare", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughPersonOperations: a person's capability travels a binding
+// only on an operation a person causes, so a scope is reached only through a
+// binding declaring invoke or lookup.
+func checkRoleThroughPersonOperations(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			binding := contract.declaredBinding(scope.Through)
+			if scope.Through == "" || binding == nil {
+				continue
+			}
+			if !slices.Contains(binding.Operations, OperationInvoke) && !slices.Contains(binding.Operations, OperationLookup) {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, which declares neither %s nor %s; a person's capability travels only the operations a person causes", ErrInvalid, role.Name, scope.ResourceKind, scope.Through, OperationInvoke, OperationLookup)
 			}
 		}
 	}

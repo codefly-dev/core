@@ -1,0 +1,22 @@
+# A scope reached through a binding names one the contract declares.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: documents
+            actions: [read]
+            through: nowhere
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      calls:
+          invoke:
+              - /agent.v1.Turns/Run
+destinations: []
