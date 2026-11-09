@@ -691,3 +691,27 @@ jobs:
 		})
 	}
 }
+
+// buildStandsFor is every job `Build` aggregates, pinned. The derivation above
+// proves Build fails unless each job it needs succeeds; it cannot notice a job
+// taken OUT of `needs` and given an `if:` that keeps it off pull requests --
+// the required set would not move, and the gate would have stopped running.
+// Shrinking this list is a decision a reviewer sees here, not a side effect.
+var buildStandsFor = []string{"test", "coverage", "cgo-free", "darwin", "govulncheck", "contracts"}
+
+func TestBuildStandsForEveryGate(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "go.yml"))
+	require.NoError(t, err)
+	var wf workflow
+	require.NoError(t, yaml.Unmarshal(raw, &wf))
+	build, ok := wf.Jobs["build"]
+	require.True(t, ok, "go.yml has no `build` job, the required `Build` check")
+	require.True(t, aggregatesItsNeeds(build), "`Build` is no longer the recognised aggregator")
+	require.ElementsMatch(t, buildStandsFor, needsOf(build.Needs),
+		"`Build` no longer stands for exactly the gates it did. A gate dropped from its `needs` "+
+			"stops protecting `main` without changing the required set; update buildStandsFor "+
+			"only when that is the intent.")
+	for _, id := range buildStandsFor {
+		require.Empty(t, wf.Jobs[id].If, "%s, which Build stands for, must run on every pull request", id)
+	}
+}
