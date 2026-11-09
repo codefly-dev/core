@@ -62,7 +62,7 @@ strict (nothing skips when a prerequisite is missing).
 ```bash
 go test ./...                                      # the suite
 go test ./resources/ -v                            # one package
-go test -race ./... -timeout 10m                   # CI runs this separately
+go test -race ./... -timeout 10m                   # CI: once, with coverage, in scripts/test_shard.sh's 6 shards
 make check-coverage                                # thresholds in .testcoverage.yaml
 ```
 

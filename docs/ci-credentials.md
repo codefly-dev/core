@@ -253,7 +253,7 @@ happening.
 
 | Workflow | The credential | What keeps it off unreviewed code |
 | --- | --- | --- |
-| `go.yml` | `coverage-badge` pushes `coverage.svg` to the `badges` branch, which `README.md` renders | Its own job, gated to a push of `main`. `Build` declares read and hands the profile over as an artifact. |
+| `go.yml` | `coverage-badge` pushes `coverage.svg` to the `badges` branch, which `README.md` renders | Its own job, gated to a push of `main`. The `Coverage` job declares read and hands the merged profile over as an artifact. |
 | `go.yml` | `notify` holds `SLACK_WEBHOOK_URL` | Its own job, gated to a push of `main`, with `permissions: {}` and no checkout at all. It reads the outcome from `needs.build.result`. |
 | `version-tag.yml` | `tag` creates the release tag and publishes the release | Event and head-repository conditions; checks out the default branch; refuses a sha not reachable from it. |
 | `go-service-release.yml` | `goreleaser` receives the **caller's** release PAT | Gated to a pushed tag, which a pull request cannot produce; then refuses a tag whose commit is not reachable from the caller's default branch. The `test` job that runs the caller's suite names no secret. |

@@ -100,36 +100,49 @@ jobs:
           echo "buf lint could not complete after 3 attempts" >&2
           exit 1
 
-  build:
-    name: Build
+  # The suite runs ONCE: race detector and coverage together, split across the
+  # shards below by package. It used to run twice in one serial job -- once for
+  # coverage (with -coverpkg=./..., which instruments every package into every
+  # test binary) and again under -race without the integration tags -- and that
+  # job took ~17 minutes. scripts/test_shard.sh owns the split; every shard
+  # computes the same partition, so together they run every package exactly
+  # once (internal/ciguard's TestTestShardsPartitionEveryPackage holds that).
+  #
+  # Coverage is per package (no -coverpkg): a package counts the lines its own
+  # tests execute, and each package appears in one shard's profile, so the
+  # profiles concatenate. The coverage job merges them and runs the threshold.
+  #
+  # None of these is a required check by name: `Build` below needs every one of
+  # them and fails unless each succeeded, so branch protection keeps requiring
+  # the one name it always has (docs/runbooks/branch-protection.md).
+  test:
+    name: Test (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      # One red shard must not cancel the others: the point of a run is the
+      # whole list of failures, not the first.
+      fail-fast: false
+      matrix:
+        # Changing the count: also change SHARDS below and the coverage merge
+        # reads whatever the shards uploaded.
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      SHARDS: 6
     steps:
-      - name: Pull Alpine Image
-        run: docker pull alpine:latest
-        # We use it for tests
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.3"
+          # The two caches below are keyed on purpose; setup-go's own would
+          # save whichever job finished first under one key for every job.
+          cache: false
 
-      - name: checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: agent contract release notes
-        run: python3 -m unittest discover -s scripts -p "test_*.py"
-
-      - name: version/tag drift guard
-        # version/info.codefly.yaml is embedded into the binary and gates every
-        # package install through composition's minimum-codefly-version check,
-        # but no test reads it — so it has silently rotted (0.3.8 while v0.3.18
-        # shipped; 0.3.20 while v0.3.24 shipped). Fail here instead of at a
-        # user's install. Reads tag names via ls-remote, so the shallow
-        # checkout above is fine.
-        run: ./scripts/check_version_tag.sh
-
-      - name: Cache Go Modules
+      - name: Go module cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true
         with:
@@ -138,8 +151,189 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go
 
-      - name: Install Dependencies
-        run: go mod tidy && go mod download
+      - name: Go build cache
+        # Per shard: each compiles a different set of packages under -race and
+        # -cover. Test RESULTS are never reused from it (-count=1 below).
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.3-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.3-
+
+      - name: Pull Alpine Image
+        # Several container tests run alpine.
+        run: docker pull alpine:latest
+
+      - name: Install apt deps (bubblewrap, ripgrep)
+        # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
+        # ripgrep    → core/code search tests (real-repo grep coverage)
+        # Both are part of the strict signal — codefly's security
+        # stack and code-search depend on them, so a broken install
+        # MUST fail CI. The retry loop handles transient mirror flakes
+        # (azure.archive.ubuntu.com periodically hiccups for ~5-10
+        # minutes); sustained outages still fail loud as intended.
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep && exit 0
+            echo "apt failed (attempt $i / 3); waiting 30s before retry"
+            sleep 30
+          done
+          echo "apt install failed after 3 attempts" >&2
+          exit 1
+
+      - name: Install uv
+        # Strict — uv drives core/runners/python's formula runner tests
+        # (formula_run_test.go), which exercise the REAL uv+python toolchain
+        # and fail-loud (requireUv never skips) when uv is absent.
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Nix
+        # Strict — nix is core to the platform; if it doesn't install,
+        # CI must fail loud rather than silently skipping nix tests.
+        #
+        # This ref tracked the `main` BRANCH before it was pinned. The pinned
+        # commit is also tagged v23, so Dependabot's github-actions updater can
+        # still move it (it bumps SHA pins to newer releases, and would have
+        # nothing to move an untagged branch commit to).
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Allow unprivileged user namespaces (for bwrap)
+        # Ubuntu 24.04+ ships with kernel.apparmor_restrict_unprivileged_userns=1
+        # which blocks bubblewrap's user-namespace setup ("bwrap: setting
+        # up uid map: Permission denied").
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: test (race + coverage)
+        # Single strict signal. -tags=sandbox_e2e,nix_required opts into the
+        # integration tests that depend on bubblewrap and nix, installed strict
+        # above. The race detector runs over all of it.
+        #
+        # NOT included: proto_companion_required. Those tests need the
+        # ghcr.io/codefly-dev/proto image, which core's CI cannot build alone.
+        # Run them locally with `go test -tags=proto_companion_required`.
+        #
+        # -json is kept for the timings the next step reports; the live log
+        # carries the package lines, and the failures are printed in full after.
+        run: |
+          set -euo pipefail
+          mapfile -t pkgs < <(./scripts/test_shard.sh "${{ matrix.shard }}" "$SHARDS")
+          echo "shard ${{ matrix.shard }}/$SHARDS: ${#pkgs[@]} packages"
+          go test -race -count=1 -covermode=atomic -coverprofile=cover.out \
+            -tags=sandbox_e2e,nix_required -json "${pkgs[@]}" \
+            | tee test.json \
+            | jq -rj --unbuffered 'select(.Test == null and .Action == "output") | .Output'
+
+      - name: report failures and timings
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -s test.json ] || exit 0
+          jq -rj 'select(.Action == "build-output") | .Output' test.json
+          # Every line a failed test printed, grouped by test.
+          jq -rs '
+            (map(select(.Action == "fail" and .Test != null) | {key: "\(.Package) \(.Test)", value: true}) | from_entries) as $failed
+            | map(select(.Action == "output" and .Test != null and $failed["\(.Package) \(.Test)"]))
+            | group_by("\(.Package) \(.Test)")[] | "=== \(.[0].Package) \(.[0].Test)\n" + (map(.Output) | join(""))' test.json
+          {
+            echo "### Shard ${{ matrix.shard }}: slowest packages"
+            echo '| seconds | package |'
+            echo '| ---: | --- |'
+            jq -rs 'map(select(.Test == null and (.Action == "pass" or .Action == "fail") and .Elapsed != null))
+              | sort_by(-.Elapsed) | .[:10][] | "| \(.Elapsed) | \(.Package) |"' test.json
+            echo "### Shard ${{ matrix.shard }}: slowest tests"
+            echo '| seconds | test |'
+            echo '| ---: | --- |'
+            jq -rs 'map(select(.Test != null and (.Test | contains("/") | not) and (.Action == "pass" or .Action == "fail")))
+              | sort_by(-.Elapsed) | .[:20][] | "| \(.Elapsed) | \(.Package) \(.Test) |"' test.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload the shard's profile and timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-shard-${{ matrix.shard }}
+          path: |
+            cover.out
+            test.json
+          retention-days: 3
+
+  coverage:
+    name: Coverage
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # The test job's shard count; TestTestShardsPartitionEveryPackage holds
+      # the two equal.
+      SHARDS: 6
+    steps:
+      - name: checkout
+        # go-test-coverage reads the sources to count statements.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: test-shard-*
+          path: shards
+
+      - name: merge the shard profiles
+        # Each package is in exactly one shard, so its blocks are in exactly
+        # one profile: concatenating under one mode line is the merge.
+        run: |
+          set -euo pipefail
+          profiles=(shards/test-shard-*/cover.out)
+          # A missing profile is a shard that never ran: refuse, rather than
+          # measure what the others happened to cover.
+          if [ "${#profiles[@]}" -ne "$SHARDS" ]; then
+            echo "expected $SHARDS shard profiles, found ${#profiles[@]}: ${profiles[*]}" >&2
+            exit 1
+          fi
+          echo "merging ${#profiles[@]} shard profiles"
+          { echo "mode: atomic"; for f in "${profiles[@]}"; do tail -n +2 "$f"; done; } > cover.out
+
+      - name: check test coverage
+        id: coverage
+        # The THRESHOLD check, on every pull request and every push. No
+        # `git-token:`: writing the badge from here would need this job's token
+        # to carry `contents: write`. The badge is written by the
+        # coverage-badge job below, from the profile this one uploads.
+        uses: vladopajic/go-test-coverage@f484eec846448c97c777a26f8b58c5a69a327e12 # v2.20.0
+        with:
+          config: ./.testcoverage.yaml
+
+      - name: upload the coverage profile
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-profile
+          path: cover.out
+          retention-days: 1
+
+  cgo-free:
+    name: CGO-free surface
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go
 
       - name: CGO-free surface guard
         # cgo-ness is a link-time property of the import graph: a new import can
@@ -150,6 +344,30 @@ jobs:
         # every package except the documented cgo allowlist with CGO_ENABLED=0
         # so creep fails HERE, at the PR that introduces it. See docs/cgo.md.
         run: ./scripts/check_cgo_free.sh
+
+  darwin:
+    name: Darwin surface
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go
 
       - name: Darwin surface guard
         # Every runner in this repository is ubuntu, so nothing in CI ever
@@ -177,30 +395,66 @@ jobs:
           echo "Type-checking the darwin surface: ${#pkgs[@]} packages"
           CGO_ENABLED=0 GOOS=darwin go vet -tags codefly_nosemantic "${pkgs[@]}"
 
-      - name: Install apt deps (bubblewrap, ripgrep)
-        # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
-        # ripgrep    → core/code search tests (real-repo grep coverage)
-        # Both are part of the strict signal — codefly's security
-        # stack and code-search depend on them, so a broken install
-        # MUST fail CI. The retry loop handles transient mirror flakes
-        # (azure.archive.ubuntu.com periodically hiccups for ~5-10
-        # minutes); sustained outages still fail loud as intended.
-        run: |
-          for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep && exit 0
-            echo "apt failed (attempt $i / 3); waiting 30s before retry"
-            sleep 30
-          done
-          echo "apt install failed after 3 attempts" >&2
-          exit 1
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go
+
+      - name: govulncheck audit
+        # scripts/govulncheck.sh mirrors `codefly audit go` / `codefly
+        # agent build`'s audit logic: runs govulncheck, partitions
+        # findings against .govulncheck.yaml suppressions + staleness,
+        # fails only when an unsuppressed vuln has an upstream fix
+        # available (unpatched-upstream issues can't be cleared by a
+        # rebuild). The script installs the govulncheck version it pins,
+        # so CI and a developer run the same one.
+        #
+        # This deliberately does NOT shell out to the codefly CLI:
+        # github.com/codefly-dev/cli is a PRIVATE module, and core's CI
+        # checks out core alone with no credentials for sibling repos.
+        run: ./scripts/govulncheck.sh
+
+  contracts:
+    name: Contract guards
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: agent contract release notes
+        run: python3 -m unittest discover -s scripts -p "test_*.py"
+
+      - name: version/tag drift guard
+        # version/info.codefly.yaml is embedded into the binary and gates every
+        # package install through composition's minimum-codefly-version check,
+        # but no test reads it — so it has silently rotted (0.3.8 while v0.3.18
+        # shipped; 0.3.20 while v0.3.24 shipped). Fail here instead of at a
+        # user's install. Reads tag names via ls-remote, so the shallow
+        # checkout above is fine.
+        run: ./scripts/check_version_tag.sh
 
       - name: Install uv
-        # Strict — uv drives core/runners/python's formula runner tests
-        # (formula_run_test.go), which exercise the REAL uv+python toolchain
-        # and fail-loud (requireUv never skips) when uv is absent. astral-sh's
-        # setup-uv is the de-facto standard installer for GH Actions: pinned,
-        # deterministic, adds uv to PATH. uv provisions its own Python on
-        # demand, so no separate python setup is needed.
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Python agent contract SDK
@@ -241,100 +495,35 @@ jobs:
             exit 1
           fi
 
-      - name: Install Nix
-        # Strict — nix is core to the platform; if it doesn't install,
-        # CI must fail loud rather than silently skipping nix tests.
-        # DeterminateSystems' installer is the de-facto standard for
-        # GH Actions: deterministic, no daemon issues on ephemeral
-        # runners.
-        #
-        # This ref tracked the `main` BRANCH before it was pinned. The pinned
-        # commit is also tagged v23, so Dependabot's github-actions updater can
-        # still move it (it bumps SHA pins to newer releases, and would have
-        # nothing to move an untagged branch commit to).
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-
-      - name: Allow unprivileged user namespaces (for bwrap)
-        # Ubuntu 24.04 ships with kernel.apparmor_restrict_unprivileged_userns=1
-        # which blocks bubblewrap's user-namespace setup ("bwrap: setting
-        # up uid map: Permission denied"). Disabling the restriction is
-        # the standard CI workaround — bwrap then works in unprivileged
-        # mode, which is what our sandbox layer expects.
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-#
-#      - name: golangci-lint
-#        uses: golangci/golangci-lint-action@3a919529898de77ec3da873e3063ca4b10e7f5cc # v3.7.0
-#        with:
-#          version: v1.55
-
-      - name: govulncheck audit
-        # scripts/govulncheck.sh mirrors `codefly audit go` / `codefly
-        # agent build`'s audit logic: runs govulncheck, partitions
-        # findings against .govulncheck.yaml suppressions + staleness,
-        # fails only when an unsuppressed vuln has an upstream fix
-        # available (unpatched-upstream issues can't be cleared by a
-        # rebuild).
-        #
-        # This deliberately does NOT shell out to the codefly CLI:
-        # github.com/codefly-dev/cli is a PRIVATE module, and core's CI
-        # checks out core alone with no credentials for sibling repos, so
-        # `go install github.com/codefly-dev/cli@latest` fails with
-        # "could not read Username" / "Authentication failed". The script
-        # only needs govulncheck (public, go-installable) and is fully
-        # self-contained — no private-repo dependency.
+  # The required check. Branch protection names `Build` (and has since #447
+  # merged red); the work it stands for now runs in the parallel jobs it needs,
+  # so the name stays and nothing in repository settings has to move.
+  #
+  # `always()` is what makes it safe to require: without it a failed shard
+  # would SKIP this job, and GitHub counts a skipped required check as passing.
+  # With it, the job always reports, and it fails unless every job it needs
+  # succeeded -- a failure, a skip and a cancellation are all refusals.
+  # internal/ciguard/branchprotection_test.go recognises exactly this shape.
+  #
+  # It checks nothing out and holds no permission: it reads `needs` alone.
+  build:
+    name: Build
+    needs: [test, coverage, cgo-free, darwin, govulncheck, contracts]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: every gate succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          ./scripts/govulncheck.sh
-
-      - name: generate test generate coverage
-        # Single strict signal. -tags=sandbox_e2e,nix_required opts
-        # into the integration tests that depend on bubblewrap (the
-        # OS sandbox layer) and the nix binary. Both are installed
-        # strict above; if either install failed, CI already failed
-        # before reaching this step.
-        #
-        # NOT included: proto_companion_required. Those tests
-        # (grpc_test.go, openapi_test.go) need the ghcr.io/codefly-dev/proto
-        # Docker image which can't be built from core's CI alone
-        # (it cross-builds the codefly CLI from a sibling checkout).
-        # Run locally with `go test -tags=proto_companion_required`,
-        # OR — once codefly CLI is installable in CI — bring the
-        # image build into the workflow as `codefly companion build
-        # proto` and add the tag here.
-        run: go test ./... -tags=sandbox_e2e,nix_required -coverprofile=cover.out -covermode=atomic -coverpkg=./...
-
-      - name: check test coverage
-        id: coverage
-        # The THRESHOLD check, on every pull request and every push. No
-        # `git-token:`: writing the badge from here would need this job's token
-        # to carry `contents: write`, and this job has just run the suite from
-        # the head of whatever branch is under review. The badge is written by
-        # the coverage-badge job below, from the profile this one uploads.
-        uses: vladopajic/go-test-coverage@f484eec846448c97c777a26f8b58c5a69a327e12 # v2.20.0
-        with:
-          config: ./.testcoverage.yaml
-
-      - name: upload the coverage profile
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-profile
-          path: cover.out
-          retention-days: 1
-
-      - name: test with race detection
-        # Strict, separate from coverage. Races are real bugs (we
-        # found a bytes.Buffer concurrent-write race in NativeProc
-        # that flaked Linux CI for months), so the race detector
-        # has to run alongside the regular suite — not as a
-        # commented-out optional. CLI already does this; bring
-        # core to parity.
-        #
-        # We skip sandbox_e2e + nix_required tags here: the race
-        # detector roughly doubles test runtime, and the integration
-        # suites also run in the regular step above with full
-        # coverage. Race-detector signal lands fastest by sticking
-        # to the unit + light-integration scope.
-        run: go test -race ./... -timeout 10m
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "a job Build needs did not succeed ($result); see the jobs above" >&2
+              exit 1
+            fi
+          done
 
   # The notifications were two steps inside Build, skipped on pull requests by
   # an `if:`. That leaves the webhook named in the job that runs the suite, and

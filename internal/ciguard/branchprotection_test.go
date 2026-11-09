@@ -235,46 +235,160 @@ func checksSafeToRequire(t *testing.T) []string {
 		var wf workflow
 		require.NoError(t, yaml.Unmarshal(raw, &wf), path)
 
-		if !alwaysRunsOnPullRequestsToMain(t, path, wf) {
-			continue
-		}
-
-		// A job is skipped when something it needs fails. That is safe to
-		// require only when the upstream is itself required: the failure has
-		// already blocked the merge, so the skip adds no new way to be stuck.
-		// Repeated until nothing new is admitted, because `needs` chains.
-		safe := map[string]bool{}
-		for changed := true; changed; {
-			changed = false
-			for id, job := range wf.Jobs {
-				if safe[id] || job.If != "" {
-					continue
-				}
-				if _, ok := checkNames(id, job); !ok {
-					continue
-				}
-				blocked := false
-				for _, need := range needsOf(job.Needs) {
-					if !safe[need] {
-						blocked = true
-					}
-				}
-				if !blocked {
-					safe[id] = true
-					changed = true
-				}
-			}
-		}
-
-		for id, job := range wf.Jobs {
-			if !safe[id] {
-				continue
-			}
-			names, _ := checkNames(id, job)
-			out = append(out, names...)
-		}
+		out = append(out, safeChecksOf(t, path, wf)...)
 	}
 	return out
+}
+
+// safeChecksOf is checksSafeToRequire for one parsed workflow.
+func safeChecksOf(t *testing.T, path string, wf workflow) []string {
+	t.Helper()
+
+	if !alwaysRunsOnPullRequestsToMain(t, path, wf) {
+		return nil
+	}
+
+	// A job is skipped when something it needs fails. That is safe to
+	// require only when the upstream is itself required: the failure has
+	// already blocked the merge, so the skip adds no new way to be stuck.
+	// Repeated until nothing new is admitted, because `needs` chains.
+	safe := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for id, job := range wf.Jobs {
+			// An `if:` can skip the job, and GitHub counts a skipped
+			// required check as passing. The one `if:` admitted is an
+			// aggregator's `always()`, which never skips it.
+			if safe[id] || (job.If != "" && !aggregatesItsNeeds(job)) {
+				continue
+			}
+			if aggregatesItsNeeds(job) && !(aggregatorRunsAsWritten(wf) && needsCannotMaskAFailure(wf, job)) {
+				continue
+			}
+			if _, ok := checkNames(id, job); !ok {
+				continue
+			}
+			// An aggregator, like any other job, is admitted only once every
+			// job it needs is: it stands for them, so each must always run
+			// under a name known from the file. A matrix rewritten by
+			// `exclude:` fails that and takes the aggregator with it, rather
+			// than letting it stand for shards that never ran.
+			blocked := false
+			for _, need := range needsOf(job.Needs) {
+				if !safe[need] {
+					blocked = true
+				}
+			}
+			if !blocked {
+				safe[id] = true
+				changed = true
+			}
+		}
+	}
+
+	// A job a safe aggregator needs is protected through it: requiring the
+	// aggregator requires its success. Requiring it by name as well would
+	// tie the ruleset to a matrix's size for no extra protection.
+	covered := map[string]bool{}
+	for id, job := range wf.Jobs {
+		if safe[id] && aggregatesItsNeeds(job) && aggregatorRunsAsWritten(wf) && needsCannotMaskAFailure(wf, job) {
+			for _, need := range needsOf(job.Needs) {
+				covered[need] = true
+			}
+		}
+	}
+
+	var out []string
+	for id, job := range wf.Jobs {
+		if !safe[id] || covered[id] {
+			continue
+		}
+		names, _ := checkNames(id, job)
+		out = append(out, names...)
+	}
+	return out
+}
+
+// aggregatorResults and aggregatorScript are the one aggregator shape this
+// derivation recognises, held to the letter: a variation is not "probably
+// equivalent", it is a job whose verdict nobody here has read.
+const (
+	aggregatorResults = "${{ join(needs.*.result, ' ') }}"
+	aggregatorScript  = `echo "results: $RESULTS"
+for result in $RESULTS; do
+  if [ "$result" != success ]; then
+    echo "a job Build needs did not succeed ($result); see the jobs above" >&2
+    exit 1
+  fi
+done`
+)
+
+// aggregatesItsNeeds reports whether a job stands for the jobs it needs: it
+// runs whatever happened to them (`if: always()`), so it always reports, and
+// its one step fails unless every one of them succeeded. A failure, a skip and
+// a cancellation upstream are all a red aggregator, never a skipped one -- so
+// requiring the aggregator requires every job it needs.
+//
+// Without `always()` a failed need SKIPS the job, and a skipped required check
+// passes. Without the step, `always()` alone would make it pass on any outcome.
+//
+// Keys are held to an allowlist, not checked against known hazards:
+// `continue-on-error:` lets the refusal fail and the job pass, `shell:` or
+// `working-directory:` decide what the script even is, and the next such key
+// is one nobody here has thought of yet.
+func aggregatesItsNeeds(job workflowJob) bool {
+	if strings.TrimSpace(job.If) != "always()" && strings.TrimSpace(job.If) != "${{ always() }}" {
+		return false
+	}
+	if len(needsOf(job.Needs)) == 0 || len(job.Steps) != 1 {
+		return false
+	}
+	if !onlyKeys(job.keys, "name", "needs", "if", "runs-on", "permissions", "steps") {
+		return false
+	}
+	// No credential: it reads `needs` and nothing else.
+	if job.permissions.Kind != yaml.MappingNode || len(job.permissions.Content) != 0 {
+		return false
+	}
+	step := job.Steps[0]
+	if !onlyKeys(step.keys, "name", "env", "run") {
+		return false
+	}
+	if len(step.Env) != 1 || step.Env["RESULTS"] != aggregatorResults {
+		return false
+	}
+	return strings.TrimSpace(step.Run) == aggregatorScript
+}
+
+// aggregatorRunsAsWritten reports whether nothing workflow-wide can change how
+// an aggregator's script runs: `defaults.run.shell` replaces bash, and `env:`
+// reaches the shell (SHELLOPTS, BASH_ENV) before the script does.
+func aggregatorRunsAsWritten(wf workflow) bool {
+	return wf.Defaults.Kind == 0 && wf.Env.Kind == 0
+}
+
+// needsCannotMaskAFailure reports whether every job an aggregator needs reports
+// its own failure. A job-level `continue-on-error:` lets a job fail and still
+// hand `success` to `needs.<job>.result` (actions/toolkit#581), so the
+// aggregator would pass over it -- and, standing for it, would also have taken
+// its name out of the required set.
+func needsCannotMaskAFailure(wf workflow, job workflowJob) bool {
+	for _, need := range needsOf(job.Needs) {
+		needed, ok := wf.Jobs[need]
+		if !ok || contains(needed.keys, "continue-on-error") {
+			return false
+		}
+	}
+	return true
+}
+
+func onlyKeys(keys []string, allowed ...string) bool {
+	for _, key := range keys {
+		if !contains(allowed, key) {
+			return false
+		}
+	}
+	return true
 }
 
 // requiredContextsInRunbook returns the contexts in the runbook's apply
@@ -508,5 +622,96 @@ func TestPullRequestTriggersThatCannotGateAMergeAreRejected(t *testing.T) {
 			require.NoError(t, yaml.Unmarshal([]byte(tc.yml), &wf))
 			require.Equal(t, tc.want, alwaysRunsOnPullRequestsToMain(t, "probe.yml", wf))
 		})
+	}
+}
+
+// The aggregator is recognised only in the shape that refuses every non-success
+// upstream. Each refused case below is a `Build` that could report green while
+// a job it stands for did not succeed -- or report nothing at all.
+func TestAggregatorIsRecognisedOnlyWhenItRefusesEveryOutcomeButSuccess(t *testing.T) {
+	script := "        run: |\n          " + strings.ReplaceAll(aggregatorScript, "\n", "\n          ") + "\n"
+	job := func(ifExpr, env, run string) string {
+		return `on: pull_request
+jobs:
+  shard:
+    name: Shard (${{ matrix.n }})
+    strategy:
+      matrix:
+        n: [1, 2]
+    steps:
+      - run: go test
+  build:
+    name: Build
+    needs: [shard]
+    permissions: {}
+` + ifExpr + `    steps:
+      - name: every gate succeeded
+` + env + run
+	}
+	env := "        env:\n          RESULTS: ${{ join(needs.*.result, ' ') }}\n"
+
+	cases := []struct {
+		name string
+		yml  string
+		want []string
+	}{
+		{"always() aggregator stands for its needs", job("    if: always()\n", env, script), []string{"Build"}},
+		{"expression spelling", job("    if: ${{ always() }}\n", env, script), []string{"Build"}},
+		// Skipped when a shard fails, and a skipped required check passes; the
+		// shards' own names are then the only protection.
+		{"no if: is a plain job", job("", env, script), []string{"Build", "Shard (1)", "Shard (2)"}},
+		{"success() can be skipped", job("    if: success()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		{"reads one need, not all", job("    if: always()\n",
+			"        env:\n          RESULTS: ${{ needs.shard.result }}\n", script), []string{"Shard (1)", "Shard (2)"}},
+		{"never refuses", job("    if: always()\n", env, "        run: echo \"$RESULTS\"\n"), []string{"Shard (1)", "Shard (2)"}},
+		// The refusal runs, fails, and the job passes anyway.
+		{"continue-on-error step", job("    if: always()\n", env+"        continue-on-error: true\n", script), []string{"Shard (1)", "Shard (2)"}},
+		{"continue-on-error job", job("    if: always()\n    continue-on-error: true\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		// The script is never run by bash.
+		{"shell replaced", job("    if: always()\n", env+"        shell: 'true {0}'\n", script), []string{"Shard (1)", "Shard (2)"}},
+		{"holds a credential", strings.Replace(job("    if: always()\n", env, script),
+			"    permissions: {}\n", "    permissions:\n      contents: write\n", 1), []string{"Shard (1)", "Shard (2)"}},
+		{"workflow-wide default shell", "defaults:\n  run:\n    shell: 'true {0}'\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		{"workflow-wide env", "env:\n  SHELLOPTS: noexec\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		// A needed job that fails reports success to `needs`, so the
+		// aggregator cannot stand for it and the shards stay required by name.
+		{"needed job tolerates failure", strings.Replace(job("    if: always()\n", env, script),
+			"    steps:\n      - run: go test\n", "    continue-on-error: true\n    steps:\n      - run: go test\n", 1),
+			[]string{"Shard (1)", "Shard (2)"}},
+		// GitHub runs shard 2 only; the aggregator must not stand for a shard
+		// that never ran, so it is not admitted at all and the guard fails.
+		{"matrix rewritten by exclude", strings.Replace(job("    if: always()\n", env, script),
+			"        n: [1, 2]\n", "        n: [1, 2]\n        exclude:\n          - n: 1\n", 1), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var wf workflow
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yml), &wf))
+			require.ElementsMatch(t, tc.want, safeChecksOf(t, "probe.yml", wf))
+		})
+	}
+}
+
+// buildStandsFor is every job `Build` aggregates, pinned. The derivation above
+// proves Build fails unless each job it needs succeeds; it cannot notice a job
+// taken OUT of `needs` and given an `if:` that keeps it off pull requests --
+// the required set would not move, and the gate would have stopped running.
+// Shrinking this list is a decision a reviewer sees here, not a side effect.
+var buildStandsFor = []string{"test", "coverage", "cgo-free", "darwin", "govulncheck", "contracts"}
+
+func TestBuildStandsForEveryGate(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "go.yml"))
+	require.NoError(t, err)
+	var wf workflow
+	require.NoError(t, yaml.Unmarshal(raw, &wf))
+	build, ok := wf.Jobs["build"]
+	require.True(t, ok, "go.yml has no `build` job, the required `Build` check")
+	require.True(t, aggregatesItsNeeds(build), "`Build` is no longer the recognised aggregator")
+	require.ElementsMatch(t, buildStandsFor, needsOf(build.Needs),
+		"`Build` no longer stands for exactly the gates it did. A gate dropped from its `needs` "+
+			"stops protecting `main` without changing the required set; update buildStandsFor "+
+			"only when that is the intent.")
+	for _, id := range buildStandsFor {
+		require.Empty(t, wf.Jobs[id].If, "%s, which Build stands for, must run on every pull request", id)
 	}
 }
