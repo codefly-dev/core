@@ -218,7 +218,9 @@ This declares an enforcement capability, not an owner identity or a grant.
 (a model profile, a published catalogue), so the authority issues a scope of
 it, through a solution, with no owner selected rather than confined to the
 solution's installation. Every other kind stays owner-selected through a
-solution, and an audience that is not `owner_aware` still refuses one. The CLI
+solution, and an audience that is not `owner_aware` still refuses one. It is a
+boolean (`scope-ceiling-shared-boolean`): a word yaml would convert, such as
+`yes`, is refused, as for `owner_aware`. The CLI
 carries the shared kinds in the signed composition authority document's
 `shared_kinds` field (field 10).
 
@@ -332,7 +334,8 @@ It names a declared binding (`role-binding-known`), an operation a person causes
 leaves out is left out with it.
 
 `Resolved.Roles` addresses every grant: per audience, the scopes the role grants
-there. A role scope names no audience, and is still never ambiguous: it is held
+there. A role scope names no audience, and is still never ambiguous: unless it
+is reached through a binding (below), it is held
 to the unit's own ceilings or to a scope a binding spells out, and is addressed
 to the one audience that underwrites it — the unit's principal for its own kind,
 that binding's resolved audience for a consumed one (a ceiling that spells
@@ -353,14 +356,20 @@ roles:
       - {resource_kind: documents, actions: [read], through: agent}
 ```
 
-The contract holds the binding to be one it declares (`role-through-binding-known`)
-and one a person causes, `invoke` or `lookup` (`role-through-person-operation`);
-only a role's `scopes` carry `through` (`through-on-role-scopes`, `through-not-on-requirements`). Such a scope
-is not held to the unit's own ceilings or a binding's spelled scopes: the
-authority, which knows the composition, holds the kind to be reachable from
-that binding and refuses the delivery naming it when it is not.
-`Resolved.Roles` carries it in `Through`, per binding, never addressed to an
-audience here.
+The contract holds the binding to be one it declares (`role-through-binding-known`),
+not addressed to the unit itself (`role-through-not-self`: a self binding has no
+downstream), and one a person causes, `invoke` or `lookup`
+(`role-through-person-operation`); the kind is never one of the unit's own
+(`role-through-not-own-kind`: the unit serves those here, so a role grants them
+directly, within its own ceilings). Only a role's `scopes` carry `through`
+(`through-on-role-scopes`, `through-not-on-requirements`). A role names a kind
+once at each place it reaches it (`role-kind-unique`), so it may hold a kind
+directly and through a binding, or through two bindings. Such a scope is not
+held to the unit's own ceilings or a binding's spelled scopes: the authority,
+which knows the composition, holds the kind to be reachable from that binding
+and refuses the delivery naming it when it is not. `Resolved.Roles` carries it
+in `Through`, per binding, never addressed to an audience here; a scope through
+an optional binding the composition leaves out is left out with it.
 
 **A role may grant a scope only on what the installation owns.**
 `installation_owned_scopes` lists scopes the role grants only on the resources
@@ -395,7 +404,9 @@ each kind named once with at least one action, held to the same kind and action
 grammar as every other scope here. Each of these is its own named rule
 (`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
 `role-kind-unique`, `role-kind-has-action`, `role-installer`,
-`role-within-request`). A bare module declares no `roles`, and omits the key:
+`role-within-request`, and for a scope reached through a binding
+`through-on-role-scopes`, `role-through-binding-known`, `role-through-not-self`,
+`role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
 its access is the organisation's roles. The CLI carries the roles into the
 authority's document delivered with the unit's manifest
 (`AuthorityManifestV1.roles`); a role's `bindings` reach it only through
@@ -535,7 +546,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (154 documents) ships
+`modulecontract.Fixtures()` (158 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

@@ -266,15 +266,18 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	values := MapValues{Public: map[string]map[string]string{"assistant": {"evidence-audience": "agent"}}}
+	values := MapValues{Public: map[string]map[string]string{"assistant": {"evidence-audience": "agent", "model-audience": "models"}}}
 	resolved, err := contract.Resolve(values)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
 		{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
-		{Name: "viewer", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}},
-			Through: map[string][]string{"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"}}},
+		{Name: "viewer", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
+			Through: map[string][]string{
+				"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"},
+				"model": {"documents:read"},
+			}},
 	}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
@@ -301,5 +304,52 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 	}
 	if !reflect.DeepEqual(again.Roles, contract.Roles) || !reflect.DeepEqual(shared(again.ScopeCeilings), []string{"assistant.catalogue"}) {
 		t.Fatalf("Encode lost a through or a shared declaration")
+	}
+}
+
+// TestAScopeThroughAnOmittedBindingIsLeftOutWithIt: a grant through an
+// optional binding the composition leaves out is left out with it, so the
+// authority is never handed a reach-through keyed by a binding it has no
+// resolution for.
+func TestAScopeThroughAnOmittedBindingIsLeftOutWithIt(t *testing.T) {
+	contract, err := Parse([]byte(`schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+          - resource_kind: documents
+            actions: [read]
+            through: agent
+bindings:
+    - id: agent
+      optional: true
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.intents
+                actions: [run]
+destinations: []
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := contract.Resolve(MapValues{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Omitted) != 1 || resolved.Omitted[0].ID != "agent" {
+		t.Fatalf("Resolve omitted %#v, want the agent binding", resolved.Omitted)
+	}
+	want := []ResolvedRole{{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}}}
+	if !reflect.DeepEqual(resolved.Roles, want) {
+		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 }

@@ -377,7 +377,8 @@ type ScopeCeiling struct {
 }
 
 // Role is one role of a unit's own: its name and what it grants — scopes, each
-// a resource kind named literally with the actions granted on it, scopes it
+// a resource kind named literally with the actions granted on it (on the unit,
+// or downstream of one of its bindings when the scope names through), scopes it
 // grants only on what the installation owns, and binding operations, each
 // granting what that binding carries for it as resolved.
 type Role struct {
@@ -833,6 +834,11 @@ func parse(data []byte, without string) (*Contract, error) {
 			return nil, mapping.Err
 		}
 	}
+	if without != ruleSharedBoolean {
+		if err := checkSharedBooleans(tree.Content[0]); err != nil {
+			return nil, err
+		}
+	}
 	if without != ruleInstallationStrings {
 		if err := checkInstallationStrings(tree.Content[0]); err != nil {
 			return nil, err
@@ -890,9 +896,9 @@ type OmittedBinding struct {
 }
 
 // ResolvedRole is one role with every grant addressed. A role scope names a
-// kind and actions but no audience, and is never ambiguous here: Validate
-// holds it to the unit's own ceilings or to a scope one of its bindings spells
-// out, and Resolve addresses it to the one audience that underwrites it — the
+// kind and actions but no audience, and is never ambiguous here: unless it is
+// reached through a binding (Through), Validate holds it to the unit's own
+// ceilings or to a scope one of its bindings spells out, and Resolve addresses it to the one audience that underwrites it — the
 // unit's principal for its own kind, the binding's resolved audience for a
 // consumed one (a binding spelling scopes names one audience: never a list,
 // whose kinds are each audience's own). A scope two audiences underwrite is
@@ -1216,8 +1222,8 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 		}
 		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
 		for _, scope := range role.Scopes {
-			if scope.Through == "" {
-				continue
+			if scope.Through == "" || len(delivered[scope.Through]) == 0 {
+				continue // direct, or through an optional binding left out with it
 			}
 			if entry.Through == nil {
 				entry.Through = map[string][]string{}
@@ -1369,4 +1375,44 @@ func resolutionError(secret, unresolved, ambiguous []string) error {
 		return parts[0]
 	}
 	return errors.Join(parts...)
+}
+
+// checkSharedBooleans: shared widens issuance (no owner selected), so it is
+// held as strictly as owner_aware: a YAML boolean, never a word yaml would
+// convert (yes, on, off) into one.
+func checkSharedBooleans(root *yaml.Node) error {
+	resolve := func(node *yaml.Node) *yaml.Node {
+		for node != nil && node.Kind == yaml.AliasNode {
+			node = node.Alias
+		}
+		return node
+	}
+	root = resolve(root)
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for index := 0; index+1 < len(root.Content); index += 2 {
+		if root.Content[index].Value != "scope_ceilings" {
+			continue
+		}
+		ceilings := resolve(root.Content[index+1])
+		if ceilings == nil || ceilings.Kind != yaml.SequenceNode {
+			return nil
+		}
+		for _, ceiling := range ceilings.Content {
+			ceiling = resolve(ceiling)
+			if ceiling == nil || ceiling.Kind != yaml.MappingNode {
+				continue
+			}
+			for field := 0; field+1 < len(ceiling.Content); field += 2 {
+				if ceiling.Content[field].Value != "shared" {
+					continue
+				}
+				if value := resolve(ceiling.Content[field+1]); value == nil || value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool" {
+					return fmt.Errorf("%w: a scope ceiling's shared must be a boolean (true or false), declaring whether no installation owns the kind", ErrInvalid)
+				}
+			}
+		}
+	}
+	return nil
 }
