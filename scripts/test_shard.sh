@@ -29,24 +29,25 @@ tags="${TEST_TAGS:-sandbox_e2e,nix_required}"
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Seconds per package, measured on main (run 42697963453, race and coverage).
+# Seconds per package under -race and coverage on a warm build cache, from the
+# shards' own timings (core#901). Several of these build Go fixture binaries in
+# the test itself, so they also compete for CPU: spreading them is the point.
 weights='
-github.com/codefly-dev/core/runners/dockerrun 164
-github.com/codefly-dev/core/runners/golang 134
-github.com/codefly-dev/core/runners/base 124
-github.com/codefly-dev/core/contracts/module 91
-github.com/codefly-dev/core/sdk/dependencies 82
-github.com/codefly-dev/core/internal/ciguard 51
-github.com/codefly-dev/core/agents/manager 34
-github.com/codefly-dev/core/toolbox/launch 32
-github.com/codefly-dev/core/runners/python 31
-github.com/codefly-dev/core/services 22
-github.com/codefly-dev/core/agents/services 18
+github.com/codefly-dev/core/runners/dockerrun 155
+github.com/codefly-dev/core/runners/base 130
+github.com/codefly-dev/core/runners/golang 110
+github.com/codefly-dev/core/internal/ciguard 90
+github.com/codefly-dev/core/agents/manager 80
+github.com/codefly-dev/core/sdk/dependencies 76
+github.com/codefly-dev/core/runners/python 70
+github.com/codefly-dev/core/agents 60
+github.com/codefly-dev/core/toolbox/launch 34
+github.com/codefly-dev/core/contracts/module 20
+github.com/codefly-dev/core/services 19
+github.com/codefly-dev/core/agents/services 14
 github.com/codefly-dev/core/code 13
-github.com/codefly-dev/core/agents 12
 github.com/codefly-dev/core/resources 11
-github.com/codefly-dev/core/composition 11
-github.com/codefly-dev/core/toolbox/session 10
+github.com/codefly-dev/core/composition 8
 '
 
 go list -tags "$tags" ./... | WEIGHTS="$weights" awk -v index_="$index" -v total="$total" '

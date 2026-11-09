@@ -43,22 +43,28 @@ func TestEveryRuleIsProtectedByAFixture(t *testing.T) {
 		if r.inherent {
 			continue
 		}
-		// The kit, run against this reader with the rule deleted, must fail.
-		recorder := &recordingT{}
-		Run(recorder, func(document []byte) error {
-			_, err := parse(document, r.name)
-			return err
-		})
-		if recorder.failures == 0 {
-			t.Errorf("rule %s can be deleted and the kit still passes: %d fixture(s) name it but none notices", r.name, len(fixtures))
-		}
-		// And each fixture naming the rule is no longer refused BY it.
-		for _, fixture := range fixtures {
-			_, err := parse(fixture.Document, r.name)
-			if err != nil && strings.Contains(err.Error(), fixture.Message) {
-				t.Errorf("fixture %s is still refused naming %q with rule %s deleted: the refusal comes from somewhere else", fixture.Name, fixture.Message, r.name)
+		// Each deletion is its own whole run of the kit and shares nothing with
+		// the others, so they run in parallel: serially, under the race
+		// detector, this one test took two minutes of CI.
+		t.Run(r.name, func(t *testing.T) {
+			t.Parallel()
+			// The kit, run against this reader with the rule deleted, must fail.
+			recorder := &recordingT{}
+			Run(recorder, func(document []byte) error {
+				_, err := parse(document, r.name)
+				return err
+			})
+			if recorder.failures == 0 {
+				t.Errorf("rule %s can be deleted and the kit still passes: %d fixture(s) name it but none notices", r.name, len(fixtures))
 			}
-		}
+			// And each fixture naming the rule is no longer refused BY it.
+			for _, fixture := range fixtures {
+				_, err := parse(fixture.Document, r.name)
+				if err != nil && strings.Contains(err.Error(), fixture.Message) {
+					t.Errorf("fixture %s is still refused naming %q with rule %s deleted: the refusal comes from somewhere else", fixture.Name, fixture.Message, r.name)
+				}
+			}
+		})
 	}
 }
 
