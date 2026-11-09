@@ -262,16 +262,17 @@ func safeChecksOf(t *testing.T, path string, wf workflow) []string {
 			if safe[id] || (job.If != "" && !aggregatesItsNeeds(job)) {
 				continue
 			}
-			if aggregatesItsNeeds(job) {
-				if _, ok := checkNames(id, job); ok {
-					safe[id] = true
-					changed = true
-				}
+			if aggregatesItsNeeds(job) && !aggregatorRunsAsWritten(wf) {
 				continue
 			}
 			if _, ok := checkNames(id, job); !ok {
 				continue
 			}
+			// An aggregator, like any other job, is admitted only once every
+			// job it needs is: it stands for them, so each must always run
+			// under a name known from the file. A matrix rewritten by
+			// `exclude:` fails that and takes the aggregator with it, rather
+			// than letting it stand for shards that never ran.
 			blocked := false
 			for _, need := range needsOf(job.Needs) {
 				if !safe[need] {
@@ -290,7 +291,7 @@ func safeChecksOf(t *testing.T, path string, wf workflow) []string {
 	// tie the ruleset to a matrix's size for no extra protection.
 	covered := map[string]bool{}
 	for id, job := range wf.Jobs {
-		if safe[id] && aggregatesItsNeeds(job) {
+		if safe[id] && aggregatesItsNeeds(job) && aggregatorRunsAsWritten(wf) {
 			for _, need := range needsOf(job.Needs) {
 				covered[need] = true
 			}
@@ -330,18 +331,49 @@ done`
 //
 // Without `always()` a failed need SKIPS the job, and a skipped required check
 // passes. Without the step, `always()` alone would make it pass on any outcome.
+//
+// Keys are held to an allowlist, not checked against known hazards:
+// `continue-on-error:` lets the refusal fail and the job pass, `shell:` or
+// `working-directory:` decide what the script even is, and the next such key
+// is one nobody here has thought of yet.
 func aggregatesItsNeeds(job workflowJob) bool {
 	if strings.TrimSpace(job.If) != "always()" && strings.TrimSpace(job.If) != "${{ always() }}" {
 		return false
 	}
-	if len(needsOf(job.Needs)) == 0 || job.Uses != "" || len(job.Steps) != 1 {
+	if len(needsOf(job.Needs)) == 0 || len(job.Steps) != 1 {
+		return false
+	}
+	if !onlyKeys(job.keys, "name", "needs", "if", "runs-on", "permissions", "steps") {
+		return false
+	}
+	// No credential: it reads `needs` and nothing else.
+	if job.permissions.Kind != yaml.MappingNode || len(job.permissions.Content) != 0 {
 		return false
 	}
 	step := job.Steps[0]
-	if step.Uses != "" || step.If != "" || len(step.Env) != 1 || step.Env["RESULTS"] != aggregatorResults {
+	if !onlyKeys(step.keys, "name", "env", "run") {
+		return false
+	}
+	if len(step.Env) != 1 || step.Env["RESULTS"] != aggregatorResults {
 		return false
 	}
 	return strings.TrimSpace(step.Run) == aggregatorScript
+}
+
+// aggregatorRunsAsWritten reports whether nothing workflow-wide can change how
+// an aggregator's script runs: `defaults.run.shell` replaces bash, and `env:`
+// reaches the shell (SHELLOPTS, BASH_ENV) before the script does.
+func aggregatorRunsAsWritten(wf workflow) bool {
+	return wf.Defaults.Kind == 0 && wf.Env.Kind == 0
+}
+
+func onlyKeys(keys []string, allowed ...string) bool {
+	for _, key := range keys {
+		if !contains(allowed, key) {
+			return false
+		}
+	}
+	return true
 }
 
 // requiredContextsInRunbook returns the contexts in the runbook's apply
@@ -596,6 +628,7 @@ jobs:
   build:
     name: Build
     needs: [shard]
+    permissions: {}
 ` + ifExpr + `    steps:
       - name: every gate succeeded
 ` + env + run
@@ -616,6 +649,19 @@ jobs:
 		{"reads one need, not all", job("    if: always()\n",
 			"        env:\n          RESULTS: ${{ needs.shard.result }}\n", script), []string{"Shard (1)", "Shard (2)"}},
 		{"never refuses", job("    if: always()\n", env, "        run: echo \"$RESULTS\"\n"), []string{"Shard (1)", "Shard (2)"}},
+		// The refusal runs, fails, and the job passes anyway.
+		{"continue-on-error step", job("    if: always()\n", env+"        continue-on-error: true\n", script), []string{"Shard (1)", "Shard (2)"}},
+		{"continue-on-error job", job("    if: always()\n    continue-on-error: true\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		// The script is never run by bash.
+		{"shell replaced", job("    if: always()\n", env+"        shell: 'true {0}'\n", script), []string{"Shard (1)", "Shard (2)"}},
+		{"holds a credential", strings.Replace(job("    if: always()\n", env, script),
+			"    permissions: {}\n", "    permissions:\n      contents: write\n", 1), []string{"Shard (1)", "Shard (2)"}},
+		{"workflow-wide default shell", "defaults:\n  run:\n    shell: 'true {0}'\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		{"workflow-wide env", "env:\n  SHELLOPTS: noexec\n" + job("    if: always()\n", env, script), []string{"Shard (1)", "Shard (2)"}},
+		// GitHub runs shard 2 only; the aggregator must not stand for a shard
+		// that never ran, so it is not admitted at all and the guard fails.
+		{"matrix rewritten by exclude", strings.Replace(job("    if: always()\n", env, script),
+			"        n: [1, 2]\n", "        n: [1, 2]\n        exclude:\n          - n: 1\n", 1), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

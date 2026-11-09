@@ -28,9 +28,7 @@ func TestTestShardsPartitionEveryPackage(t *testing.T) {
 		Jobs map[string]struct {
 			Env      map[string]string `yaml:"env"`
 			Strategy struct {
-				Matrix struct {
-					Shard []int `yaml:"shard"`
-				} `yaml:"matrix"`
+				Matrix yaml.Node `yaml:"matrix"`
 			} `yaml:"strategy"`
 			Steps []workflowStep `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -45,8 +43,28 @@ func TestTestShardsPartitionEveryPackage(t *testing.T) {
 	for i := range want {
 		want[i] = i + 1
 	}
-	require.Equal(t, want, job.Strategy.Matrix.Shard,
+	// The matrix GitHub expands, not one axis of it: an `include:` or
+	// `exclude:` beside `shard:` changes which shards run, and a shard that
+	// never runs takes its packages with it.
+	require.Equal(t, []string{"shard"}, mappingKeys(&job.Strategy.Matrix),
+		"the test matrix must be the one literal `shard:` axis, with no include/exclude")
+	var shards []int
+	require.NoError(t, job.Strategy.Matrix.Content[1].Decode(&shards))
+	require.Equal(t, want, shards,
 		"the shard matrix must be exactly 1..SHARDS, or a slice of packages has no job running it")
+
+	// Coverage refuses a merge missing any shard's profile, by the same count.
+	coverage, ok := wf.Jobs["coverage"]
+	require.True(t, ok, "go.yml has no `coverage` job to merge the shards' profiles")
+	require.Equal(t, job.Env["SHARDS"], coverage.Env["SHARDS"],
+		"the coverage job must expect exactly as many profiles as there are shards")
+	refuses := false
+	for _, step := range coverage.Steps {
+		if strings.Contains(step.Run, `"${#profiles[@]}" -ne "$SHARDS"`) {
+			refuses = true
+		}
+	}
+	require.True(t, refuses, "the coverage merge no longer refuses a missing shard profile")
 
 	// The shards list packages under the tags they test with; a package that
 	// exists only under a tag must be in a slice too.

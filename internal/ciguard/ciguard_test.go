@@ -40,6 +40,19 @@ type workflowStep struct {
 	// program, so an expression interpolated into it is not a value the
 	// program reads but a line of the program itself.
 	Run string `yaml:"run"`
+
+	// keys are the step's own keys as written, so a check can refuse what the
+	// fields above do not decode (`shell:`, `continue-on-error:`, ...).
+	keys []string
+}
+
+func (s *workflowStep) UnmarshalYAML(node *yaml.Node) error {
+	type plain workflowStep
+	if err := node.Decode((*plain)(s)); err != nil {
+		return err
+	}
+	s.keys = mappingKeys(node)
+	return nil
 }
 
 type workflowJob struct {
@@ -56,6 +69,37 @@ type workflowJob struct {
 		Matrix yaml.Node `yaml:"matrix"`
 	} `yaml:"strategy"`
 	Steps []workflowStep `yaml:"steps"`
+
+	// keys are the job's own keys as written; see workflowStep.keys.
+	keys []string
+	// permissions is the job's `permissions:` as written.
+	permissions yaml.Node
+}
+
+func (j *workflowJob) UnmarshalYAML(node *yaml.Node) error {
+	type plain workflowJob
+	if err := node.Decode((*plain)(j)); err != nil {
+		return err
+	}
+	j.keys = mappingKeys(node)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "permissions" {
+			j.permissions = *node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// mappingKeys lists a mapping node's keys in order; nil for anything else.
+func mappingKeys(node *yaml.Node) []string {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := make([]string, 0, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keys = append(keys, node.Content[i].Value)
+	}
+	return keys
 }
 
 // `on:` is held as a node rather than `any` so one parse serves both the
@@ -64,6 +108,10 @@ type workflowJob struct {
 type workflow struct {
 	On   yaml.Node              `yaml:"on"`
 	Jobs map[string]workflowJob `yaml:"jobs"`
+	// Workflow-wide settings that reach into every job's steps: a default
+	// shell or working directory, and environment variables a shell reads.
+	Defaults yaml.Node `yaml:"defaults"`
+	Env      yaml.Node `yaml:"env"`
 }
 
 // workflowExtensions are both spellings GitHub reads. Globbing only one of them

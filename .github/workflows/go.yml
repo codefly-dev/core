@@ -265,6 +265,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # The test job's shard count; TestTestShardsPartitionEveryPackage holds
+      # the two equal.
+      SHARDS: 6
     steps:
       - name: checkout
         # go-test-coverage reads the sources to count statements.
@@ -281,6 +285,12 @@ jobs:
         run: |
           set -euo pipefail
           profiles=(shards/test-shard-*/cover.out)
+          # A missing profile is a shard that never ran: refuse, rather than
+          # measure what the others happened to cover.
+          if [ "${#profiles[@]}" -ne "$SHARDS" ]; then
+            echo "expected $SHARDS shard profiles, found ${#profiles[@]}: ${profiles[*]}" >&2
+            exit 1
+          fi
           echo "merging ${#profiles[@]} shard profiles"
           { echo "mode: atomic"; for f in "${profiles[@]}"; do tail -n +2 "$f"; done; } > cover.out
 
