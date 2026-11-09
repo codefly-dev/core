@@ -1,0 +1,12 @@
+# shared widens issuance (no owner selected), so it is a YAML boolean, never a
+# word yaml would convert into one.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.catalogue
+      actions: [read]
+      shared: yes
+bindings: []
+destinations: []

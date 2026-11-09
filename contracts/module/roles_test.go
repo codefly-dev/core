@@ -251,3 +251,148 @@ func TestAnInstallationOwnedScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
 		t.Fatalf("an installation-owned scope two audiences underwrite: %v", err)
 	}
 }
+
+// TestAScopeReachedThroughABindingIsCarriedPerBinding: a role scope naming
+// through is addressed to no audience here — the authority addresses it in
+// the composition — and Resolve carries it per binding in Through, beside
+// what the role grants on the unit itself; a shared ceiling keeps its
+// declaration through Resolve and Encode.
+func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/roles-reach-through.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := MapValues{Public: map[string]map[string]string{"assistant": {"evidence-audience": "agent", "model-audience": "models"}}}
+	resolved, err := contract.Resolve(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ResolvedRole{
+		{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
+		{Name: "viewer", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
+			Through: map[string][]string{
+				"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"},
+				"model": {"documents:read"},
+			}},
+	}
+	if !reflect.DeepEqual(resolved.Roles, want) {
+		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
+	}
+	shared := func(ceilings []ScopeCeiling) []string {
+		var out []string
+		for _, ceiling := range ceilings {
+			if ceiling.Shared {
+				out = append(out, ceiling.ResourceKind)
+			}
+		}
+		return out
+	}
+	if got := shared(resolved.ScopeCeilings); !reflect.DeepEqual(got, []string{"assistant.catalogue"}) {
+		t.Fatalf("Resolve kept shared kinds %v", got)
+	}
+	encoded, err := contract.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Parse(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.Roles, contract.Roles) || !reflect.DeepEqual(shared(again.ScopeCeilings), []string{"assistant.catalogue"}) {
+		t.Fatalf("Encode lost a through or a shared declaration")
+	}
+}
+
+// TestAScopeThroughAnOmittedBindingIsLeftOutWithIt: a grant through an
+// optional binding the composition leaves out is left out with it, so the
+// authority is never handed a reach-through keyed by a binding it has no
+// resolution for.
+func TestAScopeThroughAnOmittedBindingIsLeftOutWithIt(t *testing.T) {
+	contract, err := Parse([]byte(`schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+          - resource_kind: documents
+            actions: [read]
+            through: agent
+bindings:
+    - id: agent
+      optional: true
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.intents
+                actions: [run]
+destinations: []
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := contract.Resolve(MapValues{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Omitted) != 1 || resolved.Omitted[0].ID != "agent" {
+		t.Fatalf("Resolve omitted %#v, want the agent binding", resolved.Omitted)
+	}
+	want := []ResolvedRole{{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}}}
+	if !reflect.DeepEqual(resolved.Roles, want) {
+		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
+	}
+}
+
+// TestSharedDecodingIsStrict: shared is a YAML boolean however it is written,
+// including through an alias key at either level, which a check over raw key
+// nodes would read as empty and pass.
+func TestSharedDecodingIsStrict(t *testing.T) {
+	const head = "schema: codefly/module-contract/v1\nprincipal: assistant\nnamespaces: []\nbindings: []\ndestinations: []\n"
+	for name, body := range map[string]string{
+		"word":             "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: yes}\n",
+		"quoted":           "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: \"true\"}\n",
+		"aliased value":    "queues: []\nrequire_method_policies: false\nscope_ceilings:\n    - resource_kind: &word yes\n      actions: [read]\n      shared: *word\n",
+		"aliased key":      "queues: []\nscope_ceilings:\n    - resource_kind: assistant.catalogue\n      actions: [read, &k shared]\n      *k : yes\n",
+		"aliased list key": "queues: [&q scope_ceilings]\n*q :\n    - {resource_kind: assistant.catalogue, actions: [read], shared: yes}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(head + body))
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("expected invalid declaration, got %v", err)
+			}
+		})
+	}
+	contract, err := Parse([]byte(head + "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: true}\n"))
+	if err != nil || !contract.ScopeCeilings[0].Shared {
+		t.Fatalf("shared: true read as %v, %v", contract, err)
+	}
+}
+
+// TestThroughOnAConstructedBindingCeilingIsRefused: Parse refuses through on a
+// binding ceiling's scope as an unknown field; a constructed contract is held
+// to the same by Validate rather than resolved with it ignored.
+func TestThroughOnAConstructedBindingCeilingIsRefused(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/roles-reach-through.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.Bindings[0].ScopeCeiling[OperationInvoke].Scopes[0].Through = "model"
+	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `binding agent invoke ceiling scope agent.intents names through "model"`) {
+		t.Fatalf("Validate: %v", err)
+	}
+}

@@ -1,0 +1,24 @@
+# The module serves its own kinds here, never downstream of a binding: a scope
+# of one is granted directly, within its own scope_ceilings.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [delete]
+            through: agent
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.intents
+                actions: [run]
+destinations: []

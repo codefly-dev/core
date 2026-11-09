@@ -213,6 +213,17 @@ the authority issues a person capability to it; the CLI carries the declaration
 in the signed composition authority document's `owner_aware` field (field 7).
 This declares an enforcement capability, not an owner identity or a grant.
 
+**A kind no installation owns is declared shared.** A scope ceiling may carry
+`shared: true` (omitted is false): no installation owns a resource of that kind
+(a model profile, a published catalogue), so the authority issues a scope of
+it, through a solution, with no owner selected rather than confined to the
+solution's installation. Every other kind stays owner-selected through a
+solution, and an audience that is not `owner_aware` still refuses one. It is a
+boolean (`scope-ceiling-shared-boolean`): a word yaml would convert, such as
+`yes`, is refused, as for `owner_aware`. The CLI
+carries the shared kinds in the signed composition authority document's
+`shared_kinds` field (field 10).
+
 **Installation declarations express machine intent and edge presence separately.**
 `installation_role` is optional: absent or `""` leaves the legacy installer
 selection unchanged; literal `none` declares no standing machine grant; any
@@ -323,13 +334,44 @@ It names a declared binding (`role-binding-known`), an operation a person causes
 leaves out is left out with it.
 
 `Resolved.Roles` addresses every grant: per audience, the scopes the role grants
-there. A role scope names no audience, and is still never ambiguous: it is held
+there. A role scope names no audience, and is still never ambiguous: unless it
+is reached through a binding (below), it is held
 to the unit's own ceilings or to a scope a binding spells out, and is addressed
 to the one audience that underwrites it — the unit's principal for its own kind,
 that binding's resolved audience for a consumed one (a ceiling that spells
 scopes out belongs to a binding with one audience, never a list). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
 then names the binding it means in `bindings`.
+
+**A role names what it reaches downstream of a binding.** A role scope may
+carry `through: <binding id>`: a kind a module downstream of that binding
+serves or consumes, which a person's capability carries onward at each hop,
+cut to each binding there (consent covers reach):
+
+```yaml
+roles:
+  - name: viewer
+    scopes:
+      - {resource_kind: model.profiles, actions: [invoke, read], through: agent}
+      - {resource_kind: documents, actions: [read], through: agent}
+```
+
+The contract holds the binding to be one it declares (`role-through-binding-known`),
+not addressed to the unit itself (`role-through-not-self`: a self binding has no
+downstream), and one a person causes, `invoke` or `lookup`
+(`role-through-person-operation`); the kind is never one of the unit's own
+(`role-through-not-own-kind`: the unit serves those here, so a role grants them
+directly, within its own ceilings). Only a role's `scopes` carry `through`
+(`through-on-role-scopes`, `through-not-on-requirements`). A role names a kind
+once at each place it reaches it (`role-kind-unique`), so it may hold a kind
+directly and through a binding, or through two bindings. Such a scope is not
+held to the unit's own ceilings or a binding's spelled scopes: the authority,
+which knows the composition, holds the kind to be reachable from that binding
+and refuses the delivery naming it when it is not. `Resolved.Roles` carries it
+in `Through`, keyed by the declared binding id (one entry covers every
+audience a binding with an `audiences` list resolves to), never addressed to an
+audience here; a scope through
+an optional binding the composition leaves out is left out with it.
 
 **A role may grant a scope only on what the installation owns.**
 `installation_owned_scopes` lists scopes the role grants only on the resources
@@ -360,15 +402,19 @@ the whole kind.
 
 One of the roles is `installer`, which whoever installs the unit holds; each
 role is a lowercase name declared once and grants at least one kind or binding,
-each kind named once with at least one action, held to the same kind and action
+each kind named once per place it is reached (directly, or through one
+binding) with at least one action, held to the same kind and action
 grammar as every other scope here. Each of these is its own named rule
 (`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
 `role-kind-unique`, `role-kind-has-action`, `role-installer`,
-`role-within-request`). A bare module declares no `roles`, and omits the key:
+`role-within-request`, and for a scope reached through a binding
+`through-on-role-scopes`, `role-through-binding-known`, `role-through-not-self`,
+`role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
 its access is the organisation's roles. The CLI carries the roles into the
 authority's document delivered with the unit's manifest
-(`AuthorityManifestV1.roles`); a role's `bindings` reach it only through
-`Resolved.Roles`, which needs the callee declarations its binding's calls are
+(`AuthorityManifestV1.roles`); a role's `bindings` and the scopes it reaches
+`through` a binding reach it only through `Resolved.Roles` (read there, an
+optional binding the composition leaves out drops them), which needs the callee declarations its binding's calls are
 read from. This contract is their one declaration site.
 
 **A module may require a policy on every method it publishes.**
@@ -504,7 +550,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (149 documents) ships
+`modulecontract.Fixtures()` (158 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

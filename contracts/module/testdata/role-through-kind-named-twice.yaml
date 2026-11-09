@@ -1,0 +1,27 @@
+# A role names a kind once at each place it is reached: twice through the same
+# binding is refused.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: documents
+            actions: [read]
+            through: agent
+          - resource_kind: documents
+            actions: [write]
+            through: agent
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.intents
+                actions: [run]
+destinations: []

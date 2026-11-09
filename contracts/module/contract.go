@@ -368,10 +368,17 @@ type ForeignMethod struct {
 type ScopeCeiling struct {
 	ResourceKind string   `yaml:"resource_kind"`
 	Actions      []string `yaml:"actions"`
+	// Shared declares the kind unowned: no installation owns a resource of
+	// it (a model profile, a published catalogue), so the authority issues a
+	// scope of it, through a solution, with no owner selected, rather than
+	// confined to the solution's installation. Every other kind stays
+	// owner-selected through a solution. Omitted is false.
+	Shared bool `yaml:"shared,omitempty"`
 }
 
 // Role is one role of a unit's own: its name and what it grants — scopes, each
-// a resource kind named literally with the actions granted on it, scopes it
+// a resource kind named literally with the actions granted on it (on the unit,
+// or downstream of one of its bindings when the scope names through), scopes it
 // grants only on what the installation owns, and binding operations, each
 // granting what that binding carries for it as resolved.
 type Role struct {
@@ -487,6 +494,14 @@ type Ceiling struct {
 type CeilingScope struct {
 	ResourceKind string   `yaml:"resource_kind"`
 	Actions      []string `yaml:"actions"`
+	// Through, on a role's scope alone, names the binding of the unit's own
+	// the scope is reached through: a kind a module downstream of that
+	// binding serves or consumes, which a person's capability carries onward
+	// at each hop, cut to each binding there (consent covers reach). The
+	// contract holds the binding to be declared and one a person causes; the
+	// authority holds the kind to be reachable from it in the composition it
+	// is delivered to.
+	Through string `yaml:"through,omitempty"`
 }
 
 // UnmarshalYAML reads a ceiling in either spelling. A bare item lands in
@@ -819,6 +834,11 @@ func parse(data []byte, without string) (*Contract, error) {
 			return nil, mapping.Err
 		}
 	}
+	if without != ruleSharedBoolean {
+		if err := checkSharedBooleans(tree.Content[0]); err != nil {
+			return nil, err
+		}
+	}
 	if without != ruleInstallationStrings {
 		if err := checkInstallationStrings(tree.Content[0]); err != nil {
 			return nil, err
@@ -876,9 +896,10 @@ type OmittedBinding struct {
 }
 
 // ResolvedRole is one role with every grant addressed. A role scope names a
-// kind and actions but no audience, and is never ambiguous here: Validate
-// holds it to the unit's own ceilings or to a scope one of its bindings spells
-// out, and Resolve addresses it to the one audience that underwrites it — the
+// kind and actions but no audience, and is never ambiguous here: unless it is
+// reached through a binding (Through), Validate holds it to the unit's own
+// ceilings or to a scope one of its bindings spells out, and Resolve
+// addresses it to the one audience that underwrites it — the
 // unit's principal for its own kind, the binding's resolved audience for a
 // consumed one (a binding spelling scopes names one audience: never a list,
 // whose kinds are each audience's own). A scope two audiences underwrite is
@@ -895,6 +916,14 @@ type ResolvedRole struct {
 	// installation owns, addressed exactly as Grants' literal scopes are.
 	// Sorted, each once; nil when the role declares none.
 	InstallationOwnedGrants map[string][]string
+	// Through are, per binding of the unit's own, the scopes
+	// "<resource kind>:<action>" the role grants downstream of it (a scope's
+	// through): addressed by the authority, which knows the composition, to
+	// the module that serves the kind. Keyed by the declared binding id, so
+	// one entry covers every audience a binding listing audiences resolves
+	// to; a binding the composition leaves out has none. Sorted, each once;
+	// nil when the role declares none.
+	Through map[string][]string
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -1169,6 +1198,9 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 	// underwrites it, appending to ambiguous each scope two underwrite.
 	address := func(role, label string, scopes []CeilingScope, grants map[string][]string) {
 		for _, scope := range scopes {
+			if scope.Through != "" {
+				continue // addressed downstream of its binding (ResolvedRole.Through)
+			}
 			for _, action := range scope.Actions {
 				audiences := underwriters(scope.ResourceKind, action)
 				if len(audiences) > 1 {
@@ -1192,6 +1224,20 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 			}
 		}
 		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
+		for _, scope := range role.Scopes {
+			if scope.Through == "" || len(delivered[scope.Through]) == 0 {
+				continue // direct, or through an optional binding left out with it
+			}
+			if entry.Through == nil {
+				entry.Through = map[string][]string{}
+			}
+			for _, action := range scope.Actions {
+				entry.Through[scope.Through] = append(entry.Through[scope.Through], scope.ResourceKind+":"+action)
+			}
+		}
+		if entry.Through != nil {
+			entry.Through = sortedGrants(entry.Through)
+		}
 		if len(role.InstallationOwnedScopes) > 0 {
 			owned := map[string][]string{}
 			address(role.Name, "installation-owned ", role.InstallationOwnedScopes, owned)
@@ -1332,4 +1378,36 @@ func resolutionError(secret, unresolved, ambiguous []string) error {
 		return parts[0]
 	}
 	return errors.Join(parts...)
+}
+
+// checkSharedBooleans: shared widens issuance (no owner selected), so it is
+// held as strictly as owner_aware: a YAML boolean, never a word yaml would
+// convert (yes, on, off) into one. Keys are read decoded, as owner_aware's
+// are, so a key written through an alias is checked like any other.
+func checkSharedBooleans(root *yaml.Node) error {
+	resolve := func(node *yaml.Node) *yaml.Node {
+		for node.Kind == yaml.AliasNode {
+			node = node.Alias
+		}
+		return node
+	}
+	document := wire.ReadMapping(resolve(root), func(key string, value *yaml.Node) (bool, error) {
+		ceilings := resolve(value)
+		if key != "scope_ceilings" || ceilings.Kind != yaml.SequenceNode {
+			return true, nil
+		}
+		for _, ceiling := range ceilings.Content {
+			entry := wire.ReadMapping(resolve(ceiling), func(field string, value *yaml.Node) (bool, error) {
+				if value = resolve(value); field == "shared" && (value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool") {
+					return true, fmt.Errorf("%w: a scope ceiling's shared must be a boolean (true or false), declaring whether no installation owns the kind", ErrInvalid)
+				}
+				return true, nil
+			})
+			if entry.Err != nil {
+				return true, entry.Err
+			}
+		}
+		return true, nil
+	})
+	return document.Err
 }

@@ -1,0 +1,26 @@
+# Only a role's scopes are reached through a binding: an installation-owned
+# scope's ids are its own installation's.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+      installation_owned_scopes:
+          - resource_kind: documents
+            actions: [read]
+            through: agent
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      calls:
+          invoke:
+              - /agent.v1.Turns/Run
+destinations: []

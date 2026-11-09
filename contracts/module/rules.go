@@ -33,6 +33,7 @@ const (
 	ruleSchema            = "schema"
 	ruleKnownFields       = "known-fields"
 	ruleOwnerAwareBoolean = "owner-aware-boolean"
+	ruleSharedBoolean     = "scope-ceiling-shared-boolean"
 	ruleOneDocument       = "one-document"
 	ruleMappingKeysOnce   = "mapping-keys-once"
 	ruleNoMergeKeys       = "no-merge-keys"
@@ -124,6 +125,12 @@ const (
 	ruleRoleBindingUnique = "role-binding-unique"
 	ruleRoleInstaller     = "role-installer"
 	ruleRoleWithinRequest = "role-within-request"
+	ruleThroughOnRoles    = "through-on-role-scopes"
+	ruleThroughNotOnCalls = "through-not-on-requirements"
+	ruleRoleThroughKnown  = "role-through-binding-known"
+	ruleRoleThroughPerson = "role-through-person-operation"
+	ruleRoleThroughOwn    = "role-through-not-own-kind"
+	ruleRoleThroughSelf   = "role-through-not-self"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -136,6 +143,7 @@ func rules() []rule {
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
 		{name: ruleOwnerAwareBoolean, check: func(*Contract) error { return nil }},
+		{name: ruleSharedBoolean, check: func(*Contract) error { return nil }},
 		{name: ruleOneDocument, check: func(*Contract) error { return nil }},
 		{name: ruleMappingKeysOnce, check: func(*Contract) error { return nil }},
 		{name: ruleNoMergeKeys, check: func(*Contract) error { return nil }},
@@ -210,6 +218,7 @@ func rules() []rule {
 		{name: ruleForeignScopeHasAction, check: checkForeignScopesHaveActions},
 		{name: ruleForeignMethodOwnKind, check: checkForeignMethodsOwnKinds},
 		{name: ruleForeignMethodOwnAct, check: checkForeignMethodsOwnActions},
+		{name: ruleThroughNotOnCalls, check: checkThroughNotOnRequirements},
 		{name: ruleRoleName, check: checkRoleNames},
 		{name: ruleRoleUnique, check: checkRolesUnique},
 		{name: ruleRoleGrants, check: checkRolesGrant},
@@ -221,6 +230,11 @@ func rules() []rule {
 		{name: ruleRoleBindingDeclOp, check: checkRoleBindingsDeclaredOperations},
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleRoleInstaller, check: checkInstallerRole},
+		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
+		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
+		{name: ruleRoleThroughSelf, check: checkRoleThroughNotSelf},
+		{name: ruleRoleThroughPerson, check: checkRoleThroughPersonOperations},
+		{name: ruleRoleThroughOwn, check: checkRoleThroughNotOwnKinds},
 		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}
 }
@@ -1060,7 +1074,9 @@ type roleScopes struct {
 
 // scopeLists are the role's literal scopes, both lists, each held to the same
 // rules: an installation-owned scope differs only in what the authority
-// resolves it to, never in what a role may name.
+// resolves it to, never in what a role may name. A scope reached through a
+// binding (through, on scopes alone) is the one exception to what it is held
+// within: the authority holds it downstream (checkRolesWithinRequest).
 func (role Role) scopeLists() []roleScopes {
 	return []roleScopes{{"", role.Scopes}, {"installation-owned ", role.InstallationOwnedScopes}}
 }
@@ -1087,18 +1103,26 @@ func checkRoleKindNames(contract *Contract) error {
 	return nil
 }
 
-// checkRoleKindsUnique: each list names a kind once. A kind may appear in
-// both, each granting its own actions: on the whole kind, and on what the
-// installation owns of it.
+// checkRoleKindsUnique: each list names a kind once at each place it is
+// reached — on the unit, or through one binding. A kind may appear in both
+// lists, each granting its own actions: on the whole kind, and on what the
+// installation owns of it; and among scopes both directly and through a
+// binding, or through two bindings, each reaching it somewhere else.
 func checkRoleKindsUnique(contract *Contract) error {
 	for _, role := range contract.Roles {
 		for _, list := range role.scopeLists() {
-			kinds := make([]string, 0, len(list.scopes))
+			seen := map[[2]string]bool{}
 			for _, scope := range list.scopes {
-				kinds = append(kinds, scope.ResourceKind)
-			}
-			if duplicate, found := firstDuplicate(kinds); found {
-				return fmt.Errorf("%w: role %q names %sresource kind %q twice", ErrInvalid, role.Name, list.label, duplicate)
+				key := [2]string{scope.ResourceKind, scope.Through}
+				if !seen[key] {
+					seen[key] = true
+					continue
+				}
+				where := ""
+				if scope.Through != "" {
+					where = fmt.Sprintf(" through %q", scope.Through)
+				}
+				return fmt.Errorf("%w: role %q names %sresource kind %q%s twice", ErrInvalid, role.Name, list.label, scope.ResourceKind, where)
 			}
 		}
 	}
@@ -1216,11 +1240,116 @@ func checkRolesWithinRequest(contract *Contract) error {
 	for _, role := range contract.Roles {
 		for _, list := range role.scopeLists() {
 			for _, scope := range list.scopes {
+				if scope.Through != "" {
+					continue // reached downstream of its binding; the authority holds it there
+				}
 				for _, action := range scope.Actions {
 					if !slices.Contains(grantable[scope.ResourceKind], action) {
 						return fmt.Errorf("%w: role %q grants %s%s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, list.label, scope.ResourceKind, action)
 					}
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkThroughOnRoleScopes: through names how a person's role reaches a
+// kind, so only a role's scopes carry it — never an installation-owned scope,
+// whose ids are its own installation's, nor a binding ceiling's scope, which
+// is what the binding itself is issued (constructed: Parse refuses the field
+// there as unknown).
+func checkThroughOnRoleScopes(contract *Contract) error {
+	type placed struct {
+		label string
+		scope CeilingScope
+	}
+	var scopes []placed
+	for _, role := range contract.Roles {
+		for _, scope := range role.InstallationOwnedScopes {
+			scopes = append(scopes, placed{fmt.Sprintf("role %q installation-owned scope", role.Name), scope})
+		}
+	}
+	for _, entry := range contract.ceilings() {
+		for _, scope := range entry.ceiling.Scopes {
+			scopes = append(scopes, placed{entry.label + " ceiling scope", scope})
+		}
+	}
+	for _, entry := range scopes {
+		if entry.scope.Through != "" {
+			return fmt.Errorf("%w: %s %s names through %q; only a role's scopes are reached through a binding", ErrInvalid, entry.label, entry.scope.ResourceKind, entry.scope.Through)
+		}
+	}
+	return nil
+}
+
+// checkThroughNotOnRequirements: what a call to the module requires is in its
+// own vocabulary, decided where it is served, so it is reached through nothing.
+func checkThroughNotOnRequirements(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			if scope.Through != "" {
+				return fmt.Errorf("%w: foreign method %q requires %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughBindingsKnown: a scope reached through a binding names one
+// the unit declares.
+func checkRoleThroughBindingsKnown(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if scope.Through != "" && contract.declaredBinding(scope.Through) == nil {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, which the contract does not declare", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughPersonOperations: a person's capability travels a binding
+// only on an operation a person causes, so a scope is reached only through a
+// binding declaring invoke or lookup.
+func checkRoleThroughPersonOperations(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			binding := contract.declaredBinding(scope.Through)
+			if scope.Through == "" || binding == nil {
+				continue
+			}
+			if !slices.Contains(binding.Operations, OperationInvoke) && !slices.Contains(binding.Operations, OperationLookup) {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, which declares neither %s nor %s; a person's capability travels only the operations a person causes", ErrInvalid, role.Name, scope.ResourceKind, scope.Through, OperationInvoke, OperationLookup)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughNotSelf: a binding addressed to the unit itself has no
+// downstream; what a role grants on the unit it grants directly, held to the
+// unit's own ceilings.
+func checkRoleThroughNotSelf(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if binding := contract.declaredBinding(scope.Through); scope.Through != "" && binding != nil && binding.Audience.Self {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, which is addressed to the module itself; a scope on the module is granted directly, within its own scope_ceilings", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleThroughNotOwnKinds: the unit serves its own kinds here, never
+// downstream of a binding, so a scope of one is granted directly and held to
+// the unit's own ceiling rather than reached through anything.
+func checkRoleThroughNotOwnKinds(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if _, declared := own[scope.ResourceKind]; scope.Through != "" && declared {
+				return fmt.Errorf("%w: role %q grants %s through binding %q, a kind of the module's own; it is granted directly, within its own scope_ceilings", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
 			}
 		}
 	}
