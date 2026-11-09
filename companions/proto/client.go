@@ -187,7 +187,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 			return w.Wrapf(err, "cannot write descriptor set")
 		}
 		// Paths are relative to the companion's working directory: /workspace
-		// in a container, the temp dir itself for a local or Nix companion.
+		// in a container, the temp dir itself for a host companion.
 		input := "image.binpb"
 		// A Python facade must not register shared descriptors (buf.validate,
 		// google.api, org-shared options, ...) into the global pool, so strip

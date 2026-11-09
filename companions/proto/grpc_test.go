@@ -74,6 +74,10 @@ func TestGenerateGoGRPC(t *testing.T) {
 // plugins and goimports on PATH.
 func TestGenerateGoGRPCOnHostCompanion(t *testing.T) {
 	ctx := context.Background()
+	for _, tool := range []string{"buf", "protoc-gen-go", "protoc-gen-go-grpc", "protoc-gen-openapiv2", "goimports"} {
+		_, err := exec.LookPath(tool)
+		require.NoError(t, err, "the host companion runs %s from PATH", tool)
+	}
 	restore := proto.PinClientCompanionBackend(companion.BackendLocal)
 	defer restore()
 
@@ -95,6 +99,10 @@ func TestGenerateGoGRPCOnHostCompanion(t *testing.T) {
 	// The template's openapiv2 output sits beside the output root; on the
 	// host it must stay in the temp dir, as it does in the container, and
 	// never land next to the destination.
+	// The formatting pass ran on the host output before it was copied.
+	output, err := exec.CommandContext(ctx, "goimports", "-d", destination).CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	require.Empty(t, output, "host generation returned Go that still needs its formatting pass")
 	_, err = os.Stat(filepath.Join(parent, "openapi"))
 	require.True(t, os.IsNotExist(err), "openapi output leaked beside the destination")
 	_, err = os.Stat(filepath.Join(destination, "google"))

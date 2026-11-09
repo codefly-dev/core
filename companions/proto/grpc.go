@@ -201,7 +201,8 @@ func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade 
 
 // clientCompanionBackend pins the companion backend client generation uses.
 // Empty, the default, lets the companion pick (Docker when its engine runs,
-// then Nix, then the host). Tests pin it to exercise each backend.
+// else the host). Tests pin it to exercise each backend; it is package state,
+// so a test that pins it must not run in parallel.
 var clientCompanionBackend companion.Backend
 
 // runBuf sets up the proto companion over a prepared temp dir and runs buf.
@@ -222,11 +223,19 @@ func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpD
 
 	// buf runs in its working directory and writes to outputDir under it. In a
 	// container that is /workspace, with destination bind-mounted at
-	// /workspace/output, so the output lands in place. A local or Nix
-	// companion runs on the host, where /workspace does not exist: it works in
-	// tmpDir, writes to tmpDir/output, and the output is copied into
-	// destination once formatted.
+	// /workspace/output, so the output lands in place. A host companion runs
+	// where /workspace does not exist: it works in tmpDir, writes to
+	// tmpDir/output, and the output is copied into destination once
+	// formatted.
 	docker := runner.Backend() == companion.BackendDocker
+	if !docker {
+		// The published companion pins buf, the plugins and goimports; the
+		// host's are whatever is installed, so generated code can drift from
+		// what the image would produce. Say so rather than fail: without a
+		// Docker engine this is the only way generation runs at all.
+		w.Warn("generating with host tools, not the pinned companion image: output may differ from a Docker-backed run",
+			wool.Field("backend", string(runner.Backend())), wool.Field("image", image.FullName()))
+	}
 	runnerOutput := path.Join("/workspace", outputDir)
 	hostOutput := destination
 	if docker {
