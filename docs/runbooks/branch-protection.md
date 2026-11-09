@@ -56,9 +56,11 @@ whose shape changed until someone records the new one. With zero required
 approvals that record is a changelog, not a gate — which is why the credential
 decision does not rest on it. See [CI credentials](../ci-credentials.md).
 
-**The good news, also verified:** `Build` runs `go test ./...` and `go.yml`
-triggers on `pull_request` with no `paths:` filter, so `internal/ciguard` is a
-required check on every change to `.github/`. The guard suite cannot be skipped.
+**The good news, also verified:** `Build` fails unless every `Test (shard N)`
+job succeeded, those shards together run `go test` over every package, and
+`go.yml` triggers on `pull_request` with no `paths:` filter, so
+`internal/ciguard` is a required check on every change to `.github/`. The guard
+suite cannot be skipped.
 
 ## Why the set below matters
 
@@ -92,8 +94,14 @@ Registry cache clean runner (next)
 ```
 
 `Build` is the strict signal from `go.yml` — the test suite, the race detector,
-coverage, `govulncheck`, and the version/tag and CGO-free guards. It is the
-check #447 was red on. `Proto` is the same workflow's `buf breaking` gate on
+coverage, `govulncheck`, and the version/tag, CGO-free and Darwin guards. It is
+the check #447 was red on. Since that work moved into parallel jobs (`Test
+(shard 1..6)`, `Coverage`, `CGO-free surface`, `Darwin surface`,
+`govulncheck`, `Contract guards`), `Build` is an aggregator: `if: always()`, so
+it is never skipped, and one step that fails unless every job it needs
+succeeded. Those jobs are therefore not required by name — requiring `Build`
+requires them, and the ruleset does not have to track the shard count.
+`internal/ciguard` recognises exactly that aggregator shape and nothing looser. `Proto` is the same workflow's `buf breaking` gate on
 `proto/`, split out so a BSR hiccup and a schema break answer separately.
 `pnpm source evidence` runs the real lockfile audit and inventory tests with the
 pinned pnpm toolchain. `Companion version` (`companion-version.yml`) refuses a
@@ -219,7 +227,7 @@ not sit in the job that runs the suite — so it reports on no pull request. See
 [CI credentials](../ci-credentials.md).
 
 **`Coverage badge` from `go.yml`.** The coverage THRESHOLD is decided in
-`Build`, which is required; this job only pushes the badge `README.md` renders,
+`Coverage`, which `Build` requires; this job only pushes the badge `README.md` renders,
 and it is gated to a push of `main` so it reports on no pull request either. It
 is a separate job because it is the one write in that workflow and the job that
 runs the suite must not hold it — see

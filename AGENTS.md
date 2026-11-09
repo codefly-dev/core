@@ -62,9 +62,14 @@ strict (nothing skips when a prerequisite is missing).
 ```bash
 go test ./...                                      # the suite
 go test ./resources/ -v                            # one package
-go test -race ./... -timeout 10m                   # CI runs this separately
+go test -race ./... -timeout 10m                   # CI runs race + coverage together
 make check-coverage                                # thresholds in .testcoverage.yaml
+./scripts/test_shard.sh 2 6                        # the packages CI's shard 2 of 6 runs
 ```
+
+CI runs the suite once, `-race` with per-package coverage, split by
+`scripts/test_shard.sh` across six `Test (shard N)` jobs; the guards below are
+parallel jobs, and the required `Build` check aggregates all of them.
 
 CI additionally runs, and all of these are runnable locally:
 
