@@ -4,6 +4,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -195,6 +199,11 @@ func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade 
 	return nil
 }
 
+// clientCompanionBackend pins the companion backend client generation uses.
+// Empty, the default, lets the companion pick (Docker when its engine runs,
+// then Nix, then the host). Tests pin it to exercise each backend.
+var clientCompanionBackend companion.Backend
+
 // runBuf sets up the proto companion over a prepared temp dir and runs buf.
 // before, when set, runs after the runner is initialized but before buf
 // generate (used by the Python facade path to strip the descriptor image).
@@ -202,18 +211,37 @@ func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpD
 	w := wool.Get(ctx).In("runBuf", wool.DirField(tmpDir), wool.DirField(destination))
 
 	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
-		Name:      name,
-		SourceDir: tmpDir,
-		Image:     image,
+		Name:             name,
+		SourceDir:        tmpDir,
+		Image:            image,
+		PreferredBackend: clientCompanionBackend,
 	})
 	if err != nil {
 		return w.Wrapf(err, "cannot create companion runner")
 	}
 
-	runner.WithMount(destination, "/workspace/output")
-	runner.WithMount(tmpDir, "/workspace")
-	runner.WithWorkDir("/workspace")
-	runner.WithUser(hostUserSpec())
+	// buf runs in its working directory and writes to outputDir under it. In a
+	// container that is /workspace, with destination bind-mounted at
+	// /workspace/output, so the output lands in place. A local or Nix
+	// companion runs on the host, where /workspace does not exist: it works in
+	// tmpDir, writes to tmpDir/output, and the output is copied into
+	// destination once formatted.
+	docker := runner.Backend() == companion.BackendDocker
+	runnerOutput := path.Join("/workspace", outputDir)
+	hostOutput := destination
+	if docker {
+		runner.WithMount(destination, runnerOutput)
+		runner.WithMount(tmpDir, "/workspace")
+		runner.WithWorkDir("/workspace")
+		runner.WithUser(hostUserSpec())
+	} else {
+		runner.WithWorkDir(tmpDir)
+		hostOutput = filepath.Join(tmpDir, outputDir)
+		runnerOutput = hostOutput
+		if err = os.MkdirAll(hostOutput, 0o750); err != nil {
+			return w.Wrapf(err, "cannot create output directory")
+		}
+	}
 	runner.WithPause()
 
 	defer func() {
@@ -249,14 +277,46 @@ func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpD
 		return w.Wrapf(err, "cannot generate with buf")
 	}
 	if formatGo {
-		// The template writes to /workspace/output, which is a separate bind
-		// mount from tmpDir. Discover files through the host destination while
-		// running goimports against the corresponding path in the companion.
-		if err = FormatGeneratedGoRoot(ctx, runner, destination, "/workspace/output"); err != nil {
+		// Discover files through the host view of the output while running
+		// goimports against the companion's view of the same directory.
+		if err = FormatGeneratedGoRoot(ctx, runner, hostOutput, runnerOutput); err != nil {
 			return w.Wrapf(err, "cannot format generated Go")
 		}
 	}
+	if !docker {
+		if err = copyGeneratedOutput(hostOutput, destination); err != nil {
+			return w.Wrapf(err, "cannot copy generated output")
+		}
+	}
 	return nil
+}
+
+// copyGeneratedOutput copies a host companion's generated tree into
+// destination, overwriting files of the same name — what the container's
+// bind mount of destination does in place. Callers reclaim stale output in
+// destination before generating, as they do for the container path.
+func copyGeneratedOutput(from, destination string) error {
+	return filepath.WalkDir(from, func(src string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, src)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(destination, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(dst, 0o750)
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("unexpected non-regular generated file %s", src)
+		}
+		content, err := os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, content, 0o644)
+	})
 }
 
 // Embed

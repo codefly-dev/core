@@ -186,7 +186,9 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 		if err = os.WriteFile(filepath.Join(tmpDir, "image.binpb"), markedDescriptorSet, 0600); err != nil {
 			return w.Wrapf(err, "cannot write descriptor set")
 		}
-		input := "/workspace/image.binpb"
+		// Paths are relative to the companion's working directory: /workspace
+		// in a container, the temp dir itself for a local or Nix companion.
+		input := "image.binpb"
 		// A Python facade must not register shared descriptors (buf.validate,
 		// google.api, org-shared options, ...) into the global pool, so strip
 		// the image down to the module's own files before generating the *_pb2
@@ -196,10 +198,10 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 			if len(spec.targetFiles) == 0 {
 				return w.NewError("TargetFiles is required for a Python facade from a descriptor set: the strip step needs the module's own proto file names")
 			}
-			stripped := "/workspace/image.stripped.binpb"
+			stripped := "image.stripped.binpb"
 			targets := spec.targetFiles
 			before = func(ctx context.Context, runner companion.CompanionRunner) error {
-				args := append([]string{"/workspace/image.binpb", stripped}, targets...)
+				args := append([]string{"image.binpb", stripped}, targets...)
 				proc, perr := runner.NewProcess("codefly-proto-strip-options", args...)
 				if perr != nil {
 					return perr

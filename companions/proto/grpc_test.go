@@ -66,6 +66,41 @@ func TestGenerateGoGRPC(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "Go bindings reference googleapis upstream, so nothing is generated for it")
 }
 
+// TestGenerateGoGRPCOnHostCompanion generates a dependency client with the
+// host (local) companion — the backend chosen when no Docker engine runs. Its
+// working directory must be the generation's temp dir, not the container's
+// /workspace: a host process given /workspace fails to start with
+// "fork/exec /bin/sh: no such file or directory". It needs buf, the Go
+// plugins and goimports on PATH.
+func TestGenerateGoGRPCOnHostCompanion(t *testing.T) {
+	ctx := context.Background()
+	restore := proto.PinClientCompanionBackend(companion.BackendLocal)
+	defer restore()
+
+	apiProto := filepath.Join(testdataDir(t), "api.proto")
+	ep := &resources.Endpoint{Module: "app", Service: "svc", Name: "api", Visibility: "private"}
+	api, err := resources.LoadGrpcAPI(ctx, shared.Pointer(apiProto))
+	require.NoError(t, err)
+	grpc, err := resources.NewAPI(ctx, ep, resources.ToGrpcAPI(api))
+	require.NoError(t, err)
+
+	parent := t.TempDir()
+	destination := filepath.Join(parent, "external")
+	err = proto.GenerateGRPC(ctx, languages.GO, destination, "app/svc", grpc)
+	require.NoError(t, err)
+
+	for _, name := range []string{"app_svc_api.pb.go", "app_svc_api_grpc.pb.go"} {
+		require.FileExists(t, filepath.Join(destination, name))
+	}
+	// The template's openapiv2 output sits beside the output root; on the
+	// host it must stay in the temp dir, as it does in the container, and
+	// never land next to the destination.
+	_, err = os.Stat(filepath.Join(parent, "openapi"))
+	require.True(t, os.IsNotExist(err), "openapi output leaked beside the destination")
+	_, err = os.Stat(filepath.Join(destination, "google"))
+	require.True(t, os.IsNotExist(err), "Go bindings reference googleapis upstream, so nothing is generated for it")
+}
+
 func TestFormatGoOutputsPreservesHandwrittenFiles(t *testing.T) {
 	ctx := t.Context()
 	testutil.RequireProtoImage(t, ctx)
