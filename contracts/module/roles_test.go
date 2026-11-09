@@ -353,3 +353,46 @@ destinations: []
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 }
+
+// TestSharedDecodingIsStrict: shared is a YAML boolean however it is written,
+// including through an alias key at either level, which a check over raw key
+// nodes would read as empty and pass.
+func TestSharedDecodingIsStrict(t *testing.T) {
+	const head = "schema: codefly/module-contract/v1\nprincipal: assistant\nnamespaces: []\nbindings: []\ndestinations: []\n"
+	for name, body := range map[string]string{
+		"word":             "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: yes}\n",
+		"quoted":           "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: \"true\"}\n",
+		"aliased value":    "queues: []\nrequire_method_policies: false\nscope_ceilings:\n    - resource_kind: &word yes\n      actions: [read]\n      shared: *word\n",
+		"aliased key":      "queues: []\nscope_ceilings:\n    - resource_kind: assistant.catalogue\n      actions: [read, &k shared]\n      *k : yes\n",
+		"aliased list key": "queues: [&q scope_ceilings]\n*q :\n    - {resource_kind: assistant.catalogue, actions: [read], shared: yes}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(head + body))
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("expected invalid declaration, got %v", err)
+			}
+		})
+	}
+	contract, err := Parse([]byte(head + "queues: []\nscope_ceilings:\n    - {resource_kind: assistant.catalogue, actions: [read], shared: true}\n"))
+	if err != nil || !contract.ScopeCeilings[0].Shared {
+		t.Fatalf("shared: true read as %v, %v", contract, err)
+	}
+}
+
+// TestThroughOnAConstructedBindingCeilingIsRefused: Parse refuses through on a
+// binding ceiling's scope as an unknown field; a constructed contract is held
+// to the same by Validate rather than resolved with it ignored.
+func TestThroughOnAConstructedBindingCeilingIsRefused(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/roles-reach-through.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.Bindings[0].ScopeCeiling[OperationInvoke].Scopes[0].Through = "model"
+	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `binding agent invoke ceiling scope agent.intents names through "model"`) {
+		t.Fatalf("Validate: %v", err)
+	}
+}

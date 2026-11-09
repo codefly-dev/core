@@ -898,7 +898,8 @@ type OmittedBinding struct {
 // ResolvedRole is one role with every grant addressed. A role scope names a
 // kind and actions but no audience, and is never ambiguous here: unless it is
 // reached through a binding (Through), Validate holds it to the unit's own
-// ceilings or to a scope one of its bindings spells out, and Resolve addresses it to the one audience that underwrites it — the
+// ceilings or to a scope one of its bindings spells out, and Resolve
+// addresses it to the one audience that underwrites it — the
 // unit's principal for its own kind, the binding's resolved audience for a
 // consumed one (a binding spelling scopes names one audience: never a list,
 // whose kinds are each audience's own). A scope two audiences underwrite is
@@ -918,8 +919,10 @@ type ResolvedRole struct {
 	// Through are, per binding of the unit's own, the scopes
 	// "<resource kind>:<action>" the role grants downstream of it (a scope's
 	// through): addressed by the authority, which knows the composition, to
-	// the module that serves the kind. Sorted, each once; nil when the role
-	// declares none.
+	// the module that serves the kind. Keyed by the declared binding id, so
+	// one entry covers every audience a binding listing audiences resolves
+	// to; a binding the composition leaves out has none. Sorted, each once;
+	// nil when the role declares none.
 	Through map[string][]string
 }
 
@@ -1379,40 +1382,32 @@ func resolutionError(secret, unresolved, ambiguous []string) error {
 
 // checkSharedBooleans: shared widens issuance (no owner selected), so it is
 // held as strictly as owner_aware: a YAML boolean, never a word yaml would
-// convert (yes, on, off) into one.
+// convert (yes, on, off) into one. Keys are read decoded, as owner_aware's
+// are, so a key written through an alias is checked like any other.
 func checkSharedBooleans(root *yaml.Node) error {
 	resolve := func(node *yaml.Node) *yaml.Node {
-		for node != nil && node.Kind == yaml.AliasNode {
+		for node.Kind == yaml.AliasNode {
 			node = node.Alias
 		}
 		return node
 	}
-	root = resolve(root)
-	if root == nil || root.Kind != yaml.MappingNode {
-		return nil
-	}
-	for index := 0; index+1 < len(root.Content); index += 2 {
-		if root.Content[index].Value != "scope_ceilings" {
-			continue
-		}
-		ceilings := resolve(root.Content[index+1])
-		if ceilings == nil || ceilings.Kind != yaml.SequenceNode {
-			return nil
+	document := wire.ReadMapping(resolve(root), func(key string, value *yaml.Node) (bool, error) {
+		ceilings := resolve(value)
+		if key != "scope_ceilings" || ceilings.Kind != yaml.SequenceNode {
+			return true, nil
 		}
 		for _, ceiling := range ceilings.Content {
-			ceiling = resolve(ceiling)
-			if ceiling == nil || ceiling.Kind != yaml.MappingNode {
-				continue
-			}
-			for field := 0; field+1 < len(ceiling.Content); field += 2 {
-				if ceiling.Content[field].Value != "shared" {
-					continue
+			entry := wire.ReadMapping(resolve(ceiling), func(field string, value *yaml.Node) (bool, error) {
+				if value = resolve(value); field == "shared" && (value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool") {
+					return true, fmt.Errorf("%w: a scope ceiling's shared must be a boolean (true or false), declaring whether no installation owns the kind", ErrInvalid)
 				}
-				if value := resolve(ceiling.Content[field+1]); value == nil || value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool" {
-					return fmt.Errorf("%w: a scope ceiling's shared must be a boolean (true or false), declaring whether no installation owns the kind", ErrInvalid)
-				}
+				return true, nil
+			})
+			if entry.Err != nil {
+				return true, entry.Err
 			}
 		}
-	}
-	return nil
+		return true, nil
+	})
+	return document.Err
 }

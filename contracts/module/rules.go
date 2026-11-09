@@ -1255,14 +1255,29 @@ func checkRolesWithinRequest(contract *Contract) error {
 }
 
 // checkThroughOnRoleScopes: through names how a person's role reaches a
-// kind, so among a role's lists only its scopes carry it — never an
-// installation-owned scope, whose ids are its own installation's.
+// kind, so only a role's scopes carry it — never an installation-owned scope,
+// whose ids are its own installation's, nor a binding ceiling's scope, which
+// is what the binding itself is issued (constructed: Parse refuses the field
+// there as unknown).
 func checkThroughOnRoleScopes(contract *Contract) error {
+	type placed struct {
+		label string
+		scope CeilingScope
+	}
+	var scopes []placed
 	for _, role := range contract.Roles {
 		for _, scope := range role.InstallationOwnedScopes {
-			if scope.Through != "" {
-				return fmt.Errorf("%w: role %q installation-owned scope %s names through %q; only a role's scopes are reached through a binding", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
-			}
+			scopes = append(scopes, placed{fmt.Sprintf("role %q installation-owned scope", role.Name), scope})
+		}
+	}
+	for _, entry := range contract.ceilings() {
+		for _, scope := range entry.ceiling.Scopes {
+			scopes = append(scopes, placed{entry.label + " ceiling scope", scope})
+		}
+	}
+	for _, entry := range scopes {
+		if entry.scope.Through != "" {
+			return fmt.Errorf("%w: %s %s names through %q; only a role's scopes are reached through a binding", ErrInvalid, entry.label, entry.scope.ResourceKind, entry.scope.Through)
 		}
 	}
 	return nil

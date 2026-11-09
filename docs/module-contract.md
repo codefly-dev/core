@@ -368,7 +368,9 @@ directly and through a binding, or through two bindings. Such a scope is not
 held to the unit's own ceilings or a binding's spelled scopes: the authority,
 which knows the composition, holds the kind to be reachable from that binding
 and refuses the delivery naming it when it is not. `Resolved.Roles` carries it
-in `Through`, per binding, never addressed to an audience here; a scope through
+in `Through`, keyed by the declared binding id (one entry covers every
+audience a binding with an `audiences` list resolves to), never addressed to an
+audience here; a scope through
 an optional binding the composition leaves out is left out with it.
 
 **A role may grant a scope only on what the installation owns.**
@@ -400,7 +402,8 @@ the whole kind.
 
 One of the roles is `installer`, which whoever installs the unit holds; each
 role is a lowercase name declared once and grants at least one kind or binding,
-each kind named once with at least one action, held to the same kind and action
+each kind named once per place it is reached (directly, or through one
+binding) with at least one action, held to the same kind and action
 grammar as every other scope here. Each of these is its own named rule
 (`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
 `role-kind-unique`, `role-kind-has-action`, `role-installer`,
@@ -409,8 +412,9 @@ grammar as every other scope here. Each of these is its own named rule
 `role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
 its access is the organisation's roles. The CLI carries the roles into the
 authority's document delivered with the unit's manifest
-(`AuthorityManifestV1.roles`); a role's `bindings` reach it only through
-`Resolved.Roles`, which needs the callee declarations its binding's calls are
+(`AuthorityManifestV1.roles`); a role's `bindings` and the scopes it reaches
+`through` a binding reach it only through `Resolved.Roles` (read there, an
+optional binding the composition leaves out drops them), which needs the callee declarations its binding's calls are
 read from. This contract is their one declaration site.
 
 **A module may require a policy on every method it publishes.**
