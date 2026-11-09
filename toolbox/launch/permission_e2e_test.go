@@ -50,9 +50,6 @@ import (
 func TestE2E_Principal_FlowsToHandler(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
 		Version: "e2e-principal",
@@ -67,7 +64,12 @@ func TestE2E_Principal_FlowsToHandler(t *testing.T) {
 		// the AUTHORITY (principal) wire, not the CAPACITY (sandbox).
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	// Construct the principal the host will pass.
 	want := &policy.Principal{
@@ -114,9 +116,6 @@ func TestE2E_Principal_FlowsToHandler(t *testing.T) {
 func TestE2E_Principal_DelegationChain_Preserved(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
 		Version: "e2e-chain",
@@ -128,7 +127,12 @@ func TestE2E_Principal_DelegationChain_Preserved(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	want := &policy.Principal{
 		ID:      "p-bot",
@@ -169,9 +173,6 @@ func TestE2E_Principal_DelegationChain_Preserved(t *testing.T) {
 func TestE2E_Principal_Absent_HandlerSeesNil(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
 		Version: "e2e-no-principal",
@@ -183,7 +184,12 @@ func TestE2E_Principal_Absent_HandlerSeesNil(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	// Notice: NO WithPrincipal. The host explicitly chooses
 	// WithoutPrincipal to suppress the security warning while
@@ -224,8 +230,6 @@ func TestE2E_Principal_Absent_HandlerSeesNil(t *testing.T) {
 // spawn time, not from the plugin's claim.
 func TestE2E_Authorizer_AllowsViaCallback(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -238,7 +242,12 @@ func TestE2E_Authorizer_AllowsViaCallback(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	// FakePDP: deny by default, explicitly allow:
 	//   - check.action (the OUTER tool the host calls via Guard)
@@ -304,8 +313,6 @@ func TestE2E_Authorizer_AllowsViaCallback(t *testing.T) {
 // — distinct from a transport error.
 func TestE2E_Authorizer_DenyReasonReachesPlugin(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -318,7 +325,12 @@ func TestE2E_Authorizer_DenyReasonReachesPlugin(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	fakePDP := testharness.NewFakeAllow().
 		DenyTool("", "github.force_push", "force-push forbidden by policy")
@@ -354,8 +366,6 @@ func TestE2E_Authorizer_DenyReasonReachesPlugin(t *testing.T) {
 // fail-closed.
 func TestE2E_Authorizer_NoCallback_FailsClosed(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -368,7 +378,12 @@ func TestE2E_Authorizer_NoCallback_FailsClosed(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	plugin, err := launch.LaunchWithOptions(ctx, tb, launch.Options{},
 		manager.WithoutPrincipal())
@@ -408,8 +423,6 @@ func TestE2E_Authorizer_PluginCannotImpersonate(t *testing.T) {
 	// the contract: the PDP's identity map carries the SPAWN-TIME
 	// principal_id, never any client-provided claim.
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -422,7 +435,12 @@ func TestE2E_Authorizer_PluginCannotImpersonate(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	// Decider that records every principal_id it sees.
 	seenIDs := make(map[string]int)
@@ -507,8 +525,6 @@ func (f pdpRecorderForE2E) Evaluate(_ context.Context, req *policy.PDPRequest) p
 // fail. PDP not called == fast path 100% effective.
 func TestE2E_ScopedAuth_FastPathSkipsPDP(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -521,7 +537,12 @@ func TestE2E_ScopedAuth_FastPathSkipsPDP(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{
 		ID: "u-fastpath", Kind: policy.KindHuman, OrgID: "org-x",
@@ -583,8 +604,6 @@ func TestE2E_ScopedAuth_FastPathSkipsPDP(t *testing.T) {
 // Single-level model still works alongside the fast path.
 func TestE2E_ScopedAuth_DefensePathFallsBackToPDP(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -597,7 +616,12 @@ func TestE2E_ScopedAuth_DefensePathFallsBackToPDP(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{
 		ID: "u-defense", Kind: policy.KindHuman, OrgID: "org-x",
@@ -633,8 +657,6 @@ func TestE2E_ScopedAuth_DefensePathFallsBackToPDP(t *testing.T) {
 // denied without downgrading to the credential-less PDP path.
 func TestE2E_ScopedAuth_InvalidTokenFailsClosed(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -647,7 +669,12 @@ func TestE2E_ScopedAuth_InvalidTokenFailsClosed(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{ID: "u-inv", Kind: policy.KindHuman, OrgID: "org-x"}
 	secret := policy.NewSpawnSecret()
@@ -743,8 +770,6 @@ func (g *e2eApprovingGrantor) Request(_ context.Context, req policy.EscalationRe
 //     scoped-auth fast-path test, repeated under the M7 retry.
 func TestE2E_M7_Escalation_HostRetriesAfterDeny(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -757,7 +782,12 @@ func TestE2E_M7_Escalation_HostRetriesAfterDeny(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{
 		ID: "u-m7", Kind: policy.KindHuman, OrgID: "org-x",
@@ -839,8 +869,6 @@ func TestE2E_M7_Escalation_HostRetriesAfterDeny(t *testing.T) {
 // retry attempt has no elevated ctx; the call still fails.
 func TestE2E_M7_Escalation_GrantorDeny_RetryStillFails(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -853,7 +881,12 @@ func TestE2E_M7_Escalation_GrantorDeny_RetryStillFails(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{ID: "u-m7d", Kind: policy.KindHuman, OrgID: "org-x"}
 	secret := policy.NewSpawnSecret()
@@ -900,8 +933,6 @@ func (g *fakeDenyingGrantor) Request(_ context.Context, _ policy.EscalationReque
 // within the same plugin process.
 func TestE2E_ScopedAuth_ReplayProtection(t *testing.T) {
 	codeflyHome := resolveSymlinks(t, t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	tb := &resources.Toolbox{
 		Name:    "network-victim",
@@ -914,7 +945,12 @@ func TestE2E_ScopedAuth_ReplayProtection(t *testing.T) {
 		},
 	}
 	require.NoError(t, tb.Validate())
-	installVictimAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installVictimAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: a cold-cache compile on a busy
+	// runner must not spend the launch's deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	principal := &policy.Principal{ID: "u-replay", Kind: policy.KindHuman, OrgID: "org-x"}
 	secret := policy.NewSpawnSecret()

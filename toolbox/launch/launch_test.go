@@ -63,9 +63,6 @@ func TestLaunch_FromManifest_RoundTrip(t *testing.T) {
 	workspace := t.TempDir()
 	initGitRepo(t, workspace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	tb := &resources.Toolbox{
 		Name:    "git",
 		Version: "phaseB-test",
@@ -78,7 +75,13 @@ func TestLaunch_FromManifest_RoundTrip(t *testing.T) {
 		CanonicalFor: []string{"git"},
 	}
 	require.NoError(t, tb.Validate())
-	installPluginAtAgentPath(t, ctx, codeflyHome, tb.Agent)
+	installPluginAtAgentPath(t, t.Context(), codeflyHome, tb.Agent)
+
+	// The bound starts after the build: it is a deadline on the launch and
+	// the round trip, and a cold-cache compile of the plugin on a busy runner
+	// spent most of it before Load began (core main run 42715509288).
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	// SkipSandbox: this test exercises manifest → spawn → typed-RPC,
 	// NOT the OS sandbox enforcement layer. Sandbox is exercised by
