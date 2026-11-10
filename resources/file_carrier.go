@@ -39,6 +39,10 @@ const (
 	// arguments, so a process it plans always starts.
 	MaxCarriedEnvironmentBytes = 512 << 10
 
+	// FileCarrierPathBudget is what SpillToFileCarriers assumes the path of
+	// one delivered file takes inline.
+	FileCarrierPathBudget = 256
+
 	// MaxFileCarrierBytes bounds one file-delivered value as a reader loads it.
 	MaxFileCarrierBytes = 16 << 20
 
@@ -183,6 +187,49 @@ func writePrivateFile(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// SpillToFileCarriers keeps a process environment inside
+// MaxCarriedEnvironmentBytes by delivering the largest inline values by file
+// (EnvironmentVariable.File), exactly as a value above FileCarrierThreshold
+// is, for as long as the inline total would otherwise be refused.
+// reserved is the size of environment the process carries beyond envs (for
+// example inline secrets). Nothing is spilled while the environment fits, so
+// an environment that fits is delivered as it always was; envs are not
+// modified, and a variable already delivered by file, empty, or whose key
+// cannot name a file is never chosen. Call after EffectiveEnvironmentVariables
+// and before PlanFileCarriers or any other emitter.
+func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int) []*EnvironmentVariable {
+	total := reserved
+	type candidate struct{ index, size int }
+	var candidates []candidate
+	for i, env := range envs {
+		if env == nil || env.File {
+			continue
+		}
+		size := len(env.Key) + 1 + len(env.ValueAsString()) + 1
+		total += size
+		if env.ValueAsString() != "" && fileCarrierName.MatchString(env.Key) {
+			candidates = append(candidates, candidate{i, size})
+		}
+	}
+	if total <= MaxCarriedEnvironmentBytes {
+		return envs
+	}
+	sort.SliceStable(candidates, func(a, b int) bool { return candidates[a].size > candidates[b].size })
+	out := append([]*EnvironmentVariable(nil), envs...)
+	for _, c := range candidates {
+		if total <= MaxCarriedEnvironmentBytes {
+			break
+		}
+		spilled := *envs[c.index]
+		spilled.File = true
+		spilled.Secret = spilled.Secret || IsSecretCarrierKey(spilled.Key)
+		out[c.index] = &spilled
+		// The path carrier replaces the value inline.
+		total -= c.size - (len(FileCarrierKey(spilled.Key)) + 1 + FileCarrierPathBudget + 1)
+	}
+	return out
 }
 
 // CheckProcessEnvironment refuses an environment a process could not start

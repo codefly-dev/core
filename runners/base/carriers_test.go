@@ -149,3 +149,33 @@ func TestANativeProcessIsNotStartedWithAnOversizedEnvironment(t *testing.T) {
 	require.ErrorIs(t, err, resources.ErrEnvironmentLimit)
 	require.Contains(t, err.Error(), "CODEFLY__RAW")
 }
+
+// A group whose values each fit inline but together exceed the environment
+// limit is not refused: the largest are delivered by file and the process
+// starts.
+func TestANativeProcessWithManyInlineValuesAboveTheLimitStarts(t *testing.T) {
+	ctx := context.Background()
+	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	for i := 0; i < 40; i++ {
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
+	}
+	manager := resources.NewEnvironmentVariableManager()
+	manager.SetEnvironment(&basev0.Environment{Name: "local"})
+	require.NoError(t, manager.AddConfigurations(ctx, &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}))
+	envs, err := manager.All()
+	require.NoError(t, err)
+	var inline int
+	for _, env := range envs {
+		inline += len(env.Key) + len(env.ValueAsString()) + 2
+	}
+	require.Greater(t, inline, resources.MaxCarriedEnvironmentBytes, "the group alone is above the limit")
+
+	env, err := base.NewNativeEnvironment(ctx, shared.Must(shared.SolvePath("testdata")))
+	require.NoError(t, err)
+	require.NoError(t, env.Init(ctx))
+	env.WithEnvironmentVariables(ctx, envs...)
+	proc, err := env.NewProcess("true")
+	require.NoError(t, err)
+	require.NoError(t, proc.Run(ctx))
+}

@@ -972,6 +972,17 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	// Normalize within each category after restricted-profile checks, matching
 	// the last-key-wins ConfigMap/Secret maps without erasing secret inputs.
 	configurations = resources.EffectiveEnvironmentVariables(configurations)
+	// Secrets are loaded inline beside the configuration: the budget the
+	// configuration may spend is what they leave.
+	inlineBudget := 0
+	if profile.InlineSecrets() {
+		for _, secret := range resources.EffectiveEnvironmentVariables(secretValues, deploymentContext.Secrets) {
+			if !secret.File {
+				inlineBudget += len(secret.Key) + len(secret.ValueAsString()) + 2
+			}
+		}
+	}
+	configurations = resources.SpillToFileCarriers(configurations, inlineBudget)
 	fileCarriers := &FileCarrierDelivery{ConfigMap: map[string]string{}, Secret: map[string]string{}}
 	if configurations, err = splitFileCarriers(configurations, resources.KubernetesFileCarrierMount, fileCarriers.ConfigMap); err != nil {
 		return fail(err)

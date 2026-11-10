@@ -1,6 +1,7 @@
 package resources_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,4 +154,41 @@ func TestCheckProcessEnvironmentRefusesWhatExecWould(t *testing.T) {
 	unmaterialized := resources.Env("KEY", "v")
 	unmaterialized.File = true
 	require.ErrorIs(t, resources.CheckProcessEnvironment([]*resources.EnvironmentVariable{unmaterialized}), resources.ErrEnvironmentLimit)
+}
+
+// An environment above the limit delivers its largest values by file until it
+// fits; one that fits is delivered exactly as it always was, and the input is
+// never modified.
+func TestSpillToFileCarriersDeliversTheLargestValuesByFileOnlyWhenNeeded(t *testing.T) {
+	var envs []*resources.EnvironmentVariable
+	for i := 0; i < 40; i++ {
+		envs = append(envs, resources.Env(fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__G__K%02d", i), strings.Repeat("v", (10+i)<<10)))
+	}
+	envs = append(envs, resources.Env("SMALL", "x"), resources.Env("not a file name", strings.Repeat("v", 30<<10)))
+	require.ErrorIs(t, resources.CheckProcessEnvironment(envs), resources.ErrEnvironmentLimit)
+
+	spilled := resources.SpillToFileCarriers(envs, 0)
+	for _, env := range envs {
+		require.False(t, env.File, "the input is not modified")
+	}
+	var files int
+	for _, env := range spilled {
+		if env.File {
+			files++
+			require.True(t, strings.HasPrefix(env.Key, "CODEFLY__WORKSPACE_CONFIGURATION__G__K"), env.Key)
+		}
+	}
+	require.Positive(t, files)
+	require.False(t, byKey(spilled)["SMALL"].File)
+	require.False(t, byKey(spilled)["not a file name"].File, "a key that cannot name a file is never chosen")
+
+	planned, delivered, err := resources.PlanFileCarriers("/carriers", spilled)
+	require.NoError(t, err)
+	require.Len(t, delivered, files)
+	require.NoError(t, resources.CheckProcessEnvironment(planned))
+
+	fits := envs[:3]
+	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 0), "an environment that fits is untouched")
+	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 1<<10))
+	require.NotEqual(t, fits, resources.SpillToFileCarriers(fits, resources.MaxCarriedEnvironmentBytes), "reserved bytes count against the budget")
 }

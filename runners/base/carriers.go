@@ -24,7 +24,9 @@ type processCarriers struct {
 func prepareProcessCarriers(envs ...[]*resources.EnvironmentVariable) (*processCarriers, error) {
 	// Environment defaults precede process overrides, just as in os/exec.
 	// Count and materialize only winners, not superseded duplicate entries.
-	all := resources.EffectiveEnvironmentVariables(envs...)
+	// An environment that would exceed the limit delivers its largest values
+	// by file rather than refusing a process nothing is wrong with.
+	all := resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs...), 0)
 	file := false
 	for _, env := range all {
 		file = file || env.File

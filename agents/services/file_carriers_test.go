@@ -126,6 +126,32 @@ func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
 	requireReadableOnlyByTheWorkload(t, pod)
 }
 
+// A workload whose values each fit inline but together exceed the environment
+// limit renders: the largest reach it as mounted files, the rest inline, and
+// the ConfigMap the container loads as environment stays under the limit.
+func TestARenderedWorkloadWithManyInlineValuesAboveTheLimitSpillsTheLargest(t *testing.T) {
+	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	for i := 0; i < 40; i++ {
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", (10+i)<<10)})
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+
+	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+
+	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
+	total := 0
+	for key, value := range environment {
+		total += len(key) + len(value.(string)) + 2
+	}
+	require.LessOrEqual(t, total, resources.MaxCarriedEnvironmentBytes)
+	files := readDocuments(t, filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
+	require.Len(t, files, 1)
+	require.NotEmpty(t, files[0]["data"].(map[string]any), "the largest values are mounted as files")
+}
+
 // A workload with nothing large renders exactly as before: no file manifest,
 // no volume.
 func TestARenderWithoutLargeValuesMountsNothing(t *testing.T) {
