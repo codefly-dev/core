@@ -218,11 +218,13 @@ limit, and a genuinely oversized effective environment still refuses
   every time), until the environment fits, counting the real length of each
   path and what the process carries beyond the values (inline secrets, paths
   of secrets delivered by file, a container's own environment under an exec).
-  An environment that fits is delivered exactly as before. Only a `CODEFLY__`
-  value moves: a secret is never written to a file it was not already destined
-  for, and a raw variable is read by name and would come back from the carrier
-  under another one, so an environment that is large only through those is
-  refused naming the keys. A native start, a container (and its exec) and the
+  An environment that fits is delivered exactly as before. Only a
+  configuration value moves, the kind a value above the threshold already
+  moves, so a reader that resolves its carrier is the same one: a secret or a
+  key sensitive by name is never written to a file it was not already destined
+  for, an endpoint or runtime value stays inline, and a raw variable is read by
+  name and would come back from the carrier under another one, so an
+  environment that is large only through those is refused naming the keys. A native start, a container (and its exec) and the
   Kubernetes render all call it. Per-consumer narrowing of what is delivered at
   all is a separate matter and stays with the CLI.
 - **Plan and render time.** `resources.CheckProcessEnvironment` refuses a

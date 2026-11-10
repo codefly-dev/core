@@ -100,8 +100,9 @@ func (docker *DockerEnvironment) execCarriers(ctx context.Context, id string, en
 // planExecCarriers plans the environment of an exec on a container that
 // already carries inherited ("KEY=VALUE"). What the container carries counts
 // against the limit unless the exec sets the same key, and a value the exec
-// delivers by file is set empty inline, so it never reaches the process both
-// inline (from the container) and by file, which ResolveFileCarriers refuses.
+// delivers by file is set empty inline (and one it sets inline has its carrier
+// set empty), so it never reaches the process both inline and by file, which
+// ResolveFileCarriers refuses.
 func planExecCarriers(inherited []string, envs []*resources.EnvironmentVariable) ([]*resources.EnvironmentVariable, []resources.FileCarrier, error) {
 	effective := resources.EffectiveEnvironmentVariables(envs)
 	set := map[string]bool{}
@@ -127,6 +128,11 @@ func planExecCarriers(inherited []string, envs []*resources.EnvironmentVariable)
 	for _, env := range spilled {
 		if env.File && held[env.Key] != "" {
 			planned = append(planned, resources.Env(env.Key, ""))
+		}
+		// The reverse: the container carries this key by file, and the exec
+		// sets it inline. The carrier is set aside.
+		if !env.File && held[resources.FileCarrierKey(env.Key)] != "" {
+			planned = append(planned, resources.Env(resources.FileCarrierKey(env.Key), ""))
 		}
 	}
 	if err := resources.CheckProcessEnvironment(append(append([]*resources.EnvironmentVariable(nil), carried...), planned...)); err != nil {

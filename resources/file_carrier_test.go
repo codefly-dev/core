@@ -300,3 +300,26 @@ func TestSpillToFileCarriersNeverMovesASecretOrARawVariable(t *testing.T) {
 	require.Len(t, files, 1)
 	require.Equal(t, public.Key, resources.CarriedKey(resources.FileCarrierKey(public.Key)))
 }
+
+// Only a configuration value moves: an endpoint, a credential-like key in a
+// public namespace, and a value whose carrier would be no smaller stay inline,
+// and a carrier set empty is set aside rather than read.
+func TestSpillToFileCarriersMovesOnlyWhatReadersResolveAndWhatShrinks(t *testing.T) {
+	big := strings.Repeat("v", 120<<10)
+	envs := []*resources.EnvironmentVariable{
+		resources.Env("CODEFLY__SERVICE_ENDPOINT__M__S__REST", big),
+		resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__AUTH__API_TOKEN", big),
+		resources.Env("CODEFLY__SERVICE_CONFIGURATION__M__S__DB__PASSWORD", big),
+		resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__CATALOG", big),
+		resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__"+strings.Repeat("K", 200), "x"),
+	}
+	spilled := spillAt("/carriers", envs, 100<<10)
+	require.Equal(t, []string{"CODEFLY__WORKSPACE_CONFIGURATION__G__CATALOG"}, spilledKeys(spilled))
+
+	tiny := []*resources.EnvironmentVariable{resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__"+strings.Repeat("K", 200), "x")}
+	require.Equal(t, tiny, spillAt("/carriers", tiny, resources.MaxCarriedEnvironmentBytes), "a carrier larger than its value is not worth it")
+
+	resolved, err := resources.ResolveFileCarriers([]string{resources.FileCarrierKey("CODEFLY__X") + "=", "CODEFLY__X=inline"})
+	require.NoError(t, err)
+	require.Empty(t, resolved)
+}

@@ -198,9 +198,10 @@ func writePrivateFile(path string, content []byte) error {
 //
 // Only a value the process reads through the file carrier may move, so a
 // variable is never chosen when it is already delivered by file, is empty,
-// is a secret (a secret is never written to a file it was not already
-// destined for), or is not a CODEFLY__ value (a raw variable is read by name
-// and would come back from the carrier under another one). Ties in size are
+// is a secret or sensitive by name (never written to a file it was not
+// already destined for), is not a configuration value (a raw variable is read
+// by name and would come back from the carrier under another one), or has a
+// carrier no smaller than itself. Ties in size are
 // broken by key, so the same environment spills the same values whatever
 // order it arrives in. envs are not modified. Call after
 // EffectiveEnvironmentVariables and before PlanFileCarriers or any other
@@ -235,6 +236,9 @@ func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int, pathLen func
 		if total <= MaxCarriedEnvironmentBytes {
 			break
 		}
+		if FileCarrierSize(c.Key, pathLen(c.Key)) >= inlineSize(c) {
+			continue // its carrier is no smaller than the value
+		}
 		spilled := *c
 		spilled.File = true
 		chosen[c] = &spilled
@@ -250,9 +254,12 @@ func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int, pathLen func
 	return out
 }
 
+// spillable is a configuration value, the one kind deliverByFile already
+// moves by file: readers resolve a carrier for it. An endpoint or runtime
+// value, a raw variable, anything sensitive by name and any secret stay inline.
 func spillable(env *EnvironmentVariable) bool {
-	return env.ValueAsString() != "" && !env.Secret && !IsSecretCarrierKey(env.Key) &&
-		strings.HasPrefix(env.Key, "CODEFLY__") && !IsFileCarrierKey(env.Key) &&
+	return env.ValueAsString() != "" && !env.Secret && !IsSensitiveEnvironmentVariable(env.Key) &&
+		(strings.HasPrefix(env.Key, WorkspaceConfigurationPrefix+"__") || strings.HasPrefix(env.Key, ServiceConfigurationPrefix+"__")) &&
 		fileCarrierName.MatchString(env.Key)
 }
 
@@ -348,7 +355,10 @@ func ResolveFileCarriers(environ []string) (map[string]string, error) {
 			continue
 		}
 		if IsFileCarrierKey(key) {
-			carriers[key] = value
+			// An empty path is a carrier set aside, as an empty inline value is unset.
+			if value != "" {
+				carriers[key] = value
+			}
 			continue
 		}
 		if value != "" {

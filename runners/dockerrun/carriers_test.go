@@ -197,3 +197,27 @@ func TestAnExecNeverDeliversAKeyBothInlineAndByFile(t *testing.T) {
 	require.NoError(t, err, "no key arrives both inline and by file")
 	require.Len(t, read, len(files))
 }
+
+// A key the container carries by file and the exec sets inline reaches the
+// process inline alone: the container's carrier is set empty.
+func TestAnExecSettingAKeyInlineSetsItsInheritedCarrierAside(t *testing.T) {
+	key := "CODEFLY__WORKSPACE_CONFIGURATION__G__K"
+	inherited := []string{resources.FileCarrierKey(key) + "=" + resources.ContainerFileCarrierMount + "/" + key + ".0123456789abcdef"}
+	planned, files, err := planExecCarriers(inherited, []*resources.EnvironmentVariable{resources.Env(key, "new")})
+	require.NoError(t, err)
+	require.Empty(t, files)
+	environ := append(append([]string(nil), inherited...), resources.EnvironmentVariableAsStrings(planned)...)
+	// The exec's entries override the container's, as docker exec does.
+	last := map[string]string{}
+	var ordered []string
+	for _, entry := range environ {
+		k, v, _ := strings.Cut(entry, "=")
+		last[k] = v
+	}
+	for k, v := range last {
+		ordered = append(ordered, k+"="+v)
+	}
+	read, err := resources.ResolveFileCarriers(ordered)
+	require.NoError(t, err)
+	require.Empty(t, read)
+}
