@@ -27,8 +27,22 @@ func TestProcessCarriersCount134EffectiveBindings(t *testing.T) {
 	for _, env := range bindings {
 		distinct = append(distinct, resources.Env(env.Key+"_OTHER", env.Value))
 	}
-	_, err = prepareProcessCarriers(bindings, distinct)
-	require.ErrorIs(t, err, resources.ErrEnvironmentLimit, "genuinely oversized unique environment still refuses")
+	spilled, err := prepareProcessCarriers(bindings, distinct)
+	require.NoError(t, err, "a unique environment above the limit delivers its largest values by file")
+	t.Cleanup(spilled.release)
+	require.NotEmpty(t, spilled.dir)
+	// What cannot be delivered by file still refuses: keys that cannot name one.
+	var unnameable []*resources.EnvironmentVariable
+	for i := 0; i < 268; i++ {
+		unnameable = append(unnameable, resources.Env(fmt.Sprintf("KEY WITH SPACE %03d", i), strings.Repeat("x", 2800)))
+	}
+	scratch := t.TempDir()
+	t.Setenv("TMPDIR", scratch)
+	_, err = prepareProcessCarriers(unnameable)
+	require.ErrorIs(t, err, resources.ErrEnvironmentLimit, "genuinely oversized environment that cannot spill still refuses")
+	left, readErr := os.ReadDir(scratch)
+	require.NoError(t, readErr)
+	require.Empty(t, left, "a directory made to count the paths is removed when nothing is delivered by file")
 }
 
 func TestProcessCarrierOverridesPrecedeMaterialization(t *testing.T) {

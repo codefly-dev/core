@@ -24,21 +24,28 @@ type processCarriers struct {
 func prepareProcessCarriers(envs ...[]*resources.EnvironmentVariable) (*processCarriers, error) {
 	// Environment defaults precede process overrides, just as in os/exec.
 	// Count and materialize only winners, not superseded duplicate entries.
+	// An environment that would exceed the limit delivers its largest values
+	// by file rather than refusing a process nothing is wrong with.
 	all := resources.EffectiveEnvironmentVariables(envs...)
-	file := false
-	for _, env := range all {
-		file = file || env.File
-	}
+	file := hasFile(all)
 	carriers := &processCarriers{}
-	if file {
+	// The directory is created before the choice is made, so the paths the
+	// choice counts are the ones the process will read; it is removed again
+	// when nothing is delivered by file.
+	if file || resources.EnvironmentBytes(all) > resources.MaxCarriedEnvironmentBytes {
 		dir, err := os.MkdirTemp("", "codefly-carriers-")
 		if err != nil {
 			return nil, err
 		}
-		carriers.dir = dir
-		if all, err = resources.MaterializeFileCarriers(dir, dir, all); err != nil {
-			carriers.release()
-			return nil, err
+		all = resources.SpillToFileCarriers(all, 0, resources.PlannedPathLen(dir))
+		if !hasFile(all) {
+			_ = os.Remove(dir)
+		} else {
+			carriers.dir = dir
+			if all, err = resources.MaterializeFileCarriers(dir, dir, all); err != nil {
+				carriers.release()
+				return nil, err
+			}
 		}
 	}
 	if err := resources.CheckProcessEnvironment(all); err != nil {
@@ -61,4 +68,13 @@ func (c *processCarriers) release() {
 			_ = os.RemoveAll(c.dir)
 		}
 	})
+}
+
+func hasFile(envs []*resources.EnvironmentVariable) bool {
+	for _, env := range envs {
+		if env.File {
+			return true
+		}
+	}
+	return false
 }

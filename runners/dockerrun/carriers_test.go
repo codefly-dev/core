@@ -3,7 +3,10 @@ package dockerrun
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,4 +125,99 @@ func TestAnExecCannotDeliverAFileWithoutAContainer(t *testing.T) {
 	large.File = true
 	_, err := docker.execCarriers(t.Context(), "", []*resources.EnvironmentVariable{large})
 	require.ErrorIs(t, err, resources.ErrFileCarrier)
+}
+
+func execValues(count, size int) []*resources.EnvironmentVariable {
+	var envs []*resources.EnvironmentVariable
+	for i := 0; i < count; i++ {
+		envs = append(envs, resources.Env(fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__G__K%02d", i), strings.Repeat("v", size)))
+	}
+	return envs
+}
+
+// An exec runs on top of the container's environment: what the container
+// carries counts against the limit, so the exec spills more of its own.
+func TestAnExecCountsTheEnvironmentTheContainerCarries(t *testing.T) {
+	envs := execValues(10, 20<<10)
+	alone, _, err := planExecCarriers(nil, envs)
+	require.NoError(t, err)
+	require.Len(t, alone, 10, "alone it fits and nothing moves")
+
+	var inherited []string
+	var held []*resources.EnvironmentVariable
+	for i := 0; i < 4; i++ {
+		held = append(held, resources.Env(fmt.Sprintf("CODEFLY__INHERITED_%d", i), strings.Repeat("i", 100<<10)))
+		inherited = append(inherited, held[i].String())
+	}
+	planned, files, err := planExecCarriers(inherited, envs)
+	require.NoError(t, err)
+	require.NotEmpty(t, files, "the container's 400 KiB leaves the exec too little room inline")
+	all := append(held, planned...)
+	require.NoError(t, resources.CheckProcessEnvironment(all))
+}
+
+// A key the container carries inline and the exec delivers by file reaches the
+// process by file alone: the inline copy is set empty, so ResolveFileCarriers
+// does not see the pair.
+func TestAnExecNeverDeliversAKeyBothInlineAndByFile(t *testing.T) {
+	envs := execValues(30, 20<<10)
+	inherited := []string{"PATH=/bin"}
+	for _, env := range envs {
+		inherited = append(inherited, env.Key+"=old")
+	}
+	planned, files, err := planExecCarriers(inherited, envs)
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	dir := t.TempDir()
+	environ := []string{}
+	for _, entry := range inherited {
+		environ = append(environ, entry)
+	}
+	for _, env := range planned {
+		value := env.ValueAsString()
+		if resources.IsFileCarrierKey(env.Key) {
+			for _, file := range files {
+				if value == resources.ContainerFileCarrierMount+"/"+file.Name {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, file.Name), file.Content, 0o600))
+					value = filepath.Join(dir, file.Name)
+				}
+			}
+		}
+		// The exec's own entries override the container's, as docker exec does.
+		for i, entry := range environ {
+			if strings.HasPrefix(entry, env.Key+"=") {
+				environ = append(environ[:i], environ[i+1:]...)
+				break
+			}
+		}
+		environ = append(environ, env.Key+"="+value)
+	}
+	read, err := resources.ResolveFileCarriers(environ)
+	require.NoError(t, err, "no key arrives both inline and by file")
+	require.Len(t, read, len(files))
+}
+
+// A key the container carries by file and the exec sets inline reaches the
+// process inline alone: the container's carrier is set empty.
+func TestAnExecSettingAKeyInlineSetsItsInheritedCarrierAside(t *testing.T) {
+	key := "CODEFLY__WORKSPACE_CONFIGURATION__G__K"
+	inherited := []string{resources.FileCarrierKey(key) + "=" + resources.ContainerFileCarrierMount + "/" + key + ".0123456789abcdef"}
+	planned, files, err := planExecCarriers(inherited, []*resources.EnvironmentVariable{resources.Env(key, "new")})
+	require.NoError(t, err)
+	require.Empty(t, files)
+	environ := append(append([]string(nil), inherited...), resources.EnvironmentVariableAsStrings(planned)...)
+	// The exec's entries override the container's, as docker exec does.
+	last := map[string]string{}
+	var ordered []string
+	for _, entry := range environ {
+		k, v, _ := strings.Cut(entry, "=")
+		last[k] = v
+	}
+	for k, v := range last {
+		ordered = append(ordered, k+"="+v)
+	}
+	read, err := resources.ResolveFileCarriers(ordered)
+	require.NoError(t, err)
+	require.Empty(t, read)
 }

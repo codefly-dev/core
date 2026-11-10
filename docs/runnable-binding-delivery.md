@@ -208,8 +208,25 @@ categories, after restricted-profile admission and before file splitting,
 matching its existing last-key-wins maps. Categories are not merged. Inline
 and `CODEFLY__FILE__` keys remain distinct; normalization neither resolves nor
 conceals conflicting delivery forms. It changes no catalog, threshold or size
-limit, and a genuinely oversized effective environment still refuses.
+limit, and a genuinely oversized effective environment still refuses
+(after the spill below, which only moves values to files).
 
+- **Spill before refusing.** Many values that each fit inline can together
+  exceed the limit (a composition of two hundred prepared bindings does).
+  Before the check, `resources.SpillToFileCarriers` delivers the largest inline
+  values by file, largest first (equal sizes by key, so a render is the same
+  every time), until the environment fits, counting the real length of each
+  path and what the process carries beyond the values (inline secrets, paths
+  of secrets delivered by file, a container's own environment under an exec).
+  An environment that fits is delivered exactly as before. Only a
+  configuration value moves, the kind a value above the threshold already
+  moves, so a reader that resolves its carrier is the same one: a secret or a
+  key sensitive by name is never written to a file it was not already destined
+  for, an endpoint or runtime value stays inline, and a raw variable is read by
+  name and would come back from the carrier under another one, so an
+  environment that is large only through those is refused naming the keys. A native start, a container (and its exec) and the
+  Kubernetes render all call it. Per-consumer narrowing of what is delivered at
+  all is a separate matter and stays with the CLI.
 - **Plan and render time.** `resources.CheckProcessEnvironment` refuses a
   process environment in which any one `KEY=VALUE` string reaches 128 KiB, or
   in which the Codefly-emitted carriers together exceed

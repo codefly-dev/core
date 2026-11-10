@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"os"
@@ -124,6 +125,77 @@ func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
 	container := pod["containers"].([]any)[0].(map[string]any)
 	require.Contains(t, container["volumeMounts"], map[string]any{"name": "codefly-configuration-files", "mountPath": resources.KubernetesFileCarrierMount, "readOnly": true})
 	requireReadableOnlyByTheWorkload(t, pod)
+}
+
+// A workload whose values each fit inline but together exceed the environment
+// limit renders: the largest reach it as mounted files, the rest inline, and
+// the ConfigMap the container loads as environment stays under the limit.
+func TestARenderedWorkloadWithManyInlineValuesAboveTheLimitSpillsTheLargest(t *testing.T) {
+	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	// Every value is under the file threshold: none is delivered by file
+	// unless the environment as a whole would be refused.
+	for i := 0; i < 30; i++ {
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+
+	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+
+	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
+	total := 0
+	for key, value := range environment {
+		total += len(key) + len(value.(string)) + 2
+	}
+	require.LessOrEqual(t, total, resources.MaxCarriedEnvironmentBytes)
+	files := readDocuments(t, filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
+	require.Len(t, files, 1)
+	require.NotEmpty(t, files[0]["data"].(map[string]any), "the largest values are mounted as files")
+}
+
+// Secrets delivered by file still put their paths in the container's
+// environment, and the environment is the configuration plus those paths: the
+// configuration spills enough that the two together stay under the limit.
+func TestARenderCountsThePathsOfSecretsDeliveredByFile(t *testing.T) {
+	var secrets []*resources.EnvironmentVariable
+	secretPaths := 0
+	secretPath := resources.MountedPathLen(resources.KubernetesSecretFileCarrierMount)
+	for i := 0; i < 400; i++ {
+		secret := resources.Env(fmt.Sprintf("CODEFLY__WORKSPACE_SECRET_CONFIGURATION__VAULT__BUNDLE_%03d", i), "vault-bundle")
+		secret.File, secret.Secret = true, true
+		secrets = append(secrets, secret)
+		secretPaths += resources.FileCarrierSize(secret.Key, secretPath(secret.Key))
+	}
+	// Alone the configuration fits, so only the secrets' paths push the
+	// environment over the limit.
+	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	for configured := 0; configured < resources.MaxCarriedEnvironmentBytes-secretPaths/2; configured += 20 << 10 {
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", len(info.ConfigurationValues)), Value: strings.Repeat("v", 20<<10)})
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+
+	destination, response, err := renderPrepared(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		func(_ context.Context, deployment *KustomizeDeploymentContext) error {
+			deployment.AddSecrets(secrets...)
+			return nil
+		}, configuration)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+
+	// The container loads both as its environment; a Secret's values are base64.
+	total := 0
+	for key, value := range readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any) {
+		total += len(key) + len(value.(string)) + 2
+	}
+	for key, value := range readDocuments(t, filepath.Join(destination, "base", "secret.yaml"))[0]["data"].(map[string]any) {
+		decoded, err := base64.StdEncoding.DecodeString(value.(string))
+		require.NoError(t, err)
+		total += len(key) + len(decoded) + 2
+	}
+	require.LessOrEqual(t, total, resources.MaxCarriedEnvironmentBytes)
 }
 
 // A workload with nothing large renders exactly as before: no file manifest,
