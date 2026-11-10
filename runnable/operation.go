@@ -35,13 +35,12 @@ const (
 	// declared, and the one constant a runtime sizes its backstops from.
 	//
 	// Ten minutes because one attempt is one held call: an open connection
-	// through the hop, a worker slot and a lease that a crashed holder keeps
-	// until it lapses. It fits a whole attempt, its authority exchange, its
-	// lease slack and its settlement inside the fifteen minutes a Work Context
-	// may live, and leaves the slowest synchronous operation measured (a
-	// reasoning model call, 227 s) twice its budget. Work that needs longer
-	// does not hold one call open: it is a COMPLETION_SUBMIT operation, whose
-	// owner accepts and reports later.
+	// through the hop, a worker slot, and a lease that a crashed holder keeps
+	// until it lapses, so the bound is also how long a lost attempt can delay
+	// its redelivery. It leaves the slowest synchronous operation measured (a
+	// reasoning model call: 227 s, a 270 s envelope) more than twice its
+	// budget. Work that needs longer does not hold one call open: it is a
+	// COMPLETION_SUBMIT operation, whose owner accepts and reports later.
 	MinAttemptTimeout = time.Second
 	MaxAttemptTimeout = 10 * time.Minute
 	// MinBackoff and MaxBackoff bound the delay before a second attempt.
