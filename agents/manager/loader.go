@@ -931,6 +931,9 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release but its record cannot be read: %v", ErrAgentAdmission, bin, err)
 	}
+	if recorded == "" {
+		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release but no record of it is beside it (a concurrent install replaced it); load it again", ErrAgentAdmission, bin)
+	}
 	if "sha256:"+recorded != digest {
 		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release as sha256:%s but reads as %s", ErrAgentAdmission, bin, recorded, digest)
 	}
