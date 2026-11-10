@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/codefly-dev/core/agents/manager"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,9 @@ func installFixture(t *testing.T) (*resources.Toolbox, string) {
 	require.NoError(t, err)
 	codeflyHome := t.TempDir()
 	t.Setenv(resources.CodeflyHomeEnv, codeflyHome)
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	target, err := manifest.Agent.Path(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"github.com/codefly-dev/core/agents/manager"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +75,9 @@ func TestRequireContainerRecoveryScope(t *testing.T) {
 
 func TestContainerRecoveryAdmissionUsesTheRunningAgentsAcknowledgement(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	binary := filepath.Join(t.TempDir(), "agent")
 	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
 	require.NoError(t, err, "%s", output)
