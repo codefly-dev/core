@@ -14,7 +14,6 @@ package launch_test
 
 import (
 	"context"
-	"github.com/codefly-dev/core/agents/manager"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/codefly-dev/core/agents/manager"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
@@ -38,8 +38,8 @@ import (
 func installVictimAtAgentPath(t *testing.T, ctx context.Context, codeflyHome string, ag *resources.Agent) {
 	t.Helper()
 	t.Setenv(resources.CodeflyHomeEnv, codeflyHome)
-	// The agent below is built locally under a released name: that is the
-	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	// The agent below is built locally and installed at the cache path a
+	// release would use: the deliberate local build CODEFLY_AGENT_SOURCE=local admits.
 	t.Setenv(manager.AgentSourceEnv, "local")
 
 	target, err := ag.Path(ctx)
