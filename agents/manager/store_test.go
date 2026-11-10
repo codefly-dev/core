@@ -34,6 +34,15 @@ func TestOCIStoreDownloadBlobVerifiesDigestAndInstallsAtomically(t *testing.T) {
 	if string(got) != string(payload) {
 		t.Fatalf("installed %q, want %q", got, payload)
 	}
+	// A pulled agent carries the record the loader admits a cached release by,
+	// so a registry install is not mistaken for a local build on its next load.
+	recorded, err := readReleaseDigest(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if "sha256:"+recorded != digest {
+		t.Fatalf("recorded sha256:%s, want %s", recorded, digest)
+	}
 }
 
 func TestOCIStoreDownloadBlobRejectsMismatchWithoutCacheEntry(t *testing.T) {

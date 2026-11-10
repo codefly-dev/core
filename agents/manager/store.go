@@ -261,10 +261,17 @@ func (s *OCIStore) downloadBlob(ctx context.Context, blobURL, expectedDigest, ds
 	if err := f.Close(); err != nil {
 		return err
 	}
+	// The verified blob is the executable, so its OCI digest is the digest the
+	// loader holds a cached agent to (admitCachedRelease). The previous record
+	// goes first, so a failure between here and the write never leaves a digest
+	// beside bytes it does not describe.
+	if err := os.Remove(releaseDigestFile(dst)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.Rename(tmpPath, dst); err != nil {
 		return err
 	}
-	return nil
+	return writeReleaseDigest(dst, encoded)
 }
 
 // localCachePath returns where the agent binary should be stored locally.
