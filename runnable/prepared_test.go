@@ -171,6 +171,28 @@ func TestAPolicyOutsideTheInstallationBoundsIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
 
+// An operation's attempt budget is its own declaration: one longer than a
+// minute — a reasoning model call — is carried through preparation exactly as
+// declared, up to the platform's hard bound and not one second past it.
+func TestADeclaredAttemptIsCarriedUpToThePlatformBound(t *testing.T) {
+	for _, attempt := range []time.Duration{270 * time.Second, runnable.MaxAttemptTimeout} {
+		long := connectBinding()
+		long.Policy.AttemptTimeout = durationpb.New(attempt)
+		long.Policy.TotalTimeout = durationpb.New(attempt)
+		long.Policy.MaxAttempts = 1
+		decoded, err := runnable.DecodePrepared(encoded(t, long))
+		require.NoError(t, err, attempt)
+		require.Equal(t, attempt, decoded.GetPolicy().GetAttemptTimeout().AsDuration())
+	}
+
+	tooLong := connectBinding()
+	tooLong.Policy.AttemptTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
+	tooLong.Policy.TotalTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
+	_, err := runnable.EncodePrepared(tooLong)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "attempt_timeout 10m1s is outside 1s..10m0s")
+}
+
 func TestADeliveredValueIsHeldToItsContractDigest(t *testing.T) {
 	stated := connectBinding()
 	stated.ContractDigest = "sha256:" + strings.Repeat("0", 64)
