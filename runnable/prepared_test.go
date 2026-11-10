@@ -171,6 +171,85 @@ func TestAPolicyOutsideTheInstallationBoundsIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
 
+// An operation's attempt budget is its own declaration: one longer than a
+// minute — a reasoning model call — is carried exactly as declared by every
+// reader a declaration reaches (a method option, an OpenAPI marker, a prepared
+// binding delivered as configuration), up to the platform's hard bound and not
+// one nanosecond past it. A bound one reader held differently would generate
+// a binding another refuses to install.
+func TestADeclaredAttemptIsHonouredUpToThePlatformBoundByEveryReader(t *testing.T) {
+	for _, test := range []struct {
+		attempt time.Duration
+		valid   bool
+	}{
+		{270 * time.Second, true},
+		{runnable.MaxAttemptTimeout, true},
+		{runnable.MaxAttemptTimeout + time.Nanosecond, false},
+	} {
+		t.Run(test.attempt.String(), func(t *testing.T) {
+			check := func(t *testing.T, got time.Duration, err error) {
+				t.Helper()
+				if !test.valid {
+					require.ErrorIs(t, err, runnable.ErrInvalid)
+					require.ErrorContains(t, err, "attempt_timeout")
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, test.attempt, got)
+			}
+
+			t.Run("method option", func(t *testing.T) {
+				declared := declaredOperation()
+				declared.AttemptTimeout = durationpb.New(test.attempt)
+				declared.TotalTimeout = durationpb.New(test.attempt)
+				_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+				if spec == nil {
+					check(t, 0, err)
+					return
+				}
+				check(t, spec.AttemptTimeout, err)
+			})
+
+			t.Run("openapi marker", func(t *testing.T) {
+				spec, err := markerSpec(t, func(d map[string]any) {
+					d["attempt_timeout"] = protoDuration(test.attempt)
+					d["total_timeout"] = protoDuration(test.attempt)
+				})
+				if spec == nil {
+					check(t, 0, err)
+					return
+				}
+				check(t, spec.AttemptTimeout, err)
+			})
+
+			t.Run("delivered prepared binding", func(t *testing.T) {
+				// Encoded at a valid budget and rewritten after, so the value is
+				// one the decoder alone has to judge, as an installation does.
+				var fields map[string]any
+				require.NoError(t, json.Unmarshal(encoded(t, connectBinding()), &fields))
+				policy := fields["policy"].(map[string]any)
+				policy["attempt_timeout"] = protoDuration(test.attempt)
+				policy["total_timeout"] = policy["attempt_timeout"]
+				policy["max_attempts"] = 1
+				value, err := json.Marshal(fields)
+				require.NoError(t, err)
+				decoded, err := runnable.DecodePrepared(value)
+				if decoded == nil {
+					check(t, 0, err)
+					return
+				}
+				check(t, decoded.GetPolicy().GetAttemptTimeout().AsDuration(), err)
+			})
+		})
+	}
+}
+
+// protoDuration spells a duration as protobuf JSON does: seconds, with the
+// nanoseconds a Go Duration's own spelling would round away.
+func protoDuration(d time.Duration) string {
+	return fmt.Sprintf("%d.%09ds", d/time.Second, d%time.Second)
+}
+
 func TestADeliveredValueIsHeldToItsContractDigest(t *testing.T) {
 	stated := connectBinding()
 	stated.ContractDigest = "sha256:" + strings.Repeat("0", 64)

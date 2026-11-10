@@ -113,7 +113,7 @@ func TestOperationFromOpenAPIMarkerRejectsAPolicyTheRuntimeWouldRefuse(t *testin
 		{"unreadable", func(d map[string]any) { d["attempt_timeout"] = "ten seconds" }, "is not a codefly.runnable.v0.Operation"},
 		{"unknown field", func(d map[string]any) { d["attempt_timeouts"] = "10s" }, "is not a codefly.runnable.v0.Operation"},
 		{"short attempt", func(d map[string]any) { d["attempt_timeout"] = "0.5s" }, "attempt_timeout"},
-		{"long attempt", func(d map[string]any) { d["attempt_timeout"] = "90s" }, "attempt_timeout"},
+		{"long attempt", func(d map[string]any) { d["attempt_timeout"] = "601s"; d["total_timeout"] = "601s" }, "attempt_timeout"},
 		{"total below one attempt", func(d map[string]any) { d["total_timeout"] = "5s" }, "total_timeout"},
 		{"no attempts", func(d map[string]any) { delete(d, "max_attempts") }, "max_attempts"},
 		{"too many attempts", func(d map[string]any) { d["max_attempts"] = 6 }, "max_attempts"},

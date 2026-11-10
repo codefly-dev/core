@@ -94,7 +94,10 @@ func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
 // await selection; the resolved policy must contain both concrete scope lists.
 type Operation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// attempt_timeout bounds one attempt.
+	// attempt_timeout bounds one attempt: the operation's declared maximum
+	// attempt duration, which the runtime enforces on every attempt. It is
+	// 1s..10m (runnable.MaxAttemptTimeout); an operation that needs longer is
+	// COMPLETION_SUBMIT rather than one held call.
 	AttemptTimeout *durationpb.Duration `protobuf:"bytes,1,opt,name=attempt_timeout,json=attemptTimeout,proto3" json:"attempt_timeout,omitempty"`
 	// total_timeout bounds every attempt of one invocation together, and is the
 	// derived package's execution timeout.

@@ -230,8 +230,8 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 	}{
 		{"attempt too short", func(o *runnablev0.Operation) { o.AttemptTimeout = durationpb.New(999 * time.Millisecond) }, "attempt_timeout"},
 		{"attempt too long", func(o *runnablev0.Operation) {
-			o.AttemptTimeout = durationpb.New(2 * time.Minute)
-			o.TotalTimeout = durationpb.New(2 * time.Minute)
+			o.AttemptTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
+			o.TotalTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
 		}, "attempt_timeout"},
 		{"total shorter than attempt", func(o *runnablev0.Operation) { o.TotalTimeout = durationpb.New(time.Second) }, "shorter than one attempt"},
 		{"no attempt", func(o *runnablev0.Operation) { o.MaxAttempts = 0 }, "max_attempts"},

@@ -452,7 +452,9 @@ package. Policy is installed with the binding, so two installations of one
 contract may differ in both, and a digest that moved when an attempt budget did
 would make re-registering an unchanged contract read as a conflict. Core
 validates them and hands them back: the method must be unary (a streaming
-method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
+method is rejected by name); `attempt_timeout` — the operation's own maximum attempt duration, which the
+runtime enforces per attempt — is 1s–10m (`runnable.MaxAttemptTimeout`, the one
+platform bound; longer work is `COMPLETION_SUBMIT`), `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
 vocabulary; `audience` is required, and concrete invoke scopes are required at

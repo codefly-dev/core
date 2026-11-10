@@ -22,14 +22,27 @@ import (
 )
 
 // Bounds on the execution policy a method may declare. They are the ones the
-// orchestration runtime enforces when it installs the binding, restated here
-// so a descriptor that generates is a descriptor that installs: a policy first
-// refused at installation time would have been written, reviewed and released
-// before anyone learned it was out of range.
+// orchestration runtime enforces when it installs the binding — it imports
+// them rather than restating them — so a descriptor that generates is a
+// descriptor that installs: a policy first refused at installation time would
+// have been written, reviewed and released before anyone learned it was out
+// of range.
 const (
-	// MinAttemptTimeout and MaxAttemptTimeout bound one attempt.
+	// MinAttemptTimeout and MaxAttemptTimeout bound the attempt_timeout an
+	// operation declares. The declaration is the operation's own maximum
+	// attempt duration, and the runtime enforces that value per attempt;
+	// MaxAttemptTimeout is only the platform's hard bound on what may be
+	// declared, and the one constant a runtime sizes its backstops from.
+	//
+	// Ten minutes because one attempt is one held call: an open connection
+	// through the hop, a worker slot, and a lease that a crashed holder keeps
+	// until it lapses, so the bound is also how long a lost attempt can delay
+	// its redelivery. It leaves the slowest synchronous operation measured (a
+	// reasoning model call: 227 s, a 270 s envelope) more than twice its
+	// budget. Work that needs longer does not hold one call open: it is a
+	// COMPLETION_SUBMIT operation, whose owner accepts and reports later.
 	MinAttemptTimeout = time.Second
-	MaxAttemptTimeout = time.Minute
+	MaxAttemptTimeout = 10 * time.Minute
 	// MinBackoff and MaxBackoff bound the delay before a second attempt.
 	MinBackoff = 100 * time.Millisecond
 	MaxBackoff = time.Minute
