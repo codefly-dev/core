@@ -224,6 +224,36 @@ boolean (`scope-ceiling-shared-boolean`): a word yaml would convert, such as
 carries the shared kinds in the signed composition authority document's
 `shared_kinds` field (field 10).
 
+**A unit names the scopes that govern its sources.** A data source a person
+connects may be tied to one installation of a unit that declares roles; who
+manages it is then the unit author's call, declared, never inferred by the
+host from the shape of the roles:
+
+```yaml
+source_governance:
+  scopes:
+    - {resource_kind: wiki.page, actions: [write]}
+```
+
+Whoever is issued one of these scopes on the installation connects, changes
+and removes a source tied to it, and nobody else does; absent, the unit governs
+no source and its sources stay the organization administrators'. Each scope is
+one of the unit's own kinds (`source-governance-own-kind`) with actions its
+own ceiling declares (`source-governance-own-action`: an action only a binding
+underwrites is granted at that binding's audience, not on the installation),
+never one it
+declares shared (`source-governance-not-shared`: no installation owns it),
+never reached through a binding (`source-governance-not-through`: a downstream
+module decides that), never a wildcard (an action is a lowercase name), and
+each action is one a role grants in its `scopes`
+(`source-governance-role-grants`): a scope no role grants would govern for
+nobody. A declaration names at least one scope, each kind once and with an
+action. Resolution carries it as `"<resource kind>:<action>"` strings, sorted
+(`Resolved.SourceGovernance`), and the signed module manifest carries the same
+list in its authority block's `source_governance`, held there to the
+manifest's own resource kinds, so a host reads it from the manifest it
+verified and an administrator's approval covers it.
+
 **Installation declarations express machine intent and edge presence separately.**
 `installation_role` is optional: absent or `""` leaves the legacy installer
 selection unchanged; literal `none` declares no standing machine grant; any
@@ -550,7 +580,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (158 documents) ships
+`modulecontract.Fixtures()` (168 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

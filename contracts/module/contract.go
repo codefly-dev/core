@@ -302,6 +302,13 @@ type Contract struct {
 	// "none" declares no standing grant, otherwise an exact declared role name.
 	// It never selects a role for a person or team.
 	InstallationRole string `yaml:"installation_role,omitempty"`
+	// SourceGovernance names the scopes that govern a data source tied to one
+	// of the unit's installations: whoever is issued one of them there
+	// connects, changes and removes such a source, and nobody else does. It
+	// is the author's call, never the host's inference from the roles: absent,
+	// no source is governed by the unit and its sources stay the
+	// organization administrators'.
+	SourceGovernance *SourceGovernance `yaml:"source_governance,omitempty"`
 	// EdgeDependencies name modules reached with the person's Work Context.
 	// They declare presence only, confer no authority, and are not binding IDs.
 	EdgeDependencies []EdgeDependency `yaml:"edge_dependencies,omitempty"`
@@ -324,6 +331,16 @@ type Contract struct {
 	// is the deliverer's call, made from what the host consumes; the hop in
 	// front of the module refuses an undeclared method per call either way.
 	RequireMethodPolicies bool `yaml:"require_method_policies,omitempty"`
+}
+
+// SourceGovernance is the declaration of what governs a source tied to an
+// installation of the unit. Each scope is one of the unit's own kinds, owned
+// (never declared shared), reached through nothing, with actions its own
+// ceiling declares and one of its roles grants in scopes. A scope no role
+// grants would govern for nobody; a shared kind is no installation's; and a
+// scope reached through a binding is another module's to decide.
+type SourceGovernance struct {
+	Scopes []CeilingScope `yaml:"scopes"`
 }
 
 // EdgeDependency names an exact signed module principal. The host resolves it
@@ -871,6 +888,10 @@ type Resolved struct {
 	// or deriving dependencies from resolved binding audiences.
 	InstallationRole string
 	EdgeDependencies []EdgeDependency
+	// SourceGovernance are the governing scopes the contract declares, each
+	// "<resource kind>:<action>" of the unit's own kinds, sorted, each once;
+	// nil when it declares none.
+	SourceGovernance []string
 	OwnerAware       bool
 	Principal        string
 	Namespaces       []string
@@ -975,6 +996,7 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	resolved := &Resolved{
 		InstallationRole: contract.InstallationRole,
 		EdgeDependencies: edges,
+		SourceGovernance: contract.governingScopes(),
 		OwnerAware:       contract.OwnerAware,
 		Principal:        contract.Principal,
 		Namespaces:       slices.Clone(contract.Namespaces),

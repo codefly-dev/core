@@ -217,3 +217,17 @@ Authority and the host own installation semantics and catalogue resolution.
 Each dependency's `module` is the exact signed module principal. The existing
 host catalogue resolves it to the target and binding; the principal is never
 treated as a target UUID, nor replaced by a route alias, binding ID or release.
+
+## Source governance in the signed carrier
+
+`authority.source_governance` lists the scopes, each `<resource kind>:<action>`,
+whose holders on an installation govern the data sources tied to it: the
+module contract's `source_governance` as resolution writes it. Each names one
+of `authority.resource_kinds`, each once; a manifest naming another kind is
+refused. Canonical encoding sorts the list and includes it in the signed
+payload and digest, so a delivery naming another governing scope is another
+document an administrator approves anew. Absent or empty adds no key, so a
+module declaring none keeps its earlier bytes and signature. It grants nothing
+by itself: the host asks whether the person is issued the scope on the
+installation, and that the scope is one a role grants is the authority's check
+of the approved declaration.
