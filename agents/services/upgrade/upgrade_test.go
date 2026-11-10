@@ -33,6 +33,75 @@ func TestDiffMods(t *testing.T) {
 	}
 }
 
+// `go get -u=patch` refuses a module with no required version, so a package
+// the module does not require yet, and one naming its own version, are
+// fetched without the semver flag; the ones already required are bumped
+// under it.
+func TestGoGetCommandsAddWhatIsNotRequiredYet(t *testing.T) {
+	required := map[string]string{
+		"github.com/foo/bar":    "v1.2.3",
+		"github.com/jackc/pgx":  "v3.0.0",
+		"golang.org/x/net":      "v0.30.0",
+		"github.com/foo/barbaz": "v0.1.0",
+	}
+	for name, tc := range map[string]struct {
+		opts     Options
+		commands [][]string
+		added    []string
+	}{
+		"everything, patch": {
+			opts:     Options{},
+			commands: [][]string{{"get", "-u=patch", "./..."}},
+		},
+		"everything, major": {
+			opts:     Options{IncludeMajor: true},
+			commands: [][]string{{"get", "-u", "./..."}},
+		},
+		"one already required": {
+			opts:     Options{Only: []string{"github.com/foo/bar"}},
+			commands: [][]string{{"get", "-u=patch", "github.com/foo/bar"}},
+		},
+		"a package inside a required module": {
+			opts:     Options{Only: []string{"golang.org/x/net/http2"}},
+			commands: [][]string{{"get", "-u=patch", "golang.org/x/net/http2"}},
+		},
+		// github.com/jackc/pgx/v5 is another module than github.com/jackc/pgx:
+		// a major version has its own path, and it is not required yet.
+		"a new module": {
+			opts:     Options{Only: []string{"github.com/jackc/pgx/v5"}},
+			commands: [][]string{{"get", "github.com/jackc/pgx/v5"}},
+			added:    []string{"github.com/jackc/pgx/v5"},
+		},
+		"a new module at a version": {
+			opts:     Options{Only: []string{"github.com/new/dep@v1.4.0"}},
+			commands: [][]string{{"get", "github.com/new/dep@v1.4.0"}},
+			added:    []string{"github.com/new/dep"},
+		},
+		"a required module at a version is fetched, not added": {
+			opts:     Options{Only: []string{"github.com/foo/bar@v1.2.9"}},
+			commands: [][]string{{"get", "github.com/foo/bar@v1.2.9"}},
+		},
+		"a name that only shares a prefix is not required": {
+			opts:     Options{Only: []string{"github.com/foo/barista"}},
+			commands: [][]string{{"get", "github.com/foo/barista"}},
+			added:    []string{"github.com/foo/barista"},
+		},
+		"mixed, major": {
+			opts: Options{IncludeMajor: true, Only: []string{"github.com/foo/bar", "github.com/new/dep", "golang.org/x/net"}},
+			commands: [][]string{
+				{"get", "-u", "github.com/foo/bar", "golang.org/x/net"},
+				{"get", "github.com/new/dep"},
+			},
+			added: []string{"github.com/new/dep"},
+		},
+	} {
+		commands, added := goGetCommands(tc.opts, required)
+		if !reflect.DeepEqual(commands, tc.commands) || !reflect.DeepEqual(added, tc.added) {
+			t.Errorf("%s:\n commands %v (want %v)\n added %v (want %v)", name, commands, tc.commands, added, tc.added)
+		}
+	}
+}
+
 func TestInOnly(t *testing.T) {
 	if !inOnly("foo", nil) {
 		t.Error("empty only should pass everything")
