@@ -158,52 +158,75 @@ func readReleaseDigest(executable string) (string, error) {
 // world-readable like the executable it describes (a digest is not a secret),
 // so a cache another user installed into is still readable.
 func writeReleaseDigest(executable, digest string) error {
-	line := fmt.Sprintf("%s  %s\n", digest, filepath.Base(executable))
-	record := releaseDigestFile(executable)
-	tmp, err := os.CreateTemp(filepath.Dir(record), ".agent-digest-*")
+	staged, err := stageReleaseDigest(executable, digest)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(line); err != nil {
+	defer os.Remove(staged)
+	return os.Rename(staged, releaseDigestFile(executable))
+}
+
+// stageReleaseDigest writes the record to a synced temporary file beside it,
+// ready to be renamed into place.
+func stageReleaseDigest(executable, digest string) (string, error) {
+	line := fmt.Sprintf("%s  %s\n", digest, filepath.Base(executable))
+	tmp, err := os.CreateTemp(filepath.Dir(executable), ".agent-digest-*")
+	if err != nil {
+		return "", err
+	}
+	staged := tmp.Name()
+	ok := false
+	defer func() {
 		_ = tmp.Close()
-		return err
+		if !ok {
+			_ = os.Remove(staged)
+		}
+	}()
+	if _, err := tmp.WriteString(line); err != nil {
+		return "", err
 	}
 	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return os.Rename(tmp.Name(), record)
+	ok = true
+	return staged, nil
 }
 
 // installRecordedExecutable puts staged — a complete, synced file in target's
 // directory — at target, with its digest recorded beside it.
 //
 // Several loads of one agent install it concurrently (every service sharing an
-// agent, on a cold cache), so readers must never see the release's own bytes
+// agent, on a cold cache), so readers must not see the release's own bytes
 // without its record. When the record already names these bytes — the common
 // case, the same release installed twice — the executable is swapped under a
-// record that stays true throughout. Otherwise the stale record goes first, so
-// no reader ever holds new bytes to an old digest, and the window without a
-// record is two renames wide, not a whole copy.
+// record that stays true throughout. Otherwise both files are staged first and
+// the stale record goes before the executable moves, so the window without a
+// record is two renames wide. Two concurrent installs of the same name with
+// DIFFERENT bytes can still interleave and leave one's executable beside the
+// other's record; that fails safe — admission refuses the mismatch, naming both
+// digests, and deleting the entry recovers — rather than admitting either.
 func installRecordedExecutable(staged, target, digest string) error {
 	if recorded, err := readReleaseDigest(target); err == nil && recorded == digest {
 		return os.Rename(staged, target)
 	}
+	record, err := stageReleaseDigest(target, digest)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(record)
 	if err := os.Remove(releaseDigestFile(target)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if err := os.Rename(staged, target); err != nil {
 		return err
 	}
-	return writeReleaseDigest(target, digest)
+	return os.Rename(record, releaseDigestFile(target))
 }
 
 func Download(ctx context.Context, p *resources.Agent) error {
