@@ -138,7 +138,7 @@ const (
 // its contents, and every action list last, so a structural defect is named
 // before a spelling inside it.
 func rules() []rule {
-	return []rule{
+	return append([]rule{
 		{name: ruleWellFormed, inherent: true, check: func(*Contract) error { return nil }},
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
@@ -236,7 +236,7 @@ func rules() []rule {
 		{name: ruleRoleThroughPerson, check: checkRoleThroughPersonOperations},
 		{name: ruleRoleThroughOwn, check: checkRoleThroughNotOwnKinds},
 		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
-	}
+	}, governanceRules()...)
 }
 
 // ruleNames lists every rule, in order.
@@ -403,6 +403,12 @@ func (contract *Contract) actionLists() []struct {
 				}{"role " + role.Name + " " + list.label + scope.ResourceKind, scope.Actions})
 			}
 		}
+	}
+	for _, scope := range contract.governanceScopes() {
+		lists = append(lists, struct {
+			label   string
+			actions []string
+		}{"source_governance " + scope.ResourceKind, scope.Actions})
 	}
 	return lists
 }
@@ -1475,6 +1481,91 @@ func checkEdgePresenceClassValues(contract *Contract) error {
 		for _, class := range slices.Sorted(maps.Keys(edge.PresenceByClass)) {
 			if presence := edge.PresenceByClass[class]; presence != PresenceRequired && presence != PresenceOptional {
 				return fmt.Errorf("%w: edge_dependencies module %q presence %q in class %s must be required or optional", ErrInvalid, edge.Module, presence, class)
+			}
+		}
+	}
+	return nil
+}
+
+// checkGovernanceHasScopes: a declaration names at least one scope. An empty
+// one would read as "declared" and govern for nobody, which is what leaving it
+// out already says.
+func checkGovernanceHasScopes(contract *Contract) error {
+	if contract.SourceGovernance != nil && len(contract.SourceGovernance.Scopes) == 0 {
+		return fmt.Errorf("%w: source_governance names no scope; leave it out to govern no source", ErrInvalid)
+	}
+	return nil
+}
+
+func checkGovernanceScopesHaveActions(contract *Contract) error {
+	for _, scope := range contract.governanceScopes() {
+		if len(scope.Actions) == 0 {
+			return fmt.Errorf("%w: source_governance names resource kind %q with no action", ErrInvalid, scope.ResourceKind)
+		}
+	}
+	return nil
+}
+
+func checkGovernanceKindsUnique(contract *Contract) error {
+	kinds := make([]string, 0, len(contract.governanceScopes()))
+	for _, scope := range contract.governanceScopes() {
+		kinds = append(kinds, scope.ResourceKind)
+	}
+	if duplicate, found := firstDuplicate(kinds); found {
+		return fmt.Errorf("%w: source_governance names resource kind %q twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+// checkGovernanceNotThrough: a governing scope is decided where the unit is
+// installed, on its own kinds; one reached through a binding is decided by
+// the module downstream of it.
+func checkGovernanceNotThrough(contract *Contract) error {
+	for _, scope := range contract.governanceScopes() {
+		if scope.Through != "" {
+			return fmt.Errorf("%w: source_governance names %s through %q; a governing scope is one of the unit's own, reached through nothing", ErrInvalid, scope.ResourceKind, scope.Through)
+		}
+	}
+	return nil
+}
+
+func checkGovernanceOwnKinds(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, scope := range contract.governanceScopes() {
+		if _, declared := own[scope.ResourceKind]; !declared {
+			return fmt.Errorf("%w: source_governance names %q, which is not one of the unit's own scope ceilings", ErrInvalid, scope.ResourceKind)
+		}
+	}
+	return nil
+}
+
+// checkGovernanceNotShared: a shared kind is no installation's, so a scope of
+// it is issued unselected and would govern every installation's sources at
+// once.
+func checkGovernanceNotShared(contract *Contract) error {
+	for _, scope := range contract.governanceScopes() {
+		for _, ceiling := range contract.ScopeCeilings {
+			if ceiling.ResourceKind == scope.ResourceKind && ceiling.Shared {
+				return fmt.Errorf("%w: source_governance names %q, which the unit declares shared; a governing scope is held on one installation's data", ErrInvalid, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+// checkGovernanceRoleGrants: each governing scope is one a role grants
+// directly in its scopes, so whoever governs holds it on the installation
+// through that role. A scope no role grants would govern for nobody.
+func checkGovernanceRoleGrants(contract *Contract) error {
+	for _, scope := range contract.governanceScopes() {
+		for _, action := range scope.Actions {
+			granted := slices.ContainsFunc(contract.Roles, func(role Role) bool {
+				return slices.ContainsFunc(role.Scopes, func(held CeilingScope) bool {
+					return held.Through == "" && held.ResourceKind == scope.ResourceKind && slices.Contains(held.Actions, action)
+				})
+			})
+			if !granted {
+				return fmt.Errorf("%w: source_governance names %s:%s, which no role grants in its scopes", ErrInvalid, scope.ResourceKind, action)
 			}
 		}
 	}

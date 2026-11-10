@@ -145,7 +145,10 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"self-optional-nothing-to-fill", "self-tagged", "self-with-resource-kind", "slot-alias-key",
 		"slot-group-not-a-name", "slot-key-not-a-key", "slot-names-from-twice",
 		"slot-reference-tagged", "slot-with-default", "slot-with-empty-field-name",
-		"slot-without-group", "tenancy", "two-documents", "unknown-destination-kind",
+		"slot-without-group",
+		"source-governance", "source-governance-consumed-kind", "source-governance-kind-twice", "source-governance-no-action",
+		"source-governance-no-scope", "source-governance-shared-kind", "source-governance-through", "source-governance-ungranted",
+		"source-governance-wildcard", "tenancy", "two-documents", "unknown-destination-kind",
 		"unknown-operation", "upper-case-slot-key", "valid",
 	}
 	if !slices.Equal(names, want) {

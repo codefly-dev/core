@@ -242,6 +242,12 @@ type Authority struct {
 	// EdgeDependencies preserve declaration order and grant no authority.
 	// Their identities are resolved by the host, never inferred from bindings.
 	EdgeDependencies []modulecontract.EdgeDependency `yaml:"edge_dependencies,omitempty" json:"edge_dependencies,omitempty"`
+	// SourceGovernance are the scopes, each "<resource kind>:<action>" of one
+	// of ResourceKinds, whose holders on an installation govern the data
+	// sources tied to it (modulecontract.SourceGovernance). Absent, the module
+	// governs no source. It grants nothing by itself: a host still asks
+	// whether the person is issued the scope there.
+	SourceGovernance []string `yaml:"source_governance,omitempty" json:"source_governance,omitempty"`
 
 	// Bindings are the operation bindings the module asks to redeem.
 	Bindings []AuthorityBinding `yaml:"bindings,omitempty" json:"bindings,omitempty"`
@@ -581,6 +587,21 @@ func (authority *Authority) validate() error {
 			return fmt.Errorf("%w: authority edge dependency %q presence %q must be %s or %s", ErrInvalid, edge.Module, edge.Presence, modulecontract.PresenceRequired, modulecontract.PresenceOptional)
 		}
 	}
+	// A governing scope is one of the module's own kinds: a host decides it
+	// where the module is installed, and a kind it does not declare is one no
+	// installation of it holds.
+	for index, governing := range authority.SourceGovernance {
+		kind, action, found := strings.Cut(governing, ":")
+		if !found || kind == "" || action == "" || strings.Contains(action, ":") || !singleLine(governing) {
+			return fmt.Errorf("%w: authority source governance scope %q is not <resource kind>:<action>", ErrInvalid, governing)
+		}
+		if !slices.Contains(authority.ResourceKinds, kind) {
+			return fmt.Errorf("%w: authority source governance scope %q names a kind the module does not declare", ErrInvalid, governing)
+		}
+		if slices.Contains(authority.SourceGovernance[:index], governing) {
+			return fmt.Errorf("%w: authority declares source governance scope %q twice", ErrInvalid, governing)
+		}
+	}
 	for _, list := range []struct {
 		label  string
 		values []string
@@ -635,6 +656,7 @@ func (authority *Authority) canonical() *Authority {
 	normalized := Authority{
 		InstallationRole: authority.InstallationRole,
 		EdgeDependencies: slices.Clone(authority.EdgeDependencies),
+		SourceGovernance: sortedOrNil(authority.SourceGovernance),
 		Principal:        authority.Principal,
 		Queues:           sortedOrNil(authority.Queues),
 		Namespaces:       sortedOrNil(authority.Namespaces),

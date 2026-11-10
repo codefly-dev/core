@@ -1,0 +1,37 @@
+# A governing scope reached through a binding: another module decides it.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.pages
+      actions: [read, write, publish]
+    - resource_kind: assistant.profiles
+      actions: [read]
+      shared: true
+roles:
+    - name: installer
+      scopes: [{resource_kind: assistant.pages, actions: [read, publish]}]
+    - name: editor
+      scopes:
+          - {resource_kind: assistant.pages, actions: [read, write]}
+          - {resource_kind: assistant.profiles, actions: [read]}
+          - {resource_kind: documents, actions: [read, write]}
+    - name: viewer
+      scopes:
+          - {resource_kind: assistant.pages, actions: [read]}
+          - {resource_kind: documents, actions: [read]}
+source_governance:
+    scopes:
+        - resource_kind: documents
+          actions: [write]
+          through: documents
+bindings:
+    - id: documents
+      operations: [invoke]
+      audience: {from: assistant/documents-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents
+                actions: [read, write]
+destinations: []

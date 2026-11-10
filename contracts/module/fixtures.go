@@ -91,6 +91,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "roles-grant-bindings", file: "roles-grant-bindings.yaml", outcome: OutcomeAccepted},
 		{name: "roles-installation-owned", file: "roles-installation-owned.yaml", outcome: OutcomeAccepted},
 		{name: "roles-reach-through", file: "roles-reach-through.yaml", outcome: OutcomeAccepted},
+		{name: "source-governance", file: "source-governance.yaml", outcome: OutcomeAccepted},
 		{name: "binding-self-audience", file: "binding-self-audience.yaml", outcome: OutcomeAccepted},
 
 		{name: "self-beside-from", file: "self-beside-from.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding occurrences audience slot writes self beside from "assistant/evidence-audience"`, rule: ruleSlotSelfBesideFrom},
@@ -232,6 +233,14 @@ func Fixtures() ([]Fixture, error) {
 		{name: "role-installation-owned-beyond-consumption", file: "role-installation-owned-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" grants installation-owned documents.collection:write`, rule: ruleRoleWithinRequest},
 		{name: "role-installation-owned-kind-without-action", file: "role-installation-owned-kind-without-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" grants installation-owned resource kind "documents.collection" no action`, rule: ruleRoleKindHasAction},
 		{name: "role-installation-owned-kind-named-twice", file: "role-installation-owned-kind-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" names installation-owned resource kind "documents.collection" twice`, rule: ruleRoleKindUnique},
+		{name: "source-governance-no-scope", file: "source-governance-no-scope.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "source_governance names no scope", rule: ruleGovernanceHasScope},
+		{name: "source-governance-no-action", file: "source-governance-no-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance names resource kind "assistant.pages" with no action`, rule: ruleGovernanceHasAction},
+		{name: "source-governance-kind-twice", file: "source-governance-kind-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance names resource kind "assistant.pages" twice`, rule: ruleGovernanceKindUnique},
+		{name: "source-governance-through", file: "source-governance-through.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance names documents through "documents"`, rule: ruleGovernanceNotThrough},
+		{name: "source-governance-consumed-kind", file: "source-governance-consumed-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance names "documents", which is not one of the unit's own scope ceilings`, rule: ruleGovernanceOwnKind},
+		{name: "source-governance-shared-kind", file: "source-governance-shared-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance names "assistant.profiles", which the unit declares shared`, rule: ruleGovernanceNotShared},
+		{name: "source-governance-ungranted", file: "source-governance-ungranted.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "source_governance names assistant.pages:delete, which no role grants", rule: ruleGovernanceRoleGrants},
+		{name: "source-governance-wildcard", file: "source-governance-wildcard.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `source_governance assistant.pages action "*" is not a lowercase action name`, rule: ruleActionName},
 	}
 	result := make([]Fixture, 0, len(table))
 	for _, entry := range table {
