@@ -3,6 +3,7 @@ package module
 import (
 	"os"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +64,24 @@ func TestNoSourceGovernanceResolvesToNone(t *testing.T) {
 	}
 	if resolved.SourceGovernance != nil {
 		t.Fatalf("a contract declaring no governance resolved %v", resolved.SourceGovernance)
+	}
+}
+
+// An action a binding alone underwrites is never a governing one, whether the
+// binding is delivered (the grant is held at its audience) or optional and
+// left out (the grant is held nowhere).
+func TestAGoverningActionABindingAloneUnderwritesIsRefused(t *testing.T) {
+	data, err := os.ReadFile("testdata/source-governance-binding-action.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	optional := []byte(strings.Replace(string(data), "    - id: documents\n", "    - id: documents\n      optional: true\n", 1))
+	if string(optional) == string(data) {
+		t.Fatal("the fixture's documents binding moved; the optional variant tests nothing")
+	}
+	for name, document := range map[string][]byte{"delivered": data, "optional": optional} {
+		if _, err := Parse(document); err == nil || !strings.Contains(err.Error(), "which the unit's own scope ceiling does not declare") {
+			t.Fatalf("%s binding: want the own-action refusal, got %v", name, err)
+		}
 	}
 }

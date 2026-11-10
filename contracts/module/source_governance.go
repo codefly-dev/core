@@ -12,6 +12,7 @@ const (
 	ruleGovernanceKindUnique = "source-governance-kind-unique"
 	ruleGovernanceNotThrough = "source-governance-not-through"
 	ruleGovernanceOwnKind    = "source-governance-own-kind"
+	ruleGovernanceOwnAction  = "source-governance-own-action"
 	ruleGovernanceNotShared  = "source-governance-not-shared"
 	ruleGovernanceRoleGrants = "source-governance-role-grants"
 )
@@ -23,6 +24,7 @@ func governanceRules() []rule {
 		{name: ruleGovernanceKindUnique, check: checkGovernanceKindsUnique},
 		{name: ruleGovernanceNotThrough, check: checkGovernanceNotThrough},
 		{name: ruleGovernanceOwnKind, check: checkGovernanceOwnKinds},
+		{name: ruleGovernanceOwnAction, check: checkGovernanceOwnActions},
 		{name: ruleGovernanceNotShared, check: checkGovernanceNotShared},
 		{name: ruleGovernanceRoleGrants, check: checkGovernanceRoleGrants},
 	}

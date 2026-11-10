@@ -1539,6 +1539,23 @@ func checkGovernanceOwnKinds(contract *Contract) error {
 	return nil
 }
 
+// checkGovernanceOwnActions: each governing action is one the unit's own
+// ceiling declares on the kind, so a role's grant of it is held at the unit
+// itself. One a binding alone underwrites is granted at that binding's
+// audience, and through an optional binding left out, nowhere: it would
+// govern for nobody on the installation.
+func checkGovernanceOwnActions(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, scope := range contract.governanceScopes() {
+		for _, action := range scope.Actions {
+			if !slices.Contains(own[scope.ResourceKind], action) {
+				return fmt.Errorf("%w: source_governance names %s:%s, which the unit's own scope ceiling does not declare", ErrInvalid, scope.ResourceKind, action)
+			}
+		}
+	}
+	return nil
+}
+
 // checkGovernanceNotShared: a shared kind is no installation's, so a scope of
 // it is issued unselected and would govern every installation's sources at
 // once.
