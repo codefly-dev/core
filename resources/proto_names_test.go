@@ -45,11 +45,14 @@ func TestServiceProtoNameCollisions(t *testing.T) {
 	own := t.TempDir()
 	writeProtoNamesFile(t, filepath.Join(own, "api.proto"), "syntax = \"proto3\";\npackage api;\n\nmessage VersionRequest {\n  message Inner {}\n}\nmessage Call {}\nservice CallsService {}\n")
 	writeProtoNamesFile(t, filepath.Join(own, "google", "api", "annotations.proto"), "syntax = \"proto3\";\npackage google.api;\nmessage Http {}\n")
+	// The hop's method policy, vendored to compile: its bindings are the hop
+	// library's, in every service behind the hop.
+	writeProtoNamesFile(t, filepath.Join(own, "authority", "hop", "v1", "policy.proto"), "syntax = \"proto3\";\npackage authority.hop.v1;\nmessage Policy {}\n")
 	mine, err := ownProtoNames(own)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mine.files["api.proto"] || mine.files["google/api/annotations.proto"] || !mine.names["api.VersionRequest"] || !mine.names["api.CallsService"] || mine.names["api.Inner"] {
+	if !mine.files["api.proto"] || mine.files["google/api/annotations.proto"] || mine.files["authority/hop/v1/policy.proto"] || !mine.names["api.VersionRequest"] || !mine.names["api.CallsService"] || mine.names["api.Inner"] {
 		t.Fatalf("own names: files %v names %v", mine.files, mine.names)
 	}
 

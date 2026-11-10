@@ -54,8 +54,9 @@ type protoSource struct {
 // ServiceProtoNameCollisions lists the protobuf names a service's binary
 // would register twice: between its own proto files (proto/ in its
 // directory) and the contract of each client library it depends on, and
-// between two such libraries. Well-known and vendored packages (google.*,
-// buf.*, grpc.*) are shared by design and never reported.
+// between two such libraries. Packages whose bindings a library publishes
+// once (google.*, buf.*, grpc.*, codefly.*, authority.hop.*) are shared by
+// design and never reported.
 func ServiceProtoNameCollisions(ctx context.Context, workspace *Workspace, service *Service) ([]ProtoNameCollision, error) {
 	if workspace == nil || service == nil || len(service.LibraryDependencies) == 0 {
 		return nil, nil
@@ -126,9 +127,12 @@ func sharedKeys(a, b map[string]bool) []string {
 	return out
 }
 
-// sharedProtoPackage reports a package every binary shares by design.
+// sharedProtoPackage reports a package every binary shares by design: its
+// bindings are published once, by a library, and a contract that imports it
+// vendors the source only to compile. The authority hop's method policy
+// (authority.hop.v1) is one: every service behind the hop carries the file.
 func sharedProtoPackage(pkg string) bool {
-	for _, prefix := range []string{"google.", "buf.", "grpc.", "codefly."} {
+	for _, prefix := range []string{"google.", "buf.", "grpc.", "codefly.", "authority.hop."} {
 		if strings.HasPrefix(pkg+".", prefix) {
 			return true
 		}
