@@ -887,7 +887,17 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 	w := wool.Get(ctx).In("manager.admitCachedRelease", wool.Field("agent", p.Identifier()))
 	recorded, err := readReleaseDigest(bin)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %v", ErrAgentAdmission, err)
+		if !AgentSourceLocal() {
+			return "", nil, fmt.Errorf("%w: %v; delete %s and the agent is installed again from its release, or export %s=local to run a local build deliberately", ErrAgentAdmission, err, releaseDigestFile(bin), AgentSourceEnv)
+		}
+		// Under local resolution the record is not consulted, so one that
+		// cannot be read is no reason to refuse. It is cleared if it can be;
+		// a remote load that still finds it refuses with the remedy above.
+		if rmErr := os.Remove(releaseDigestFile(bin)); rmErr != nil && !os.IsNotExist(rmErr) {
+			w.Warn(fmt.Sprintf("cached agent %s has an unreadable release record that cannot be removed: %v", p.Identifier(), rmErr))
+		}
+		w.Debug("cached agent has an unreadable release record; CODEFLY_AGENT_SOURCE=local admits it", wool.Field("digest", digest))
+		return digest, info, nil
 	}
 	switch {
 	case recorded != "" && "sha256:"+recorded == digest:
@@ -918,7 +928,10 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 		return "", nil, err
 	}
 	recorded, err = readReleaseDigest(bin)
-	if err != nil || "sha256:"+recorded != digest {
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release but its record cannot be read: %v", ErrAgentAdmission, bin, err)
+	}
+	if "sha256:"+recorded != digest {
 		return "", nil, fmt.Errorf("%w: agent %s was just installed from its release as sha256:%s but reads as %s", ErrAgentAdmission, bin, recorded, digest)
 	}
 	return digest, info, nil
