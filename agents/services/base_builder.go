@@ -973,16 +973,20 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	// the last-key-wins ConfigMap/Secret maps without erasing secret inputs.
 	configurations = resources.EffectiveEnvironmentVariables(configurations)
 	// Secrets are loaded inline beside the configuration: the budget the
-	// configuration may spend is what they leave.
+	// configuration may spend is what they leave, a secret delivered by file
+	// leaving the path that stands for it.
 	inlineBudget := 0
 	if profile.InlineSecrets() {
+		secretPath := resources.MountedPathLen(resources.KubernetesSecretFileCarrierMount)
 		for _, secret := range resources.EffectiveEnvironmentVariables(secretValues, deploymentContext.Secrets) {
-			if !secret.File {
+			if secret.File {
+				inlineBudget += resources.FileCarrierSize(secret.Key, secretPath(secret.Key))
+			} else {
 				inlineBudget += len(secret.Key) + len(secret.ValueAsString()) + 2
 			}
 		}
 	}
-	configurations = resources.SpillToFileCarriers(configurations, inlineBudget)
+	configurations = resources.SpillToFileCarriers(configurations, inlineBudget, resources.MountedPathLen(resources.KubernetesFileCarrierMount))
 	fileCarriers := &FileCarrierDelivery{ConfigMap: map[string]string{}, Secret: map[string]string{}}
 	if configurations, err = splitFileCarriers(configurations, resources.KubernetesFileCarrierMount, fileCarriers.ConfigMap); err != nil {
 		return fail(err)

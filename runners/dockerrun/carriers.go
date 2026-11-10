@@ -43,7 +43,7 @@ func (docker *DockerEnvironment) deliverCarriers(config *container.Config, _ *co
 	envs := append([]*resources.EnvironmentVariable(nil), docker.envs...)
 	docker.mu.Unlock()
 	// An environment above the limit delivers its largest values by file.
-	envs = resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs), 0)
+	envs = resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs), 0, resources.PlannedPathLen(resources.ContainerFileCarrierMount))
 	planned, files, err := resources.PlanFileCarriers(resources.ContainerFileCarrierMount, envs)
 	if err != nil {
 		return err
@@ -69,10 +69,20 @@ func (docker *DockerEnvironment) copyCarriers(ctx context.Context, id string) er
 }
 
 // execCarriers delivers an exec's file-delivered values by copying them into
-// the running container, and returns the exec's environment.
+// the running container, and returns the exec's environment. The exec runs
+// on top of the container's own environment, which is read from the container.
 func (docker *DockerEnvironment) execCarriers(ctx context.Context, id string, envs []*resources.EnvironmentVariable) ([]*resources.EnvironmentVariable, error) {
-	envs = resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs), 0)
-	planned, files, err := resources.PlanFileCarriers(resources.ContainerFileCarrierMount, envs)
+	var inherited []string
+	if id != "" {
+		inspect, err := docker.client.ContainerInspect(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("%w: inspect container: %v", resources.ErrFileCarrier, err)
+		}
+		if inspect.Config != nil {
+			inherited = inspect.Config.Env
+		}
+	}
+	planned, files, err := planExecCarriers(inherited, envs)
 	if err != nil {
 		return nil, err
 	}
@@ -84,10 +94,45 @@ func (docker *DockerEnvironment) execCarriers(ctx context.Context, id string, en
 			return nil, err
 		}
 	}
-	if err := resources.CheckProcessEnvironment(planned); err != nil {
-		return nil, err
-	}
 	return planned, nil
+}
+
+// planExecCarriers plans the environment of an exec on a container that
+// already carries inherited ("KEY=VALUE"). What the container carries counts
+// against the limit unless the exec sets the same key, and a value the exec
+// delivers by file is set empty inline, so it never reaches the process both
+// inline (from the container) and by file, which ResolveFileCarriers refuses.
+func planExecCarriers(inherited []string, envs []*resources.EnvironmentVariable) ([]*resources.EnvironmentVariable, []resources.FileCarrier, error) {
+	effective := resources.EffectiveEnvironmentVariables(envs)
+	set := map[string]bool{}
+	for _, env := range effective {
+		set[env.Key] = true
+	}
+	held := map[string]string{}
+	var carried []*resources.EnvironmentVariable
+	reserved := 0
+	for _, entry := range inherited {
+		key, value, _ := strings.Cut(entry, "=")
+		held[key] = value
+		if !set[key] {
+			carried = append(carried, resources.Env(key, value))
+			reserved += len(key) + len(value) + 2
+		}
+	}
+	spilled := resources.SpillToFileCarriers(effective, reserved, resources.PlannedPathLen(resources.ContainerFileCarrierMount))
+	planned, files, err := resources.PlanFileCarriers(resources.ContainerFileCarrierMount, spilled)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, env := range spilled {
+		if env.File && held[env.Key] != "" {
+			planned = append(planned, resources.Env(env.Key, ""))
+		}
+	}
+	if err := resources.CheckProcessEnvironment(append(append([]*resources.EnvironmentVariable(nil), carried...), planned...)); err != nil {
+		return nil, nil, err
+	}
+	return planned, files, nil
 }
 
 func (docker *DockerEnvironment) copyFiles(ctx context.Context, id string, files []resources.FileCarrier) error {

@@ -39,11 +39,6 @@ const (
 	// arguments, so a process it plans always starts.
 	MaxCarriedEnvironmentBytes = 512 << 10
 
-	// FileCarrierDirBudget is what SpillToFileCarriers assumes the directory
-	// of a delivered file takes in the path inline (a platform temporary
-	// directory, or a mount point).
-	FileCarrierDirBudget = 128
-
 	// MaxFileCarrierBytes bounds one file-delivered value as a reader loads it.
 	MaxFileCarrierBytes = 16 << 20
 
@@ -193,54 +188,107 @@ func writePrivateFile(path string, content []byte) error {
 // SpillToFileCarriers keeps a process environment inside
 // MaxCarriedEnvironmentBytes by delivering the largest inline values by file
 // (EnvironmentVariable.File), exactly as a value above FileCarrierThreshold
-// is, for as long as the inline total would otherwise be refused.
+// is, for as long as the environment would otherwise be refused.
+//
 // reserved is the size of environment the process carries beyond envs (for
-// example inline secrets). Nothing is spilled while the environment fits, so
-// an environment that fits is delivered as it always was; envs are not
-// modified, and a variable already delivered by file, empty, or whose key
-// cannot name a file is never chosen. Call after EffectiveEnvironmentVariables
-// and before PlanFileCarriers or any other emitter.
-func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int) []*EnvironmentVariable {
+// example inline secrets). pathLen is the length of the path a value's file
+// has where the process reads it (PlannedPathLen, MountedPathLen), so what is
+// counted is what PlanFileCarriers or the Kubernetes render will emit, not an
+// estimate: an environment that fits is returned untouched.
+//
+// Only a value the process reads through the file carrier may move, so a
+// variable is never chosen when it is already delivered by file, is empty,
+// is a secret (a secret is never written to a file it was not already
+// destined for), or is not a CODEFLY__ value (a raw variable is read by name
+// and would come back from the carrier under another one). Ties in size are
+// broken by key, so the same environment spills the same values whatever
+// order it arrives in. envs are not modified. Call after
+// EffectiveEnvironmentVariables and before PlanFileCarriers or any other
+// emitter.
+func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int, pathLen func(key string) int) []*EnvironmentVariable {
 	total := reserved
-	type candidate struct{ index, size int }
-	var candidates []candidate
-	for i, env := range envs {
+	var candidates []*EnvironmentVariable
+	for _, env := range envs {
 		if env == nil {
 			continue
 		}
 		if env.File {
-			total += carrierSize(env.Key)
+			total += FileCarrierSize(env.Key, pathLen(env.Key))
 			continue
 		}
-		size := len(env.Key) + 1 + len(env.ValueAsString()) + 1
-		total += size
-		if env.ValueAsString() != "" && fileCarrierName.MatchString(env.Key) {
-			candidates = append(candidates, candidate{i, size})
+		total += inlineSize(env)
+		if spillable(env) {
+			candidates = append(candidates, env)
 		}
 	}
 	if total <= MaxCarriedEnvironmentBytes {
 		return envs
 	}
-	sort.SliceStable(candidates, func(a, b int) bool { return candidates[a].size > candidates[b].size })
-	out := append([]*EnvironmentVariable(nil), envs...)
+	sort.Slice(candidates, func(a, b int) bool {
+		if sa, sb := inlineSize(candidates[a]), inlineSize(candidates[b]); sa != sb {
+			return sa > sb
+		}
+		return candidates[a].Key < candidates[b].Key
+	})
+	chosen := map[*EnvironmentVariable]*EnvironmentVariable{}
 	for _, c := range candidates {
 		if total <= MaxCarriedEnvironmentBytes {
 			break
 		}
-		spilled := *envs[c.index]
+		spilled := *c
 		spilled.File = true
-		spilled.Secret = spilled.Secret || IsSecretCarrierKey(spilled.Key)
-		out[c.index] = &spilled
-		total += carrierSize(spilled.Key) - c.size
+		chosen[c] = &spilled
+		total += FileCarrierSize(c.Key, pathLen(c.Key)) - inlineSize(c)
+	}
+	out := make([]*EnvironmentVariable, len(envs))
+	for i, env := range envs {
+		if replacement, ok := chosen[env]; ok {
+			env = replacement
+		}
+		out[i] = env
 	}
 	return out
 }
 
-// carrierSize is the inline size of the path carrier standing for a value
-// delivered by file: its carrier key and a path of a directory and the file's
-// name (the value key, a dot and a 16-digit digest).
-func carrierSize(key string) int {
-	return len(FileCarrierKey(key)) + 1 + FileCarrierDirBudget + 1 + len(key) + 17 + 1
+func spillable(env *EnvironmentVariable) bool {
+	return env.ValueAsString() != "" && !env.Secret && !IsSecretCarrierKey(env.Key) &&
+		strings.HasPrefix(env.Key, "CODEFLY__") && !IsFileCarrierKey(env.Key) &&
+		fileCarrierName.MatchString(env.Key)
+}
+
+func inlineSize(env *EnvironmentVariable) int {
+	return len(env.Key) + 1 + len(env.ValueAsString()) + 1
+}
+
+// EnvironmentBytes is the size of the inline variables of envs as
+// CheckProcessEnvironment counts them.
+func EnvironmentBytes(envs []*EnvironmentVariable) int {
+	total := 0
+	for _, env := range envs {
+		if env != nil && !env.File {
+			total += inlineSize(env)
+		}
+	}
+	return total
+}
+
+// FileCarrierSize is the inline size of the variable carrying the path, of
+// pathLen bytes, of key's file.
+func FileCarrierSize(key string, pathLen int) int {
+	return len(FileCarrierKey(key)) + 1 + pathLen + 1
+}
+
+// PlannedPathLen is the path length PlanFileCarriers gives a file in
+// visibleDir: the directory, the value key, a dot and a 16-digit digest.
+func PlannedPathLen(visibleDir string) func(key string) int {
+	dir := filepath.ToSlash(visibleDir)
+	return func(key string) int { return len(path.Join(dir, key+".0123456789abcdef")) }
+}
+
+// MountedPathLen is the path length of a file mounted in mount under its key,
+// as the Kubernetes render delivers it.
+func MountedPathLen(mount string) func(key string) int {
+	return func(key string) int { return len(path.Join(mount, key)) }
 }
 
 // CheckProcessEnvironment refuses an environment a process could not start

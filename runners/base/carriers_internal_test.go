@@ -36,8 +36,13 @@ func TestProcessCarriersCount134EffectiveBindings(t *testing.T) {
 	for i := 0; i < 268; i++ {
 		unnameable = append(unnameable, resources.Env(fmt.Sprintf("KEY WITH SPACE %03d", i), strings.Repeat("x", 2800)))
 	}
+	scratch := t.TempDir()
+	t.Setenv("TMPDIR", scratch)
 	_, err = prepareProcessCarriers(unnameable)
 	require.ErrorIs(t, err, resources.ErrEnvironmentLimit, "genuinely oversized environment that cannot spill still refuses")
+	left, readErr := os.ReadDir(scratch)
+	require.NoError(t, readErr)
+	require.Empty(t, left, "a directory made to count the paths is removed when nothing is delivered by file")
 }
 
 func TestProcessCarrierOverridesPrecedeMaterialization(t *testing.T) {

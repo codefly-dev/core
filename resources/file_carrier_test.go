@@ -2,8 +2,10 @@ package resources_test
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -167,7 +169,7 @@ func TestSpillToFileCarriersDeliversTheLargestValuesByFileOnlyWhenNeeded(t *test
 	envs = append(envs, resources.Env("SMALL", "x"), resources.Env("not a file name", strings.Repeat("v", 30<<10)))
 	require.ErrorIs(t, resources.CheckProcessEnvironment(envs), resources.ErrEnvironmentLimit)
 
-	spilled := resources.SpillToFileCarriers(envs, 0)
+	spilled := spillAt("/carriers", envs, 0)
 	for _, env := range envs {
 		require.False(t, env.File, "the input is not modified")
 	}
@@ -193,11 +195,11 @@ func TestSpillToFileCarriersDeliversTheLargestValuesByFileOnlyWhenNeeded(t *test
 	already := resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__BIG", strings.Repeat("b", 40<<10))
 	already.File = true
 	mixed := append([]*resources.EnvironmentVariable{already, nil}, envs...)
-	planned, delivered, err = resources.PlanFileCarriers("/carriers", resources.SpillToFileCarriers(mixed, 0))
+	planned, delivered, err = resources.PlanFileCarriers("/carriers", spillAt("/carriers", mixed, 0))
 	require.NoError(t, err)
 	require.NoError(t, resources.CheckProcessEnvironment(planned))
 	dir := t.TempDir()
-	materialized, err := resources.MaterializeFileCarriers(dir, dir, resources.SpillToFileCarriers(envs, 0))
+	materialized, err := resources.MaterializeFileCarriers(dir, dir, spillAt(dir, envs, 0))
 	require.NoError(t, err)
 	read, err := resources.ResolveFileCarriers(resources.EnvironmentVariableAsStrings(materialized))
 	require.NoError(t, err)
@@ -206,7 +208,95 @@ func TestSpillToFileCarriersDeliversTheLargestValuesByFileOnlyWhenNeeded(t *test
 		require.Equal(t, byKey(envs)[key].ValueAsString(), value)
 	}
 
-	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 0), "an environment that fits is untouched")
-	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 1<<10))
-	require.NotEqual(t, fits, resources.SpillToFileCarriers(fits, resources.MaxCarriedEnvironmentBytes), "reserved bytes count against the budget")
+	require.Equal(t, fits, spillAt("/carriers", fits, 0), "an environment that fits is untouched")
+	require.Equal(t, fits, spillAt("/carriers", fits, 1<<10))
+	require.NotEqual(t, fits, spillAt("/carriers", fits, resources.MaxCarriedEnvironmentBytes), "reserved bytes count against the budget")
+}
+
+func spillAt(dir string, envs []*resources.EnvironmentVariable, reserved int) []*resources.EnvironmentVariable {
+	return resources.SpillToFileCarriers(envs, reserved, resources.PlannedPathLen(dir))
+}
+
+func spilledKeys(envs []*resources.EnvironmentVariable) []string {
+	var keys []string
+	for _, env := range envs {
+		if env.File {
+			keys = append(keys, env.Key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Values of the same size spill in the same order whatever order the
+// environment arrives in, so a render is the same every time.
+func TestSpillToFileCarriersChoosesTiesByKeyNotByArrivalOrder(t *testing.T) {
+	var envs []*resources.EnvironmentVariable
+	for i := 0; i < 30; i++ {
+		envs = append(envs, resources.Env(fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__G__K%02d", i), strings.Repeat("v", 20<<10)))
+	}
+	want := spilledKeys(spillAt("/carriers", envs, 0))
+	require.NotEmpty(t, want)
+	require.Less(t, len(want), len(envs), "only some of the equal values spill")
+	for seed := 0; seed < 20; seed++ {
+		shuffled := append([]*resources.EnvironmentVariable(nil), envs...)
+		rand.New(rand.NewSource(int64(seed))).Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+		require.Equal(t, want, spilledKeys(spillAt("/carriers", shuffled, 0)))
+	}
+}
+
+// What is counted is the path the file really has: an environment that fits
+// exactly with its real paths is not spilled, and one byte more is.
+func TestSpillToFileCarriersCountsTheRealPath(t *testing.T) {
+	const dir = "/c"
+	delivered := resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__BIG", strings.Repeat("b", 40<<10))
+	delivered.File = true
+	carrier := resources.FileCarrierSize(delivered.Key, resources.PlannedPathLen(dir)(delivered.Key))
+	_, files, err := resources.PlanFileCarriers(dir, []*resources.EnvironmentVariable{delivered})
+	require.NoError(t, err)
+	planned, _, _ := resources.PlanFileCarriers(dir, []*resources.EnvironmentVariable{delivered})
+	require.Len(t, files, 1)
+	require.Equal(t, resources.EnvironmentBytes(planned), carrier, "the counted carrier is the one planned")
+
+	room := resources.MaxCarriedEnvironmentBytes - carrier
+	key := "CODEFLY__WORKSPACE_CONFIGURATION__G__FILL"
+	fill := func(extra int) []*resources.EnvironmentVariable {
+		return []*resources.EnvironmentVariable{delivered, resources.Env(key, strings.Repeat("f", room-len(key)-2+extra))}
+	}
+	exact := fill(0)
+	require.Equal(t, exact, spillAt(dir, exact, 0), "an environment that fits is untouched")
+	require.NoError(t, resources.CheckProcessEnvironment(planned))
+	over := spillAt(dir, fill(1), 0)
+	require.True(t, byKey(over)[key].File, "one byte over spills")
+}
+
+// A secret is never written to a file by the spill, and a raw variable is
+// never chosen because the carrier would give it back under another name:
+// what cannot move refuses the environment, and what can moves instead.
+func TestSpillToFileCarriersNeverMovesASecretOrARawVariable(t *testing.T) {
+	big := strings.Repeat("v", 120<<10)
+	secret := resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__PLAIN_KEY_SECRET_FLAG", big)
+	secret.Secret = true
+	namespaced := resources.Env(resources.WorkspaceSecretConfigurationPrefix+"__G__TOKEN", big)
+	raw := resources.Env("RAW_TOKEN", big)
+	public := resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__PUBLIC", strings.Repeat("p", 160<<10))
+	envs := []*resources.EnvironmentVariable{secret, namespaced, raw, public}
+	require.Greater(t, resources.EnvironmentBytes(envs), resources.MaxCarriedEnvironmentBytes)
+
+	spilled := spillAt("/carriers", envs, 0)
+	require.Equal(t, []string{public.Key}, spilledKeys(spilled), "only the public CODEFLY__ value moves")
+	for _, env := range []*resources.EnvironmentVariable{secret, namespaced, raw} {
+		require.False(t, byKey(spilled)[env.Key].File, env.Key)
+	}
+
+	// Nothing but secrets and raw variables: the environment is refused, never spilled.
+	only := spillAt("/carriers", []*resources.EnvironmentVariable{secret, namespaced, raw, resources.Env("RAW_TWO", big), resources.Env("RAW_THREE", big)}, 0)
+	require.Empty(t, spilledKeys(only))
+	require.ErrorIs(t, resources.CheckProcessEnvironment(only), resources.ErrEnvironmentLimit)
+
+	// What does move comes back under its own key.
+	_, files, err := resources.PlanFileCarriers("/carriers", spilled)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, public.Key, resources.CarriedKey(resources.FileCarrierKey(public.Key)))
 }
