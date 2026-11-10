@@ -153,9 +153,57 @@ func readReleaseDigest(executable string) (string, error) {
 	return digest, nil
 }
 
+// writeReleaseDigest replaces the record atomically: a concurrent reader sees
+// the previous record or this one, never an empty or partial file. It is
+// world-readable like the executable it describes (a digest is not a secret),
+// so a cache another user installed into is still readable.
 func writeReleaseDigest(executable, digest string) error {
 	line := fmt.Sprintf("%s  %s\n", digest, filepath.Base(executable))
-	return os.WriteFile(releaseDigestFile(executable), []byte(line), 0o600)
+	record := releaseDigestFile(executable)
+	tmp, err := os.CreateTemp(filepath.Dir(record), ".agent-digest-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(line); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), record)
+}
+
+// installRecordedExecutable puts staged — a complete, synced file in target's
+// directory — at target, with its digest recorded beside it.
+//
+// Several loads of one agent install it concurrently (every service sharing an
+// agent, on a cold cache), so readers must never see the release's own bytes
+// without its record. When the record already names these bytes — the common
+// case, the same release installed twice — the executable is swapped under a
+// record that stays true throughout. Otherwise the stale record goes first, so
+// no reader ever holds new bytes to an old digest, and the window without a
+// record is two renames wide, not a whole copy.
+func installRecordedExecutable(staged, target, digest string) error {
+	if recorded, err := readReleaseDigest(target); err == nil && recorded == digest {
+		return os.Rename(staged, target)
+	}
+	if err := os.Remove(releaseDigestFile(target)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(staged, target); err != nil {
+		return err
+	}
+	return writeReleaseDigest(target, digest)
 }
 
 func Download(ctx context.Context, p *resources.Agent) error {
@@ -237,17 +285,13 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot digest the extracted agent")
 	}
-	// The sidecar is removed first so a failure between here and the install
-	// never leaves a digest beside an executable it does not describe.
-	if err := os.Remove(releaseDigestFile(target)); err != nil && !os.IsNotExist(err) {
-		return w.Wrapf(err, "cannot clear the previous install's digest")
-	}
-	err = CopyFile(binary, target)
+	staged, err := stageCopy(binary, folder)
 	if err != nil {
-		return w.Wrapf(err, "cannot install binary")
+		return w.Wrapf(err, "cannot stage binary")
 	}
-	if err := writeReleaseDigest(target, binaryDigest); err != nil {
-		return w.Wrapf(err, "cannot record the installed agent's digest")
+	defer os.Remove(staged)
+	if err := installRecordedExecutable(staged, target, binaryDigest); err != nil {
+		return w.Wrapf(err, "cannot install binary with its digest")
 	}
 	return nil
 }
@@ -369,27 +413,59 @@ func CopyFile(src, dst string) error {
 	}
 	defer source.Close()
 
-	destination, err := os.CreateTemp(filepath.Dir(dst), ".agent-install-*")
+	staged, err := stageFrom(source, sourceFileStat.Mode().Perm(), filepath.Dir(dst))
 	if err != nil {
 		return err
 	}
-	defer destination.Close()
-	defer os.Remove(destination.Name())
+	defer os.Remove(staged)
+	return os.Rename(staged, dst)
+}
 
-	if _, err := io.Copy(destination, source); err != nil {
-		return err
+// stageCopy copies src into a synced temporary file in dir, ready to be
+// renamed into place; the caller removes it if the rename never happens.
+func stageCopy(src, dir string) (string, error) {
+	info, err := os.Stat(src)
+	if err != nil {
+		return "", err
 	}
+	if !info.Mode().IsRegular() {
+		return "", os.ErrInvalid
+	}
+	source, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	return stageFrom(source, info.Mode().Perm(), dir)
+}
 
-	if err := destination.Chmod(sourceFileStat.Mode().Perm()); err != nil {
-		return err
+func stageFrom(source io.Reader, perm os.FileMode, dir string) (string, error) {
+	destination, err := os.CreateTemp(dir, ".agent-install-*")
+	if err != nil {
+		return "", err
+	}
+	staged := destination.Name()
+	ok := false
+	defer func() {
+		_ = destination.Close()
+		if !ok {
+			_ = os.Remove(staged)
+		}
+	}()
+	if _, err := io.Copy(destination, source); err != nil {
+		return "", err
+	}
+	if err := destination.Chmod(perm); err != nil {
+		return "", err
 	}
 	if err := destination.Sync(); err != nil {
-		return err
+		return "", err
 	}
 	if err := destination.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return os.Rename(destination.Name(), dst)
+	ok = true
+	return staged, nil
 }
 
 // MoveFile attempts to rename the file, and if it fails due to an invalid cross-device link,
