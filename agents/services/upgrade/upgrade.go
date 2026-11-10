@@ -23,6 +23,8 @@ type Options struct {
 	IncludeMajor bool
 	DryRun       bool
 	// Only restricts the upgrade to these packages. Empty = all eligible.
+	// Where the language's tool supports it (Go), a package the project does
+	// not require yet is added, and `pkg@version` selects a version.
 	Only []string
 }
 
