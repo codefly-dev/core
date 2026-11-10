@@ -188,6 +188,24 @@ func TestSpillToFileCarriersDeliversTheLargestValuesByFileOnlyWhenNeeded(t *test
 	require.NoError(t, resources.CheckProcessEnvironment(planned))
 
 	fits := envs[:3]
+	// Values already delivered by file still carry a path inline, and a spilled
+	// value reads back whole through the resolution an SDK uses.
+	already := resources.Env("CODEFLY__WORKSPACE_CONFIGURATION__G__BIG", strings.Repeat("b", 40<<10))
+	already.File = true
+	mixed := append([]*resources.EnvironmentVariable{already, nil}, envs...)
+	planned, delivered, err = resources.PlanFileCarriers("/carriers", resources.SpillToFileCarriers(mixed, 0))
+	require.NoError(t, err)
+	require.NoError(t, resources.CheckProcessEnvironment(planned))
+	dir := t.TempDir()
+	materialized, err := resources.MaterializeFileCarriers(dir, dir, resources.SpillToFileCarriers(envs, 0))
+	require.NoError(t, err)
+	read, err := resources.ResolveFileCarriers(resources.EnvironmentVariableAsStrings(materialized))
+	require.NoError(t, err)
+	require.Len(t, read, files)
+	for key, value := range read {
+		require.Equal(t, byKey(envs)[key].ValueAsString(), value)
+	}
+
 	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 0), "an environment that fits is untouched")
 	require.Equal(t, fits, resources.SpillToFileCarriers(fits, 1<<10))
 	require.NotEqual(t, fits, resources.SpillToFileCarriers(fits, resources.MaxCarriedEnvironmentBytes), "reserved bytes count against the budget")

@@ -39,9 +39,10 @@ const (
 	// arguments, so a process it plans always starts.
 	MaxCarriedEnvironmentBytes = 512 << 10
 
-	// FileCarrierPathBudget is what SpillToFileCarriers assumes the path of
-	// one delivered file takes inline.
-	FileCarrierPathBudget = 256
+	// FileCarrierDirBudget is what SpillToFileCarriers assumes the directory
+	// of a delivered file takes in the path inline (a platform temporary
+	// directory, or a mount point).
+	FileCarrierDirBudget = 128
 
 	// MaxFileCarrierBytes bounds one file-delivered value as a reader loads it.
 	MaxFileCarrierBytes = 16 << 20
@@ -204,7 +205,11 @@ func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int) []*Environme
 	type candidate struct{ index, size int }
 	var candidates []candidate
 	for i, env := range envs {
-		if env == nil || env.File {
+		if env == nil {
+			continue
+		}
+		if env.File {
+			total += carrierSize(env.Key)
 			continue
 		}
 		size := len(env.Key) + 1 + len(env.ValueAsString()) + 1
@@ -226,10 +231,16 @@ func SpillToFileCarriers(envs []*EnvironmentVariable, reserved int) []*Environme
 		spilled.File = true
 		spilled.Secret = spilled.Secret || IsSecretCarrierKey(spilled.Key)
 		out[c.index] = &spilled
-		// The path carrier replaces the value inline.
-		total -= c.size - (len(FileCarrierKey(spilled.Key)) + 1 + FileCarrierPathBudget + 1)
+		total += carrierSize(spilled.Key) - c.size
 	}
 	return out
+}
+
+// carrierSize is the inline size of the path carrier standing for a value
+// delivered by file: its carrier key and a path of a directory and the file's
+// name (the value key, a dot and a 16-digit digest).
+func carrierSize(key string) int {
+	return len(FileCarrierKey(key)) + 1 + FileCarrierDirBudget + 1 + len(key) + 17 + 1
 }
 
 // CheckProcessEnvironment refuses an environment a process could not start

@@ -42,6 +42,8 @@ func (docker *DockerEnvironment) deliverCarriers(config *container.Config, _ *co
 	docker.mu.Lock()
 	envs := append([]*resources.EnvironmentVariable(nil), docker.envs...)
 	docker.mu.Unlock()
+	// An environment above the limit delivers its largest values by file.
+	envs = resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs), 0)
 	planned, files, err := resources.PlanFileCarriers(resources.ContainerFileCarrierMount, envs)
 	if err != nil {
 		return err
@@ -69,6 +71,7 @@ func (docker *DockerEnvironment) copyCarriers(ctx context.Context, id string) er
 // execCarriers delivers an exec's file-delivered values by copying them into
 // the running container, and returns the exec's environment.
 func (docker *DockerEnvironment) execCarriers(ctx context.Context, id string, envs []*resources.EnvironmentVariable) ([]*resources.EnvironmentVariable, error) {
+	envs = resources.SpillToFileCarriers(resources.EffectiveEnvironmentVariables(envs), 0)
 	planned, files, err := resources.PlanFileCarriers(resources.ContainerFileCarrierMount, envs)
 	if err != nil {
 		return nil, err

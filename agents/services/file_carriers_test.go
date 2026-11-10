@@ -131,9 +131,11 @@ func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
 // the ConfigMap the container loads as environment stays under the limit.
 func TestARenderedWorkloadWithManyInlineValuesAboveTheLimitSpillsTheLargest(t *testing.T) {
 	info := &basev0.ConfigurationInformation{Name: "bindings"}
-	for i := 0; i < 40; i++ {
+	// Every value is under the file threshold: none is delivered by file
+	// unless the environment as a whole would be refused.
+	for i := 0; i < 30; i++ {
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", (10+i)<<10)})
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
 	}
 	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
 
