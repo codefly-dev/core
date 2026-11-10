@@ -40,8 +40,8 @@ func initGitRepo(t *testing.T, dir string) {
 func installPluginAtAgentPath(t *testing.T, ctx context.Context, codeflyHome string, ag *resources.Agent) {
 	t.Helper()
 	t.Setenv(resources.CodeflyHomeEnv, codeflyHome)
-	// The agent below is built locally under a released name: that is the
-	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	// The agent below is built locally and installed at the cache path a
+	// release would use: the deliberate local build CODEFLY_AGENT_SOURCE=local admits.
 	t.Setenv(manager.AgentSourceEnv, "local")
 
 	target, err := ag.Path(ctx)
