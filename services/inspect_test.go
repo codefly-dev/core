@@ -17,6 +17,9 @@ import (
 
 func TestInspectAgentChecksTheRunningProtocolNotIdentityOrRelease(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	binary := filepath.Join(t.TempDir(), "agent")
 	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
 	require.NoError(t, err, "%s", output)
@@ -70,6 +73,9 @@ func TestInspectAgentChecksTheRunningProtocolNotIdentityOrRelease(t *testing.T) 
 
 func TestIndependentAgentAdmission(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	t.Setenv("GOWORK", "off")
 	binary := filepath.Join(t.TempDir(), "peer")
 	build := exec.CommandContext(t.Context(), "go", "build", "-mod=readonly", "-o", binary, ".")
@@ -115,6 +121,9 @@ func TestIndependentAgentAdmission(t *testing.T) {
 
 func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	t.Setenv("TEST_AGENT_CONTRACT", "")
 	binary := filepath.Join(t.TempDir(), "agent")
 	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
@@ -208,6 +217,9 @@ func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 
 func TestCachedAgentBindsExecutableContent(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	t.Setenv("TEST_AGENT_CONTRACT", "")
 	binaries := []string{filepath.Join(t.TempDir(), "original"), filepath.Join(t.TempDir(), "replacement")}
 	for _, binary := range binaries {
@@ -285,6 +297,9 @@ func TestCachedAgentBindsExecutableContent(t *testing.T) {
 
 func TestUpdateAgentValidatesBeforeChangingTheSelection(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	// The agent below is built locally under a released name: that is the
+	// deliberate local build CODEFLY_AGENT_SOURCE=local admits, not a release.
+	t.Setenv(manager.AgentSourceEnv, "local")
 	t.Setenv(manager.AgentSourceEnv, "local")
 	binary := filepath.Join(t.TempDir(), "agent")
 	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
