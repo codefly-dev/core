@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -159,9 +160,15 @@ func (r *LibraryResolver) setupGoReplace(ctx context.Context, svc *Service, lib 
 	}
 	modulePath := goLang.Exports[0]
 
-	// Calculate relative path from service to library
+	// The replace is relative to the directory that holds the service's
+	// go.mod, which is not always the service's own (go-grpc keeps it in
+	// code/).
+	modDir, err := goModuleDir(svc.Dir())
+	if err != nil {
+		return w.Wrapf(err, "cannot add a replace for %s", lib.Name)
+	}
 	libPath := lib.LanguagePath(goLang)
-	relPath, err := filepath.Rel(svc.Dir(), libPath)
+	relPath, err := filepath.Rel(modDir, libPath)
 	if err != nil {
 		return w.Wrapf(err, "failed to calculate relative path")
 	}
@@ -169,7 +176,7 @@ func (r *LibraryResolver) setupGoReplace(ctx context.Context, svc *Service, lib 
 	// Use go mod edit to add replace directive
 	cmd := exec.CommandContext(ctx, "go", "mod", "edit",
 		"-replace", fmt.Sprintf("%s=%s", modulePath, relPath))
-	cmd.Dir = svc.Dir()
+	cmd.Dir = modDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return w.Wrapf(err, "go mod edit failed: %s", string(out))
 	}
@@ -198,7 +205,11 @@ func (r *LibraryResolver) removeGoReplace(ctx context.Context, svc *Service, lib
 	// Use go mod edit to drop replace directive
 	cmd := exec.CommandContext(ctx, "go", "mod", "edit",
 		"-dropreplace", modulePath)
-	cmd.Dir = svc.Dir()
+	modDir, err := goModuleDir(svc.Dir())
+	if err != nil {
+		return nil // No Go module, nothing to remove
+	}
+	cmd.Dir = modDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return w.Wrapf(err, "go mod edit failed: %s", string(out))
 	}
@@ -330,4 +341,33 @@ type LibraryMount struct {
 	SourcePath  string   // Absolute path on host
 	TargetPath  string   // Path in container
 	ModulePath  []string // Package/module paths (for Go replace, etc.)
+}
+
+// goModuleDir finds the directory of a service's Go module: the service's
+// directory when it holds a go.mod, otherwise the one direct subdirectory
+// that does.
+func goModuleDir(serviceDir string) (string, error) {
+	if _, err := os.Stat(filepath.Join(serviceDir, "go.mod")); err == nil {
+		return serviceDir, nil
+	}
+	entries, err := os.ReadDir(serviceDir)
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(serviceDir, entry.Name(), "go.mod")); err == nil {
+			found = append(found, filepath.Join(serviceDir, entry.Name()))
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return "", fmt.Errorf("no go.mod in %s or its subdirectories", serviceDir)
+	}
+	return "", fmt.Errorf("several Go modules under %s (%s): cannot tell which is the service's", serviceDir, strings.Join(found, ", "))
 }
