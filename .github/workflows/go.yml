@@ -137,7 +137,7 @@ jobs:
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           # The two caches below are keyed on purpose; setup-go's own would
           # save whichever job finished first under one key for every job.
           cache: false
@@ -158,9 +158,9 @@ jobs:
         continue-on-error: true
         with:
           path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.3-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.4-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.3-
+            ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.4-
 
       - name: Pull Alpine Image
         # Several container tests run alpine.
@@ -323,7 +323,7 @@ jobs:
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: false
 
       - name: Go module cache
@@ -357,7 +357,7 @@ jobs:
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: false
 
       - name: Go module cache
@@ -407,7 +407,7 @@ jobs:
       - name: set up
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: false
 
       - name: Go module cache

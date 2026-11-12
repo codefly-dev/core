@@ -100,9 +100,21 @@ func (s *Service) hasInterfaceDependencies() bool {
 }
 
 // InterfaceProviders lists every interface implementation the workspace's
-// modules declare.
+// modules declare. The answer is remembered until the composition or a module
+// declaration changes (see providerMemo): binding asks on every service load.
 func (workspace *Workspace) InterfaceProviders(ctx context.Context) ([]*InterfaceProvider, error) {
 	w := wool.Get(ctx).In("Workspace::InterfaceProviders", wool.NameField(workspace.Name))
+	composition, err := workspace.providerComposition()
+	memoizable := err == nil
+	var declarations map[string]moduleDeclaration
+	if memoizable {
+		declarations, memoizable = workspace.moduleDeclarations(ctx)
+	}
+	if memoizable {
+		if providers, ok := workspace.memoizedProviders(composition, declarations); ok {
+			return providers, nil
+		}
+	}
 	modules, err := workspace.LoadModules(ctx)
 	if err != nil {
 		return nil, w.Wrap(err)
@@ -114,6 +126,9 @@ func (workspace *Workspace) InterfaceProviders(ctx context.Context) ([]*Interfac
 			return nil, w.Wrap(err)
 		}
 		providers = append(providers, declared...)
+	}
+	if memoizable {
+		workspace.rememberProviders(&providerMemo{composition: composition, declarations: declarations, providers: copyProviders(providers)})
 	}
 	return providers, nil
 }
