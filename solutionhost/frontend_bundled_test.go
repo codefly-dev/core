@@ -28,6 +28,7 @@ func TestAPageTheHostBundlesIsDeclaredByItsPackageAndExport(t *testing.T) {
 		"export omitted":        "title: Models\norder: 0\nbundled: {package: \"@acme/models-ui\"}\n",
 		"export empty":          "title: Models\norder: 0\nbundled: {package: \"@acme/models-ui\", export: \"\"}\n",
 		"bundled empty":         "title: Models\norder: 0\nbundled: {}\n",
+		"bundled not a mapping": "title: Models\norder: 0\nbundled: [\"@acme/models-ui\"]\n",
 		"order omitted":         "title: Models\nbundled: {package: \"@acme/models-ui\", export: modelsPlugin}\n",
 	} {
 		_, err := solutionhost.ParseFrontend([]byte(document))

@@ -295,15 +295,17 @@ func frontendModelRules() []rule {
 // exposed_module and host_contract; a present payload's artifact, digest and media type; and each
 // surface's id, client, title, module, contract and applies. The numbers are
 // returned apart, for the rules that read a number's spelling; order is the
-// one signed number, by its path. A block, payload or surface that is not a
+// one signed number, by its path. A block, bundled, payload or surface that is not a
 // mapping, and a surfaces value that is not a list, are left to the typed
 // decoder, which refuses their shape.
 func frontendFields(section *yaml.Node) (numbers, others []countField) {
 	others = append(others, countField{path: "frontend.title", node: mappingValue(section, "title")})
 	numbers = append(numbers, countField{path: "frontend.order", node: mappingValue(section, "order")})
-	if bundled := mappingValue(section, "bundled"); bundled != nil && bundled.Kind == yaml.MappingNode {
-		for _, name := range []string{"package", "export"} {
-			others = append(others, countField{path: "frontend.bundled." + name, node: mappingValue(bundled, name)})
+	if bundled := mappingValue(section, "bundled"); bundled != nil {
+		if bundled.Kind == yaml.MappingNode {
+			for _, name := range []string{"package", "export"} {
+				others = append(others, countField{path: "frontend.bundled." + name, node: mappingValue(bundled, name)})
+			}
 		}
 	} else {
 		others = append(others, countField{path: "frontend.exposed_module", node: mappingValue(section, "exposed_module")})
