@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -94,6 +95,18 @@ type Service struct {
 	// dependencies, so what is left unbound is what nothing in it implements,
 	// not what nothing tried to bind (InterfaceBindingsProto).
 	interfacesBound bool
+
+	// declarationFile and declarationDigest are the file this service was
+	// parsed from and the digest of the bytes parsed, so a module can record
+	// what its load read (Module.read). Empty for a constructed service.
+	declarationFile   string
+	declarationDigest [sha256.Size]byte
+}
+
+func (s *Service) setDeclarationSource(file string, content []byte) error {
+	s.declarationFile = file
+	s.declarationDigest = sha256.Sum256(content)
+	return nil
 }
 
 // TestFormula is the language-agnostic test invocation as DATA — the yaml mirror
