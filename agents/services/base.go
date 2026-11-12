@@ -255,12 +255,19 @@ func cloneDockerImage(image *resources.DockerImage) *resources.DockerImage {
 
 type WatchConfiguration struct {
 	dependencies *builders.Dependencies
+	trees        []code.WatchTree
 }
 
 func NewWatchConfiguration(dependencies *builders.Dependencies) *WatchConfiguration {
 	return &WatchConfiguration{
 		dependencies: dependencies,
 	}
+}
+
+// WithTrees adds explicit recoverable directory interest. The caller owns exclusions.
+func (c *WatchConfiguration) WithTrees(trees ...code.WatchTree) *WatchConfiguration {
+	c.trees = append(c.trees, trees...)
+	return c
 }
 
 func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handler func(event code.Change) error) error {
@@ -272,7 +279,7 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	watcherCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	events := make(chan code.Change)
 	var err error
-	watcher, err := code.NewWatcher(ctx, events, s.Location, conf.dependencies)
+	watcher, err := code.NewWatcher(ctx, events, s.Location, conf.dependencies, conf.trees...)
 	if err != nil {
 		cancel()
 		return err
@@ -298,6 +305,11 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 	go func() {
 		const quiet = WatchDebounce
 		var timer *time.Timer
+		defer func() {
+			if timer != nil {
+				timer.Stop()
+			}
+		}()
 		var timerC <-chan time.Time
 		var pending bool
 		var last code.Change
@@ -307,6 +319,19 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 				if !ok {
 					return
 				}
+				if event.Err != nil {
+					s.Wool.Error("source watch incomplete; recovery pending", wool.ErrField(event.Err))
+					pending = false
+					timerC = nil
+					if timer != nil {
+						timer.Stop()
+					}
+					continue
+				}
+				if watcher.Err() != nil {
+					continue
+				}
+				event.Rescan = event.Rescan || pending && last.Rescan
 				last = event
 				pending = true
 				if timer == nil {
@@ -325,6 +350,11 @@ func (s *Base) SetupWatcher(ctx context.Context, conf *WatchConfiguration, handl
 				timerC = nil
 				if pending {
 					pending = false
+					// Coverage may have degraded since this event entered debounce.
+					// Keep the recovery watcher alive; only its rescan may resume.
+					if watcher.Err() != nil {
+						continue
+					}
 					if err := handler(last); err != nil {
 						s.Wool.Error("got", wool.ErrField(err))
 					}
