@@ -41,13 +41,24 @@ type Frontend struct {
 	Order int64 `yaml:"order" json:"order"`
 
 	// ExposedModule is the module the component's Module Federation remote
-	// exposes as its page, "./Page" by convention.
-	ExposedModule string `yaml:"exposed_module" json:"exposed_module"`
+	// exposes as its page, "./Page" by convention. Declared, with
+	// HostContract, by a remote; absent from a bundled page, whose mounting
+	// is Bundled — so a remote's signed form, which always carries both, is
+	// unchanged by their omission when empty.
+	ExposedModule string `yaml:"exposed_module,omitempty" json:"exposed_module,omitempty"`
 
 	// HostContract is the major of the host page contract the frontend is
 	// built against, at least 1. A host refuses a remote built against a
 	// major it does not serve, before loading it.
-	HostContract uint64 `yaml:"host_contract" json:"host_contract"`
+	HostContract uint64 `yaml:"host_contract,omitempty" json:"host_contract,omitempty"`
+
+	// Bundled is the page's other mounting: the host builds a package of the
+	// release into its own frontend and mounts the export it names, instead
+	// of loading a remote. A page is mounted one way: bundled is declared
+	// instead of exposed_module and host_contract, never beside them, and a
+	// bundled page carries no payload, since the host builds what it serves.
+	// Absent for a remote.
+	Bundled *FrontendBundled `yaml:"bundled,omitempty" json:"bundled,omitempty"`
 
 	// Dashboard is the component's data graph — the events, metrics and
 	// dashboards the host renders — carried as OPAQUE JSON: an object whose
@@ -72,6 +83,19 @@ type Frontend struct {
 	// decision: core holds what a present payload says, never whether one
 	// must be present.
 	Payload *FrontendPayload `yaml:"payload,omitempty" json:"payload,omitempty"`
+}
+
+// FrontendBundled names what a host builds into its own frontend for a
+// bundled page: the package of the release and the export of it the host
+// mounts. How the host builds and routes it is the host's; this document
+// holds the names.
+type FrontendBundled struct {
+	// Package is the name of the package the host bundles, as the release
+	// publishes it.
+	Package string `yaml:"package" json:"package"`
+
+	// Export is the export of that package the host mounts as the page.
+	Export string `yaml:"export" json:"export"`
 }
 
 // PayloadDigest pins the bytes of a frontend's complete executable output —
@@ -145,8 +169,9 @@ type FrontendSurface struct {
 type authoredFrontend struct {
 	Title         string            `yaml:"title"`
 	Order         int64             `yaml:"order"`
-	ExposedModule string            `yaml:"exposed_module"`
-	HostContract  uint64            `yaml:"host_contract"`
+	ExposedModule string            `yaml:"exposed_module,omitempty"`
+	HostContract  uint64            `yaml:"host_contract,omitempty"`
+	Bundled       *FrontendBundled  `yaml:"bundled,omitempty"`
 	Dashboard     any               `yaml:"dashboard,omitempty"`
 	Surfaces      []FrontendSurface `yaml:"surfaces,omitempty"`
 }
@@ -175,7 +200,7 @@ func ParseFrontend(data []byte) (*Frontend, error) {
 	}
 	frontend := &Frontend{
 		Title: authored.Title, Order: authored.Order, ExposedModule: authored.ExposedModule,
-		HostContract: authored.HostContract, Dashboard: authored.Dashboard, Surfaces: authored.Surfaces,
+		HostContract: authored.HostContract, Bundled: authored.Bundled, Dashboard: authored.Dashboard, Surfaces: authored.Surfaces,
 	}
 	// These are the block's rules, not manifest validation: no binding or
 	// workload is fabricated to validate a component's standalone declaration.
@@ -205,6 +230,7 @@ const (
 // The frontend rules, by name; see rule.
 const (
 	ruleFrontendFieldsDeclared = "frontend-fields-declared"
+	ruleFrontendOneMounting    = "frontend-one-mounting"
 	ruleFrontendNumbersDecimal = "frontend-numbers-decimal"
 	ruleFrontendNumbersFit     = "frontend-numbers-fit"
 	ruleFrontendDashboardJSON  = "frontend-dashboard-json"
@@ -233,6 +259,7 @@ const (
 // rules(), which is where their order among the other rules is fixed.
 func frontendNodeRules() []rule {
 	return []rule{
+		{name: ruleFrontendOneMounting, section: sectionFrontend, node: checkFrontendOneMounting},
 		{name: ruleFrontendFieldsDeclared, section: sectionFrontend, node: checkFrontendFieldsDeclared},
 		{name: ruleFrontendNumbersDecimal, section: sectionFrontend, node: checkFrontendNumbersDecimal},
 		{name: ruleFrontendNumbersFit, section: sectionFrontend, node: checkFrontendNumbersFit},
@@ -263,19 +290,24 @@ func frontendModelRules() []rule {
 }
 
 // frontendFields lists the required fields of the block and of every surface
-// that is a mapping, by the path a refusal names: the four fields of the
-// block; a present payload's artifact, digest and media type; and each
+// that is a mapping, by the path a refusal names: the block's title and
+// order, then its mounting — a bundled page's package and export, a remote's
+// exposed_module and host_contract; a present payload's artifact, digest and media type; and each
 // surface's id, client, title, module, contract and applies. The numbers are
 // returned apart, for the rules that read a number's spelling; order is the
 // one signed number, by its path. A block, payload or surface that is not a
 // mapping, and a surfaces value that is not a list, are left to the typed
 // decoder, which refuses their shape.
 func frontendFields(section *yaml.Node) (numbers, others []countField) {
-	for _, name := range []string{"title", "exposed_module"} {
-		others = append(others, countField{path: "frontend." + name, node: mappingValue(section, name)})
-	}
-	for _, name := range []string{"order", "host_contract"} {
-		numbers = append(numbers, countField{path: "frontend." + name, node: mappingValue(section, name)})
+	others = append(others, countField{path: "frontend.title", node: mappingValue(section, "title")})
+	numbers = append(numbers, countField{path: "frontend.order", node: mappingValue(section, "order")})
+	if bundled := mappingValue(section, "bundled"); bundled != nil && bundled.Kind == yaml.MappingNode {
+		for _, name := range []string{"package", "export"} {
+			others = append(others, countField{path: "frontend.bundled." + name, node: mappingValue(bundled, name)})
+		}
+	} else {
+		others = append(others, countField{path: "frontend.exposed_module", node: mappingValue(section, "exposed_module")})
+		numbers = append(numbers, countField{path: "frontend.host_contract", node: mappingValue(section, "host_contract")})
 	}
 	if payload := mappingValue(section, "payload"); payload != nil && payload.Kind == yaml.MappingNode {
 		for _, name := range []string{"artifact", "digest", "media_type"} {
@@ -309,6 +341,22 @@ func checkFrontendFieldsDeclared(section *yaml.Node) error {
 	for _, field := range append(numbers, others...) {
 		if field.node == nil {
 			return fmt.Errorf("%w: %s must be declared; an absent field decodes as zero or empty, and a value nobody wrote would be signed as a choice", ErrInvalid, field.path)
+		}
+	}
+	return nil
+}
+
+// checkFrontendOneMounting refuses a page declared mounted two ways: a
+// bundled block beside a remote's exposed_module or host_contract, or beside
+// a payload, which only a remote's bundle has. Read on the node, since a
+// decoded empty string cannot tell "declared empty" from "absent".
+func checkFrontendOneMounting(section *yaml.Node) error {
+	if bundled := mappingValue(section, "bundled"); bundled == nil {
+		return nil
+	}
+	for _, name := range []string{"exposed_module", "host_contract", "payload"} {
+		if mappingValue(section, name) != nil {
+			return fmt.Errorf("%w: frontend.bundled is declared beside frontend.%s; a page is mounted one way, bundled by the host or loaded as a remote, and only a remote has a %s", ErrInvalid, name, name)
 		}
 	}
 	return nil
@@ -434,7 +482,12 @@ type frontendText struct {
 func (frontend *Frontend) texts() []frontendText {
 	texts := []frontendText{
 		{path: "frontend.title", value: frontend.Title},
-		{path: "frontend.exposed_module", value: frontend.ExposedModule},
+		{path: "frontend.exposed_module", value: frontend.ExposedModule, optional: frontend.Bundled != nil},
+	}
+	if frontend.Bundled != nil {
+		texts = append(texts,
+			frontendText{path: "frontend.bundled.package", value: frontend.Bundled.Package},
+			frontendText{path: "frontend.bundled.export", value: frontend.Bundled.Export})
 	}
 	for index, surface := range frontend.Surfaces {
 		at := fmt.Sprintf("frontend.surfaces[%d]", index)
@@ -465,6 +518,12 @@ func checkFrontendTexts(document *ModuleManifest) error {
 }
 
 func checkFrontendHostContractMajor(document *ModuleManifest) error {
+	if document.Frontend.Bundled != nil {
+		if document.Frontend.HostContract != 0 || document.Frontend.ExposedModule != "" || document.Frontend.Payload != nil {
+			return fmt.Errorf("%w: frontend.bundled is declared beside a remote's exposed_module, host_contract or payload; a page is mounted one way", ErrInvalid)
+		}
+		return nil
+	}
 	if document.Frontend.HostContract < 1 {
 		return fmt.Errorf("%w: frontend.host_contract is %d, which is not a host contract major; a host serves a remote only when it recognises the major it declares, and 0 is one no host serves", ErrInvalid, document.Frontend.HostContract)
 	}
