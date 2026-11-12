@@ -92,6 +92,10 @@ type Workspace struct {
 	// declared it. A module absent from both is the product's own.
 	memberRoles  map[string]MemberRole
 	memberOwners map[string]string
+
+	// providerMemo is the last InterfaceProviders answer and what it was
+	// computed from; guarded by providerMemoMu.
+	providerMemo *providerMemo
 }
 
 func (workspace Workspace) MarshalYAML() (any, error) {
