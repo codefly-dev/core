@@ -33,7 +33,7 @@ func (g *GRPC) Inject() {
 }
 
 // WorkContextHeader carries a signed Work Context (sdk-go's
-// WorkContextHeaderName). It is the only HTTP carrier for one, and a service
+// HeaderName). It is the only HTTP carrier for one, and a service
 // that authenticates by Work Context reads it from gRPC metadata under the
 // header's own name — so the REST ingress must forward it verbatim, not under a
 // rewritten context key like the identity headers above.
@@ -45,7 +45,9 @@ func (g *GRPC) Inject() {
 const WorkContextHeader = "X-Codefly-Work-Context"
 
 // MetadataFromRequest extracts gRPC metadata from an HTTP request, mapping known
-// HTTP headers to context keys and forwarding the Work Context header verbatim.
+// HTTP headers to context keys and forwarding the Work Context and its sealed
+// installation carriers verbatim. The callee checks cardinality, agreement with
+// the signed seal, and authority; this bridge neither decodes nor verifies them.
 //
 // Without the latter, every agent-generated REST server (which installs this as
 // its grpc-gateway metadata annotator) silently dropped the caller's Work
@@ -69,6 +71,13 @@ func MetadataFromRequest(_ context.Context, req *http.Request) metadata.MD {
 	// not a credential either.
 	if values := req.Header.Values(WorkContextHeader); len(values) == 1 && values[0] != "" {
 		md.Set(WorkContextHeader, values[0])
+	}
+	// Preserve every installation value, including duplicates and empty values,
+	// so the SDK can refuse an ambiguous carrier rather than see a repaired one.
+	for _, header := range []string{"X-Codefly-Installation-Id", "X-Codefly-Installation-Revision"} {
+		if values := req.Header.Values(header); len(values) > 0 {
+			md.Set(header, values...)
+		}
 	}
 	return md
 }
