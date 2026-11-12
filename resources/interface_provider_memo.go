@@ -18,28 +18,27 @@ import (
 // An entry is served only while everything it was computed from is unchanged,
 // and that is checked on every call rather than cleared by the paths that
 // mutate: the composition that locates the modules (the module references by
-// value, the layout, the directory and the local overlay), and, for each
-// module, the file its declaration resolves to and the content of that file,
-// which is all Module.InterfaceProviders reads. AddModuleReference,
-// DeleteModule, composing other workspaces, a caller editing the exported
-// Modules slice, a module saved by this process or any other, a reference
-// that resolves to another checkout — each changes one of those, and the next
-// call recomputes. Nothing has to remember to clear it.
+// value and in order, the layout, the directory and the local overlay), the
+// directory each reference resolves to, and every declaration file the load
+// read — recorded by the load itself, so the memo does not have to know which
+// files loading a module reads: the module declaration and each service
+// declaration its interface names. AddModuleReference, DeleteModule,
+// composing other workspaces, a caller editing or reordering the exported
+// Modules slice, a module or service saved by this process or any other, a
+// service directory removed, a reference that resolves to another checkout —
+// each changes one of those, and the next call recomputes. Nothing has to
+// remember to clear it.
 type providerMemo struct {
 	composition [sha256.Size]byte
-	// declarations maps each composed module, by its workspace-local name, to
-	// the declaration it resolved to, read before the modules were loaded: a
-	// file written while they load leaves an entry the next call refuses,
-	// never one that hides it.
-	declarations map[string]moduleDeclaration
-	providers    []*InterfaceProvider
-}
-
-// moduleDeclaration locates one module's declaration file and digests its
-// content.
-type moduleDeclaration struct {
-	file   string
-	digest [sha256.Size]byte
+	// locations maps each composed module, by its workspace-local name, to the
+	// directory its reference resolved to when the modules were loaded.
+	locations map[string]string
+	// read is every declaration file the load parsed, by path, with the
+	// digest of the bytes it parsed (Module.read): a file written while the
+	// modules load leaves an entry the next call refuses, never one that
+	// hides it.
+	read      map[string][sha256.Size]byte
+	providers []*InterfaceProvider
 }
 
 // providerMemoMu guards every workspace's memo field. Entries are immutable,
@@ -47,18 +46,29 @@ type moduleDeclaration struct {
 var providerMemoMu sync.Mutex
 
 // memoizedProviders returns the providers remembered for composition and
-// declarations, or false when there are none or either has changed since.
-func (workspace *Workspace) memoizedProviders(composition [sha256.Size]byte, declarations map[string]moduleDeclaration) ([]*InterfaceProvider, bool) {
+// locations, or false when there are none, either has changed since, or a
+// declaration file the load read no longer has the content it read.
+func (workspace *Workspace) memoizedProviders(composition [sha256.Size]byte, locations map[string]string) ([]*InterfaceProvider, bool) {
 	providerMemoMu.Lock()
 	memo := workspace.providerMemo
 	providerMemoMu.Unlock()
-	if memo == nil || memo.composition != composition || !maps.Equal(memo.declarations, declarations) {
+	if memo == nil || memo.composition != composition || !maps.Equal(memo.locations, locations) {
 		return nil, false
+	}
+	for file, digest := range memo.read {
+		if current, err := fileDigest(file); err != nil || current != digest {
+			return nil, false
+		}
 	}
 	return copyProviders(memo.providers), true
 }
 
-func (workspace *Workspace) rememberProviders(memo *providerMemo) {
+func (workspace *Workspace) rememberProviders(composition [sha256.Size]byte, locations map[string]string, modules []*Module, providers []*InterfaceProvider) {
+	read := make(map[string][sha256.Size]byte)
+	for _, mod := range modules {
+		maps.Copy(read, mod.read)
+	}
+	memo := &providerMemo{composition: composition, locations: locations, read: read, providers: copyProviders(providers)}
 	providerMemoMu.Lock()
 	workspace.providerMemo = memo
 	providerMemoMu.Unlock()
@@ -86,13 +96,13 @@ func (workspace *Workspace) providerComposition() ([sha256.Size]byte, error) {
 	return sha256.Sum256(encoded), nil
 }
 
-// moduleDeclarations locates and digests the declaration file of each module
-// the workspace composes, as LoadModuleFromReference locates it. The flat
-// layout's module is the workspace itself and declares no interface. False
-// when a module does not resolve to a readable declaration: the load reports
-// that, and nothing is remembered.
-func (workspace *Workspace) moduleDeclarations(ctx context.Context) (map[string]moduleDeclaration, bool) {
-	declarations := make(map[string]moduleDeclaration, len(workspace.Modules))
+// moduleLocations resolves each module the workspace composes to the
+// directory LoadModuleFromReference loads it from. The flat layout's module is
+// the workspace itself and declares no interface. False when a module does not
+// resolve to a local directory: the load reports that, and nothing is
+// remembered.
+func (workspace *Workspace) moduleLocations(ctx context.Context) (map[string]string, bool) {
+	locations := make(map[string]string, len(workspace.Modules))
 	for _, ref := range workspace.Modules {
 		if workspace.Layout == LayoutKindFlat && ref.Name == workspace.Name {
 			continue
@@ -101,17 +111,9 @@ func (workspace *Workspace) moduleDeclarations(ctx context.Context) (map[string]
 		if err != nil || resolution.Kind == ResolutionPinned || resolution.Dir == "" {
 			return nil, false
 		}
-		file, err := Path[Module](ctx, resolution.Dir)
-		if err != nil {
-			return nil, false
-		}
-		digest, err := fileDigest(file)
-		if err != nil {
-			return nil, false
-		}
-		declarations[ref.Name] = moduleDeclaration{file: file, digest: digest}
+		locations[ref.Name] = resolution.Dir
 	}
-	return declarations, true
+	return locations, true
 }
 
 func fileDigest(file string) ([sha256.Size]byte, error) {

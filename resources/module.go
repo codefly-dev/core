@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -190,6 +191,27 @@ type Module struct {
 	// Workspace.LoadModuleFromReference. It binds the interface dependencies
 	// of the services this module loads; a module loaded on its own has none.
 	workspace *Workspace `yaml:"-"`
+
+	// read is every declaration file the load of this module parsed, by path,
+	// with the digest of the bytes it parsed: the module's own declaration and
+	// each service declaration its interface names (ValidateInterface). It is
+	// written by the load only, so whatever remembers the outcome of the load
+	// (Workspace.InterfaceProviders) can tell when any input to it has changed
+	// without knowing which files the load reads.
+	read map[string][sha256.Size]byte `yaml:"-"`
+}
+
+// recordRead notes one declaration file the load parsed.
+func (mod *Module) recordRead(file string, digest [sha256.Size]byte) {
+	if mod.read == nil {
+		mod.read = make(map[string][sha256.Size]byte)
+	}
+	mod.read[file] = digest
+}
+
+func (mod *Module) setDeclarationSource(file string, content []byte) error {
+	mod.recordRead(file, sha256.Sum256(content))
+	return nil
 }
 
 func (mod *Module) Unique() string {
@@ -942,6 +964,7 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 		if err != nil {
 			return w.Wrapf(err, "interface references unknown service %q", ie.Service)
 		}
+		mod.recordRead(service.declarationFile, service.declarationDigest)
 
 		// Check endpoint exists
 		found := false
@@ -967,9 +990,11 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 		if len(capability.Implements) == 0 {
 			return w.NewError("interface capability entry for service %q implements nothing", capability.Service)
 		}
-		if _, err := mod.loadDeclaredService(ctx, capability.Service); err != nil {
+		service, err := mod.loadDeclaredService(ctx, capability.Service)
+		if err != nil {
 			return w.Wrapf(err, "interface capability references unknown service %q", capability.Service)
 		}
+		mod.recordRead(service.declarationFile, service.declarationDigest)
 	}
 	if _, err := mod.InterfaceProviders(); err != nil {
 		return w.Wrap(err)
