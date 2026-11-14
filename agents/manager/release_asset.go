@@ -180,11 +180,40 @@ func parseChecksums(raw []byte) (map[string]string, error) {
 // anonymous and authenticated downloads. Only credential selection differs,
 // and it is the host's (UseReleaseTokenSource).
 func openAgentRelease(ctx context.Context, releaseURL string) (*ReleaseAsset, error) {
-	token, tried := ReleaseToken()
+	token, sources := ReleaseToken()
 	asset, err := FetchReleaseAsset(ctx, releaseURL, newGitHubReleaseClient(token))
-	var response *github.ErrorResponse
-	if token == "" && errors.As(err, &response) && response.Response != nil && response.Response.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%w: the release may be missing, or private, and no GitHub credential was found to read a private one (tried %s)", err, strings.Join(tried, ", "))
+	if err != nil {
+		return nil, explainReleaseRefusal(err, token, sources)
 	}
-	return asset, err
+	return asset, nil
+}
+
+// explainReleaseRefusal says which credential a refused release request was
+// sent with — by the name of its source, never its value — or, when none was,
+// every source that was tried.
+func explainReleaseRefusal(err error, token string, sources []string) error {
+	var response *github.ErrorResponse
+	if !errors.As(err, &response) || response.Response == nil {
+		return err
+	}
+	status := response.Response.StatusCode
+	if token == "" {
+		if status == http.StatusNotFound {
+			return fmt.Errorf("%w: the release may be missing, or private, and no GitHub credential was found to read a private one (tried %s)", err, strings.Join(sources, ", "))
+		}
+		return err
+	}
+	from := "the host's release-token source"
+	if len(sources) > 0 {
+		from = sources[len(sources)-1]
+	}
+	switch status {
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%w: GitHub did not accept the credential from %s; it may be expired or revoked", err, from)
+	case http.StatusForbidden:
+		return fmt.Errorf("%w: the credential from %s is not allowed to read this release", err, from)
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: the release may be missing, or private and beyond what the credential from %s can read", err, from)
+	}
+	return err
 }

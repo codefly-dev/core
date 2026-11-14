@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,16 +21,46 @@ import (
 // requests/hour per IP, so resolving "latest" for several agents can flakily
 // 403; a token raises the cap to 5000/hour, and it is what reads a private
 // release at all.
+//
+// The token is attached per request and only to the GitHub API host, so a
+// redirect the lookup follows to any other host travels without it — the same
+// rule the asset download keeps by fetching redirected bytes anonymously.
+// go-github's own WithAuthToken attaches it to every request the client
+// sends, a followed cross-host redirect included.
 func newGitHubReleaseClient(token string) *github.Client {
-	options := []github.ClientOptionsFunc{github.WithHTTPClient(agentDownloadClient)}
+	httpClient := *agentDownloadClient
 	if token != "" {
-		options = append(options, github.WithAuthToken(token))
+		base := httpClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		httpClient.Transport = apiHostBearer{base: base, host: githubAPIHost, token: token}
 	}
-	client, err := github.NewClient(options...)
+	client, err := github.NewClient(github.WithHTTPClient(&httpClient))
 	if err != nil {
-		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
+		panic(fmt.Sprintf("configure GitHub release client: %v", err))
 	}
 	return client
+}
+
+// githubAPIHost is the host of go-github's default base URL, the only host a
+// release credential is sent to.
+const githubAPIHost = "api.github.com"
+
+// apiHostBearer sends token to host and to no other.
+type apiHostBearer struct {
+	base  http.RoundTripper
+	host  string
+	token string
+}
+
+func (t apiHostBearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != t.host {
+		return t.base.RoundTrip(r)
+	}
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(r)
 }
 
 // GitHubReleaseToken is the credential rule of a host that has nothing but
@@ -40,21 +71,27 @@ func newGitHubReleaseClient(token string) *github.Client {
 // developer's gh login — establishes reachability for the laptop and nothing
 // else.
 func GitHubReleaseToken() string {
-	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
-		return token
-	}
-	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	token, _ := environmentReleaseToken()
+	return token
 }
 
 // ReleaseTokenSource finds the credential the agent loader reads GitHub
-// releases with. It answers the token, or "" together with every source it
-// tried, which the refusal of a missing or private release names so the
-// person knows what to provide.
-type ReleaseTokenSource func() (token string, tried []string)
+// releases with. With a token, sources names where it came from (its last
+// entry when there are several), which a refusal of that token names so the
+// person knows which credential to fix; a source that names none is reported
+// as the host's source. Without one, sources is every source it tried, which
+// the refusal of a missing or private release names so the person knows what
+// to provide. The token itself is never reported.
+type ReleaseTokenSource func() (token string, sources []string)
 
 // environmentReleaseToken is the default source: the environment alone.
 func environmentReleaseToken() (string, []string) {
-	return GitHubReleaseToken(), []string{"GITHUB_TOKEN", "GH_TOKEN"}
+	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		if token := strings.TrimSpace(os.Getenv(name)); token != "" {
+			return token, []string{name}
+		}
+	}
+	return "", []string{"GITHUB_TOKEN", "GH_TOKEN"}
 }
 
 var releaseTokenSource atomic.Pointer[ReleaseTokenSource]
@@ -77,7 +114,7 @@ func UseReleaseTokenSource(source ReleaseTokenSource) {
 
 // ReleaseToken is the credential the loader reads releases with now: the
 // installed source's answer, or the environment's when none is installed,
-// with the sources tried when there is none.
+// with where it came from, or the sources tried when there is none.
 func ReleaseToken() (string, []string) {
 	if source := releaseTokenSource.Load(); source != nil {
 		return (*source)()
@@ -90,10 +127,10 @@ func ReleaseToken() (string, []string) {
 var latestReleaseTag = githubLatestReleaseTag
 
 func githubLatestReleaseTag(ctx context.Context, owner, repo string) (string, error) {
-	token, _ := ReleaseToken()
+	token, sources := ReleaseToken()
 	release, _, err := newGitHubReleaseClient(token).Repositories.GetLatestRelease(ctx, owner, repo)
 	if err != nil {
-		return "", err
+		return "", explainReleaseRefusal(err, token, sources)
 	}
 	return release.GetTagName(), nil
 }
