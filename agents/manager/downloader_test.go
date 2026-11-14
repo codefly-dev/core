@@ -173,7 +173,7 @@ func TestFetchReleaseAbortsWhenContextIsCancelledBeforeHeaders(t *testing.T) {
 	returned := make(chan result, 1)
 	go func() {
 		endpoint := server.URL + "/"
-		client, err := newGitHubReleaseClient().Clone(github.WithURLs(&endpoint, &endpoint))
+		client, err := newGitHubReleaseClient("").Clone(github.WithURLs(&endpoint, &endpoint))
 		if err != nil {
 			returned <- result{err: err}
 			return
@@ -207,7 +207,7 @@ func TestFetchReleaseAbortsWhenContextIsCancelledMidTransfer(t *testing.T) {
 	defer cancel()
 
 	endpoint := server.URL + "/"
-	client, err := newGitHubReleaseClient().Clone(github.WithURLs(&endpoint, &endpoint))
+	client, err := newGitHubReleaseClient("").Clone(github.WithURLs(&endpoint, &endpoint))
 	require.NoError(t, err)
 	resp, _, err := client.Repositories.DownloadReleaseAsset(ctx, "owner", "repo", 1, agentDownloadClient)
 	if err != nil {
