@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"net/netip"
 )
 
 func TestWithPersistentCacheMountScopesStateByEnvironmentName(t *testing.T) {
@@ -60,7 +61,7 @@ func TestWithPersistentCacheMountRejectsUnsafeKeysAndTargets(t *testing.T) {
 }
 
 func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
-	httpPort := nat.Port("3000/tcp")
+	httpPort := network.MustParsePort("3000/tcp")
 	config := &container.Config{
 		Image:      "ghcr.io/codefly-dev/node:0.0.12",
 		User:       "1000:1000",
@@ -69,7 +70,7 @@ func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 		Cmd:        []string{"sleep", "infinity"},
 		WorkingDir: "/workspace",
 		Tty:        false,
-		ExposedPorts: nat.PortSet{
+		ExposedPorts: network.PortSet{
 			httpPort: struct{}{},
 		},
 		Labels: map[string]string{LabelCodeflyEphemeral: "true"},
@@ -80,8 +81,8 @@ func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 			Source: "/host/source",
 			Target: "/workspace",
 		}},
-		PortBindings: nat.PortMap{
-			httpPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "10571"}},
+		PortBindings: network.PortMap{
+			httpPort: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: "10571"}},
 		},
 	}
 

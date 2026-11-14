@@ -3,7 +3,7 @@ package dockerrun
 import (
 	"fmt"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
 )
 
 // validateContainerRecoveryReuse judges the reuse and fingerprint-replacement

@@ -3,11 +3,12 @@ package dockerrun
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
 func TestContainerConfigDisablesPseudoTTY(t *testing.T) {
@@ -22,10 +23,8 @@ func TestContainerConfigDisablesPseudoTTY(t *testing.T) {
 
 func TestForwardContainerOutputDemultiplexesDockerFrames(t *testing.T) {
 	var framed bytes.Buffer
-	stdout := stdcopy.NewStdWriter(&framed, stdcopy.Stdout)
-	stderr := stdcopy.NewStdWriter(&framed, stdcopy.Stderr)
-	_, _ = stdout.Write([]byte("ready\n"))
-	_, _ = stderr.Write([]byte("warning\n"))
+	writeStdFrame(&framed, stdcopy.Stdout, "ready\n")
+	writeStdFrame(&framed, stdcopy.Stderr, "warning\n")
 
 	var output bytes.Buffer
 	forwardContainerOutput(context.Background(), &framed, &output, false)
@@ -44,4 +43,14 @@ func TestForwardContainerOutputSupportsLegacyTTYAndStripsControl(t *testing.T) {
 	if got := output.String(); got != "ready\n" {
 		t.Fatalf("legacy TTY output = %q", got)
 	}
+}
+
+// writeStdFrame writes one frame of Docker's multiplexed log stream: an
+// eight-byte header (stream, three zero bytes, big-endian payload length)
+// followed by the payload.
+func writeStdFrame(w *bytes.Buffer, stream stdcopy.StdType, payload string) {
+	header := [8]byte{byte(stream)}
+	binary.BigEndian.PutUint32(header[4:], uint32(len(payload)))
+	w.Write(header[:])
+	w.WriteString(payload)
 }

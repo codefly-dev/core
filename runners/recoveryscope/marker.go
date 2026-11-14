@@ -4,8 +4,8 @@
 // It holds no Docker client on purpose. An agent validates and echoes the
 // identity it inherited but never speaks to a daemon, and neither does a test
 // binary that links the SDK only to boot its dependencies. Reading the marker
-// through the Docker runner put github.com/docker/docker in the build graph of
-// every such consumer, carrying advisories that no available bump clears.
+// through the Docker runner put the Docker client in the build graph of every
+// such consumer, along with every advisory filed against it.
 package recoveryscope
 
 import (

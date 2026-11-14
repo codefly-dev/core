@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,7 +23,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
@@ -31,15 +32,13 @@ import (
 	"github.com/codefly-dev/gortk"
 	"github.com/google/uuid"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/registry"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/codefly-dev/core/wool"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 )
 
 type DockerEnvironment struct {
@@ -145,7 +144,7 @@ func NewDockerEnvironment(ctx context.Context, image *resources.DockerImage, dir
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
-	// Preflight: NewClientWithOpts succeeds even when the daemon is
+	// Preflight: client.New succeeds even when the daemon is
 	// down — failures surface later as cryptic "EOF" or "connect:
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
@@ -178,7 +177,7 @@ func NewDockerHeadlessEnvironment(ctx context.Context, image *resources.DockerIm
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot create docker client")
 	}
-	// Preflight: NewClientWithOpts succeeds even when the daemon is
+	// Preflight: client.New succeeds even when the daemon is
 	// down — failures surface later as cryptic "EOF" or "connect:
 	// connection refused" buried inside an unrelated wrap. Ping now
 	// so the message is loud and actionable.
@@ -229,7 +228,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	}()
 
 	if exists {
-		inspect, inspectErr := docker.client.ContainerInspect(ctx, docker.instance.ID)
+		inspect, inspectErr := inspectContainer(ctx, docker.client, docker.instance.ID)
 		if inspectErr != nil {
 			return w.Wrapf(inspectErr, "cannot inspect existing container")
 		}
@@ -248,7 +247,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		if actualFingerprint != expectedFingerprint {
 			w.Info("recreating container because runtime configuration changed",
 				wool.Field("container", docker.name))
-			if removeErr := docker.client.ContainerRemove(ctx, docker.instance.ID, container.RemoveOptions{Force: true}); removeErr != nil {
+			if _, removeErr := docker.client.ContainerRemove(ctx, docker.instance.ID, client.ContainerRemoveOptions{Force: true}); removeErr != nil {
 				return w.Wrapf(removeErr, "cannot remove container with stale runtime configuration")
 			}
 			docker.instance = nil
@@ -263,7 +262,7 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 func (docker *DockerEnvironment) ensureContainerRunning(ctx context.Context) error {
 	w := wool.Get(ctx).In("Docker.ensureContainerRunning")
 
-	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	inspect, err := inspectContainer(ctx, docker.client, docker.instance.ID)
 	if err != nil {
 		return w.Wrapf(err, "cannot inspect container")
 	}
@@ -303,7 +302,7 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 
 	// Add exposed ports
 	for port := range containerConfig.ExposedPorts {
-		cmd = append(cmd, "--expose", string(port))
+		cmd = append(cmd, "--expose", port.String())
 	}
 
 	// Add mounts
@@ -315,8 +314,8 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 	for port, bindings := range hostConfig.PortBindings {
 		for _, binding := range bindings {
 			host := binding.HostPort
-			if binding.HostIP != "" {
-				host = binding.HostIP + ":" + host
+			if binding.HostIP.IsValid() {
+				host = binding.HostIP.String() + ":" + host
 			}
 			cmd = append(cmd, "--publish", fmt.Sprintf("%s:%s", host, port.Port()))
 		}
@@ -376,7 +375,7 @@ func (docker *DockerEnvironment) createAndStartContainer(
 		wool.Field("host", hostConfig),
 	)
 
-	resp, err := docker.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, docker.platform, docker.name)
+	resp, err := docker.client.ContainerCreate(ctx, client.ContainerCreateOptions{Config: containerConfig, HostConfig: hostConfig, Platform: docker.platform, Name: docker.name})
 	if err != nil {
 		return w.Wrapf(err, "cannot create container")
 	}
@@ -396,7 +395,7 @@ func (docker *DockerEnvironment) createAndStartContainer(
 		// bounded ctx in case the caller's is already cancelled.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
-		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil && !errdefs.IsNotFound(rmErr) {
+		if _, rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, client.ContainerRemoveOptions{Force: true}); rmErr != nil && !errdefs.IsNotFound(rmErr) {
 			w.Warn("cannot remove container after failed start",
 				wool.Field("id", resp.ID), wool.ErrField(rmErr))
 			// Keep the acquired ID so Shutdown can retry this generation's
@@ -490,7 +489,7 @@ func containerConfigFingerprint(containerConfig *container.Config, hostConfig *c
 
 	exposedPorts := make([]string, 0, len(containerConfig.ExposedPorts))
 	for port := range containerConfig.ExposedPorts {
-		exposedPorts = append(exposedPorts, string(port))
+		exposedPorts = append(exposedPorts, port.String())
 	}
 	sort.Strings(exposedPorts)
 
@@ -498,8 +497,8 @@ func containerConfigFingerprint(containerConfig *container.Config, hostConfig *c
 	for port, bindings := range hostConfig.PortBindings {
 		for _, binding := range bindings {
 			portBindings = append(portBindings, containerPortBindingFingerprint{
-				Port:     string(port),
-				HostIP:   binding.HostIP,
+				Port:     port.String(),
+				HostIP:   hostIPString(binding.HostIP),
 				HostPort: binding.HostPort,
 			})
 		}
@@ -692,7 +691,7 @@ func (docker *DockerEnvironment) startContainer(ctx context.Context, containerID
 	w := wool.Get(ctx).In("Docker.startContainer")
 	docker.prepareLogFollowerForStart()
 
-	if err := docker.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+	if _, err := docker.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 		return w.Wrapf(err, "cannot start container")
 	}
 
@@ -726,7 +725,7 @@ func (docker *DockerEnvironment) waitForContainerToRun(ctx context.Context, cont
 
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		inspect, err := docker.client.ContainerInspect(ctx, containerID)
+		inspect, err := inspectContainer(ctx, docker.client, containerID)
 		if err != nil {
 			return w.Wrapf(err, "cannot inspect container")
 		}
@@ -880,15 +879,15 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		return false, err
 	}
 	// List all containers
-	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := docker.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return false, err
 	}
 	w.Debug("checking if container is running", wool.Field("name", docker.name))
 
 	// Check if a container with the given name is running
-	for i := range containers {
-		c := containers[i]
+	for i := range containers.Items {
+		c := containers.Items[i]
 		for _, name := range c.Names {
 			if name == "/"+docker.name {
 				if err := validateContainerServiceReuse(c.Labels, docker.serviceIdentity); err != nil {
@@ -920,7 +919,7 @@ func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string
 	if docker.instance == nil || docker.instance.ID == "" {
 		return ""
 	}
-	options := container.LogsOptions{
+	options := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     false,
@@ -932,7 +931,7 @@ func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string
 		return ""
 	}
 	defer r.Close()
-	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	inspect, err := inspectContainer(ctx, docker.client, docker.instance.ID)
 	if err != nil {
 		return ""
 	}
@@ -969,13 +968,13 @@ func (docker *DockerEnvironment) GetLogs(ctx context.Context) error {
 	docker.forwarderWG.Add(1)
 	docker.logMu.Unlock()
 
-	inspect, err := docker.client.ContainerInspect(ctx, docker.instance.ID)
+	inspect, err := inspectContainer(ctx, docker.client, docker.instance.ID)
 	if err != nil {
 		docker.finishLogAttachFailure()
 		return w.Wrapf(err, "cannot inspect container log stream")
 	}
 	tty := inspect.Config != nil && inspect.Config.Tty
-	options := container.LogsOptions{
+	options := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -1024,30 +1023,39 @@ func (docker *DockerEnvironment) finishLogAttachFailure() {
 	docker.forwarderWG.Done()
 }
 
-func (docker *DockerEnvironment) exposedPortSet() nat.PortSet {
+func (docker *DockerEnvironment) exposedPortSet() network.PortSet {
 	docker.mu.Lock()
 	mappings := append([]*DockerPortMapping(nil), docker.portMappings...)
 	docker.mu.Unlock()
-	set := nat.PortSet{}
+	set := network.PortSet{}
 	for _, portMapping := range mappings {
-		containerPort := nat.Port(fmt.Sprintf("%d/tcp", portMapping.Container))
+		containerPort, _ := network.PortFrom(portMapping.Container, network.TCP)
 		set[containerPort] = struct{}{}
 	}
 	return set
 }
 
-func (docker *DockerEnvironment) portBindings() nat.PortMap {
+// hostIPString renders a port binding's host address as the Docker API spells
+// it, with the unset address as the empty string.
+func hostIPString(addr netip.Addr) string {
+	if !addr.IsValid() {
+		return ""
+	}
+	return addr.String()
+}
+
+func (docker *DockerEnvironment) portBindings() network.PortMap {
 	docker.mu.Lock()
 	mappings := append([]*DockerPortMapping(nil), docker.portMappings...)
-	hostIP := "127.0.0.1"
+	hostIP := netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	if docker.publicPorts {
-		hostIP = "0.0.0.0"
+		hostIP = netip.IPv4Unspecified()
 	}
 	docker.mu.Unlock()
-	portMap := nat.PortMap{}
+	portMap := network.PortMap{}
 	for _, portMapping := range mappings {
-		port := nat.Port(fmt.Sprintf("%d/tcp", portMapping.Container))
-		portMap[port] = []nat.PortBinding{
+		port, _ := network.PortFrom(portMapping.Container, network.TCP)
+		portMap[port] = []network.PortBinding{
 			{
 				HostIP:   hostIP,
 				HostPort: fmt.Sprintf("%d", portMapping.Host),
@@ -1067,7 +1075,7 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	// is unresponsive.
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := docker.client.ContainerStop(stopCtx, docker.instance.ID, container.StopOptions{Timeout: shared.Pointer(3)})
+	_, err := docker.client.ContainerStop(stopCtx, docker.instance.ID, client.ContainerStopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
 		return w.Wrapf(err, "cannot stop container")
 	}
@@ -1126,7 +1134,7 @@ func (docker *DockerEnvironment) remove() error {
 	}
 	rmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := docker.client.ContainerRemove(rmCtx, docker.instance.ID, container.RemoveOptions{Force: true})
+	_, err := docker.client.ContainerRemove(rmCtx, docker.instance.ID, client.ContainerRemoveOptions{Force: true})
 	if err != nil {
 		return err
 	}
@@ -1249,7 +1257,7 @@ func (proc *DockerProc) Wait(ctx context.Context) error {
 // Wait so both surface the exit status identically.
 func (proc *DockerProc) pollExit(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("DockerProc.pollExit")
-	inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+	inspect, err := proc.env.client.ExecInspect(ctx, proc.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return false, w.Wrapf(err, "cannot inspect process")
 	}
@@ -1356,7 +1364,7 @@ func (proc *DockerProc) FindPid(ctx context.Context) (int, error) {
 	// before trusting the file, so a stale PID cannot kill a later process that
 	// reused the same numeric ID.
 	if proc.ID != "" && proc.waitOn == "" && proc.pidFile != "" {
-		inspect, err := proc.env.client.ContainerExecInspect(ctx, proc.ID)
+		inspect, err := proc.env.client.ExecInspect(ctx, proc.ID, client.ExecInspectOptions{})
 		if err != nil {
 			return 0, w.Wrapf(err, "cannot inspect process")
 		}
@@ -1380,18 +1388,18 @@ for d in /proc/[0-9]*; do
     printf '%s\t%s\n' "$pid" "$cmd"
   fi
 done`
-	execConfig := container.ExecOptions{
+	execConfig := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{"/bin/sh", "-c", script},
 	}
 
-	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot create exec to list processes")
 	}
 
-	execAttachResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	execAttachResp, err := proc.env.client.ExecAttach(ctx, execIDResp.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot attach to exec")
 	}
@@ -1442,16 +1450,16 @@ done`
 func (proc *DockerProc) readContainerPID(ctx context.Context) (int, error) {
 	w := wool.Get(ctx).In("DockerProc.readContainerPID")
 	script := `if IFS= read -r pid < "$1"; then printf '%s\n' "$pid"; fi`
-	execConfig := container.ExecOptions{
+	execConfig := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{"/bin/sh", "-c", script, "codefly-read-pid", proc.pidFile},
 	}
-	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot create exec to read process PID")
 	}
-	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	execResp, err := proc.env.client.ExecAttach(ctx, execIDResp.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return 0, w.Wrapf(err, "cannot attach to PID reader")
 	}
@@ -1518,7 +1526,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	}
 	command := proc.prepareCommand()
 	// Create an exec configuration
-	execConfig := container.ExecOptions{
+	execConfig := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		AttachStdin:  proc.stdinReader != nil,
@@ -1530,16 +1538,13 @@ func (proc *DockerProc) start(ctx context.Context) error {
 	}
 	w.Trace("creating exec", wool.Field("cmd", base.CommandSummary(proc.cmd)))
 	// Create an exec instance
-	execIDResp, err := proc.env.client.ContainerExecCreate(ctx, proc.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ExecCreate(ctx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return err
 	}
 	// Start the exec instance
-	execStartCheck := container.ExecStartOptions{
-		Detach: false,
-		Tty:    false,
-	}
-	execResp, err := proc.env.client.ContainerExecAttach(ctx, execIDResp.ID, execStartCheck)
+	execStartCheck := client.ExecAttachOptions{}
+	execResp, err := proc.env.client.ExecAttach(ctx, execIDResp.ID, execStartCheck)
 	if err != nil {
 		return err
 	}
@@ -1652,7 +1657,7 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	} else {
 		killCmd = []string{"/bin/sh", "-c", fmt.Sprintf("kill %d", pid)}
 	}
-	execConfig := container.ExecOptions{
+	execConfig := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          killCmd,
@@ -1663,13 +1668,13 @@ func (proc *DockerProc) stop(ctx context.Context, pid int, force bool) error {
 	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer killCancel()
 
-	execIDResp, err := proc.env.client.ContainerExecCreate(killCtx, proc.env.instance.ID, execConfig)
+	execIDResp, err := proc.env.client.ExecCreate(killCtx, proc.env.instance.ID, execConfig)
 	if err != nil {
 		return w.Wrapf(err, "cannot create exec to kill")
 	}
 
-	execStartCheck := container.ExecStartOptions{Detach: false, Tty: false}
-	execResp, err := proc.env.client.ContainerExecAttach(killCtx, execIDResp.ID, execStartCheck)
+	execStartCheck := client.ExecAttachOptions{}
+	execResp, err := proc.env.client.ExecAttach(killCtx, execIDResp.ID, execStartCheck)
 	if err != nil {
 		return w.Wrapf(err, "cannot kill process")
 	}
@@ -1808,7 +1813,7 @@ func isNoMatchingManifestError(err error) bool {
 // the normal pull path still surfaces a genuine error.
 func resolveImagePlatform(ctx context.Context, cli imageDistributionInspector, imag *resources.DockerImage) *ocispec.Platform {
 	w := wool.Get(ctx).In("Docker.resolveImagePlatform")
-	inspect, err := cli.DistributionInspect(ctx, imag.FullName(), "")
+	inspect, err := cli.DistributionInspect(ctx, imag.FullName(), client.DistributionInspectOptions{})
 	if err != nil {
 		w.Debug("cannot inspect image distribution; using host platform", wool.ErrField(err))
 		return nil
@@ -1838,7 +1843,7 @@ func resolveImagePlatform(ctx context.Context, cli imageDistributionInspector, i
 // imageDistributionInspector is the subset of the Docker client used to read an
 // image's published platforms without pulling it.
 type imageDistributionInspector interface {
-	DistributionInspect(ctx context.Context, imageRef, encodedRegistryAuth string) (registry.DistributionInspect, error)
+	DistributionInspect(ctx context.Context, imageRef string, options client.DistributionInspectOptions) (client.DistributionInspectResult, error)
 }
 
 func imagePlatformRef(p *ocispec.Platform) string {
@@ -1872,9 +1877,9 @@ func emulationFailureHint(platform *ocispec.Platform) string {
 func pullImage(ctx context.Context, c *client.Client, imag *resources.DockerImage, platform *ocispec.Platform, out io.Writer) error {
 	w := wool.Get(ctx).In("Docker.pullImage")
 	_, _ = w.Forward([]byte(fmt.Sprintf("pulling Docker image %s. Will show progress every 5 seconds.", imag.FullName())))
-	opts := image.PullOptions{}
+	opts := client.ImagePullOptions{}
 	if platform != nil {
-		opts.Platform = imagePlatformRef(platform)
+		opts.Platforms = []ocispec.Platform{*platform}
 	}
 	progress, err := c.ImagePull(ctx, imag.FullName(), opts)
 	if err != nil {
@@ -2043,11 +2048,11 @@ func (docker *DockerEnvironment) WithWorkDir(dir string) {
 
 // ContainerDeleted checks if the container with ID is gone
 func (docker *DockerEnvironment) ContainerDeleted() (bool, error) {
-	containers, err := docker.client.ContainerList(context.Background(), container.ListOptions{All: true})
+	containers, err := docker.client.ContainerList(context.Background(), client.ContainerListOptions{All: true})
 	if err != nil {
 		return false, err
 	}
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		if c.ID == docker.instance.ID {
 			return false, nil
 		}
@@ -2076,7 +2081,7 @@ func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerIm
 	w := wool.Get(ctx).In("Docker.ImageExists")
 	reference := imag.FullName()
 	if _, err := c.ImageInspect(ctx, reference); err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return false, nil
 		}
 		return false, w.Wrapf(err, "cannot inspect image %s", reference)

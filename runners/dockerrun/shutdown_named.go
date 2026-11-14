@@ -23,7 +23,7 @@ func ShutdownNamedContainer(ctx context.Context, name string) error {
 	containerName := ContainerName(name)
 	inspectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	inspect, err := cli.ContainerInspect(inspectCtx, containerName)
+	inspect, err := inspectContainer(inspectCtx, cli, containerName)
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
@@ -31,7 +31,7 @@ func ShutdownNamedContainer(ctx context.Context, name string) error {
 		return fmt.Errorf("cannot acquire container %s for teardown: %w", containerName, err)
 	}
 	const ownerLabelValue = "true"
-	if inspect.ContainerJSONBase == nil || inspect.ID == "" ||
+	if inspect.ID == "" ||
 		labelOf(inspect.Config, LabelCodeflyOwner) != ownerLabelValue ||
 		labelOf(inspect.Config, LabelCodeflyName) != containerName {
 		return fmt.Errorf("cannot prove identity and Codefly ownership of container %s", containerName)

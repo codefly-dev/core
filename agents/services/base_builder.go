@@ -590,9 +590,8 @@ func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Env
 	//
 	// Image-ID resolution needs the Docker client, which we deliberately do
 	// NOT link into this package: package services is compiled into every
-	// agent binary, and pulling in github.com/docker/docker would drag the
-	// whole Moby module (and its daemon-side, unpatchable CVEs) into agents
-	// that never touch Docker. Instead the CLI — which legitimately links the
+	// agent binary, and pulling in the Docker client would drag the Moby
+	// modules (and their advisories) into agents that never touch Docker. Instead the CLI — which legitimately links the
 	// Docker client — injects ImageIDResolver at startup. When it is unset
 	// (e.g. inside an agent process), we fall back to the tag, which is the
 	// same path stock/non-local images already take.

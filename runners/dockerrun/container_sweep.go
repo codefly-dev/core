@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -80,18 +80,15 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 	// could rename a container, but the label sticks.
 	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	containers, err := cli.ContainerList(listCtx, container.ListOptions{
-		All: true,
-		Filters: filters.NewArgs(
-			filters.Arg("label", LabelCodeflyOwner+"="+labelTrue),
-			filters.Arg("label", LabelCodeflyRecoveryScope+"="+scope.id),
-		),
+	containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{
+		All:     true,
+		Filters: client.Filters{}.Add("label", LabelCodeflyOwner+"="+labelTrue).Add("label", LabelCodeflyRecoveryScope+"="+scope.id),
 	})
 	if err != nil {
 		return fmt.Errorf("cannot list codefly containers: %w", err)
 	}
 	reaped := 0
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		if !staleContainerInScope(c, scope) {
 			continue
 		}
@@ -105,7 +102,7 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 		// Short bounded context per remove — one unresponsive container
 		// shouldn't stall the whole sweep.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if rmErr := cli.ContainerRemove(rmCtx, c.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+		if _, rmErr := cli.ContainerRemove(rmCtx, c.ID, client.ContainerRemoveOptions{Force: true}); rmErr != nil {
 			w.Warn("cannot remove stale container",
 				wool.Field("container", c.ID[:12]), wool.ErrField(rmErr))
 		} else {
@@ -138,5 +135,5 @@ func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bo
 	if err != nil || pid <= 1 {
 		return false
 	}
-	return shouldReapContainer(c.State, base.IsProcessAlive(pid), c.Labels[LabelCodeflyEphemeral] == labelTrue, c.Labels[LabelCodeflyInvocation] != "")
+	return shouldReapContainer(string(c.State), base.IsProcessAlive(pid), c.Labels[LabelCodeflyEphemeral] == labelTrue, c.Labels[LabelCodeflyInvocation] != "")
 }

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +53,7 @@ func TestDisposableRecoveryUsesDurableNamespaceAndEphemeralOwnership(t *testing.
 				labels[LabelCodeflyInvocation] = "session"
 			}
 			for _, state := range []string{"running", "exited"} {
-				require.Equal(t, tc.want, disposableContainerInNamespace(container.Summary{State: state, Labels: labels}, next))
+				require.Equal(t, tc.want, disposableContainerInNamespace(container.Summary{State: container.ContainerState(state), Labels: labels}, next))
 			}
 		})
 	}

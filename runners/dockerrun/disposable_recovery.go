@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -44,22 +44,18 @@ func ReapDisposableContainers(ctx context.Context, scope ContainerRecoveryScope)
 		return ctx.Err()
 	}
 	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	containers, err := cli.ContainerList(listCtx, container.ListOptions{All: true, Filters: filters.NewArgs(
-		filters.Arg("label", LabelCodeflyOwner+"="+labelTrue),
-		filters.Arg("label", LabelCodeflyRecoveryNamespace+"="+scope.namespace),
-		filters.Arg("label", LabelCodeflyEphemeral+"="+labelTrue),
-	)})
+	containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{All: true, Filters: client.Filters{}.Add("label", LabelCodeflyOwner+"="+labelTrue).Add("label", LabelCodeflyRecoveryNamespace+"="+scope.namespace).Add("label", LabelCodeflyEphemeral+"="+labelTrue)})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("list disposable containers: %w", err)
 	}
 	var failures []error
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		if !disposableContainerInNamespace(c, scope) {
 			continue
 		}
 		removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
-		err := cli.ContainerRemove(removeCtx, c.ID, container.RemoveOptions{Force: true})
+		_, err := cli.ContainerRemove(removeCtx, c.ID, client.ContainerRemoveOptions{Force: true})
 		removeCancel()
 		if err != nil && !errdefs.IsNotFound(err) {
 			failures = append(failures, fmt.Errorf("recover disposable container %s: %w", c.ID, err))
@@ -88,5 +84,5 @@ func disposableContainerInNamespace(c container.Summary, scope ContainerRecovery
 	}
 	// Ephemeral is established above; a ledgered container stays with
 	// sessionledger recovery, which can read its retention record.
-	return shouldReapContainer(c.State, base.IsProcessAlive(pid), true, c.Labels[LabelCodeflyInvocation] != "")
+	return shouldReapContainer(string(c.State), base.IsProcessAlive(pid), true, c.Labels[LabelCodeflyInvocation] != "")
 }

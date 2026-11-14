@@ -11,7 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,10 +71,10 @@ func TestContainerRecoveryRejectsAdoptionBeforeReuseOrReplacement(t *testing.T) 
 			if tc.changed {
 				config.Labels[LabelCodeflyConfig] = "old-configuration"
 			}
-			created, err := backend.client.ContainerCreate(t.Context(), config, hostConfig, nil, nil, env.name)
+			created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Config: config, HostConfig: hostConfig, Name: env.name})
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+				_, _ = backend.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
 			})
 			reuser := env
 			if tc.unscoped {
@@ -91,7 +91,7 @@ func TestContainerRecoveryRejectsAdoptionBeforeReuseOrReplacement(t *testing.T) 
 			} else {
 				require.NoError(t, err)
 			}
-			inspected, err := backend.client.ContainerInspect(t.Context(), created.ID)
+			inspected, err := inspectContainer(t.Context(), backend.client, created.ID)
 			require.NoError(t, err, "ownership rejection must not delete or replace the old container")
 			if tc.reject != "" {
 				require.False(t, inspected.State.Running, "ownership rejection must precede starting the old container")
