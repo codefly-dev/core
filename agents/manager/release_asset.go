@@ -177,12 +177,14 @@ func parseChecksums(raw []byte) (map[string]string, error) {
 }
 
 // openAgentRelease uses the same release metadata and digest discovery for
-// anonymous and authenticated downloads. Only credential selection differs.
+// anonymous and authenticated downloads. Only credential selection differs,
+// and it is the host's (UseReleaseTokenSource).
 func openAgentRelease(ctx context.Context, releaseURL string) (*ReleaseAsset, error) {
-	asset, err := FetchReleaseAsset(ctx, releaseURL, newGitHubReleaseClient())
+	token, tried := ReleaseToken()
+	asset, err := FetchReleaseAsset(ctx, releaseURL, newGitHubReleaseClient(token))
 	var response *github.ErrorResponse
-	if GitHubReleaseToken() == "" && errors.As(err, &response) && response.Response.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%w: the release may be missing, or private; set GITHUB_TOKEN or GH_TOKEN for private agent downloads (a gh CLI login is not read here)", err)
+	if token == "" && errors.As(err, &response) && response.Response != nil && response.Response.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: the release may be missing, or private, and no GitHub credential was found to read a private one (tried %s)", err, strings.Join(tried, ", "))
 	}
 	return asset, err
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/blang/semver"
 	"github.com/codefly-dev/core/resources"
@@ -14,13 +15,12 @@ import (
 	"github.com/google/go-github/v89/github"
 )
 
-// newGitHubReleaseClient returns a go-github client authenticated with
-// GITHUB_TOKEN/GH_TOKEN when either is set, matching the token-via-transport
-// convention used elsewhere in core (toolbox/github). Unauthenticated GitHub
-// API access is capped at 60 requests/hour per IP, so resolving "latest" for
-// several agents can flakily 403; a token raises the cap to 5000/hour.
-func newGitHubReleaseClient() *github.Client {
-	token := GitHubReleaseToken()
+// newGitHubReleaseClient returns a go-github client authenticated with token
+// when it is set. Unauthenticated GitHub API access is capped at 60
+// requests/hour per IP, so resolving "latest" for several agents can flakily
+// 403; a token raises the cap to 5000/hour, and it is what reads a private
+// release at all.
+func newGitHubReleaseClient(token string) *github.Client {
 	options := []github.ClientOptionsFunc{github.WithHTTPClient(agentDownloadClient)}
 	if token != "" {
 		options = append(options, github.WithAuthToken(token))
@@ -32,12 +32,13 @@ func newGitHubReleaseClient() *github.Client {
 	return client
 }
 
-// GitHubReleaseToken is the one credential rule the agent loader applies when
-// it downloads a release: GITHUB_TOKEN, else GH_TOKEN, else nothing. It never
-// consults a `gh` CLI login, because the hosts that install agents — CI runners
-// and hosted builds — have none. A caller that checks whether a release is
-// installable must check with exactly this credential: verifying with a wider
-// one establishes reachability for the laptop and nothing else.
+// GitHubReleaseToken is the credential rule of a host that has nothing but
+// its environment — CI runners and hosted builds: GITHUB_TOKEN, else
+// GH_TOKEN, else nothing. It is the loader's default ReleaseTokenSource. A
+// caller that checks whether a release is installable on such a host must
+// check with exactly this credential: verifying with a wider one — a
+// developer's gh login — establishes reachability for the laptop and nothing
+// else.
 func GitHubReleaseToken() string {
 	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
 		return token
@@ -45,12 +46,52 @@ func GitHubReleaseToken() string {
 	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
+// ReleaseTokenSource finds the credential the agent loader reads GitHub
+// releases with. It answers the token, or "" together with every source it
+// tried, which the refusal of a missing or private release names so the
+// person knows what to provide.
+type ReleaseTokenSource func() (token string, tried []string)
+
+// environmentReleaseToken is the default source: the environment alone.
+func environmentReleaseToken() (string, []string) {
+	return GitHubReleaseToken(), []string{"GITHUB_TOKEN", "GH_TOKEN"}
+}
+
+var releaseTokenSource atomic.Pointer[ReleaseTokenSource]
+
+// UseReleaseTokenSource installs the host's credential source for agent
+// release downloads and "latest" resolution. Which credentials a host has is
+// the host's to say: a developer's CLI may hold a gh login that a CI runner
+// does not, and only the CLI knows how to read it without the token entering
+// an argument list, a log or every process it spawns. The source is asked on
+// each download, never at install, so a host that installs one at startup
+// pays nothing until a release is fetched. nil restores the default,
+// GitHubReleaseToken.
+func UseReleaseTokenSource(source ReleaseTokenSource) {
+	if source == nil {
+		releaseTokenSource.Store(nil)
+		return
+	}
+	releaseTokenSource.Store(&source)
+}
+
+// ReleaseToken is the credential the loader reads releases with now: the
+// installed source's answer, or the environment's when none is installed,
+// with the sources tried when there is none.
+func ReleaseToken() (string, []string) {
+	if source := releaseTokenSource.Load(); source != nil {
+		return (*source)()
+	}
+	return environmentReleaseToken()
+}
+
 // latestReleaseTag returns the newest published release tag for a repository.
 // It is a variable so resolution can be exercised without network access.
 var latestReleaseTag = githubLatestReleaseTag
 
 func githubLatestReleaseTag(ctx context.Context, owner, repo string) (string, error) {
-	release, _, err := newGitHubReleaseClient().Repositories.GetLatestRelease(ctx, owner, repo)
+	token, _ := ReleaseToken()
+	release, _, err := newGitHubReleaseClient(token).Repositories.GetLatestRelease(ctx, owner, repo)
 	if err != nil {
 		return "", err
 	}

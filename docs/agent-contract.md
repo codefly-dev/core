@@ -396,9 +396,16 @@ rejects both interpretations of previously colliding cache entries rather than
 trusting their contents. Single underscores remain valid in names and release
 labels. Existing unambiguous cache paths are unchanged.
 
-GitHub agent downloads use `GITHUB_TOKEN`, then `GH_TOKEN`, when supplied.
-`manager.GitHubReleaseToken` exposes this selection to consumers verifying
-installability; a `gh` CLI login is not a loader credential. Both anonymous and
+GitHub agent downloads take their credential from the host's
+`manager.ReleaseTokenSource`, installed with `manager.UseReleaseTokenSource`
+(`manager.ReleaseToken` answers what the loader would use now).
+The default is `GITHUB_TOKEN`, then `GH_TOKEN` — the credential a CI runner or
+hosted build has — and `manager.GitHubReleaseToken` exposes exactly that
+selection to consumers verifying installability on such hosts. A host with
+credentials of its own (the CLI reads a developer's `gh` login) installs a
+source that keeps the environment first; core itself never runs `gh`. A source
+answers the sources it tried when it finds none, and the refusal of a 404 names
+them. Both anonymous and
 authenticated acquisition resolve the exact published tag and asset through the
 GitHub API. The bounded download client follows asset redirects without API
 credentials. Draft releases, duplicate assets and an asset URL that disagrees
