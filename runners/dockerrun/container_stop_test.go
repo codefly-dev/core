@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,8 +79,8 @@ func TestContainerStopExpectationTransport(t *testing.T) {
 func TestContainerStopObservationAndMountEvidence(t *testing.T) {
 	expected := stopExpectationFixture()
 	inspect := container.InspectResponse{
-		ContainerJSONBase: &container.ContainerJSONBase{ID: expected.ID, Created: expected.Created, Name: "/" + expected.Name,
-			HostConfig: &container.HostConfig{}, State: &container.State{}},
+		ID: expected.ID, Created: expected.Created, Name: "/" + expected.Name,
+		HostConfig: &container.HostConfig{}, State: &container.State{},
 		Config: &container.Config{Labels: maps.Clone(expected.Labels)},
 	}
 	observed, err := containerStopObservation(inspect, expected.ID)

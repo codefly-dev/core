@@ -15,35 +15,8 @@
 # Re-review every entry monthly; remove entries as soon as an upstream fix
 # is released.
 
-suppressions:
-  - id: GO-2026-4887
-    module: github.com/docker/docker
-    reason: |
-      Moby AuthZ plugin bypass on oversized request bodies. The vuln is
-      daemon-side (HTTP request handler with AuthZ plugins). We only use
-      the client subpackage (Container{Start,Stop,Inspect,...}). Verified
-      via govulncheck traces: none reach plugins/authorization code —
-      they are all package-init chains in the shared module graph.
-      Re-reviewed against github.com/docker/docker v28.5.2 and the
-      2026-11-09 Go vulnerability database: traces remain package-init or
-      client-only paths. The packages linked from the module are client,
-      api, api/types/*, errdefs and pkg/stdcopy; no daemon, plugin or
-      pkg/authorization package is in the graph. No fix is listed for this
-      module path (nor github.com/moby/moby); the advisory lists a fix only
-      in github.com/moby/moby/v2 v2.0.0-beta.8, the daemon.
-    reviewed: 2026-11-09
-
-  - id: GO-2026-4883
-    module: github.com/docker/docker
-    reason: |
-      Moby plugin privilege off-by-one. Daemon-side plugin installation
-      validation; we never install Docker plugins via the API. Verified
-      unreachable — no trace path reaches pkg/authorization/ code.
-      Re-reviewed against github.com/docker/docker v28.5.2 and the
-      2026-11-09 Go vulnerability database: no trace reaches plugin install
-      or daemon-side privilege validation, and no Docker plugin implementation
-      is in the dependency graph (linked packages: client, api, api/types/*,
-      errdefs, pkg/stdcopy). No fix is listed for this module path (nor
-      github.com/moby/moby); the advisory lists a fix only in
-      github.com/moby/moby/v2 v2.0.0-beta.8, the daemon.
-    reviewed: 2026-11-09
+# The github.com/docker/docker entries (GO-2026-4887, GO-2026-4883) were
+# retired on 2026-11-14 when the Docker client moved to the maintained
+# github.com/moby/moby/client and github.com/moby/moby/api modules, which
+# no advisory names and which carry no daemon code.
+suppressions: []

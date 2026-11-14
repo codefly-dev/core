@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +47,7 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 			require.NoError(t, producer.Init(t.Context()))
 			id := producer.instance.ID
 			t.Cleanup(func() { _ = producer.Shutdown(context.Background()) })
-			inspect, err := producer.client.ContainerInspect(t.Context(), id)
+			inspect, err := inspectContainer(t.Context(), producer.client, id)
 			require.NoError(t, err)
 			require.Equal(t, "web/gateway", inspect.Config.Labels[LabelCodeflyService])
 			require.Error(t, producer.WithServiceIdentity(identity), "first use freezes identity")
@@ -61,11 +61,11 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 				if tc.legacy {
 					delete(config.Labels, LabelCodeflyService)
 				}
-				created, err := producer.client.ContainerCreate(t.Context(), config, host, nil, nil, producer.name)
+				created, err := producer.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Config: config, HostConfig: host, Name: producer.name})
 				require.NoError(t, err)
 				id = created.ID
 				t.Cleanup(func() {
-					_ = producer.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+					_, _ = producer.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
 				})
 			}
 			reuser := newEnvironment()
@@ -80,7 +80,7 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 			if tc.refused {
 				require.Error(t, err)
 				require.Nil(t, reuser.instance, "refusal must not acquire the foreign instance")
-				_, err = producer.client.ContainerInspect(t.Context(), id)
+				_, err = inspectContainer(t.Context(), producer.client, id)
 				require.NoError(t, err, "refusal must not delete or replace")
 				return
 			}
@@ -90,7 +90,7 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 			} else {
 				require.Equal(t, id, reuser.instance.ID)
 			}
-			inspect, err = reuser.client.ContainerInspect(t.Context(), reuser.instance.ID)
+			inspect, err = inspectContainer(t.Context(), reuser.client, reuser.instance.ID)
 			require.NoError(t, err)
 			parent, err := ContainerServiceIdentity(inspect.Config.Labels)
 			require.NoError(t, err)

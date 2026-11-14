@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"github.com/codefly-dev/core/sessionledger"
 )
@@ -89,7 +89,7 @@ func VolumeResource(name string, ownership sessionledger.Ownership) sessionledge
 // ContainerWitness reads the identity that proves which incarnation of a
 // container name is the one being recorded.
 func (backend *SessionBackend) ContainerWitness(ctx context.Context, name string) (sessionledger.Witness, error) {
-	inspect, err := backend.client.ContainerInspect(ctx, ContainerName(name))
+	inspect, err := inspectContainer(ctx, backend.client, ContainerName(name))
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return sessionledger.Witness{}, sessionledger.ErrNotFound
@@ -125,7 +125,7 @@ func (backend *SessionBackend) claimContainer(
 	resource sessionledger.Resource,
 	invocation string,
 ) (sessionledger.Observation, error) {
-	inspect, err := backend.client.ContainerInspect(ctx, resource.ID)
+	inspect, err := inspectContainer(ctx, backend.client, resource.ID)
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return sessionledger.Observation{}, sessionledger.ErrNotFound
@@ -151,13 +151,14 @@ func (backend *SessionBackend) claimVolume(
 	resource sessionledger.Resource,
 	invocation string,
 ) (sessionledger.Observation, error) {
-	volume, err := backend.client.VolumeInspect(ctx, resource.ID)
+	inspected, err := backend.client.VolumeInspect(ctx, resource.ID, client.VolumeInspectOptions{})
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return sessionledger.Observation{}, sessionledger.ErrNotFound
 		}
 		return sessionledger.Observation{}, fmt.Errorf("cannot inspect volume %s: %w", resource.ID, err)
 	}
+	volume := inspected.Volume
 	if volume.Labels[LabelCodeflyInvocation] != invocation {
 		return sessionledger.Observation{}, sessionledger.ErrNotOwned
 	}
@@ -188,7 +189,7 @@ func (backend *SessionBackend) Stop(ctx context.Context, resource sessionledger.
 	if resource.Kind != KindContainer {
 		return fmt.Errorf("docker backend does not own kind %q", resource.Kind)
 	}
-	err := backend.client.ContainerStop(ctx, resource.ID, container.StopOptions{})
+	_, err := backend.client.ContainerStop(ctx, resource.ID, client.ContainerStopOptions{})
 	if errdefs.IsNotFound(err) {
 		return sessionledger.ErrNotFound
 	}
@@ -204,7 +205,7 @@ func (backend *SessionBackend) Stop(ctx context.Context, resource sessionledger.
 func (backend *SessionBackend) Delete(ctx context.Context, resource sessionledger.Resource) error {
 	switch resource.Kind {
 	case KindContainer:
-		err := backend.client.ContainerRemove(ctx, resource.ID, container.RemoveOptions{
+		_, err := backend.client.ContainerRemove(ctx, resource.ID, client.ContainerRemoveOptions{
 			Force:         true,
 			RemoveVolumes: true,
 		})
@@ -216,7 +217,7 @@ func (backend *SessionBackend) Delete(ctx context.Context, resource sessionledge
 		}
 		return nil
 	case KindVolume:
-		err := backend.client.VolumeRemove(ctx, resource.ID, true)
+		_, err := backend.client.VolumeRemove(ctx, resource.ID, client.VolumeRemoveOptions{Force: true})
 		if errdefs.IsNotFound(err) {
 			return sessionledger.ErrNotFound
 		}

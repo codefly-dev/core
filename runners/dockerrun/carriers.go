@@ -12,7 +12,8 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // A container's file-delivered configuration values are copied into the
@@ -74,7 +75,7 @@ func (docker *DockerEnvironment) copyCarriers(ctx context.Context, id string) er
 func (docker *DockerEnvironment) execCarriers(ctx context.Context, id string, envs []*resources.EnvironmentVariable) ([]*resources.EnvironmentVariable, error) {
 	var inherited []string
 	if id != "" {
-		inspect, err := docker.client.ContainerInspect(ctx, id)
+		inspect, err := inspectContainer(ctx, docker.client, id)
 		if err != nil {
 			return nil, fmt.Errorf("%w: inspect container: %v", resources.ErrFileCarrier, err)
 		}
@@ -145,7 +146,7 @@ func (docker *DockerEnvironment) copyFiles(ctx context.Context, id string, files
 	if len(files) == 0 {
 		return nil
 	}
-	inspect, err := docker.client.ContainerInspect(ctx, id)
+	inspect, err := inspectContainer(ctx, docker.client, id)
 	if err != nil {
 		return fmt.Errorf("%w: inspect container: %v", resources.ErrFileCarrier, err)
 	}
@@ -163,7 +164,7 @@ func (docker *DockerEnvironment) copyFiles(ctx context.Context, id string, files
 	if err != nil {
 		return err
 	}
-	if err := docker.client.CopyToContainer(ctx, id, "/", archive, container.CopyToContainerOptions{CopyUIDGID: true}); err != nil {
+	if _, err := docker.client.CopyToContainer(ctx, id, client.CopyToContainerOptions{DestinationPath: "/", Content: archive, CopyUIDGID: true}); err != nil {
 		return fmt.Errorf("%w: copy into container: %v", resources.ErrFileCarrier, err)
 	}
 	return nil
@@ -171,10 +172,11 @@ func (docker *DockerEnvironment) copyFiles(ctx context.Context, id string, files
 
 // readContainerFile reads one small file of the container's filesystem.
 func (docker *DockerEnvironment) readContainerFile(ctx context.Context, id, file string) ([]byte, error) {
-	reader, _, err := docker.client.CopyFromContainer(ctx, id, file)
+	copied, err := docker.client.CopyFromContainer(ctx, id, client.CopyFromContainerOptions{SourcePath: file})
 	if err != nil {
 		return nil, err
 	}
+	reader := copied.Content
 	defer func() { _ = reader.Close() }()
 	archive := tar.NewReader(reader)
 	if _, err := archive.Next(); err != nil {

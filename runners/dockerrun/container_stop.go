@@ -15,7 +15,8 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/internal/wire"
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 )
 
@@ -160,7 +161,7 @@ func canonicalContainerMounts(mounts []container.MountPoint) []container.MountPo
 }
 
 func containerStopObservation(inspect container.InspectResponse, id string) (ContainerStopExpectation, error) {
-	if inspect.ContainerJSONBase == nil || inspect.ID != id || inspect.Config == nil ||
+	if inspect.ID == "" || inspect.ID != id || inspect.Config == nil ||
 		inspect.HostConfig == nil || inspect.State == nil {
 		return ContainerStopExpectation{}, errors.New("container inspection has incomplete or changed identity")
 	}
@@ -187,7 +188,7 @@ func PreviewContainerStop(ctx context.Context, id string) (*ContainerStopExpecta
 		return nil, err
 	}
 	defer cli.Close()
-	inspect, err := cli.ContainerInspect(ctx, id)
+	inspect, err := inspectContainer(ctx, cli, id)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +216,7 @@ func StopContainer(ctx context.Context, expected ContainerStopExpectation) (*Con
 	defer cli.Close()
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	before, err := cli.ContainerInspect(ctx, expected.ID)
+	before, err := inspectContainer(ctx, cli, expected.ID)
 	if err != nil {
 		return result, err
 	}
@@ -232,13 +233,13 @@ func StopContainer(ctx context.Context, expected ContainerStopExpectation) (*Con
 	var stopErr error
 	if before.State.Running {
 		grace := 3
-		stopErr = cli.ContainerStop(ctx, expected.ID, container.StopOptions{Timeout: &grace})
+		_, stopErr = cli.ContainerStop(ctx, expected.ID, client.ContainerStopOptions{Timeout: &grace})
 	}
-	after, err := cli.ContainerInspect(ctx, expected.ID)
+	after, err := inspectContainer(ctx, cli, expected.ID)
 	if err != nil {
 		return result, errors.Join(stopErr, fmt.Errorf("cannot verify retained container: %w", err))
 	}
-	if after.ContainerJSONBase == nil || after.ID != expected.ID || after.Created != expected.Created {
+	if after.ID == "" || after.ID != expected.ID || after.Created != expected.Created {
 		return result, errors.Join(stopErr, errors.New("retained container identity changed"))
 	}
 	result.Retained = true

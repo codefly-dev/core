@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/api/types/registry"
+	"github.com/moby/moby/api/types/registry"
+	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -17,11 +18,11 @@ type fakeDistributionInspector struct {
 	err       error
 }
 
-func (f fakeDistributionInspector) DistributionInspect(context.Context, string, string) (registry.DistributionInspect, error) {
+func (f fakeDistributionInspector) DistributionInspect(context.Context, string, client.DistributionInspectOptions) (client.DistributionInspectResult, error) {
 	if f.err != nil {
-		return registry.DistributionInspect{}, f.err
+		return client.DistributionInspectResult{}, f.err
 	}
-	return registry.DistributionInspect{Platforms: f.platforms}, nil
+	return client.DistributionInspectResult{DistributionInspect: registry.DistributionInspect{Platforms: f.platforms}}, nil
 }
 
 func linux(arch string) ocispec.Platform { return ocispec.Platform{OS: "linux", Architecture: arch} }

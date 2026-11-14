@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,35 +31,38 @@ func stopFixture(t *testing.T, name string, labels map[string]string, host *cont
 		labels = maps.Clone(labels)
 		labels[LabelCodeflyName] = name
 	}
-	response, err := env.client.ContainerCreate(t.Context(), &container.Config{Image: "alpine:latest", Labels: labels,
-		Cmd: []string{"sh", "-c", command}}, host, nil, nil, name)
+	response, err := env.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Config: &container.Config{Image: "alpine:latest", Labels: labels,
+		Cmd: []string{"sh", "-c", command}}, HostConfig: host, Name: name})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// This test created the exact ID; fixture disposal never resolves names.
-		_ = env.client.ContainerRemove(context.Background(), response.ID, container.RemoveOptions{Force: true})
+		_, _ = env.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true})
 		_ = env.client.Close()
 	})
-	require.NoError(t, env.client.ContainerStart(t.Context(), response.ID, container.StartOptions{}))
+	_, err = env.client.ContainerStart(t.Context(), response.ID, client.ContainerStartOptions{})
+	require.NoError(t, err)
 	return env, response.ID
 }
 
 func TestContainerStopRetainsExactGenerationDataAndControls(t *testing.T) {
 	backend := newBackend(t)
-	vol, err := backend.client.VolumeCreate(t.Context(), volume.CreateOptions{Name: uniqueName(t)})
+	vol, err := backend.client.VolumeCreate(t.Context(), client.VolumeCreateOptions{Name: uniqueName(t)})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = backend.client.VolumeRemove(context.Background(), vol.Name, true) })
+	t.Cleanup(func() {
+		_, _ = backend.client.VolumeRemove(context.Background(), vol.Volume.Name, client.VolumeRemoveOptions{Force: true})
+	})
 	labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: "owned-stop-test", LabelCodeflyRecoveryNamespace: "owned-test-host"}
-	env, id := stopFixture(t, "", labels, &container.HostConfig{Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol.Name, Target: "/data"}}},
+	env, id := stopFixture(t, "", labels, &container.HostConfig{Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol.Volume.Name, Target: "/data"}}},
 		"echo layer > /retained.tmp; mv /retained.tmp /retained; echo volume > /data/retained.tmp; mv /data/retained.tmp /data/retained; exec sleep 300")
 	_, sibling := stopFixture(t, "", map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: "sibling"}, &container.HostConfig{}, "exec sleep 300")
 	_, foreign := stopFixture(t, "", nil, &container.HostConfig{}, "exec sleep 300")
 	controls := map[string]container.InspectResponse{}
 	for _, control := range []string{sibling, foreign} {
-		controls[control], err = backend.client.ContainerInspect(t.Context(), control)
+		controls[control], err = inspectContainer(t.Context(), backend.client, control)
 		require.NoError(t, err)
 	}
 	require.Eventually(t, func() bool {
-		_, err := env.client.ContainerStatPath(t.Context(), id, "/data/retained")
+		_, err := env.client.ContainerStatPath(t.Context(), id, client.ContainerStatPathOptions{Path: "/data/retained"})
 		return err == nil
 	}, 5*time.Second, 10*time.Millisecond)
 	expected, err := PreviewContainerStop(t.Context(), id)
@@ -85,7 +88,7 @@ func TestContainerStopRetainsExactGenerationDataAndControls(t *testing.T) {
 			result, err := StopContainer(t.Context(), changed)
 			require.Error(t, err)
 			require.False(t, result.Stopped)
-			actual, err := env.client.ContainerInspect(t.Context(), id)
+			actual, err := inspectContainer(t.Context(), env.client, id)
 			require.NoError(t, err)
 			require.True(t, actual.State.Running)
 		})
@@ -101,8 +104,9 @@ func TestContainerStopRetainsExactGenerationDataAndControls(t *testing.T) {
 	require.NoError(t, err, "same stopped generation is an idempotent retry")
 	require.True(t, result.Stopped && result.Retained && result.MountsUnchanged)
 	for file, want := range map[string]string{"/retained": "layer\n", "/data/retained": "volume\n"} {
-		reader, _, err := env.client.CopyFromContainer(t.Context(), id, file)
+		copied, err := env.client.CopyFromContainer(t.Context(), id, client.CopyFromContainerOptions{SourcePath: file})
 		require.NoError(t, err)
+		reader := copied.Content
 		archive := tar.NewReader(reader)
 		_, err = archive.Next()
 		require.NoError(t, err)
@@ -112,7 +116,7 @@ func TestContainerStopRetainsExactGenerationDataAndControls(t *testing.T) {
 		require.Equal(t, want, string(actual))
 	}
 	for control, before := range controls {
-		after, err := env.client.ContainerInspect(t.Context(), control)
+		after, err := inspectContainer(t.Context(), env.client, control)
 		require.NoError(t, err)
 		require.True(t, after.State.Running)
 		require.Equal(t, before.Created, after.Created)
@@ -121,11 +125,12 @@ func TestContainerStopRetainsExactGenerationDataAndControls(t *testing.T) {
 		require.Equal(t, before.Mounts, after.Mounts)
 	}
 	// A new object with the same name is never resolved by an old receipt.
-	require.NoError(t, env.client.ContainerRemove(t.Context(), id, container.RemoveOptions{}))
+	_, err = env.client.ContainerRemove(t.Context(), id, client.ContainerRemoveOptions{})
+	require.NoError(t, err)
 	_, replacement := stopFixture(t, expected.Name, labels, &container.HostConfig{}, "exec sleep 300")
 	_, err = StopContainer(t.Context(), parsed)
 	require.Error(t, err)
-	actual, err := env.client.ContainerInspect(t.Context(), replacement)
+	actual, err := inspectContainer(t.Context(), env.client, replacement)
 	require.NoError(t, err)
 	require.True(t, actual.State.Running)
 }
@@ -134,7 +139,7 @@ func TestContainerStopRefusesAutoRemoveBeforeEffect(t *testing.T) {
 	env, id := stopFixture(t, "", map[string]string{LabelCodeflyOwner: "true"}, &container.HostConfig{AutoRemove: true}, "exec sleep 300")
 	_, err := PreviewContainerStop(t.Context(), id)
 	require.ErrorContains(t, err, "AutoRemove")
-	before, err := env.client.ContainerInspect(t.Context(), id)
+	before, err := inspectContainer(t.Context(), env.client, id)
 	require.NoError(t, err)
 	// Supplying an otherwise complete receipt cannot bypass execution's own
 	// AutoRemove inspection. No manufactured ledger ownership is involved.
@@ -142,7 +147,7 @@ func TestContainerStopRefusesAutoRemoveBeforeEffect(t *testing.T) {
 		Labels: maps.Clone(before.Config.Labels), Mounts: []container.MountPoint{}}
 	_, err = StopContainer(t.Context(), expected)
 	require.ErrorContains(t, err, "AutoRemove")
-	after, err := env.client.ContainerInspect(t.Context(), id)
+	after, err := inspectContainer(t.Context(), env.client, id)
 	require.NoError(t, err)
 	require.True(t, after.State.Running)
 	require.Equal(t, before.State.StartedAt, after.State.StartedAt)

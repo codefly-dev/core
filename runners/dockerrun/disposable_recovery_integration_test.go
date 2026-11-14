@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/errdefs"
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,9 +34,11 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 	process := exec.Command("true")
 	require.NoError(t, process.Run())
 	deadPID := strconv.Itoa(process.Process.Pid)
-	vol, err := backend.client.VolumeCreate(t.Context(), volume.CreateOptions{Name: uniqueName(t)})
+	vol, err := backend.client.VolumeCreate(t.Context(), client.VolumeCreateOptions{Name: uniqueName(t)})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = backend.client.VolumeRemove(context.Background(), vol.Name, true) })
+	t.Cleanup(func() {
+		_, _ = backend.client.VolumeRemove(context.Background(), vol.Volume.Name, client.VolumeRemoveOptions{Force: true})
+	})
 	for _, tc := range []struct {
 		name                                     string
 		scope                                    ContainerRecoveryScope
@@ -64,28 +66,29 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 			if tc.live {
 				labels[LabelCodeflySession] = strconv.Itoa(os.Getpid())
 			}
-			created, err := backend.client.ContainerCreate(t.Context(), &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol.Name, Target: "/data"}}}, nil, nil, uniqueName(t))
+			created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Config: &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, HostConfig: &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol.Volume.Name, Target: "/data"}}}, Name: uniqueName(t)})
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+				_, _ = backend.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
 			})
 			if tc.running {
-				require.NoError(t, backend.client.ContainerStart(t.Context(), created.ID, container.StartOptions{}))
+				_, err := backend.client.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{})
+				require.NoError(t, err)
 			}
 			// Cancellation must leave ownership and resources available for retry.
 			cancelled, cancel := context.WithCancel(t.Context())
 			cancel()
 			require.Error(t, ReapDisposableContainers(cancelled, next))
-			_, err = backend.client.ContainerInspect(t.Context(), created.ID)
+			_, err = inspectContainer(t.Context(), backend.client, created.ID)
 			require.NoError(t, err)
 			require.NoError(t, ReapDisposableContainers(t.Context(), next))
-			_, err = backend.client.ContainerInspect(t.Context(), created.ID)
+			_, err = inspectContainer(t.Context(), backend.client, created.ID)
 			if tc.keep {
 				require.NoError(t, err)
 			} else {
 				require.True(t, errdefs.IsNotFound(err), "%v", err)
 			}
-			_, err = backend.client.VolumeInspect(t.Context(), vol.Name)
+			_, err = backend.client.VolumeInspect(t.Context(), vol.Volume.Name, client.VolumeInspectOptions{})
 			require.NoError(t, err, "recovery must never delete volumes")
 		})
 	}

@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/errdefs"
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/resources"
@@ -89,14 +89,14 @@ func startLedgeredContainer(
 
 func containerState(t *testing.T, backend *SessionBackend, id string) string {
 	t.Helper()
-	inspect, err := backend.client.ContainerInspect(context.Background(), id)
+	inspect, err := inspectContainer(context.Background(), backend.client, id)
 	require.NoError(t, err)
-	return inspect.State.Status
+	return string(inspect.State.Status)
 }
 
 func containerExists(t *testing.T, backend *SessionBackend, id string) bool {
 	t.Helper()
-	_, err := backend.client.ContainerInspect(context.Background(), id)
+	_, err := inspectContainer(context.Background(), backend.client, id)
 	return err == nil
 }
 
@@ -151,7 +151,7 @@ func TestBorrowedContainerSurvivesAnotherSessionsCleanup(t *testing.T) {
 	borrowed.ID = id
 	ref, err := borrower.Declare(borrowed)
 	require.NoError(t, err)
-	witnessSource, err := backend.client.ContainerInspect(context.Background(), id)
+	witnessSource, err := inspectContainer(context.Background(), backend.client, id)
 	require.NoError(t, err)
 	created, err := time.Parse(time.RFC3339Nano, witnessSource.Created)
 	require.NoError(t, err)
@@ -208,13 +208,15 @@ func TestSessionBackendRetainsVolumesOnStopAndRemovesThemOnReset(t *testing.T) {
 	resource := VolumeResource(name, sessionledger.Created)
 	ref, err := handle.Declare(resource)
 	require.NoError(t, err)
-	created, err := backend.client.VolumeCreate(ctx, volume.CreateOptions{
+	created, err := backend.client.VolumeCreate(ctx, client.VolumeCreateOptions{
 		Name:   name,
 		Labels: map[string]string{LabelCodeflyInvocation: handle.InvocationID()},
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = backend.client.VolumeRemove(context.Background(), name, true) })
-	createdAt, err := time.Parse(time.RFC3339Nano, created.CreatedAt)
+	t.Cleanup(func() {
+		_, _ = backend.client.VolumeRemove(context.Background(), name, client.VolumeRemoveOptions{Force: true})
+	})
+	createdAt, err := time.Parse(time.RFC3339Nano, created.Volume.CreatedAt)
 	require.NoError(t, err, "engine reported a volume creation time this adapter cannot read")
 	createdAt = createdAt.UTC()
 	require.NoError(t, handle.Commit(ref, sessionledger.Witness{CreatedAt: &createdAt}))
@@ -225,7 +227,7 @@ func TestSessionBackendRetainsVolumesOnStopAndRemovesThemOnReset(t *testing.T) {
 	// A volume never executes, so a stop finds nothing to stop and keeps it.
 	require.Equal(t, sessionledger.Preserved, report.Resources[0].Outcome.Result)
 	require.Equal(t, sessionledger.ReasonNotRunning, report.Resources[0].Outcome.Reason)
-	_, err = backend.client.VolumeInspect(ctx, name)
+	_, err = backend.client.VolumeInspect(ctx, name, client.VolumeInspectOptions{})
 	require.NoError(t, err, "a stop never removes a volume")
 
 	// A later recovery pass over the same record, now asked to reset.
@@ -234,7 +236,7 @@ func TestSessionBackendRetainsVolumesOnStopAndRemovesThemOnReset(t *testing.T) {
 	require.Equal(t, sessionledger.Retained, session.Resources[0].Disposition)
 
 	require.NoError(t, backend.Delete(ctx, session.Resources[0]))
-	_, err = backend.client.VolumeInspect(ctx, name)
+	_, err = backend.client.VolumeInspect(ctx, name, client.VolumeInspectOptions{})
 	require.Error(t, err)
 }
 
@@ -292,13 +294,11 @@ func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
 		labels[LabelCodeflyRecoveryScope] = scope.id
 		labels[LabelCodeflyRecoveryNamespace] = scope.namespace
 		labels[LabelCodeflyName] = name
-		_, err := backend.client.ContainerCreate(ctx,
-			&container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}},
-			nil, nil, nil, ContainerName(name))
+		_, err := backend.client.ContainerCreate(ctx, client.ContainerCreateOptions{Config: &container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}}, Name: ContainerName(name)})
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			_ = backend.client.ContainerRemove(context.Background(), ContainerName(name),
-				container.RemoveOptions{Force: true})
+			_, _ = backend.client.ContainerRemove(context.Background(), ContainerName(name),
+				client.ContainerRemoveOptions{Force: true})
 		})
 	}
 	create(ledgered, map[string]string{LabelCodeflyInvocation: "0123456789abcdef0123456789abcdef"})
@@ -355,19 +355,20 @@ func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
 		if tc.ephemeral {
 			labels[LabelCodeflyEphemeral] = "true"
 		}
-		created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeBind, Source: data, Target: "/retained", ReadOnly: true}}}, nil, nil, uniqueName(t)+"-"+tc.name)
+		created, err := backend.client.ContainerCreate(ctx, client.ContainerCreateOptions{Config: &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, HostConfig: &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeBind, Source: data, Target: "/retained", ReadOnly: true}}}, Name: uniqueName(t) + "-" + tc.name})
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+			_, _ = backend.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
 		})
 		if tc.running {
-			require.NoError(t, backend.client.ContainerStart(ctx, created.ID, container.StartOptions{}))
+			_, err := backend.client.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
+			require.NoError(t, err)
 		}
 		fixtures = append(fixtures, fixture{created.ID, tc.keep})
 	}
 	require.NoError(t, ReapStaleContainers(ctx, scope))
 	for _, f := range fixtures {
-		_, err := backend.client.ContainerInspect(ctx, f.id)
+		_, err := inspectContainer(ctx, backend.client, f.id)
 		if f.keep {
 			require.NoError(t, err, "foreign, legacy or retained container removed")
 		} else {

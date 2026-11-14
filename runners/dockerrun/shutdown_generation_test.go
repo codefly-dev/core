@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +42,7 @@ func TestShutdownUsesAcquiredGeneration(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			cli, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.47"))
+			cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.47"))
 			require.NoError(t, err)
 			env := &DockerEnvironment{client: cli, name: "codefly-store"}
 			if state != "never acquired" {
@@ -107,7 +107,7 @@ func TestShutdownAfterFailedStartupRollback(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			cli, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.47"))
+			cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.47"))
 			require.NoError(t, err)
 			defer cli.Close()
 			env := &DockerEnvironment{client: cli, name: "codefly-review"}

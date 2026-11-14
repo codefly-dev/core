@@ -245,7 +245,7 @@ func (dockerCLIBackend) Architecture(ctx context.Context, image string) (string,
 		return "", fmt.Errorf("create docker client: %w", err)
 	}
 	defer cli.Close()
-	inspect, _, err := cli.ImageInspectWithRaw(ctx, image)
+	inspect, err := cli.ImageInspect(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("inspect %s: %w", image, err)
 	}

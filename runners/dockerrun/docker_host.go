@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 const defaultDockerHost = "unix:///var/run/docker.sock"
@@ -49,7 +49,7 @@ func resolveDockerHost() dockerHost {
 // is still honored; WithHost then overrides the endpoint with the resolved one.
 func newDockerClient() (*client.Client, dockerHost, error) {
 	host := resolveDockerHost()
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithHost(host.Host), client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv, client.WithHost(host.Host))
 	return cli, host, err
 }
 

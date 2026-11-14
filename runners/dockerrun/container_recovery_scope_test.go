@@ -11,7 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,7 +69,7 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 			if tc.ledgered {
 				labels[LabelCodeflyInvocation] = "ledger"
 			}
-			c := container.Summary{State: tc.state, Labels: labels}
+			c := container.Summary{State: container.ContainerState(tc.state), Labels: labels}
 			require.Equal(t, tc.want, staleContainerInScope(c, scope))
 			require.False(t, staleContainerInScope(c, ContainerRecoveryScope{}))
 			delete(labels, LabelCodeflyOwner)

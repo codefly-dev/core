@@ -14,8 +14,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +27,7 @@ import (
 func TestImageExistsResolvesTheExactReference(t *testing.T) {
 	requireDocker(t)
 	ctx := context.Background()
-	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	c, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer c.Close()
 
@@ -42,13 +41,13 @@ func TestImageExistsResolvesTheExactReference(t *testing.T) {
 	require.NoError(t, tw.Close())
 	name := fmt.Sprintf("codefly-test/image-exists-%d", time.Now().UnixNano())
 	tag := "local"
-	body, err := c.ImageImport(ctx, image.ImportSource{Source: &tarball, SourceName: "-"}, name+":"+tag, image.ImportOptions{})
+	body, err := c.ImageImport(ctx, client.ImageImportSource{Source: &tarball, SourceName: "-"}, name+":"+tag, client.ImageImportOptions{})
 	require.NoError(t, err)
 	_, _ = io.Copy(io.Discard, body)
 	_ = body.Close()
 	inspected, err := c.ImageInspect(ctx, name+":"+tag)
 	require.NoError(t, err)
-	defer func() { _, _ = c.ImageRemove(ctx, inspected.ID, image.RemoveOptions{Force: true}) }()
+	defer func() { _, _ = c.ImageRemove(ctx, inspected.ID, client.ImageRemoveOptions{Force: true}) }()
 	digest := inspected.ID
 	require.True(t, strings.HasPrefix(digest, "sha256:"))
 
@@ -72,7 +71,7 @@ func TestImageExistsResolvesTheExactReference(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, exists)
 
-	unreachable, err := client.NewClientWithOpts(client.WithHost("tcp://127.0.0.1:1"), client.WithVersion(c.ClientVersion()))
+	unreachable, err := client.New(client.WithHost("tcp://127.0.0.1:1"), client.WithAPIVersion(c.ClientVersion()))
 	require.NoError(t, err)
 	defer unreachable.Close()
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)

@@ -17,6 +17,7 @@ import (
 // vulnerability gate and has to pin an older core instead.
 var containerRuntimeModules = []string{
 	"github.com/docker/docker",
+	"github.com/moby/moby",
 	"github.com/containerd",
 	"github.com/opencontainers",
 }

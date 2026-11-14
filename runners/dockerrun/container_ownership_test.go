@@ -11,6 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,7 +57,7 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			require.NoError(t, first.Init(ctx))
 			originalID := first.instance.ID
 			require.Eventually(t, func() bool {
-				_, err := first.client.ContainerStatPath(ctx, originalID, "/retained")
+				_, err := first.client.ContainerStatPath(ctx, originalID, client.ContainerStatPathOptions{Path: "/retained"})
 				return err == nil
 			}, 5*time.Second, 10*time.Millisecond)
 
@@ -90,11 +91,12 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			// foreign container survives, which the inspection below asserts;
 			// whether Shutdown reports anything is not part of that contract.
 			_ = second.Shutdown(ctx)
-			inspected, err := first.client.ContainerInspect(ctx, originalID)
+			inspected, err := inspectContainer(ctx, first.client, originalID)
 			require.NoError(t, err)
 			require.True(t, inspected.State.Running)
-			data, _, err := first.client.CopyFromContainer(ctx, originalID, "/retained")
+			copied, err := first.client.CopyFromContainer(ctx, originalID, client.CopyFromContainerOptions{SourcePath: "/retained"})
 			require.NoError(t, err)
+			data := copied.Content
 			defer data.Close()
 			archive := tar.NewReader(data)
 			_, err = archive.Next()
