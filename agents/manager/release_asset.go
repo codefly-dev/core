@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/google/go-github/v89/github"
 )
@@ -53,7 +54,7 @@ func OpenReleaseAsset(ctx context.Context, releaseURL string, client *github.Cli
 // must close Body.
 func FetchReleaseAsset(ctx context.Context, releaseURL string, client *github.Client) (*ReleaseAsset, error) {
 	u, err := url.Parse(releaseURL)
-	if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.Scheme != githubScheme || u.Host != "github.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("invalid GitHub release asset URL")
 	}
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
@@ -190,22 +191,33 @@ func openAgentRelease(ctx context.Context, releaseURL string) (*ReleaseAsset, er
 
 // explainReleaseRefusal says which credential a refused release request was
 // sent with — by the name of its source, never its value — or, when none was,
-// every source that was tried.
+// every source that was tried. A refusal from a host the credential was not
+// sent to (a redirect left the API) is not the credential's.
 func explainReleaseRefusal(err error, token string, sources []string) error {
 	var response *github.ErrorResponse
 	if !errors.As(err, &response) || response.Response == nil {
 		return err
 	}
+	if request := response.Response.Request; request != nil && !receivesReleaseCredential(request.URL) {
+		return fmt.Errorf("%w: refused by %s://%s after a redirect away from the GitHub API, which no GitHub credential is sent to", err, request.URL.Scheme, request.URL.Host)
+	}
 	status := response.Response.StatusCode
 	if token == "" {
 		if status == http.StatusNotFound {
-			return fmt.Errorf("%w: the release may be missing, or private, and no GitHub credential was found to read a private one (tried %s)", err, strings.Join(sources, ", "))
+			tried := make([]string, len(sources))
+			for i, source := range sources {
+				tried[i] = sourceName(source, token)
+			}
+			return fmt.Errorf("%w: the release may be missing, or private, and no GitHub credential was found to read a private one (tried %s)", err, strings.Join(tried, ", "))
 		}
 		return err
 	}
-	from := "the host's release-token source"
+	from := ""
 	if len(sources) > 0 {
-		from = sources[len(sources)-1]
+		from = sourceName(sources[len(sources)-1], token)
+	}
+	if from == "" {
+		from = "the host's release-token source"
 	}
 	switch status {
 	case http.StatusUnauthorized:
@@ -216,4 +228,19 @@ func explainReleaseRefusal(err error, token string, sources []string) error {
 		return fmt.Errorf("%w: the release may be missing, or private and beyond what the credential from %s can read", err, from)
 	}
 	return err
+}
+
+// sourceName makes a name a host supplied fit for one line of an error: no
+// control characters (newlines included), and never the token itself.
+func sourceName(name, token string) string {
+	name = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name))
+	if token != "" {
+		name = strings.ReplaceAll(name, token, "[redacted]")
+	}
+	return name
 }

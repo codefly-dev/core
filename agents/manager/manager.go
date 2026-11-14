@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,8 +23,8 @@ import (
 // 403; a token raises the cap to 5000/hour, and it is what reads a private
 // release at all.
 //
-// The token is attached per request and only to the GitHub API host, so a
-// redirect the lookup follows to any other host travels without it — the same
+// The token is attached per request and only to the GitHub API host over
+// https, so a redirect the lookup follows anywhere else travels without it — the same
 // rule the asset download keeps by fetching redirected bytes anonymously.
 // go-github's own WithAuthToken attaches it to every request the client
 // sends, a followed cross-host redirect included.
@@ -34,7 +35,7 @@ func newGitHubReleaseClient(token string) *github.Client {
 		if base == nil {
 			base = http.DefaultTransport
 		}
-		httpClient.Transport = apiHostBearer{base: base, host: githubAPIHost, token: token}
+		httpClient.Transport = apiHostBearer{base: base, token: token}
 	}
 	client, err := github.NewClient(github.WithHTTPClient(&httpClient))
 	if err != nil {
@@ -47,15 +48,24 @@ func newGitHubReleaseClient(token string) *github.Client {
 // release credential is sent to.
 const githubAPIHost = "api.github.com"
 
-// apiHostBearer sends token to host and to no other.
+// githubScheme is the only scheme GitHub release URLs and API requests use.
+const githubScheme = "https"
+
+// receivesReleaseCredential reports whether a request to u carries the release
+// credential: over https, to exactly the GitHub API host. Anything else — plain
+// http, another host, the same host spelled differently — goes without it.
+func receivesReleaseCredential(u *url.URL) bool {
+	return u != nil && u.Scheme == githubScheme && u.Host == githubAPIHost
+}
+
+// apiHostBearer sends token to the GitHub API over https and nowhere else.
 type apiHostBearer struct {
 	base  http.RoundTripper
-	host  string
 	token string
 }
 
 func (t apiHostBearer) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.Host != t.host {
+	if !receivesReleaseCredential(r.URL) {
 		return t.base.RoundTrip(r)
 	}
 	r = r.Clone(r.Context())

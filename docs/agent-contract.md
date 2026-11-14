@@ -407,11 +407,14 @@ source that keeps the environment first; core itself never runs `gh`. A source
 answers the sources it tried when it finds none, and the refusal of a 404 names
 them; with a token it answers where the token came from, and a 401, 403 or 404
 on that token names the source (`GITHUB_TOKEN`, `GH_TOKEN`, or the host
-source's own name), never the token. Both anonymous and
+source's own name, stripped of control characters and with the token redacted),
+never the token. Both anonymous and
 authenticated acquisition resolve the exact published tag and asset through the
-GitHub API. The credential is sent to the GitHub API host only: a release
-lookup that follows a redirect to any other host sends it without, and the
-bounded download client follows asset redirects without API credentials.
+GitHub API. The credential is sent over https to exactly `api.github.com` and
+nowhere else: a release lookup that follows a redirect to plain http or any
+other host sends it without, and a refusal from such a host is reported as that
+host's, not the credential's. The bounded download client follows asset
+redirects without API credentials.
 Draft releases, duplicate assets and an asset URL that disagrees with the loader
 selection are refused. An unauthenticated 404 can mean a missing
 release/platform asset or a private release; supply a token with repository

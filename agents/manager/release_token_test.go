@@ -10,16 +10,23 @@ import (
 )
 
 // routeReleaseAPI points the loader's release client at server for the test:
-// every request the client makes, to api.github.com included, reaches it.
+// every request the client makes, to api.github.com included, reaches it,
+// and each response still names the URL the client asked for.
 func routeReleaseAPI(t *testing.T, server *httptest.Server) {
 	t.Helper()
 	target, err := url.Parse(server.URL)
 	require.NoError(t, err)
 	previous := agentDownloadClient
 	agentDownloadClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		r = r.Clone(r.Context())
-		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
-		return http.DefaultTransport.RoundTrip(r)
+		routed := r.Clone(r.Context())
+		routed.URL.Scheme, routed.URL.Host = target.Scheme, target.Host
+		response, err := http.DefaultTransport.RoundTrip(routed)
+		if response != nil {
+			// As a real transport would: the response answers the request
+			// the client sent, not its rerouted copy.
+			response.Request = r
+		}
+		return response, err
 	})}
 	t.Cleanup(func() { agentDownloadClient = previous })
 }
@@ -165,8 +172,10 @@ func TestReleaseLookupsDropTheTokenOnACrossHostRedirect(t *testing.T) {
 		location string
 		want     string
 	}{
-		"same host":  {location: "https://api.github.com/moved", want: "Bearer redirect-secret"},
-		"other host": {location: "https://elsewhere.example/moved", want: ""},
+		"same host":             {location: "https://api.github.com/moved", want: "Bearer redirect-secret"},
+		"other host":            {location: "https://elsewhere.example/moved", want: ""},
+		"same host over http":   {location: "http://api.github.com/moved", want: ""},
+		"same host, other port": {location: "https://api.github.com:8443/moved", want: ""},
 	}
 	for lookup, call := range lookups {
 		for target, tc := range targets {
@@ -192,5 +201,69 @@ func TestReleaseLookupsDropTheTokenOnACrossHostRedirect(t *testing.T) {
 				require.Equal(t, tc.want, authorization)
 			})
 		}
+	}
+}
+
+// A name a host gives its source is printed on one line and never carries the
+// token: control characters are dropped and the token is redacted.
+func TestASourceNameIsSanitisedBeforeItIsPrinted(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	refusingReleaseAPI(t, http.StatusUnauthorized)
+	t.Cleanup(func() { UseReleaseTokenSource(nil) })
+
+	UseReleaseTokenSource(func() (string, []string) {
+		return "tok-in-name", []string{"login tok-\nin-name\nINJECTED\x1b[31m"}
+	})
+	for _, lookup := range []func() error{
+		func() error { _, err := openAgentRelease(t.Context(), testReleaseURL); return err },
+		func() error {
+			_, err := githubLatestReleaseTag(t.Context(), "example-org", "service-render")
+			return err
+		},
+	} {
+		err := lookup()
+		require.ErrorContains(t, err, "the credential from login [redacted]INJECTED[31m")
+		require.NotContains(t, err.Error(), "tok-in-name")
+		require.NotContains(t, err.Error(), "\n")
+		require.NotContains(t, err.Error(), "\x1b")
+	}
+
+	// With no token, the sources tried are printed on one line too.
+	UseReleaseTokenSource(func() (string, []string) { return "", []string{"GITHUB_TOKEN", "a\nb"} })
+	refusingReleaseAPI(t, http.StatusNotFound)
+	_, err := openAgentRelease(t.Context(), testReleaseURL)
+	require.ErrorContains(t, err, "tried GITHUB_TOKEN, ab")
+}
+
+// When a lookup is redirected away from the API and the other host refuses,
+// the credential was never sent there, so the refusal does not blame it.
+func TestARefusalFromAHostTheTokenWasNotSentToDoesNotBlameTheCredential(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "redirect-secret")
+	t.Setenv("GH_TOKEN", "")
+	UseReleaseTokenSource(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"refused"}`))
+			return
+		}
+		http.Redirect(w, r, "https://elsewhere.example/moved", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(server.Close)
+	routeReleaseAPI(t, server)
+
+	for _, lookup := range []func() error{
+		func() error { _, err := openAgentRelease(t.Context(), testReleaseURL); return err },
+		func() error {
+			_, err := githubLatestReleaseTag(t.Context(), "example-org", "service-render")
+			return err
+		},
+	} {
+		err := lookup()
+		require.ErrorContains(t, err, "refused by https://elsewhere.example after a redirect away from the GitHub API")
+		require.NotContains(t, err.Error(), "credential from")
+		require.NotContains(t, err.Error(), "redirect-secret")
 	}
 }
