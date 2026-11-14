@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -59,13 +61,41 @@ func ReapDisposableContainers(ctx context.Context, scope ContainerRecoveryScope)
 			continue
 		}
 		removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
-		err := cli.ContainerRemove(removeCtx, c.ID, container.RemoveOptions{Force: true})
+		err := removeDisposableContainer(removeCtx, cli, c.ID)
 		removeCancel()
 		if err != nil && !errdefs.IsNotFound(err) {
 			failures = append(failures, fmt.Errorf("recover disposable container %s: %w", c.ID, err))
 		}
 	}
 	return errors.Join(append(failures, ctx.Err())...)
+}
+
+func removeDisposableContainer(ctx context.Context, cli client.APIClient, id string) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+		if err == nil || errdefs.IsNotFound(err) {
+			return nil
+		}
+		// Docker reports this specific conflict while another remover owns the
+		// operation. A conflict alone does not prove removal is underway.
+		if !removalInProgress(err, id) {
+			return err
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("waiting for concurrent container removal: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func removalInProgress(err error, id string) bool {
+	return errdefs.IsConflict(err) && strings.HasSuffix(err.Error(), fmt.Sprintf("removal of container %s is already in progress", id))
 }
 
 // disposableContainerInNamespace states the cross-scope rules directly rather
