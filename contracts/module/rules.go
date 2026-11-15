@@ -115,7 +115,6 @@ const (
 
 	ruleRoleName          = "role-name"
 	ruleRoleUnique        = "role-unique"
-	ruleRoleGrants        = "role-grants"
 	ruleRoleKindName      = "role-kind-name"
 	ruleRoleKindUnique    = "role-kind-unique"
 	ruleRoleKindHasAction = "role-kind-has-action"
@@ -123,16 +122,9 @@ const (
 	ruleRoleBindingOp     = "role-binding-person-operation"
 	ruleRoleBindingDeclOp = "role-binding-declared-operation"
 	ruleRoleBindingUnique = "role-binding-unique"
-	ruleRoleAdminOrUser   = "role-admin-or-user"
-	ruleRoleAdmin         = "role-admin"
-	ruleRoleUser          = "role-user"
-	ruleRoleWithinRequest = "role-within-request"
 	ruleThroughOnRoles    = "through-on-role-scopes"
 	ruleThroughNotOnCalls = "through-not-on-requirements"
 	ruleRoleThroughKnown  = "role-through-binding-known"
-	ruleRoleThroughPerson = "role-through-person-operation"
-	ruleRoleThroughOwn    = "role-through-not-own-kind"
-	ruleRoleThroughSelf   = "role-through-not-self"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -223,10 +215,6 @@ func rules() []rule {
 		{name: ruleThroughNotOnCalls, check: checkThroughNotOnRequirements},
 		{name: ruleRoleName, check: checkRoleNames},
 		{name: ruleRoleUnique, check: checkRolesUnique},
-		{name: ruleRoleAdminOrUser, check: checkRolesAdminOrUser},
-		{name: ruleRoleAdmin, check: checkAdminRole},
-		{name: ruleRoleUser, check: checkUserRole},
-		{name: ruleRoleGrants, check: checkRolesGrant},
 		{name: ruleRoleKindName, check: checkRoleKindNames},
 		{name: ruleRoleKindUnique, check: checkRoleKindsUnique},
 		{name: ruleRoleKindHasAction, check: checkRoleKindsHaveActions},
@@ -236,10 +224,6 @@ func rules() []rule {
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
 		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
-		{name: ruleRoleThroughSelf, check: checkRoleThroughNotSelf},
-		{name: ruleRoleThroughPerson, check: checkRoleThroughPersonOperations},
-		{name: ruleRoleThroughOwn, check: checkRoleThroughNotOwnKinds},
-		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}, governanceRules()...)
 }
 
@@ -1083,21 +1067,11 @@ type roleScopes struct {
 }
 
 // scopeLists are the role's literal scopes, both lists, each held to the same
-// rules: an installation-owned scope differs only in what the authority
-// resolves it to, never in what a role may name. A scope reached through a
-// binding (through, on scopes alone) is the one exception to what it is held
-// within: the authority holds it downstream (checkRolesWithinRequest).
+// structural rules: an installation-owned scope differs only in what the
+// authority resolves it to. What a role may grant is the authority's policy,
+// held where the module is delivered, never here.
 func (role Role) scopeLists() []roleScopes {
 	return []roleScopes{{"", role.Scopes}, {"installation-owned ", role.InstallationOwnedScopes}}
-}
-
-func checkRolesGrant(contract *Contract) error {
-	for _, role := range contract.Roles {
-		if len(role.Scopes) == 0 && len(role.InstallationOwnedScopes) == 0 && len(role.Bindings) == 0 {
-			return fmt.Errorf("%w: role %q grants nothing", ErrInvalid, role.Name)
-		}
-	}
-	return nil
 }
 
 func checkRoleKindNames(contract *Contract) error {
@@ -1211,81 +1185,6 @@ func checkRoleBindingsUnique(contract *Contract) error {
 	return nil
 }
 
-// checkRolesAdminOrUser holds a unit that declares roles — one with a page: a
-// solution, or a module page — to the two a page has: admin, which
-// administers the installation, and user, what a person does day to day. A
-// unit without a page declares no roles, so nothing here touches it. Core
-// cannot see the page: for a module the authority enforces that only one
-// with a page declares roles, and refuses roles on one without; for a
-// solution that is a convention, not enforced anywhere. role-admin and
-// role-user then require both.
-func checkRolesAdminOrUser(contract *Contract) error {
-	for _, role := range contract.Roles {
-		if role.Name != AdminRole && role.Name != UserRole {
-			return fmt.Errorf("%w: role %q is neither %q nor %q; a unit with a page declares exactly those two roles, and a unit without a page declares none", ErrInvalid, role.Name, AdminRole, UserRole)
-		}
-	}
-	return nil
-}
-
-// checkAdminRole and checkUserRole hold a unit that declares roles to both of
-// the two: a page with no admin has nobody administering its installation,
-// and one with no user has nothing for a person to hold day to day.
-func checkAdminRole(contract *Contract) error {
-	if len(contract.Roles) == 0 || slices.ContainsFunc(contract.Roles, func(role Role) bool { return role.Name == AdminRole }) {
-		return nil
-	}
-	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; a unit with a page declares exactly %q and %q, and whoever installs it holds %q", ErrInvalid, len(contract.Roles), AdminRole, AdminRole, UserRole, AdminRole)
-}
-
-func checkUserRole(contract *Contract) error {
-	if len(contract.Roles) == 0 || slices.ContainsFunc(contract.Roles, func(role Role) bool { return role.Name == UserRole }) {
-		return nil
-	}
-	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; a unit with a page declares exactly %q and %q, and %q is what a person does with it day to day", ErrInvalid, len(contract.Roles), UserRole, AdminRole, UserRole, UserRole)
-}
-
-// grantable is what a role may grant: the module's own vocabulary, and each
-// scope a binding spells out for an operation a person causes (invoke,
-// lookup) — the permissions at another module the unit asks for on a person's
-// behalf. A headless operation has no person in it, so nothing a person holds
-// comes from one; a bare action or a call names its kind only when the
-// composition resolves it, so a role cannot be held to it here — a role grants
-// those by naming the binding in its bindings, resolved with it.
-func (contract *Contract) grantable() map[string][]string {
-	grantable := map[string][]string{}
-	for kind, actions := range contract.ownCeilings() {
-		grantable[kind] = slices.Clone(actions)
-	}
-	for _, binding := range contract.Bindings {
-		for _, operation := range []string{OperationInvoke, OperationLookup} {
-			for _, scope := range binding.ScopeCeiling[operation].Scopes {
-				grantable[scope.ResourceKind] = append(grantable[scope.ResourceKind], scope.Actions...)
-			}
-		}
-	}
-	return grantable
-}
-
-func checkRolesWithinRequest(contract *Contract) error {
-	grantable := contract.grantable()
-	for _, role := range contract.Roles {
-		for _, list := range role.scopeLists() {
-			for _, scope := range list.scopes {
-				if scope.Through != "" {
-					continue // reached downstream of its binding; the authority holds it there
-				}
-				for _, action := range scope.Actions {
-					if !slices.Contains(grantable[scope.ResourceKind], action) {
-						return fmt.Errorf("%w: role %q grants %s%s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, list.label, scope.ResourceKind, action)
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // checkThroughOnRoleScopes: through names how a person's role reaches a
 // kind, so only a role's scopes carry it — never an installation-owned scope,
 // whose ids are its own installation's, nor a binding ceiling's scope, which
@@ -1335,53 +1234,6 @@ func checkRoleThroughBindingsKnown(contract *Contract) error {
 		for _, scope := range role.Scopes {
 			if scope.Through != "" && contract.declaredBinding(scope.Through) == nil {
 				return fmt.Errorf("%w: role %q grants %s through binding %q, which the contract does not declare", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
-			}
-		}
-	}
-	return nil
-}
-
-// checkRoleThroughPersonOperations: a person's capability travels a binding
-// only on an operation a person causes, so a scope is reached only through a
-// binding declaring invoke or lookup.
-func checkRoleThroughPersonOperations(contract *Contract) error {
-	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			binding := contract.declaredBinding(scope.Through)
-			if scope.Through == "" || binding == nil {
-				continue
-			}
-			if !slices.Contains(binding.Operations, OperationInvoke) && !slices.Contains(binding.Operations, OperationLookup) {
-				return fmt.Errorf("%w: role %q grants %s through binding %q, which declares neither %s nor %s; a person's capability travels only the operations a person causes", ErrInvalid, role.Name, scope.ResourceKind, scope.Through, OperationInvoke, OperationLookup)
-			}
-		}
-	}
-	return nil
-}
-
-// checkRoleThroughNotSelf: a binding addressed to the unit itself has no
-// downstream; what a role grants on the unit it grants directly, held to the
-// unit's own ceilings.
-func checkRoleThroughNotSelf(contract *Contract) error {
-	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			if binding := contract.declaredBinding(scope.Through); scope.Through != "" && binding != nil && binding.Audience.Self {
-				return fmt.Errorf("%w: role %q grants %s through binding %q, which is addressed to the module itself; a scope on the module is granted directly, within its own scope_ceilings", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
-			}
-		}
-	}
-	return nil
-}
-
-// checkRoleThroughNotOwnKinds: the unit serves its own kinds here, never
-// downstream of a binding, so a scope of one is granted directly and held to
-// the unit's own ceiling rather than reached through anything.
-func checkRoleThroughNotOwnKinds(contract *Contract) error {
-	own := contract.ownCeilings()
-	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			if _, declared := own[scope.ResourceKind]; scope.Through != "" && declared {
-				return fmt.Errorf("%w: role %q grants %s through binding %q, a kind of the module's own; it is granted directly, within its own scope_ceilings", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
 			}
 		}
 	}
@@ -1550,66 +1402,6 @@ func checkGovernanceNotThrough(contract *Contract) error {
 	for _, scope := range contract.governanceScopes() {
 		if scope.Through != "" {
 			return fmt.Errorf("%w: source_governance names %s through %q; a governing scope is one of the unit's own, reached through nothing", ErrInvalid, scope.ResourceKind, scope.Through)
-		}
-	}
-	return nil
-}
-
-func checkGovernanceOwnKinds(contract *Contract) error {
-	own := contract.ownCeilings()
-	for _, scope := range contract.governanceScopes() {
-		if _, declared := own[scope.ResourceKind]; !declared {
-			return fmt.Errorf("%w: source_governance names %q, which is not one of the unit's own scope ceilings", ErrInvalid, scope.ResourceKind)
-		}
-	}
-	return nil
-}
-
-// checkGovernanceOwnActions: each governing action is one the unit's own
-// ceiling declares on the kind, so a role's grant of it is held at the unit
-// itself. One a binding alone underwrites is granted at that binding's
-// audience, and through an optional binding left out, nowhere: it would
-// govern for nobody on the installation.
-func checkGovernanceOwnActions(contract *Contract) error {
-	own := contract.ownCeilings()
-	for _, scope := range contract.governanceScopes() {
-		for _, action := range scope.Actions {
-			if !slices.Contains(own[scope.ResourceKind], action) {
-				return fmt.Errorf("%w: source_governance names %s:%s, which the unit's own scope ceiling does not declare", ErrInvalid, scope.ResourceKind, action)
-			}
-		}
-	}
-	return nil
-}
-
-// checkGovernanceNotShared: a shared kind is no installation's, so a scope of
-// it is issued unselected and would govern every installation's sources at
-// once.
-func checkGovernanceNotShared(contract *Contract) error {
-	for _, scope := range contract.governanceScopes() {
-		for _, ceiling := range contract.ScopeCeilings {
-			if ceiling.ResourceKind == scope.ResourceKind && ceiling.Shared {
-				return fmt.Errorf("%w: source_governance names %q, which the unit declares shared; a governing scope is held on one installation's data", ErrInvalid, scope.ResourceKind)
-			}
-		}
-	}
-	return nil
-}
-
-// checkGovernanceRoleGrants: each governing scope is one a role grants
-// directly in its scopes, so whoever governs holds it on the installation
-// through that role. A scope no role grants would govern for nobody.
-func checkGovernanceRoleGrants(contract *Contract) error {
-	for _, scope := range contract.governanceScopes() {
-		for _, action := range scope.Actions {
-			granted := slices.ContainsFunc(contract.Roles, func(role Role) bool {
-				return slices.ContainsFunc(role.Scopes, func(held CeilingScope) bool {
-					return held.Through == "" && held.ResourceKind == scope.ResourceKind && slices.Contains(held.Actions, action)
-				})
-			})
-			if !granted {
-				return fmt.Errorf("%w: source_governance names %s:%s, which no role grants in its scopes", ErrInvalid, scope.ResourceKind, action)
-			}
 		}
 	}
 	return nil

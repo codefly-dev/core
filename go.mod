@@ -204,3 +204,7 @@ require (
 // endpoint resolution, a second selector in architecture, run-wide refusals
 // dropped as missing keys. Superseded by v0.11.0 (core#703); nothing may pin it.
 retract v0.10.0
+
+// v0.19.31 names companion images that were never published (codefly 0.0.12,
+// go 0.0.19, ...); v0.19.32 reverts them to the published ones.
+retract v0.19.31
