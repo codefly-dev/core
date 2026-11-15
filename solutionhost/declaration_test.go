@@ -34,11 +34,20 @@ func (c composed) infos() []*basev0.ConfigurationInformation {
 }
 
 // TestDeclareRendersWhatTheCLIRendered holds Declare to the CLI's own output
-// before the render moved here: each testdata/declare/<case>/
-// declaration.golden.json was written by cli 68630378's moduleAuthority lines
-// and its ScopeCeilings, Roles, OwnerAware, SharedKinds and
-// InstallationDeclaration readers, on the same contract and composition. The
-// move changes no byte.
+// before the render moved here. Each testdata/declare/<case>/
+// declaration.golden.json was written by the CLI at 68630378 (the parent of the
+// commit that deleted its copy): its moduleAuthority lines and its
+// ScopeCeilings, Roles, OwnerAware, SharedKinds and InstallationDeclaration
+// readers, on the same contract and composition. Six cases: a solution with
+// every part; a module with no roles; a role through an optional binding left
+// out; self-addressed bindings, an audience list with a kind per audience and
+// a resource_kind slot; a lookup with binding-key and kind slots, a headless
+// binding at a later revision and a production class; a role scope on a
+// consumed kind with an installation role and a staging class.
+//
+// The goldens are FROZEN: the code that wrote them is deleted, so they cannot
+// be regenerated. A change to one is a change to what every module delivers
+// its host, reviewed as a contract change, never refreshed to make this pass.
 func TestDeclareRendersWhatTheCLIRendered(t *testing.T) {
 	cases, err := os.ReadDir(filepath.Join("testdata", "declare"))
 	require.NoError(t, err)
@@ -111,4 +120,18 @@ func TestTheResolutionKitRunsThroughConfigurationValues(t *testing.T) {
 		}
 		return solutionhost.ConfigurationValues([]*basev0.ConfigurationInformation{{Name: group, ConfigurationValues: values}})
 	})
+}
+
+// A composed solution's request (its api.consumes, core's ConsumptionContract)
+// is rendered in place of an own contract the module does not publish.
+func TestDeclareModuleRendersTheCallersRequest(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "declare", "module", modulecontract.FileName))
+	require.NoError(t, err)
+	request, err := modulecontract.Parse(raw)
+	require.NoError(t, err)
+	resolve := solutionhost.Resolver(composed{Values: map[string]map[string]string{"ledger": {"store-audience": "store"}}}.infos(), "", nil)
+	declaration, _, err := solutionhost.DeclareModule(t.TempDir(), "ledger", request, resolve)
+	require.NoError(t, err)
+	require.Equal(t, "ledger", declaration.Authority.Principal)
+	require.Equal(t, []solutionhost.AuthorityBinding{{ID: "store", Audience: "store", Operations: map[string][]string{"invoke": {"store.item:read"}}}}, declaration.Authority.Bindings)
 }

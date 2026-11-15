@@ -202,6 +202,10 @@ func RefuseRetiredRoles(dir string) error {
 // is empty); resolve is the composition's resolution (Resolver); and Declare
 // renders the rest. The resolution is returned with it, for what a caller
 // checks or reports of it.
+//
+// Each call resolves the contract again, which reads the composition: a caller
+// renders a module once and reads every field it needs off that one
+// Declaration.
 func DeclareModule(dir, name string, request *modulecontract.Contract, resolve func(*modulecontract.Contract) (*modulecontract.Resolved, error)) (*Declaration, *modulecontract.Resolved, error) {
 	if err := RefuseRetiredRoles(dir); err != nil {
 		return nil, nil, err
