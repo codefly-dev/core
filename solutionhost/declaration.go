@@ -175,6 +175,24 @@ func cloned[T any](in []T) []T { return append([]T(nil), in...) }
 // dropped in silence.
 const RetiredRolesFileName = "roles.codefly.yaml"
 
+// RefuseRetiredRoles refuses the module at dir when it still ships the retired
+// roles declaration, saying where its contents now belong. An empty dir ships
+// nothing.
+func RefuseRetiredRoles(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	path := filepath.Join(dir, RetiredRolesFileName)
+	_, err := os.Stat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	}
+	return fmt.Errorf("%s is no longer read: a unit's own kinds and its roles are declared in its %s, as scope_ceilings and roles (core's module contract); move them there and delete %s", path, modulecontract.FileName, RetiredRolesFileName)
+}
+
 // DeclareModule is the declaration of the module named name at dir, as every
 // producer renders it: dir must not ship the retired roles declaration; the
 // contract is request when the caller has one (a composed solution's
@@ -185,14 +203,8 @@ const RetiredRolesFileName = "roles.codefly.yaml"
 // renders the rest. The resolution is returned with it, for what a caller
 // checks or reports of it.
 func DeclareModule(dir, name string, request *modulecontract.Contract, resolve func(*modulecontract.Contract) (*modulecontract.Resolved, error)) (*Declaration, *modulecontract.Resolved, error) {
-	if dir != "" {
-		path := filepath.Join(dir, RetiredRolesFileName)
-		switch _, err := os.Stat(path); {
-		case err == nil:
-			return nil, nil, fmt.Errorf("%s is no longer read: a unit's own kinds and its roles are declared in its %s, as scope_ceilings and roles (core's module contract); move them there and delete %s", path, modulecontract.FileName, RetiredRolesFileName)
-		case !errors.Is(err, os.ErrNotExist):
-			return nil, nil, err
-		}
+	if err := RefuseRetiredRoles(dir); err != nil {
+		return nil, nil, err
 	}
 	contract := request
 	if contract == nil {

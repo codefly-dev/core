@@ -99,3 +99,16 @@ func TestConfigurationValuesKeepEveryRecord(t *testing.T) {
 	_, _, err = solutionhost.DeclareModule(filepath.Join("testdata", "declare", "module"), "ledger", nil, solutionhost.Resolver(infos, "", nil))
 	require.ErrorIs(t, err, modulecontract.ErrSecretSlot)
 }
+
+// Core's resolution kit drives ConfigurationValues over one group's records,
+// held the way a workspace configuration read holds them: a provider that
+// selected among them would fail it.
+func TestTheResolutionKitRunsThroughConfigurationValues(t *testing.T) {
+	modulecontract.RunResolution(t, func(group string, records []modulecontract.Record) modulecontract.Values {
+		values := make([]*basev0.ConfigurationValue, 0, len(records))
+		for _, record := range records {
+			values = append(values, &basev0.ConfigurationValue{Key: record.Key, Value: record.Value, Secret: record.Secret})
+		}
+		return solutionhost.ConfigurationValues([]*basev0.ConfigurationInformation{{Name: group, ConfigurationValues: values}})
+	})
+}
