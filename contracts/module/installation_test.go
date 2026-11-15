@@ -16,7 +16,7 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, selector := range []string{"", "none", "editor"} {
+	for _, selector := range []string{"", "none", UserRole} {
 		t.Run(selector, func(t *testing.T) {
 			contract, err := Parse(append(append([]byte(nil), data...), []byte("installation_role: \""+selector+"\"\nedge_dependencies: [{module: catalogue.other, presence: required}]\n")...))
 			if err != nil {
@@ -57,7 +57,7 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	if len(resolved.EdgeDependencies) != 0 {
 		t.Fatal("bindings inferred undeclared dependencies")
 	}
-	contract.InstallationRole = "editor"
+	contract.InstallationRole = UserRole
 	contract.Roles[1].Scopes = nil
 	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "grants nothing") {
 		t.Fatalf("selected empty role escaped the existing rule: %v", err)
@@ -121,7 +121,11 @@ func TestProgrammaticInstallationDeclarationsUseTheSameRules(t *testing.T) {
 }
 
 func TestInstallationFieldsDoNotChangeLegacyEncodedBytes(t *testing.T) {
-	// Captured from every accepted fixture at ef374a91 before adding fields.
+	// Captured from every accepted fixture at ef374a91, before the installation
+	// fields were added. roles, roles-grant-bindings and
+	// roles-installation-owned were recaptured when their roles moved to admin
+	// and user, with the same pre-field encoder and only its role-name rule set
+	// aside (the bytes it writes do not depend on that rule).
 	data, err := os.ReadFile("testdata/legacy-installation-encode.json")
 	if err != nil {
 		t.Fatal(err)

@@ -14,11 +14,11 @@ scope_ceilings:
       actions: [read]
       shared: true
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read, run]
-    - name: viewer
+    - name: user
       scopes:
           - resource_kind: assistant.tasks
             actions: [read]

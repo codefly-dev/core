@@ -11,7 +11,7 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read, write]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read, write]
@@ -20,7 +20,7 @@ roles:
       bindings:
           - {binding: evidence, operation: invoke}
           - {binding: owner, operation: invoke}
-    - name: viewer
+    - name: user
       bindings:
           - {binding: evidence, operation: lookup}
 bindings:

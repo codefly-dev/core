@@ -123,7 +123,9 @@ const (
 	ruleRoleBindingOp     = "role-binding-person-operation"
 	ruleRoleBindingDeclOp = "role-binding-declared-operation"
 	ruleRoleBindingUnique = "role-binding-unique"
-	ruleRoleInstaller     = "role-installer"
+	ruleRoleAdminOrUser   = "role-admin-or-user"
+	ruleRoleAdmin         = "role-admin"
+	ruleRoleUser          = "role-user"
 	ruleRoleWithinRequest = "role-within-request"
 	ruleThroughOnRoles    = "through-on-role-scopes"
 	ruleThroughNotOnCalls = "through-not-on-requirements"
@@ -221,6 +223,9 @@ func rules() []rule {
 		{name: ruleThroughNotOnCalls, check: checkThroughNotOnRequirements},
 		{name: ruleRoleName, check: checkRoleNames},
 		{name: ruleRoleUnique, check: checkRolesUnique},
+		{name: ruleRoleAdminOrUser, check: checkRolesAdminOrUser},
+		{name: ruleRoleAdmin, check: checkAdminRole},
+		{name: ruleRoleUser, check: checkUserRole},
 		{name: ruleRoleGrants, check: checkRolesGrant},
 		{name: ruleRoleKindName, check: checkRoleKindNames},
 		{name: ruleRoleKindUnique, check: checkRoleKindsUnique},
@@ -229,7 +234,6 @@ func rules() []rule {
 		{name: ruleRoleBindingOp, check: checkRoleBindingsPersonOperations},
 		{name: ruleRoleBindingDeclOp, check: checkRoleBindingsDeclaredOperations},
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
-		{name: ruleRoleInstaller, check: checkInstallerRole},
 		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
 		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
 		{name: ruleRoleThroughSelf, check: checkRoleThroughNotSelf},
@@ -1207,16 +1211,38 @@ func checkRoleBindingsUnique(contract *Contract) error {
 	return nil
 }
 
-func checkInstallerRole(contract *Contract) error {
-	if len(contract.Roles) == 0 {
-		return nil
-	}
+// checkRolesAdminOrUser holds a unit that declares roles — one with a page: a
+// solution, or a module page — to the two a page has: admin, which
+// administers the installation, and user, what a person does day to day. A
+// unit without a page declares no roles, so nothing here touches it. Core
+// cannot see the page: for a module the authority enforces that only one
+// with a page declares roles, and refuses roles on one without; for a
+// solution that is a convention, not enforced anywhere. role-admin and
+// role-user then require both.
+func checkRolesAdminOrUser(contract *Contract) error {
 	for _, role := range contract.Roles {
-		if role.Name == InstallerRole {
-			return nil
+		if role.Name != AdminRole && role.Name != UserRole {
+			return fmt.Errorf("%w: role %q is neither %q nor %q; a unit with a page declares exactly those two roles, and a unit without a page declares none", ErrInvalid, role.Name, AdminRole, UserRole)
 		}
 	}
-	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; whoever installs the unit holds it", ErrInvalid, len(contract.Roles), InstallerRole)
+	return nil
+}
+
+// checkAdminRole and checkUserRole hold a unit that declares roles to both of
+// the two: a page with no admin has nobody administering its installation,
+// and one with no user has nothing for a person to hold day to day.
+func checkAdminRole(contract *Contract) error {
+	if len(contract.Roles) == 0 || slices.ContainsFunc(contract.Roles, func(role Role) bool { return role.Name == AdminRole }) {
+		return nil
+	}
+	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; a unit with a page declares exactly %q and %q, and whoever installs it holds %q", ErrInvalid, len(contract.Roles), AdminRole, AdminRole, UserRole, AdminRole)
+}
+
+func checkUserRole(contract *Contract) error {
+	if len(contract.Roles) == 0 || slices.ContainsFunc(contract.Roles, func(role Role) bool { return role.Name == UserRole }) {
+		return nil
+	}
+	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; a unit with a page declares exactly %q and %q, and %q is what a person does with it day to day", ErrInvalid, len(contract.Roles), UserRole, AdminRole, UserRole, UserRole)
 }
 
 // grantable is what a role may grant: the module's own vocabulary, and each

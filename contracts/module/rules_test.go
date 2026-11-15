@@ -137,7 +137,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"role-installation-owned-beyond-consumption", "role-installation-owned-ids",
 		"role-installation-owned-kind-named-twice", "role-installation-owned-kind-without-action", "role-installation-owned-through",
 		"role-kind-named-twice", "role-kind-not-a-name", "role-kind-without-action",
-		"role-not-a-name", "role-through-binding-unknown", "role-through-headless-binding", "role-through-kind-named-twice", "role-through-own-kind", "role-through-self-binding", "role-without-installer", "roles", "roles-grant-bindings",
+		"role-named-installer", "role-named-viewer", "role-not-a-name", "role-through-binding-unknown", "role-through-headless-binding", "role-through-kind-named-twice", "role-through-own-kind", "role-through-self-binding", "role-without-admin", "role-without-user", "roles", "roles-grant-bindings",
 		"roles-installation-owned", "roles-reach-through", "schema-omitted",
 		"scope-ceiling-kind-declared-twice", "scope-ceiling-kind-not-a-name", "scope-ceiling-shared-string",
 		"scope-ceiling-without-action", "scope-kind-not-a-name", "self-as-literal",

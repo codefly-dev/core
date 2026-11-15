@@ -7,9 +7,11 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read]
 roles:
-    - name: installer
+    - name: admin
       bindings:
           - {binding: nowhere, operation: invoke}
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: evidence
       operations: [invoke]

@@ -10,17 +10,13 @@ scope_ceilings:
       actions: [read]
       shared: true
 roles:
-    - name: installer
+    - name: admin
       scopes: [{resource_kind: assistant.pages, actions: [read, publish]}]
-    - name: editor
+    - name: user
       scopes:
           - {resource_kind: assistant.pages, actions: [read, write]}
           - {resource_kind: assistant.profiles, actions: [read]}
           - {resource_kind: documents, actions: [read, write]}
-    - name: viewer
-      scopes:
-          - {resource_kind: assistant.pages, actions: [read]}
-          - {resource_kind: documents, actions: [read]}
 source_governance:
     scopes: []
 bindings:

@@ -6,6 +6,8 @@ scope_ceilings: [{resource_kind: example.items, actions: [read]}]
 bindings: []
 destinations: []
 roles:
-  - name: installer
+  - name: admin
+    scopes: [{resource_kind: example.items, actions: [read]}]
+  - name: user
     scopes: [{resource_kind: example.items, actions: [read]}]
 installation_role: none

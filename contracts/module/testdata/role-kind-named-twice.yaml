@@ -7,12 +7,14 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read, write, publish]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read]
           - resource_kind: assistant.tasks
             actions: [write]
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: documents
       operations: [invoke]

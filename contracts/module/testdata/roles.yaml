@@ -1,6 +1,7 @@
 # A solution's roles: each grants its own kinds within its scope ceilings, and
 # the permissions at another module its bindings spell out for a person's
-# operations. Whoever installs it holds installer.
+# operations. Whoever installs it holds admin; user is what a person does day
+# to day.
 schema: codefly/module-contract/v1
 principal: assistant
 namespaces: []
@@ -9,22 +10,16 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read, write, publish]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read, write, publish]
           - resource_kind: documents
             actions: [read, write]
-    - name: editor
+    - name: user
       scopes:
           - resource_kind: assistant.tasks
             actions: [read, write]
-    - name: viewer
-      scopes:
-          - resource_kind: assistant.tasks
-            actions: [read]
-          - resource_kind: documents
-            actions: [read]
 bindings:
     - id: documents
       operations: [invoke]

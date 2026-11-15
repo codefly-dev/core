@@ -8,7 +8,7 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read]
@@ -16,6 +16,8 @@ roles:
           - resource_kind: documents
             actions: [read]
             through: agent
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: agent
       operations: [invoke]
