@@ -16,7 +16,7 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, selector := range []string{"", "none", "editor"} {
+	for _, selector := range []string{"", "none", UserRole} {
 		t.Run(selector, func(t *testing.T) {
 			contract, err := Parse(append(append([]byte(nil), data...), []byte("installation_role: \""+selector+"\"\nedge_dependencies: [{module: catalogue.other, presence: required}]\n")...))
 			if err != nil {
@@ -57,7 +57,7 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	if len(resolved.EdgeDependencies) != 0 {
 		t.Fatal("bindings inferred undeclared dependencies")
 	}
-	contract.InstallationRole = "editor"
+	contract.InstallationRole = UserRole
 	contract.Roles[1].Scopes = nil
 	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "grants nothing") {
 		t.Fatalf("selected empty role escaped the existing rule: %v", err)

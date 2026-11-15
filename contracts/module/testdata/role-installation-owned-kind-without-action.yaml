@@ -7,11 +7,11 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read, write]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read, write]
-    - name: viewer
+    - name: user
       installation_owned_scopes:
           - resource_kind: documents.collection
             actions: []

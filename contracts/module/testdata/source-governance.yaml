@@ -1,5 +1,5 @@
-# A solution whose editors govern the sources tied to its installations: the
-# write its editor role alone grants on its own pages.
+# A solution whose users govern the sources tied to its installations: the
+# write its user role alone grants on its own pages.
 schema: codefly/module-contract/v1
 principal: assistant
 namespaces: []
@@ -11,17 +11,13 @@ scope_ceilings:
       actions: [read]
       shared: true
 roles:
-    - name: installer
+    - name: admin
       scopes: [{resource_kind: assistant.pages, actions: [read, publish]}]
-    - name: editor
+    - name: user
       scopes:
           - {resource_kind: assistant.pages, actions: [read, write]}
           - {resource_kind: assistant.profiles, actions: [read]}
           - {resource_kind: documents, actions: [read, write]}
-    - name: viewer
-      scopes:
-          - {resource_kind: assistant.pages, actions: [read]}
-          - {resource_kind: documents, actions: [read]}
 source_governance:
     scopes:
         - resource_kind: assistant.pages

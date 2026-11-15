@@ -293,10 +293,11 @@ type Contract struct {
 	// authority any credential naming the module's resources may carry.
 	ScopeCeilings []ScopeCeiling `yaml:"scope_ceilings"`
 	// Roles are the roles a person may hold on an installation of a unit a
-	// person uses — a solution — each a set of scopes: its own kinds within
-	// ScopeCeilings, and the permissions at other modules its bindings ask for
-	// on a person's behalf. One of them is InstallerRole. A bare module, whose
-	// access is the organisation's roles, declares none.
+	// person uses — one with a page: a solution, or a module page — each a set
+	// of scopes: its own kinds within ScopeCeilings, and the permissions at
+	// other modules its bindings ask for on a person's behalf. They are
+	// exactly AdminRole and, beside it, UserRole. A bare module, whose access
+	// is the organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
 	// InstallationRole selects the agent's standing role: empty is undeclared,
 	// "none" declares no standing grant, otherwise an exact declared role name.
@@ -426,9 +427,15 @@ type RoleBinding struct {
 	Operation string `yaml:"operation"`
 }
 
-// InstallerRole is the role every unit that declares roles declares: whoever
-// installs it holds it on that installation.
-const InstallerRole = "installer"
+// AdminRole is the role every unit that declares roles declares: whoever
+// installs it holds it on that installation, and it administers the
+// installation — everything the unit serves, its configuration and who holds
+// its roles.
+const AdminRole = "admin"
+
+// UserRole is the one other role such a unit declares: what a person does
+// with it day to day, reading and writing the unit's own content.
+const UserRole = "user"
 
 // Binding is one operation binding the module asks to redeem.
 type Binding struct {

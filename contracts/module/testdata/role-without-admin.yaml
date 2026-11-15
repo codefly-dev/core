@@ -1,4 +1,5 @@
-# Roles without an installer: nobody would hold the installation.
+# A unit with a page declaring user alone: nobody would hold admin, so nobody
+# would administer the installation.
 schema: codefly/module-contract/v1
 principal: assistant
 namespaces: []
@@ -7,10 +8,8 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read, write, publish]
 roles:
-    - name: editor
+    - name: user
       scopes: [{resource_kind: assistant.tasks, actions: [read, write]}]
-    - name: viewer
-      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: documents
       operations: [invoke]

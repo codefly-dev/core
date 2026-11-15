@@ -255,11 +255,11 @@ manifest's own resource kinds, so a host reads it from the manifest it
 verified and an administrator's approval covers it.
 
 **Installation declarations express machine intent and edge presence separately.**
-`installation_role` is optional: absent or `""` leaves the legacy installer
+`installation_role` is optional: absent or `""` leaves the host's existing
 selection unchanged; literal `none` declares no standing machine grant; any
 other value must exactly name a declared role. This never assigns a role to a
 person or team. `none` is reserved and cannot be a role name. Existing rules
-still refuse every role that grants nothing and still require `installer` when
+still refuse every role that grants nothing and still require `admin` when
 roles exist; selecting a role does not relax them. A bare module can declare
 `none` without declaring roles.
 
@@ -318,23 +318,27 @@ projection; Authority owns honoring `none` without a synthetic role or standing
 grant; SaaS owns dependency review and activation. Parser acceptance alone does
 not establish that those consumer paths support installation.
 
-**A unit a person uses declares its roles beside its own vocabulary.** A
-solution is reached by people, and who may do what on an installation of it is
-a role the installation grants, never the organisation's. `roles:` lists each
-role by name with the scopes it grants, `{resource_kind, actions}` with the kind
-named literally:
+**A unit a person uses declares its roles beside its own vocabulary.** A unit
+with a page — a solution, or a module page — is reached by people, and who may
+do what on an installation of it is a role the installation grants, never the
+organisation's. It declares exactly two: `admin`, which whoever installs it
+holds and which administers the installation (everything the unit serves, its
+configuration and who holds its roles), and `user`, what a person does with it
+day to day (reading and writing its own content). `roles:` lists each role by
+name with the scopes it grants, `{resource_kind, actions}` with the kind named
+literally:
 
 ```yaml
 scope_ceilings:
   - resource_kind: wiki.page
     actions: [read, write, publish]
 roles:
-  - name: installer
+  - name: admin
     scopes:
       - {resource_kind: wiki.page, actions: [read, write, publish]}
-  - name: viewer
+  - name: user
     scopes:
-      - {resource_kind: wiki.page, actions: [read]}
+      - {resource_kind: wiki.page, actions: [read, write]}
       - {resource_kind: documents, actions: [read]}
 ```
 
@@ -348,7 +352,7 @@ only when the composition resolves it, so a role never spells one out; it
 
 ```yaml
 roles:
-  - name: viewer
+  - name: user
     bindings:
       - {binding: evidence, operation: lookup}
 ```
@@ -380,7 +384,7 @@ cut to each binding there (consent covers reach):
 
 ```yaml
 roles:
-  - name: viewer
+  - name: user
     scopes:
       - {resource_kind: model.profiles, actions: [invoke, read], through: agent}
       - {resource_kind: documents, actions: [read], through: agent}
@@ -410,7 +414,7 @@ spelled like `scopes`:
 
 ```yaml
 roles:
-  - name: viewer
+  - name: user
     scopes:
       - {resource_kind: wiki.page, actions: [read]}
     installation_owned_scopes:
@@ -430,13 +434,17 @@ resolves it per installation into the same scope limited to the ids that
 installation owns of the kind; a kind it owns nothing of grants nothing, never
 the whole kind.
 
-One of the roles is `installer`, which whoever installs the unit holds; each
+One of the roles is `admin`, which whoever installs the unit holds, and the
+only other a unit may declare is `user`: a role named anything else —
+`installer`, `editor`, `viewer` — is refused, naming the two allowed
+(`role-admin-or-user`), and roles without `admin` are refused (`role-admin`). A
+module without a page declares no roles, so neither rule touches it. Each
 role is a lowercase name declared once and grants at least one kind or binding,
 each kind named once per place it is reached (directly, or through one
 binding) with at least one action, held to the same kind and action
 grammar as every other scope here. Each of these is its own named rule
 (`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
-`role-kind-unique`, `role-kind-has-action`, `role-installer`,
+`role-kind-unique`, `role-kind-has-action`, `role-admin-or-user`, `role-admin`,
 `role-within-request`, and for a scope reached through a binding
 `through-on-role-scopes`, `role-through-binding-known`, `role-through-not-self`,
 `role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
@@ -580,7 +588,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (168 documents) ships
+`modulecontract.Fixtures()` (170 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

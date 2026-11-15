@@ -8,7 +8,7 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read]

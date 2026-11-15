@@ -22,15 +22,11 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Role{
-		{Name: InstallerRole, Scopes: []CeilingScope{
+		{Name: AdminRole, Scopes: []CeilingScope{
 			{ResourceKind: "assistant.tasks", Actions: []string{"read", "write", "publish"}},
 			{ResourceKind: "documents", Actions: []string{"read", "write"}},
 		}},
-		{Name: "editor", Scopes: []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}}}},
-		{Name: "viewer", Scopes: []CeilingScope{
-			{ResourceKind: "assistant.tasks", Actions: []string{"read"}},
-			{ResourceKind: "documents", Actions: []string{"read"}},
-		}},
+		{Name: UserRole, Scopes: []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}}}},
 	}
 	if !reflect.DeepEqual(contract.Roles, want) {
 		t.Fatalf("roles read as %+v, declared as %+v", contract.Roles, want)
@@ -45,6 +41,47 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 	}
 	if !reflect.DeepEqual(again.Roles, want) {
 		t.Fatalf("roles written and read back as %+v", again.Roles)
+	}
+}
+
+// TestAPageDeclaresExactlyAdminAndUser: a unit with a page declares admin and,
+// beside it, user — never installer, editor or viewer, which are refused by
+// name with the two allowed named — and a unit declaring roles without admin
+// is refused.
+func TestAPageDeclaresExactlyAdminAndUser(t *testing.T) {
+	document, err := os.ReadFile("testdata/roles.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read"}}}
+	for _, tc := range []struct {
+		names   []string
+		refusal string
+	}{
+		{[]string{AdminRole, UserRole}, ""},
+		{[]string{AdminRole}, ""},
+		{[]string{"installer", "editor", "viewer"}, `role "installer" is neither "admin" nor "user"`},
+		{[]string{AdminRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
+		{[]string{AdminRole, "editor"}, `role "editor" is neither "admin" nor "user"`},
+		{[]string{UserRole}, `declares 1 role(s) and none is "admin"`},
+	} {
+		t.Run(strings.Join(tc.names, "+"), func(t *testing.T) {
+			contract, err := Parse(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contract.Roles = nil
+			for _, name := range tc.names {
+				contract.Roles = append(contract.Roles, Role{Name: name, Scopes: grant})
+			}
+			err = contract.Validate()
+			if tc.refusal == "" && err != nil {
+				t.Fatalf("roles %v refused: %v", tc.names, err)
+			}
+			if tc.refusal != "" && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.refusal)) {
+				t.Fatalf("roles %v: want a refusal saying %q, got %v", tc.names, tc.refusal, err)
+			}
+		})
 	}
 }
 
@@ -106,12 +143,12 @@ func TestARoleGrantsWhatABindingsCallsRequire(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: InstallerRole, Grants: map[string][]string{
+		{Name: AdminRole, Grants: map[string][]string{
 			"assistant": {"assistant.tasks:read", "assistant.tasks:write"},
 			"documents": {"documents.collection:read", "documents.versions:read", "documents:read"},
 			"robin":     {"robin.answers:read"},
 		}},
-		{Name: "viewer", Grants: map[string][]string{"documents": {"documents:read"}}},
+		{Name: UserRole, Grants: map[string][]string{"documents": {"documents:read"}}},
 	}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
@@ -131,9 +168,9 @@ func TestARoleGrantThroughAnOmittedBindingIsOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installer := resolved.Roles[0].Grants
-	if _, granted := installer["robin"]; granted || slices.Contains(installer["documents"], "documents.versions:read") {
-		t.Fatalf("the omitted owner binding still grants: %+v", installer)
+	admin := resolved.Roles[0].Grants
+	if _, granted := admin["robin"]; granted || slices.Contains(admin["documents"], "documents.versions:read") {
+		t.Fatalf("the omitted owner binding still grants: %+v", admin)
 	}
 }
 
@@ -144,7 +181,7 @@ func TestARoleGrantThroughAnOmittedBindingIsOmitted(t *testing.T) {
 // both; toward one audience it is one grant.
 func TestARoleScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
 	_, err := rolesGrantBindingsContract(t).Resolve(rolesValues("replica", "robin,documents"), WithCallees(rolesDeclarations))
-	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role installer grants documents:read, which is underwritten at documents and replica") {
+	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role admin grants documents:read, which is underwritten at documents and replica") {
 		t.Fatalf("a role scope two audiences underwrite: %v", err)
 	}
 }
@@ -168,16 +205,13 @@ func installationOwnedContract(t *testing.T) *Contract {
 func TestInstallationOwnedScopesAreReadAndWrittenBack(t *testing.T) {
 	contract := installationOwnedContract(t)
 	want := []Role{
-		{Name: InstallerRole,
+		{Name: AdminRole,
 			Scopes: []CeilingScope{
 				{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}},
 				{ResourceKind: "documents.collection", Actions: []string{"read"}},
 			},
 			InstallationOwnedScopes: []CeilingScope{{ResourceKind: "documents.collection", Actions: []string{"read", "write"}}}},
-		{Name: "viewer",
-			Scopes:                  []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read"}}},
-			InstallationOwnedScopes: []CeilingScope{{ResourceKind: "documents.collection", Actions: []string{"read"}}}},
-		{Name: "auditor", InstallationOwnedScopes: []CeilingScope{
+		{Name: UserRole, InstallationOwnedScopes: []CeilingScope{
 			{ResourceKind: "assistant.tasks", Actions: []string{"read"}},
 			{ResourceKind: "documents.collection", Actions: []string{"read"}},
 		}},
@@ -212,13 +246,10 @@ func TestInstallationOwnedScopesAreAddressedApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: InstallerRole,
+		{Name: AdminRole,
 			Grants:                  map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:write"}, "documents": {"documents.collection:read"}},
 			InstallationOwnedGrants: map[string][]string{"documents": {"documents.collection:read", "documents.collection:write"}}},
-		{Name: "viewer",
-			Grants:                  map[string][]string{"assistant": {"assistant.tasks:read"}},
-			InstallationOwnedGrants: map[string][]string{"documents": {"documents.collection:read"}}},
-		{Name: "auditor",
+		{Name: UserRole,
 			Grants:                  map[string][]string{},
 			InstallationOwnedGrants: map[string][]string{"assistant": {"assistant.tasks:read"}, "documents": {"documents.collection:read"}}},
 	}
@@ -247,7 +278,7 @@ func TestAnInstallationOwnedScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := contract.Resolve(rolesValues("replica", "robin,documents"), WithCallees(rolesDeclarations))
-	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role viewer grants installation-owned documents:read, which is underwritten at documents and replica") {
+	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role user grants installation-owned documents:read, which is underwritten at documents and replica") {
 		t.Fatalf("an installation-owned scope two audiences underwrite: %v", err)
 	}
 }
@@ -272,8 +303,8 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
-		{Name: "viewer", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
+		{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
+		{Name: UserRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
 			Through: map[string][]string{
 				"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"},
 				"model": {"documents:read"},
@@ -320,7 +351,7 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read]
 roles:
-    - name: installer
+    - name: admin
       scopes:
           - resource_kind: assistant.tasks
             actions: [read]
@@ -348,7 +379,7 @@ destinations: []
 	if len(resolved.Omitted) != 1 || resolved.Omitted[0].ID != "agent" {
 		t.Fatalf("Resolve omitted %#v, want the agent binding", resolved.Omitted)
 	}
-	want := []ResolvedRole{{Name: InstallerRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}}}
+	want := []ResolvedRole{{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}}}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}

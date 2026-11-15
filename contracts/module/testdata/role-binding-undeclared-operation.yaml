@@ -7,7 +7,7 @@ scope_ceilings:
     - resource_kind: assistant.tasks
       actions: [read]
 roles:
-    - name: installer
+    - name: admin
       bindings:
           - {binding: evidence, operation: lookup}
 bindings:
