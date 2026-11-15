@@ -121,7 +121,11 @@ func TestProgrammaticInstallationDeclarationsUseTheSameRules(t *testing.T) {
 }
 
 func TestInstallationFieldsDoNotChangeLegacyEncodedBytes(t *testing.T) {
-	// Captured from every accepted fixture at ef374a91 before adding fields.
+	// Captured from every accepted fixture at ef374a91, before the installation
+	// fields were added. roles, roles-grant-bindings and
+	// roles-installation-owned were recaptured when their roles moved to admin
+	// and user, with the same pre-field encoder and only its role-name rule set
+	// aside (the bytes it writes do not depend on that rule).
 	data, err := os.ReadFile("testdata/legacy-installation-encode.json")
 	if err != nil {
 		t.Fatal(err)

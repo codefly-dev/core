@@ -1,5 +1,6 @@
-# A role named viewer beside admin: a unit with a page declares exactly admin
-# and user, so a read-only role is neither.
+# A role named viewer beside admin and user: a unit with a page declares
+# exactly admin and user, so a third, read-only role is refused although both
+# of the two are declared.
 schema: codefly/module-contract/v1
 principal: assistant
 namespaces: []
@@ -10,6 +11,8 @@ scope_ceilings:
 roles:
     - name: admin
       scopes: [{resource_kind: assistant.tasks, actions: [read, write, publish]}]
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read, write]}]
     - name: viewer
       scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:

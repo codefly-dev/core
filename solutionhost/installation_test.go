@@ -11,7 +11,7 @@ import (
 )
 
 func TestInstallationDeclarationsSurviveSignedDelivery(t *testing.T) {
-	for _, role := range []string{"", "none", "editor"} {
+	for _, role := range []string{"", "none", "user"} {
 		t.Run(role, func(t *testing.T) {
 			manifest := valid(t)
 			manifest.Authority.InstallationRole = role

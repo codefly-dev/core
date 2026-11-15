@@ -437,8 +437,11 @@ the whole kind.
 The roles are exactly `admin`, which whoever installs the unit holds, and
 `user`: a role named anything else — `installer`, `editor`, `viewer` — is
 refused, naming the two allowed (`role-admin-or-user`), and roles without
-`admin` (`role-admin`) or without `user` (`role-user`) are refused. A module
-without a page declares no roles, so none of these rules touches it. Each
+`admin` (`role-admin`) or without `user` (`role-user`) are refused. A unit
+without a page declares no roles, so none of these rules touches it. The
+contract cannot see the page, so it reads "declares roles" as "has a page":
+for a module the authority enforces that, refusing roles on a module without
+a page; for a solution it is a convention the authority does not check. Each
 role is a lowercase name declared once and grants at least one kind or binding,
 each kind named once per place it is reached (directly, or through one
 binding) with at least one action, held to the same kind and action

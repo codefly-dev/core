@@ -1214,12 +1214,15 @@ func checkRoleBindingsUnique(contract *Contract) error {
 // checkRolesAdminOrUser holds a unit that declares roles — one with a page: a
 // solution, or a module page — to the two a page has: admin, which
 // administers the installation, and user, what a person does day to day. A
-// module without a page declares no roles, so nothing here touches it.
-// role-admin and role-user then require both.
+// unit without a page declares no roles, so nothing here touches it. Core
+// cannot see the page: for a module the authority enforces that only one
+// with a page declares roles, and refuses roles on one without; for a
+// solution that is a convention, not enforced anywhere. role-admin and
+// role-user then require both.
 func checkRolesAdminOrUser(contract *Contract) error {
 	for _, role := range contract.Roles {
 		if role.Name != AdminRole && role.Name != UserRole {
-			return fmt.Errorf("%w: role %q is neither %q nor %q; a unit with a page declares exactly those two roles", ErrInvalid, role.Name, AdminRole, UserRole)
+			return fmt.Errorf("%w: role %q is neither %q nor %q; a unit with a page declares exactly those two roles, and a unit without a page declares none", ErrInvalid, role.Name, AdminRole, UserRole)
 		}
 	}
 	return nil

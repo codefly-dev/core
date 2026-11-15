@@ -62,6 +62,7 @@ func TestAPageDeclaresExactlyAdminAndUser(t *testing.T) {
 		{[]string{UserRole, AdminRole}, ""},
 		{[]string{"installer", "editor", "viewer"}, `role "installer" is neither "admin" nor "user"`},
 		{[]string{AdminRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
+		{[]string{AdminRole, UserRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
 		{[]string{AdminRole, "editor"}, `role "editor" is neither "admin" nor "user"`},
 		{[]string{UserRole}, `declares 1 role(s) and none is "admin"`},
 		{[]string{AdminRole}, `declares 1 role(s) and none is "user"`},
