@@ -237,18 +237,13 @@ source_governance:
 
 Whoever is issued one of these scopes on the installation connects, changes
 and removes a source tied to it, and nobody else does; absent, the unit governs
-no source and its sources stay the organization administrators'. Each scope is
-one of the unit's own kinds (`source-governance-own-kind`) with actions its
-own ceiling declares (`source-governance-own-action`: an action only a binding
-underwrites is granted at that binding's audience, not on the installation),
-never one it
-declares shared (`source-governance-not-shared`: no installation owns it),
+no source and its sources stay the organization administrators'. A scope is
 never reached through a binding (`source-governance-not-through`: a downstream
-module decides that), never a wildcard (an action is a lowercase name), and
-each action is one a role grants in its `scopes`
-(`source-governance-role-grants`): a scope no role grants would govern for
-nobody. A declaration names at least one scope, each kind once and with an
-action. Resolution carries it as `"<resource kind>:<action>"` strings, sorted
+module decides that) and never a wildcard (an action is a lowercase name). A
+declaration names at least one scope, each kind once and with an action. What
+a governing scope may name — one of the unit's own, unshared kinds, an action
+its own ceiling declares, one a role grants — is the authority's policy, and
+the host refuses a delivery that breaks it. Resolution carries it as `"<resource kind>:<action>"` strings, sorted
 (`Resolved.SourceGovernance`), and the signed module manifest carries the same
 list in its authority block's `source_governance`, held there to the
 manifest's own resource kinds, so a host reads it from the manifest it
@@ -258,9 +253,8 @@ verified and an administrator's approval covers it.
 `installation_role` is optional: absent or `""` leaves the host's existing
 selection unchanged; literal `none` declares no standing machine grant; any
 other value must exactly name a declared role. This never assigns a role to a
-person or team. `none` is reserved and cannot be a role name. Existing rules
-still refuse every role that grants nothing and still require `admin` and
-`user` when roles exist; selecting a role does not relax them. A bare module can declare
+person or team. `none` is reserved and cannot be a role name. Selecting a role
+relaxes none of the authority's role rules. A bare module can declare
 `none` without declaring roles.
 
 ```yaml
@@ -321,10 +315,10 @@ not establish that those consumer paths support installation.
 **A unit a person uses declares its roles beside its own vocabulary.** A unit
 with a page — a solution, or a module page — is reached by people, and who may
 do what on an installation of it is a role the installation grants, never the
-organisation's. It declares exactly two, both required: `admin`, which whoever installs it
-holds and which administers the installation (everything the unit serves, its
-configuration and who holds its roles), and `user`, what a person does with it
-day to day (reading and writing its own content). `roles:` lists each role by
+organisation's. Which roles it declares is the authority's policy, held where
+the unit is delivered (today exactly two: `admin`, which whoever installs it
+holds and which administers the installation, and `user`, what a person does
+with it day to day); core reads the roles as declared. `roles:` lists each role by
 name with the scopes it grants, `{resource_kind, actions}` with the kind named
 literally:
 
@@ -342,7 +336,8 @@ roles:
       - {resource_kind: documents, actions: [read]}
 ```
 
-A role grants the unit's **own kinds**, each action within its
+The authority holds what a role may grant, refusing the delivery otherwise:
+the unit's **own kinds**, each action within its
 `scope_ceilings`, and the **permissions at another module it consumes**: a
 scope one of its bindings spells out (`{resource_kind, actions}`) for `invoke`
 or `lookup`, the operations a person causes. A `headless` binding's scopes are
@@ -369,13 +364,13 @@ leaves out is left out with it.
 
 `Resolved.Roles` addresses every grant: per audience, the scopes the role grants
 there. A role scope names no audience, and is still never ambiguous: unless it
-is reached through a binding (below), it is held
-to the unit's own ceilings or to a scope a binding spells out, and is addressed
+is reached through a binding (below), it is addressed
 to the one audience that underwrites it — the unit's principal for its own kind,
 that binding's resolved audience for a consumed one (a ceiling that spells
 scopes out belongs to a binding with one audience, never a list). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
-then names the binding it means in `bindings`.
+then names the binding it means in `bindings`. A scope no audience underwrites
+is addressed nowhere, and the authority refuses the delivery granting it.
 
 **A role names what it reaches downstream of a binding.** A role scope may
 carry `through: <binding id>`: a kind a module downstream of that binding
@@ -390,12 +385,10 @@ roles:
       - {resource_kind: documents, actions: [read], through: agent}
 ```
 
-The contract holds the binding to be one it declares (`role-through-binding-known`),
-not addressed to the unit itself (`role-through-not-self`: a self binding has no
-downstream), and one a person causes, `invoke` or `lookup`
-(`role-through-person-operation`); the kind is never one of the unit's own
-(`role-through-not-own-kind`: the unit serves those here, so a role grants them
-directly, within its own ceilings). Only a role's `scopes` carry `through`
+The contract holds the binding to be one it declares (`role-through-binding-known`).
+The authority refuses one addressed to the unit itself (a self binding has no
+downstream), one carrying nothing a person causes, and a kind of the unit's own
+(the unit serves those here, so a role grants them directly). Only a role's `scopes` carry `through`
 (`through-on-role-scopes`, `through-not-on-requirements`). A role names a kind
 once at each place it reaches it (`role-kind-unique`), so it may hold a kind
 directly and through a binding, or through two bindings. Such a scope is not
@@ -425,32 +418,29 @@ Each names a kind and actions and never resource ids, since ids are each
 installation's own: the entry has no field for them, so one naming
 `resource_ids` is refused as an unknown field. It is held to every rule a role
 scope is — kind and action grammar, each kind once in the list, at least one
-action, within the unit's own ceilings or a scope a binding spells out for
-`invoke` or `lookup` — and refused under the same rule names, its message
-saying "installation-owned". A role may grant through it alone, and a kind may
+action — and refused under the same rule names, its message saying
+"installation-owned"; the authority holds it within what the unit serves or a
+binding spells out for `invoke` or `lookup`. A role may grant through it alone, and a kind may
 appear in both lists, each with its own actions. `Resolved.Roles` addresses it
 exactly as a literal scope, in `InstallationOwnedGrants`. The authority
 resolves it per installation into the same scope limited to the ids that
 installation owns of the kind; a kind it owns nothing of grants nothing, never
 the whole kind.
 
-The roles are exactly `admin`, which whoever installs the unit holds, and
-`user`: a role named anything else — `installer`, `editor`, `viewer` — is
-refused, naming the two allowed (`role-admin-or-user`), and roles without
-`admin` (`role-admin`) or without `user` (`role-user`) are refused. A unit
-without a page declares no roles, so none of these rules touches it. The
-contract cannot see the page, so it reads "declares roles" as "has a page":
-for a module the authority enforces that, refusing roles on a module without
-a page; for a solution it is a convention the authority does not check. Each
-role is a lowercase name declared once and grants at least one kind or binding,
-each kind named once per place it is reached (directly, or through one
-binding) with at least one action, held to the same kind and action
-grammar as every other scope here. Each of these is its own named rule
-(`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
-`role-kind-unique`, `role-kind-has-action`, `role-admin-or-user`, `role-admin`, `role-user`,
-`role-within-request`, and for a scope reached through a binding
-`through-on-role-scopes`, `role-through-binding-known`, `role-through-not-self`,
-`role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
+Core holds a role's structure only: each role is a lowercase name declared
+once, each kind named once per place it is reached (directly, or through one
+binding) with at least one action, held to the same kind and action grammar as
+every other scope here, and each binding it names one the contract declares.
+Each of these is its own named rule (`role-name`, `role-unique`,
+`role-kind-name`, `role-kind-unique`, `role-kind-has-action`, and for a scope
+reached through a binding `through-on-role-scopes`,
+`role-through-binding-known`). Which roles a unit declares, that a role grants
+something, and what it may grant are the authority's policy: the host applies
+it to every delivery and refuses one that breaks it, naming why (today a role
+is `admin` or `user`, both declared, and only a solution or a module page
+declares roles), and a product proves its own roles against it in a unit test
+(the authority library's role plan). A rule there changes with no core
+release. A bare module declares no `roles`, and omits the key:
 its access is the organisation's roles. The CLI carries the roles into the
 authority's document delivered with the unit's manifest
 (`AuthorityManifestV1.roles`); a role's `bindings` and the scopes it reaches
@@ -591,7 +581,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (171 documents) ships
+`modulecontract.Fixtures()` (155 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

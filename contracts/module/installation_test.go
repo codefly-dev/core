@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -16,7 +15,7 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, selector := range []string{"", "none", UserRole} {
+	for _, selector := range []string{"", "none", "user"} {
 		t.Run(selector, func(t *testing.T) {
 			contract, err := Parse(append(append([]byte(nil), data...), []byte("installation_role: \""+selector+"\"\nedge_dependencies: [{module: catalogue.other, presence: required}]\n")...))
 			if err != nil {
@@ -56,15 +55,6 @@ func TestInstallationDeclarationsSurviveEncodeAndResolve(t *testing.T) {
 	}
 	if len(resolved.EdgeDependencies) != 0 {
 		t.Fatal("bindings inferred undeclared dependencies")
-	}
-	contract.InstallationRole = UserRole
-	contract.Roles[1].Scopes = nil
-	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "grants nothing") {
-		t.Fatalf("selected empty role escaped the existing rule: %v", err)
-	}
-	contract.InstallationRole = "none"
-	if err := contract.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "grants nothing") {
-		t.Fatalf("none waived an existing role rule: %v", err)
 	}
 }
 

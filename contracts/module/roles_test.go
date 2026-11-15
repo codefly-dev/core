@@ -22,11 +22,11 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Role{
-		{Name: AdminRole, Scopes: []CeilingScope{
+		{Name: "admin", Scopes: []CeilingScope{
 			{ResourceKind: "assistant.tasks", Actions: []string{"read", "write", "publish"}},
 			{ResourceKind: "documents", Actions: []string{"read", "write"}},
 		}},
-		{Name: UserRole, Scopes: []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}}}},
+		{Name: "user", Scopes: []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}}}},
 	}
 	if !reflect.DeepEqual(contract.Roles, want) {
 		t.Fatalf("roles read as %+v, declared as %+v", contract.Roles, want)
@@ -41,49 +41,6 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 	}
 	if !reflect.DeepEqual(again.Roles, want) {
 		t.Fatalf("roles written and read back as %+v", again.Roles)
-	}
-}
-
-// TestAPageDeclaresExactlyAdminAndUser: a unit with a page declares exactly
-// admin and user — never installer, editor or viewer, which are refused by
-// name with the two allowed named — and a unit declaring roles without either
-// one is refused.
-func TestAPageDeclaresExactlyAdminAndUser(t *testing.T) {
-	document, err := os.ReadFile("testdata/roles.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	grant := []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read"}}}
-	for _, tc := range []struct {
-		names   []string
-		refusal string
-	}{
-		{[]string{AdminRole, UserRole}, ""},
-		{[]string{UserRole, AdminRole}, ""},
-		{[]string{"installer", "editor", "viewer"}, `role "installer" is neither "admin" nor "user"`},
-		{[]string{AdminRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
-		{[]string{AdminRole, UserRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
-		{[]string{AdminRole, "editor"}, `role "editor" is neither "admin" nor "user"`},
-		{[]string{UserRole}, `declares 1 role(s) and none is "admin"`},
-		{[]string{AdminRole}, `declares 1 role(s) and none is "user"`},
-	} {
-		t.Run(strings.Join(tc.names, "+"), func(t *testing.T) {
-			contract, err := Parse(document)
-			if err != nil {
-				t.Fatal(err)
-			}
-			contract.Roles = nil
-			for _, name := range tc.names {
-				contract.Roles = append(contract.Roles, Role{Name: name, Scopes: grant})
-			}
-			err = contract.Validate()
-			if tc.refusal == "" && err != nil {
-				t.Fatalf("roles %v refused: %v", tc.names, err)
-			}
-			if tc.refusal != "" && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.refusal)) {
-				t.Fatalf("roles %v: want a refusal saying %q, got %v", tc.names, tc.refusal, err)
-			}
-		})
 	}
 }
 
@@ -145,12 +102,12 @@ func TestARoleGrantsWhatABindingsCallsRequire(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: AdminRole, Grants: map[string][]string{
+		{Name: "admin", Grants: map[string][]string{
 			"assistant": {"assistant.tasks:read", "assistant.tasks:write"},
 			"documents": {"documents.collection:read", "documents.versions:read", "documents:read"},
 			"robin":     {"robin.answers:read"},
 		}},
-		{Name: UserRole, Grants: map[string][]string{"documents": {"documents:read"}}},
+		{Name: "user", Grants: map[string][]string{"documents": {"documents:read"}}},
 	}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
@@ -207,13 +164,13 @@ func installationOwnedContract(t *testing.T) *Contract {
 func TestInstallationOwnedScopesAreReadAndWrittenBack(t *testing.T) {
 	contract := installationOwnedContract(t)
 	want := []Role{
-		{Name: AdminRole,
+		{Name: "admin",
 			Scopes: []CeilingScope{
 				{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}},
 				{ResourceKind: "documents.collection", Actions: []string{"read"}},
 			},
 			InstallationOwnedScopes: []CeilingScope{{ResourceKind: "documents.collection", Actions: []string{"read", "write"}}}},
-		{Name: UserRole, InstallationOwnedScopes: []CeilingScope{
+		{Name: "user", InstallationOwnedScopes: []CeilingScope{
 			{ResourceKind: "assistant.tasks", Actions: []string{"read"}},
 			{ResourceKind: "documents.collection", Actions: []string{"read"}},
 		}},
@@ -248,10 +205,10 @@ func TestInstallationOwnedScopesAreAddressedApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: AdminRole,
+		{Name: "admin",
 			Grants:                  map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:write"}, "documents": {"documents.collection:read"}},
 			InstallationOwnedGrants: map[string][]string{"documents": {"documents.collection:read", "documents.collection:write"}}},
-		{Name: UserRole,
+		{Name: "user",
 			Grants:                  map[string][]string{},
 			InstallationOwnedGrants: map[string][]string{"assistant": {"assistant.tasks:read"}, "documents": {"documents.collection:read"}}},
 	}
@@ -305,8 +262,8 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ResolvedRole{
-		{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
-		{Name: UserRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
+		{Name: "admin", Grants: map[string][]string{"assistant": {"assistant.tasks:read", "assistant.tasks:run"}}},
+		{Name: "user", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}, "models": {"model.profiles:read"}},
 			Through: map[string][]string{
 				"agent": {"documents:read", "model.profiles:invoke", "model.profiles:read"},
 				"model": {"documents:read"},
@@ -386,8 +343,8 @@ destinations: []
 		t.Fatalf("Resolve omitted %#v, want the agent binding", resolved.Omitted)
 	}
 	want := []ResolvedRole{
-		{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
-		{Name: UserRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
+		{Name: "admin", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
+		{Name: "user", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
 	}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)

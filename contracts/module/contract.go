@@ -295,9 +295,10 @@ type Contract struct {
 	// Roles are the roles a person may hold on an installation of a unit a
 	// person uses — one with a page: a solution, or a module page — each a set
 	// of scopes: its own kinds within ScopeCeilings, and the permissions at
-	// other modules its bindings ask for on a person's behalf. They are
-	// exactly two, AdminRole and UserRole. A bare module, whose access is the
-	// organisation's roles, declares none.
+	// other modules its bindings ask for on a person's behalf. Which roles a
+	// unit declares, and what each may grant, is the authority's policy, held
+	// where the module is delivered: core reads them as declared. A bare
+	// module, whose access is the organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
 	// InstallationRole selects the agent's standing role: empty is undeclared,
 	// "none" declares no standing grant, otherwise an exact declared role name.
@@ -426,16 +427,6 @@ type RoleBinding struct {
 	Binding   string `yaml:"binding"`
 	Operation string `yaml:"operation"`
 }
-
-// AdminRole is the role every unit that declares roles declares: whoever
-// installs it holds it on that installation, and it administers the
-// installation — everything the unit serves, its configuration and who holds
-// its roles.
-const AdminRole = "admin"
-
-// UserRole is the other role every such unit declares: what a person does
-// with it day to day, reading and writing the unit's own content.
-const UserRole = "user"
 
 // Binding is one operation binding the module asks to redeem.
 type Binding struct {
@@ -925,9 +916,9 @@ type OmittedBinding struct {
 
 // ResolvedRole is one role with every grant addressed. A role scope names a
 // kind and actions but no audience, and is never ambiguous here: unless it is
-// reached through a binding (Through), Validate holds it to the unit's own
-// ceilings or to a scope one of its bindings spells out, and Resolve
-// addresses it to the one audience that underwrites it — the
+// reached through a binding (Through), Resolve addresses it to the one
+// audience that underwrites it (one no audience underwrites is addressed
+// nowhere, and the authority refuses the delivery granting it) — the
 // unit's principal for its own kind, the binding's resolved audience for a
 // consumed one (a binding spelling scopes names one audience: never a list,
 // whose kinds are each audience's own). A scope two audiences underwrite is
