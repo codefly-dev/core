@@ -11,6 +11,8 @@ roles:
       bindings:
           - {binding: evidence, operation: invoke}
           - {binding: evidence, operation: invoke}
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: evidence
       operations: [invoke]

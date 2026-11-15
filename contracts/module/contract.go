@@ -296,8 +296,8 @@ type Contract struct {
 	// person uses — one with a page: a solution, or a module page — each a set
 	// of scopes: its own kinds within ScopeCeilings, and the permissions at
 	// other modules its bindings ask for on a person's behalf. They are
-	// exactly AdminRole and, beside it, UserRole. A bare module, whose access
-	// is the organisation's roles, declares none.
+	// exactly two, AdminRole and UserRole. A bare module, whose access is the
+	// organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
 	// InstallationRole selects the agent's standing role: empty is undeclared,
 	// "none" declares no standing grant, otherwise an exact declared role name.
@@ -433,7 +433,7 @@ type RoleBinding struct {
 // its roles.
 const AdminRole = "admin"
 
-// UserRole is the one other role such a unit declares: what a person does
+// UserRole is the other role every such unit declares: what a person does
 // with it day to day, reading and writing the unit's own content.
 const UserRole = "user"
 

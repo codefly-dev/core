@@ -8,4 +8,6 @@ destinations: []
 roles:
   - name: admin
     scopes: [{resource_kind: example.items, actions: [read]}]
+  - name: user
+    scopes: [{resource_kind: example.items, actions: [read]}]
 installation_role: admin

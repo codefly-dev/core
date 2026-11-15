@@ -13,6 +13,8 @@ roles:
           - resource_kind: documents
             actions: [read]
             through: occurrences
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: occurrences
       operations: [invoke]

@@ -10,6 +10,8 @@ roles:
     - name: admin
       bindings:
           - {binding: evaluation, operation: headless}
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: evidence
       operations: [invoke]

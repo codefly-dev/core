@@ -9,6 +9,8 @@ scope_ceilings:
 roles:
     - name: admin
       scopes: [{resource_kind: assistant.tasks, actions: [Read]}]
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: documents
       operations: [invoke]

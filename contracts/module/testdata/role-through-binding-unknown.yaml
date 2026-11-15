@@ -12,6 +12,8 @@ roles:
           - resource_kind: documents
             actions: [read]
             through: nowhere
+    - name: user
+      scopes: [{resource_kind: assistant.tasks, actions: [read]}]
 bindings:
     - id: agent
       operations: [invoke]

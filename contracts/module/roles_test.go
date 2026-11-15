@@ -44,10 +44,10 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 	}
 }
 
-// TestAPageDeclaresExactlyAdminAndUser: a unit with a page declares admin and,
-// beside it, user — never installer, editor or viewer, which are refused by
-// name with the two allowed named — and a unit declaring roles without admin
-// is refused.
+// TestAPageDeclaresExactlyAdminAndUser: a unit with a page declares exactly
+// admin and user — never installer, editor or viewer, which are refused by
+// name with the two allowed named — and a unit declaring roles without either
+// one is refused.
 func TestAPageDeclaresExactlyAdminAndUser(t *testing.T) {
 	document, err := os.ReadFile("testdata/roles.yaml")
 	if err != nil {
@@ -59,11 +59,12 @@ func TestAPageDeclaresExactlyAdminAndUser(t *testing.T) {
 		refusal string
 	}{
 		{[]string{AdminRole, UserRole}, ""},
-		{[]string{AdminRole}, ""},
+		{[]string{UserRole, AdminRole}, ""},
 		{[]string{"installer", "editor", "viewer"}, `role "installer" is neither "admin" nor "user"`},
 		{[]string{AdminRole, "viewer"}, `role "viewer" is neither "admin" nor "user"`},
 		{[]string{AdminRole, "editor"}, `role "editor" is neither "admin" nor "user"`},
 		{[]string{UserRole}, `declares 1 role(s) and none is "admin"`},
+		{[]string{AdminRole}, `declares 1 role(s) and none is "user"`},
 	} {
 		t.Run(strings.Join(tc.names, "+"), func(t *testing.T) {
 			contract, err := Parse(document)
@@ -358,6 +359,10 @@ roles:
           - resource_kind: documents
             actions: [read]
             through: agent
+    - name: user
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
 bindings:
     - id: agent
       optional: true
@@ -379,7 +384,10 @@ destinations: []
 	if len(resolved.Omitted) != 1 || resolved.Omitted[0].ID != "agent" {
 		t.Fatalf("Resolve omitted %#v, want the agent binding", resolved.Omitted)
 	}
-	want := []ResolvedRole{{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}}}
+	want := []ResolvedRole{
+		{Name: AdminRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
+		{Name: UserRole, Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
+	}
 	if !reflect.DeepEqual(resolved.Roles, want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}

@@ -228,6 +228,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "role-named-installer", file: "role-named-installer.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" is neither "admin" nor "user"`, rule: ruleRoleAdminOrUser},
 		{name: "role-named-viewer", file: "role-named-viewer.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "viewer" is neither "admin" nor "user"`, rule: ruleRoleAdminOrUser},
 		{name: "role-without-admin", file: "role-without-admin.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `declares 1 role(s) and none is "admin"`, rule: ruleRoleAdmin},
+		{name: "role-without-user", file: "role-without-user.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `declares 1 role(s) and none is "user"`, rule: ruleRoleUser},
 		{name: "role-beyond-own-ceiling", file: "role-beyond-own-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "admin" grants assistant.tasks:delete`, rule: ruleRoleWithinRequest},
 		{name: "role-beyond-consumption", file: "role-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "admin" grants tracing.trace:read`, rule: ruleRoleWithinRequest},
 		{name: "role-headless-permission", file: "role-headless-permission.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "admin" grants evaluation.definitions:publish`, rule: ruleRoleWithinRequest},

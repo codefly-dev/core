@@ -259,8 +259,8 @@ verified and an administrator's approval covers it.
 selection unchanged; literal `none` declares no standing machine grant; any
 other value must exactly name a declared role. This never assigns a role to a
 person or team. `none` is reserved and cannot be a role name. Existing rules
-still refuse every role that grants nothing and still require `admin` when
-roles exist; selecting a role does not relax them. A bare module can declare
+still refuse every role that grants nothing and still require `admin` and
+`user` when roles exist; selecting a role does not relax them. A bare module can declare
 `none` without declaring roles.
 
 ```yaml
@@ -321,7 +321,7 @@ not establish that those consumer paths support installation.
 **A unit a person uses declares its roles beside its own vocabulary.** A unit
 with a page — a solution, or a module page — is reached by people, and who may
 do what on an installation of it is a role the installation grants, never the
-organisation's. It declares exactly two: `admin`, which whoever installs it
+organisation's. It declares exactly two, both required: `admin`, which whoever installs it
 holds and which administers the installation (everything the unit serves, its
 configuration and who holds its roles), and `user`, what a person does with it
 day to day (reading and writing its own content). `roles:` lists each role by
@@ -434,17 +434,17 @@ resolves it per installation into the same scope limited to the ids that
 installation owns of the kind; a kind it owns nothing of grants nothing, never
 the whole kind.
 
-One of the roles is `admin`, which whoever installs the unit holds, and the
-only other a unit may declare is `user`: a role named anything else —
-`installer`, `editor`, `viewer` — is refused, naming the two allowed
-(`role-admin-or-user`), and roles without `admin` are refused (`role-admin`). A
-module without a page declares no roles, so neither rule touches it. Each
+The roles are exactly `admin`, which whoever installs the unit holds, and
+`user`: a role named anything else — `installer`, `editor`, `viewer` — is
+refused, naming the two allowed (`role-admin-or-user`), and roles without
+`admin` (`role-admin`) or without `user` (`role-user`) are refused. A module
+without a page declares no roles, so none of these rules touches it. Each
 role is a lowercase name declared once and grants at least one kind or binding,
 each kind named once per place it is reached (directly, or through one
 binding) with at least one action, held to the same kind and action
 grammar as every other scope here. Each of these is its own named rule
 (`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
-`role-kind-unique`, `role-kind-has-action`, `role-admin-or-user`, `role-admin`,
+`role-kind-unique`, `role-kind-has-action`, `role-admin-or-user`, `role-admin`, `role-user`,
 `role-within-request`, and for a scope reached through a binding
 `through-on-role-scopes`, `role-through-binding-known`, `role-through-not-self`,
 `role-through-person-operation`, `role-through-not-own-kind`). A bare module declares no `roles`, and omits the key:
@@ -588,7 +588,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (170 documents) ships
+`modulecontract.Fixtures()` (171 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare
