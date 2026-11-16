@@ -195,7 +195,7 @@ func nestedSelectionFixture(t *testing.T, usage string) *nestedFixture {
 		{Operation: "build", Protocol: artifactexecution.BuilderBuild, Executor: ArtifactReference{Target: "services/store/agent", Name: "builder"}, Inputs: map[string]ArtifactReference{"source": {Name: "source"}}, Outputs: map[string]string{"store": "application/octet-stream"}},
 	}
 	selectedModule := r.publish(t, module)
-	base := selectionManifest("example/beacon", "1.3.0")
+	base := selectionManifest("example/meridian", "1.3.0")
 	for _, name := range []string{"saas", "documents", "unused"} {
 		base.Modules = append(base.Modules, ProvidedModule{Name: name, Default: ComponentDefault{Release: selectedModule, Requirements: map[string]string{"interface": "^1.0.0"}}, Services: Services{Include: []string{"store"}}})
 	}

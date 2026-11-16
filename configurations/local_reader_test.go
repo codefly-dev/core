@@ -400,7 +400,7 @@ func TestLocalLoaderComposesSourceReferencedModuleMaterializedInWorkspace(t *tes
 layout: modules
 modules:
   - name: saas
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/internal-auth.secret.env", "TOKEN=solution-token\n")
@@ -464,18 +464,18 @@ func TestLocalLoaderComposesSourceReferencedSubmoduleOfAggregatorRepo(t *testing
 layout: modules
 modules:
   - name: saas
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
 `)
 	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
   saas:
-    path: vendor/beacon/modules/saas
+    path: vendor/meridian/modules/saas
 `)
 
 	// The materialized aggregator: its own workspace root holds what every
 	// module of the repo shares, the submodule holds what only it declares —
 	// plus a copy of a shared one, as a pinned platform repo carries.
-	writeConfigurationFile(t, root, "solution/vendor/beacon/workspace.codefly.yaml", `name: beacon
+	writeConfigurationFile(t, root, "solution/vendor/meridian/workspace.codefly.yaml", `name: meridian
 layout: modules
 modules:
   - name: saas
@@ -483,15 +483,15 @@ modules:
   - name: documents
     path: modules/documents
 `)
-	writeConfigurationFile(t, root, "solution/vendor/beacon/configurations/local/observability.env", "OBSERVABILITY_URL=beacon-observability\n")
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/module.codefly.yaml", `kind: module
+	writeConfigurationFile(t, root, "solution/vendor/meridian/configurations/local/observability.env", "OBSERVABILITY_URL=meridian-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/module.codefly.yaml", `kind: module
 name: saas
 services:
   - name: frontend
 `)
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL=saas-observability\n")
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/services/frontend/service.codefly.yaml", `kind: service
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL=saas-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/services/frontend/service.codefly.yaml", `kind: service
 name: frontend
 version: 0.0.0
 agent:
@@ -500,7 +500,7 @@ agent:
   version: 0.0.1
   publisher: codefly.ai
 `)
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/documents/module.codefly.yaml", "kind: module\nname: documents\nservices: []\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/documents/module.codefly.yaml", "kind: module\nname: documents\nservices: []\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -563,22 +563,22 @@ func TestLocalLoaderLogsSubmoduleOverrideOfItsRepositoryConfiguration(t *testing
 layout: modules
 modules:
   - name: saas
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
 `)
 		writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
   saas:
-    path: vendor/beacon/modules/saas
+    path: vendor/meridian/modules/saas
 `)
-		writeConfigurationFile(t, root, "solution/vendor/beacon/workspace.codefly.yaml", `name: beacon
+		writeConfigurationFile(t, root, "solution/vendor/meridian/workspace.codefly.yaml", `name: meridian
 layout: modules
 modules:
   - name: saas
     path: modules/saas
 `)
-		writeConfigurationFile(t, root, "solution/vendor/beacon/configurations/local/observability.env", "OBSERVABILITY_URL=beacon-observability\n")
-		writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-		writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL="+submoduleValue+"\n")
+		writeConfigurationFile(t, root, "solution/vendor/meridian/configurations/local/observability.env", "OBSERVABILITY_URL=meridian-observability\n")
+		writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+		writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/configurations/local/observability.env", "OBSERVABILITY_URL="+submoduleValue+"\n")
 
 		workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 		require.NoError(t, err)
@@ -593,7 +593,7 @@ modules:
 
 	// A submodule vendoring an unchanged copy overrides nothing, so there is
 	// nothing to report.
-	identical := load(t, "beacon-observability")
+	identical := load(t, "meridian-observability")
 	require.NotContains(t, identical.messages(), "overrides the one its repository provides")
 }
 
@@ -606,34 +606,34 @@ func TestLocalLoaderComposesAliasedSourceReferencedSubmoduleOnce(t *testing.T) {
 	root := t.TempDir()
 
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "solution"), 0o755))
-	require.NoError(t, os.Symlink(filepath.Join(root, "solution", "vendor", "beacon"), filepath.Join(root, "solution", "mirror")))
+	require.NoError(t, os.Symlink(filepath.Join(root, "solution", "vendor", "meridian"), filepath.Join(root, "solution", "mirror")))
 
 	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
 layout: modules
 modules:
   - name: saas
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
   - name: saas-mirror
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
 `)
 	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
   saas:
-    path: vendor/beacon/modules/saas
+    path: vendor/meridian/modules/saas
   saas-mirror:
     path: mirror/modules/saas
 `)
 
-	writeConfigurationFile(t, root, "solution/vendor/beacon/workspace.codefly.yaml", `name: beacon
+	writeConfigurationFile(t, root, "solution/vendor/meridian/workspace.codefly.yaml", `name: meridian
 layout: modules
 modules:
   - name: saas
     path: modules/saas
 `)
-	writeConfigurationFile(t, root, "solution/vendor/beacon/configurations/local/observability.env", "OBSERVABILITY_URL=beacon-observability\n")
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/configurations/local/observability.env", "OBSERVABILITY_URL=meridian-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -789,20 +789,20 @@ func TestLocalLoaderComposesSourceReferencedSubmodulesOfOneAggregatorRepo(t *tes
 layout: modules
 modules:
   - name: saas
-    source: acme/beacon
+    source: acme/meridian
     module: modules/saas
   - name: documents
-    source: acme/beacon
+    source: acme/meridian
     module: modules/documents
 `)
 	writeConfigurationFile(t, root, "solution/codefly.local.yaml", `resolve:
   saas:
-    path: vendor/beacon/modules/saas
+    path: vendor/meridian/modules/saas
   documents:
-    path: vendor/beacon/modules/documents
+    path: vendor/meridian/modules/documents
 `)
 
-	writeConfigurationFile(t, root, "solution/vendor/beacon/workspace.codefly.yaml", `name: beacon
+	writeConfigurationFile(t, root, "solution/vendor/meridian/workspace.codefly.yaml", `name: meridian
 layout: modules
 modules:
   - name: saas
@@ -810,12 +810,12 @@ modules:
   - name: documents
     path: modules/documents
 `)
-	writeConfigurationFile(t, root, "solution/vendor/beacon/configurations/local/observability.env", "OBSERVABILITY_URL=beacon-observability\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/configurations/local/observability.env", "OBSERVABILITY_URL=meridian-observability\n")
 	for _, name := range []string{"saas", "documents"} {
-		writeConfigurationFile(t, root, "solution/vendor/beacon/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
-		writeConfigurationFile(t, root, "solution/vendor/beacon/modules/"+name+"/configurations/local/observability.env", "OBSERVABILITY_URL=pinned-observability\n")
+		writeConfigurationFile(t, root, "solution/vendor/meridian/modules/"+name+"/module.codefly.yaml", "kind: module\nname: "+name+"\nservices: []\n")
+		writeConfigurationFile(t, root, "solution/vendor/meridian/modules/"+name+"/configurations/local/observability.env", "OBSERVABILITY_URL=pinned-observability\n")
 	}
-	writeConfigurationFile(t, root, "solution/vendor/beacon/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "solution/vendor/meridian/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -929,18 +929,18 @@ func TestLocalLoaderComposesPathReferencedSubmoduleOfAggregatorRepo(t *testing.T
 layout: modules
 modules:
   - name: saas
-    path: ../beacon/modules/saas
+    path: ../meridian/modules/saas
 `)
 
-	writeConfigurationFile(t, root, "beacon/workspace.codefly.yaml", `name: beacon
+	writeConfigurationFile(t, root, "meridian/workspace.codefly.yaml", `name: meridian
 layout: modules
 modules:
   - name: saas
     path: modules/saas
 `)
-	writeConfigurationFile(t, root, "beacon/configurations/local/observability.env", "OBSERVABILITY_URL=beacon-observability\n")
-	writeConfigurationFile(t, root, "beacon/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-	writeConfigurationFile(t, root, "beacon/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
+	writeConfigurationFile(t, root, "meridian/configurations/local/observability.env", "OBSERVABILITY_URL=meridian-observability\n")
+	writeConfigurationFile(t, root, "meridian/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+	writeConfigurationFile(t, root, "meridian/modules/saas/configurations/local/legal.env", "LEGAL_URL=saas-legal\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -959,7 +959,7 @@ modules:
 	require.NoError(t, err)
 	url, err = resources.GetConfigurationValue(ctx, observability, "observability", "OBSERVABILITY_URL")
 	require.NoError(t, err)
-	require.Equal(t, "beacon-observability", url)
+	require.Equal(t, "meridian-observability", url)
 }
 
 // ReadWorkspaceConfigurations is the read a run provisions from, exposed for a
