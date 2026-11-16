@@ -65,7 +65,6 @@ func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 	// which are therefore worth resolving. A package absent from here is not
 	// checked, so adding a doc for a new package means adding it.
 	packages := map[string]string{
-		"solutionhost": "solutionhost",
 		"workcontext":  "workcontext",
 		"conformance":  filepath.Join("workcontext", "conformance"),
 		"readiness":    "readiness",
@@ -78,7 +77,6 @@ func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 
 	documents := []string{
 		filepath.Join("docs", "architecture.md"),
-		filepath.Join("docs", "module-manifest.md"),
 		filepath.Join("docs", "module-contract.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),
@@ -231,7 +229,6 @@ func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
 	root := repoRoot(t)
 
 	packages := map[string]string{
-		"solutionhost": "solutionhost",
 		"workcontext":  "workcontext",
 		"conformance":  filepath.Join("workcontext", "conformance"),
 		"readiness":    "readiness",
@@ -244,7 +241,6 @@ func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
 
 	documents := []string{
 		filepath.Join("docs", "architecture.md"),
-		filepath.Join("docs", "module-manifest.md"),
 		filepath.Join("docs", "module-contract.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),

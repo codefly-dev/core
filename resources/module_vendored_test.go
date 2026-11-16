@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 )
 
 // The manifest's vendored-path declaration is held to one spelling and

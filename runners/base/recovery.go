@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 )

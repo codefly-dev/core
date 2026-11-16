@@ -12,14 +12,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
 )
 
 // ErrInvalidManifestWireForm is the one sentinel for a manifest refused by the
-// node-level rules every wire document shares (internal/wire): a duplicate
+// node-level rules every wire document shares (core/wire): a duplicate
 // key, a merge key, an explicit null, a fractional number, a key that is not a
 // name. These are properties of the DOCUMENT, so the refusal names no field
 // and no model, and a caller that wants to know which rule fired reads the
@@ -127,7 +127,7 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 	}
 	// A closed schema: every key the file carries is one the type declares,
 	// or the load fails naming it. The TREE is held to the node-level checks
-	// the wire documents share first (internal/wire), because the typed
+	// the wire documents share first (core/wire), because the typed
 	// decoder repairs what those refuse — a null reads as "no declaration", a
 	// merge key carries a mapping in after every check — then the kind is
 	// dispatched and the keys an older layout wrote are named with their

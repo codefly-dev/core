@@ -10,7 +10,7 @@
 // module contract. Consumers import it as modulecontract, so the identifier
 // says what it is; the docs spell it that way too.
 //
-// It belongs to the lifecycle solutionhost owns, because the contract is the
+// It belongs to the host's delivery lifecycle, because the contract is the
 // request a module manifest carries: the CLI resolves it into the manifest's
 // authority block, which is signed and delivered to the host, and the host
 // grants its intersection with the administrator's approval.
@@ -132,7 +132,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 )
 
 const (

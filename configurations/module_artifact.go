@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 	"github.com/codefly-dev/core/resources"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
