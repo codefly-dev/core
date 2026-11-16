@@ -37,7 +37,7 @@ type GatewayEvaluator struct {
 	ToolPolicies map[string]ToolPolicy
 
 	// Decider is the inner role-grant check. Typically a
-	// SaasPDP that calls saas-starter's Decide RPC.
+	// SaasPDP that calls the host's Decide RPC.
 	Decider Decider
 
 	// Secret is the HMAC key used to sign minted tokens. Must
@@ -105,7 +105,7 @@ var ErrGatewayDeny = errors.New("gateway: denied")
 //   - (nil, err) on approvable — err is *ApprovalRequiredError,
 //     which matches ErrApprovalRequired and not ErrGatewayDeny
 //   - (nil, err) on backend failure — err is the underlying error
-//     (typically a saas-starter network issue). The caller MUST
+//     (typically a host network issue). The caller MUST
 //     fail the request; gateway never silently allows on backend
 //     failure.
 func (g *GatewayEvaluator) EvaluateAndMint(ctx context.Context, in EvaluationInput) (*EvaluationResult, error) {

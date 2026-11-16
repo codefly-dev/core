@@ -27,7 +27,7 @@ type ModuleResolveDirective struct {
 	// Path is an explicit local directory (absolute, or relative to the overlay
 	// file). Highest precedence: you are editing this module in place.
 	Path string `yaml:"path,omitempty"`
-	// Worktree is "<repo>@<ref>" (e.g. "obin-ai/module-document-store@main"). The
+	// Worktree is "<repo>@<ref>" (e.g. "acme/module-notes@main"). The
 	// resolver scans the local worktree roots for a checkout of <repo> that is at
 	// <ref>, wherever it physically sits. A checkout matches when <ref> is the
 	// checked-out branch name, or — for a tag, sha, or a detached HEAD created by

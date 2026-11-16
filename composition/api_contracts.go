@@ -18,7 +18,7 @@ import (
 
 type APIContractCatalog struct {
 	Schema    string                `json:"schema"`
-	Package   string                `json:"package"` // manifest ID, e.g. codefly/saas-starter
+	Package   string                `json:"package"` // manifest ID, e.g. acme/billing
 	Version   string                `json:"version"` // manifest Version
 	Endpoints []APIContractEndpoint `json:"endpoints"`
 }

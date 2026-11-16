@@ -10,11 +10,11 @@ import (
 // An ENVIRONMENT CLASS is the release stage of the environment a contract is
 // delivered to: how far along the promotion path it sits. It is not a new
 // axis. It is the one a coordinate already names — the `development` segment
-// of `hosted/gcp/us-east1/US/development/blue` — and the deliverer states it
+// of `hosted/<cloud>/<region>/<jurisdiction>/development/<cell>` — and the deliverer states it
 // per environment, beside the host it delivers to.
 //
 // It is DECLARED and never derived. An environment's name is not its class:
-// `blue`, `green` and `dev` are all development cells, `local` is one too,
+// `alpha`, `beta` and `dev` can all be development cells, `local` is one too,
 // and a class read off a name is the defect that `Local()` already is —
 // "it starts with local, so it must be local". A class derived from a name
 // would quietly make a production environment development the day someone

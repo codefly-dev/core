@@ -31,11 +31,10 @@ var errReachabilityUnknown = errors.New("reachability could not be established")
 //
 // WHY THIS EXISTS, and why the module proxy cannot answer it.
 //
-// obin-ai/module-robin's main went red for every Go job on 2026-11-04: robin#659
-// squash-merged and deleted the branch holding a commit its own go.mod pinned,
-// and `go mod download` then failed repository-wide with "unknown revision".
-// Robin's pin gate had passed on that commit — it certified a reference that
-// merging would destroy.
+// A squash merge that deletes the branch holding a commit a go.mod pinned makes
+// `go mod download` fail repository-wide with "unknown revision", though the
+// pin gate passed on that commit — it certified a reference that merging would
+// destroy.
 //
 // A pseudo-version naming a commit that is NOT an ancestor of the default
 // branch is exactly that pin: it resolves today because the branch still
@@ -175,8 +174,8 @@ func (r *reachability) ask(ctx context.Context, sha string) reachAnswer {
 	switch response.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		// The repository does not have this commit at all. This is the state
-		// module-robin was left in after robin#659 deleted the merged branch.
+		// The repository does not have this commit at all: the state a squash
+		// merge leaves behind once it deletes the merged branch.
 		return reachAnswer{missing: true}
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return reachAnswer{err: fmt.Errorf(

@@ -120,7 +120,7 @@ func (victimServer) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest
 //	}
 //
 // The plugin doesn't need to know HOW the host decides — it just
-// asks. The PDP / saas-starter answer.
+// asks. The PDP answers.
 //
 // **What this tool surfaces (for tests).** Returns a structured
 // response with allowed/reason/error fields so the E2E test can

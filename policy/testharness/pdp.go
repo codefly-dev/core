@@ -1,7 +1,7 @@
 // Package testharness provides in-process test scaffolding for the
 // permission system. It exists so unit tests of guards, interceptors,
 // and plugin code can assert PDP behavior WITHOUT spinning up a real
-// saas-starter (which lives in a separate repo and needs Postgres).
+// the host (which lives in a separate repo and needs Postgres).
 //
 // What's here:
 //
@@ -17,10 +17,10 @@
 //
 // What's NOT here (yet):
 //
-//   - SaaSFixture: a Postgres + saas-starter API harness. Lives in
-//     M0 phase 2 once the saas-starter Principal/Decide RPCs land.
-//     For now, integration tests against saas-starter live alongside
-//     the saas-starter codebase, not here.
+//   - SaaSFixture: a Postgres + the host API harness. Lives in
+//     M0 phase 2 once the host Principal/Decide RPCs land.
+//     For now, integration tests against the host live alongside
+//     the host codebase, not here.
 package testharness
 
 import (

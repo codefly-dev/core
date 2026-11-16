@@ -25,7 +25,7 @@ import "context"
 //	   └─────────────────────────────────┘
 //
 // Implementations:
-//   - SaasPDP (pdp_saas.go) — calls saas-starter's Decide RPC
+//   - SaasPDP (pdp_saas.go) — calls the host's Decide RPC
 //   - CeilingPDP (pdp_ceiling.go) — manifest enforcement wrapper
 //   - ShadowPDP (pdp_shadow.go) — observability-only wrapper
 //   - JSONPDP (pdp.go) — file-backed allow-list for dev/test
@@ -34,23 +34,23 @@ import "context"
 // Production hosts compose the stack via BuildPDP (pdp_mode.go).
 type Decider = PDP
 
-// PermissionsBackend is the THINNEST interface that a saas-starter
+// PermissionsBackend is the THINNEST interface that a host
 // gRPC client implementation must satisfy. Pulling this out (rather
-// than importing saas-starter's full gen package into core) keeps
+// than importing the host's full gen package into core) keeps
 // the dependency graph one-way: core has no compile-time knowledge
-// of saas-starter; saas-starter (or any other backend) wires itself
+// of the host; the host (or any other backend) wires itself
 // into core via this interface.
 //
 // **Why a separate interface from Decider/PDP.** Decider speaks
 // "PDPRequest with caveats and delegation_proof"; PermissionsBackend
-// speaks the simpler shape that maps 1:1 to saas-starter's gRPC.
+// speaks the simpler shape that maps 1:1 to the host's gRPC.
 // SaasPDP is the bridge: it takes a PermissionsBackend and adapts
 // it to the Decider interface, layering caching + observability +
 // metrics on top.
 //
 // Implementations:
 //   - core/policy/pdp_saas_grpc.go (next session) — concrete client
-//     against saas-starter's PermissionService.Decide RPC
+//     against the host's PermissionService.Decide RPC
 //   - testharness/pdp.go (in-memory) — for tests
 //   - operator-supplied (e.g. Cedar/OPA bridge) — for custom policy
 type PermissionsBackend interface {
@@ -60,14 +60,14 @@ type PermissionsBackend interface {
 	// Inputs:
 	//
 	//   - principalID: opaque identifier the principal carries
-	//     (saas-starter's principals.id).
+	//     (the host's principals.id).
 	//   - action: dotted name. Mirrors the codefly tool name when
 	//     the call is routed from a tool dispatch, but backends
 	//     may also see synthetic actions emitted by Authorizer.
 	//   - resource: typed identifier ("repo:foo/bar", "env:staging").
 	//   - orgID: organization scope. Required when the backend
 	//     enforces per-org isolation.
-	//   - scope: optional fine-grained scope (saas-starter's
+	//   - scope: optional fine-grained scope (the host's
 	//     role_assignments.scope column).
 	//
 	// Outputs:
@@ -99,7 +99,7 @@ type PermissionsBackend interface {
 //     interceptor — see core/agents/principal_interceptor.go)
 //   - Building the PDPRequest with the right Toolbox identity
 //   - Caching positive decisions briefly to avoid hammering
-//     saas-starter when a plugin loops over many resources
+//     the host when a plugin loops over many resources
 //   - Mapping policy denies into a clear (false, reason) shape
 //
 // **Plugin authors:** read PLUGIN_AUTHORS.md. The short version
@@ -124,7 +124,7 @@ type Authorizer interface {
 	// Distinct (false, reason, nil) vs (false, "", err) semantics
 	// matter: a clean policy deny is the model's responsibility to
 	// handle (retry differently, ask for help). A backend error is
-	// an operational issue (saas-starter unreachable) — the model
+	// an operational issue (the host unreachable) — the model
 	// can't recover by retrying with different args.
 	Authorized(ctx context.Context, action, resource string) (allowed bool, reason string, err error)
 }

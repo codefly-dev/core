@@ -292,7 +292,7 @@ metadata:
   name: example-service-config
   namespace: codefly-test
 data:
-  MODULE_PRINCIPALS: '{"documents":{"queues":["datasource"],"tenant":"acme"}}'
+  NESTED_SETTINGS: '{"documents":{"queues":["intake"],"tenant":"acme"}}'
 `
 	assertContractResult(t, "nested JSON config value", jsonConfig, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
 	// A restricted render has to be able to carry a value a producer declared as

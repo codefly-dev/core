@@ -45,7 +45,7 @@ type PDPMetrics struct {
 	// in load tests.
 	CacheHitsTotal atomic.Int64
 
-	// FailClosedTotal — PDP couldn't reach saas-starter (or other
+	// FailClosedTotal — PDP couldn't reach the host (or other
 	// backend failure) and defaulted to deny. Critical reliability
 	// signal: spikes here mean the auth backend is unreachable.
 	FailClosedTotal atomic.Int64

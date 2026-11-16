@@ -37,7 +37,7 @@ const PrincipalMetadataKey = "x-codefly-principal"
 //
 //   - Header well-formed → decode, validate, stamp ctx. The
 //     decoded Principal carries the original token string so
-//     downstream PDP can re-verify against saas-starter when
+//     downstream PDP can re-verify against the host's permissions backend when
 //     making decisions.
 //
 // Credential signature verification remains the host/PDP's responsibility;

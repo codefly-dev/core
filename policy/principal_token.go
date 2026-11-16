@@ -16,7 +16,7 @@ import (
 // real JWT yet:
 //
 //  1. JWT minting requires an asymmetric signing key plumbed from
-//     saas-starter to codefly host. Production wiring will use it
+//     the host to codefly host. Production wiring will use it
 //     (RS256 with JWKS already exposed); but plumbing the signer is
 //     M3-side work that the M3 SaasPDP requires anyway.
 //  2. Tests need to construct tokens cheaply. Plain JSON-base64 is
@@ -118,7 +118,7 @@ func EncodePrincipalToken(p *Principal) (string, error) {
 //
 // Does NOT verify a signature — see the comment at the top of this
 // file. The SaasPDP (M3) is responsible for re-validating against
-// saas-starter for any decision-making.
+// the host for any decision-making.
 func DecodePrincipalToken(s string) (*Principal, error) {
 	if s == "" {
 		return nil, fmt.Errorf("decode principal token: empty")

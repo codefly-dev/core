@@ -31,7 +31,7 @@ import (
 // **Where the pieces live:**
 //   - EscalationRequest / EscalationDecision / EscalationResult:
 //     the wire types between agent SDK and grantor
-//   - EscalationGrantor: the interface mind/saas-starter implements
+//   - EscalationGrantor: the interface the host implements
 //     (concrete RPC client lives outside core)
 //   - RequestEscalation: the SDK helper plugin code calls
 //   - AuthorizedOrEscalate: the convenience wrapper that retries
@@ -39,7 +39,7 @@ import (
 //
 // **What runs where:**
 //
-//   plugin handler                   host (Mind/saas-starter)
+//   plugin handler                   host (the host)
 //   ─────────────                    ────────────────────────
 //   call PDP / Authorized            ────►  ApprovalRequired? mint id, persist
 //                                           notify grantor (Slack/email/UI)
@@ -85,7 +85,7 @@ type EscalationRequest struct {
 
 	// Grantor optionally targets a specific approver or role
 	// ("user:antoine", "team:engineering", "role:admin"). Empty
-	// means "the saas-starter default approver chain for this
+	// means "the host default approver chain for this
 	// (action, resource)" — typically anyone with the matching
 	// role assignment.
 	Grantor string
@@ -186,13 +186,13 @@ type EscalationResult struct {
 	// which grantor signed off.
 	Decider string
 
-	// GrantID is the saas-starter delegation_grants.id row that
+	// GrantID is the host delegation_grants.id row that
 	// recorded this decision. Lets auditors trace from a tool
 	// call back to the exact grant that allowed it.
 	GrantID string
 }
 
-// EscalationGrantor is the interface mind/saas-starter
+// EscalationGrantor is the interface the host
 // implements. Concrete implementations route the request through
 // their notification + approval pipeline (Slack, in-app inbox,
 // email, etc.) and return the grantor's verdict synchronously.
@@ -203,7 +203,7 @@ type EscalationResult struct {
 // implementation's concern.
 //
 // **Why core defines the interface but no implementation.** Core
-// has zero dependency on saas-starter (one-way arrow). Operators
+// has zero dependency on the host (one-way arrow). Operators
 // implementing this interface call their own RequestDelegation /
 // WaitForDelegation RPCs and translate to/from these types.
 type EscalationGrantor interface {

@@ -103,7 +103,7 @@ type PluginRegistration struct {
 	//     (the historical M3 shadow-rollout default).
 	//
 	// Production wiring: codefly host constructs a SaasPDP that
-	// calls saas-starter's Decide RPC, threads it here. Plugins
+	// calls the host's permissions backend, threads it here. Plugins
 	// don't construct PDPs themselves — the host owns policy.
 	//
 	// Identity attribution: the Guard reads the principal from the

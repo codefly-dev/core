@@ -602,13 +602,13 @@ func WithoutSandbox() LoadOption {
 // WithPrincipal binds an authority context (the Principal) to the
 // spawned plugin. Tool calls dispatched by the plugin go through the
 // PDP, which uses the Principal's identity to resolve role grants
-// in saas-starter and decide allow/deny.
+// in the host's permissions backend and decide allow/deny.
 //
 // **What this enables.** Without WithPrincipal, the plugin runs
 // "anonymously" — sandbox-confined but with no authority claim.
 // With WithPrincipal, the plugin's actions are attributed to the
 // Principal in audit logs and authorized against that Principal's
-// permissions in saas-starter. This is the load-bearing wire for
+// permissions in the host's permissions backend. This is the load-bearing wire for
 // the M3+ permission system.
 //
 // **What this is NOT.** It's not authentication of the codefly

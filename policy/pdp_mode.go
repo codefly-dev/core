@@ -10,7 +10,7 @@ import (
 //
 // Operators set CODEFLY_PDP_MODE before starting codefly host. The
 // chosen mode determines which PDP wrappers stack on the inner
-// (saas-starter-backed) PDP at startup, controlling how decisions
+// (the host-backed) PDP at startup, controlling how decisions
 // surface in production.
 //
 // **Why an env var rather than config file.** Mode flipping is an
@@ -22,7 +22,7 @@ type PDPMode string
 const (
 	// PDPModeOff disables permission enforcement entirely. NO Guard
 	// is wired around the toolbox; every CallTool passes through.
-	// Used for development, tests, and any deploy where saas-starter
+	// Used for development, tests, and any deploy where the host
 	// isn't available.
 	//
 	// **Production should NEVER run with mode=off.** Operators must
@@ -100,7 +100,7 @@ func ResolveRequireManifest() bool {
 //   - Inner is whatever the caller supplies (typically SaasPDP)
 //
 // **Why this composition.** Manifest ceiling SHOULD short-circuit
-// before the saas-starter round-trip, so it's the innermost wrapper
+// before the host round-trip, so it's the innermost wrapper
 // (closest to the request). Shadow wraps the OUTSIDE so it observes
 // the final composed decision (including ceiling-denies) and can
 // log+allow them all the same way.
