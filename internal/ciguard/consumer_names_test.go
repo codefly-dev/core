@@ -45,7 +45,6 @@ func mentionsAnyName(lowered []byte) bool {
 // consumerNameExceptions are paths this guard does not read: third-party
 // content, and this file, which has to spell the names it refuses.
 var consumerNameExceptions = []string{
-	".git/",
 	"vendor/",
 	"code/testdata/repos/",
 	"internal/ciguard/consumer_names_test.go",
@@ -68,6 +67,13 @@ func TestCoreNamesNoConsumer(t *testing.T) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
+		if entry.Name() == ".git" {
+			// A directory in a clone, a file in a worktree; either way git's.
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			relative += "/"
 		}
