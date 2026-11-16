@@ -39,7 +39,10 @@ func updateBufDependencies(ctx context.Context, runner processStarter) error {
 		if err == nil {
 			return nil
 		}
-		if attempt == depUpdateAttempts || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			return w.Wrapf(err, "buf dep update failed after %d attempt(s); stopped by the caller", attempt)
+		}
+		if attempt == depUpdateAttempts {
 			return w.Wrapf(err, "buf dep update failed after %d attempt(s)", attempt)
 		}
 		delay := depUpdateBackoff * time.Duration(attempt)

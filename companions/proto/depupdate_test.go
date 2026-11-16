@@ -71,7 +71,9 @@ func TestBufDependencyUpdateReportsAPersistentFailure(t *testing.T) {
 }
 
 // A caller that cancels while a retry is pending stops the retries at once
-// instead of waiting out the backoff.
+// instead of waiting out the backoff. Whether the cancel lands during the run
+// or during the wait, the outcome is the same: one run, and an error saying
+// the caller stopped it.
 func TestBufDependencyUpdateStopsWhenTheCallerCancels(t *testing.T) {
 	previous := depUpdateBackoff
 	depUpdateBackoff = time.Hour
