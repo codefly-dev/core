@@ -19,6 +19,9 @@ type scriptedProc struct {
 
 func (p *scriptedProc) Run(context.Context) error {
 	p.starter.runs++
+	if p.starter.onRun != nil {
+		p.starter.onRun()
+	}
 	if p.starter.runs <= p.starter.failures {
 		return errors.New("Failure: the server hosted at that remote is unavailable.")
 	}
@@ -28,6 +31,7 @@ func (p *scriptedProc) Run(context.Context) error {
 type scriptedStarter struct {
 	failures, runs int
 	commands       [][]string
+	onRun          func()
 }
 
 func (s *scriptedStarter) NewProcess(bin string, args ...string) (base.Proc, error) {
@@ -61,16 +65,28 @@ func TestBufDependencyUpdateReportsAPersistentFailure(t *testing.T) {
 	withoutBackoff(t)
 	starter := &scriptedStarter{failures: depUpdateAttempts}
 	err := updateBufDependencies(t.Context(), starter)
-	require.ErrorContains(t, err, "cannot update buf")
+	require.ErrorContains(t, err, "failed after 3 attempt(s)")
 	require.ErrorContains(t, err, "remote is unavailable")
 	require.Equal(t, depUpdateAttempts, starter.runs)
 }
 
-// A cancelled caller stops the retries instead of waiting out the backoff.
+// A caller that cancels while a retry is pending stops the retries at once
+// instead of waiting out the backoff.
 func TestBufDependencyUpdateStopsWhenTheCallerCancels(t *testing.T) {
+	previous := depUpdateBackoff
+	depUpdateBackoff = time.Hour
+	t.Cleanup(func() { depUpdateBackoff = previous })
 	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
+	defer cancel()
 	starter := &scriptedStarter{failures: depUpdateAttempts}
-	require.ErrorContains(t, updateBufDependencies(ctx, starter), "cannot update buf")
-	require.Equal(t, 1, starter.runs)
+	starter.onRun = func() { time.AfterFunc(10*time.Millisecond, cancel) }
+	done := make(chan error, 1)
+	go func() { done <- updateBufDependencies(ctx, starter) }()
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, "stopped by the caller")
+		require.Equal(t, 1, starter.runs)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the retry waited out its backoff after the caller cancelled")
+	}
 }

@@ -184,7 +184,7 @@ func (g *Buf) Generate(ctx context.Context) error {
 	}
 
 	if err := updateBufDependencies(ctx, runner); err != nil {
-		return w.Wrapf(err, "cannot update buf dependencies")
+		return w.Wrapf(err, "cannot update buf")
 	}
 
 	proc, err := runner.NewProcess("buf", "generate")

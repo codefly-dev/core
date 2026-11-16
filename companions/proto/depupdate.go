@@ -40,14 +40,14 @@ func updateBufDependencies(ctx context.Context, runner processStarter) error {
 			return nil
 		}
 		if attempt == depUpdateAttempts || ctx.Err() != nil {
-			return w.Wrapf(err, "cannot update buf")
+			return w.Wrapf(err, "buf dep update failed after %d attempt(s)", attempt)
 		}
 		delay := depUpdateBackoff * time.Duration(attempt)
 		w.Warn("buf dep update failed; retrying",
 			wool.ErrField(err), wool.Field("attempt", attempt), wool.Field("retry_in", delay.String()))
 		select {
 		case <-ctx.Done():
-			return w.Wrapf(err, "cannot update buf")
+			return w.Wrapf(err, "buf dep update failed after %d attempt(s); stopped by the caller", attempt)
 		case <-time.After(delay):
 		}
 	}
