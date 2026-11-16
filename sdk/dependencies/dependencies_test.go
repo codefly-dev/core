@@ -620,3 +620,29 @@ func TestServiceAndDirectoryCannotBothAnchorASession(t *testing.T) {
 		t.Fatalf("WithDependencies() error = %v, want the conflicting-anchor rejection", err)
 	}
 }
+
+func TestExcludedWorkspaceConfigurationsReachTheCommandLine(t *testing.T) {
+	option := &Option{}
+	WithExcludedDependencies("documents/docx")(option)
+	WithExcludedWorkspaceConfigurations("document-formats")(option)
+	WithExcludedWorkspaceConfigurations("mail")(option)
+	args := dependencyCommandArguments(option, "")
+	flag := slices.Index(args, "--exclude-workspace-configuration")
+	if flag == -1 || flag+1 >= len(args) || args[flag+1] != "document-formats,mail" {
+		t.Fatalf("arguments = %v, want --exclude-workspace-configuration document-formats,mail", args)
+	}
+	if slices.Contains(dependencyCommandArguments(&Option{}, ""), "--exclude-workspace-configuration") {
+		t.Fatal("a stack excluding no configuration names the flag")
+	}
+}
+
+func TestNamedPortsLeaveTemporaryPortsOut(t *testing.T) {
+	if !slices.Contains(dependencyCommandArguments(&Option{}, ""), "--temporary-ports") {
+		t.Fatal("a dependency stack asks for temporary ports unless told otherwise")
+	}
+	option := &Option{}
+	WithNamedPorts()(option)
+	if slices.Contains(dependencyCommandArguments(option, ""), "--temporary-ports") {
+		t.Fatal("a stack on named ports still asks for temporary ones")
+	}
+}

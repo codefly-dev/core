@@ -87,14 +87,22 @@ type Dependencies struct {
 }
 
 type Option struct {
-	Debug                    bool
-	Timeout                  time.Duration
-	CodeflyBinary            string
-	NamingScope              string
-	Fixture                  string
-	RunProfile               string
-	Silents                  []string
-	ExcludedDependencies     []string
+	Debug                bool
+	Timeout              time.Duration
+	CodeflyBinary        string
+	NamingScope          string
+	Fixture              string
+	RunProfile           string
+	Silents              []string
+	ExcludedDependencies []string
+	// ExcludedWorkspaceConfigurations are workspace configuration groups the
+	// run leaves out, with the producers their values name.
+	ExcludedWorkspaceConfigurations []string
+	// NamedPorts keeps the ports the naming scope names instead of asking
+	// the operating system for ephemeral ones.
+	NamedPorts bool
+	// Prepare runs before the dependency process is started or attached to.
+	Prepare                  []func(ctx context.Context, dir, namingScope string) error
 	WorkspaceConfigurations  []resources.WorkspaceConfigurationOverride
 	ServiceConfigurations    []resources.ServiceConfigurationOverride
 	DependencyHome           string
@@ -162,6 +170,42 @@ func WithSilence(uniques ...string) OptionFunc {
 func WithExcludedDependencies(uniques ...string) OptionFunc {
 	return func(o *Option) {
 		o.ExcludedDependencies = append(o.ExcludedDependencies, uniques...)
+	}
+}
+
+// WithExcludedWorkspaceConfigurations leaves workspace configuration groups
+// out of the run, with the producers their values name: the CLI's
+// --exclude-workspace-configuration, for a dependency stack that excludes a
+// producer a group refers to (WithExcludedDependencies) in a workspace that
+// declares no run profile for it.
+func WithExcludedWorkspaceConfigurations(names ...string) OptionFunc {
+	return func(o *Option) {
+		o.ExcludedWorkspaceConfigurations = append(o.ExcludedWorkspaceConfigurations, names...)
+	}
+}
+
+// WithPrepare runs prepare before the dependency process starts, told the
+// directory the session is anchored in and the naming scope it runs under,
+// which is the session's own and so is known to nobody before the session
+// exists. It is for what a composition generates per naming scope before a
+// run (a file of addresses the scope names): the caller generates it for
+// exactly the scope the run then uses. A prepare that fails stops the start.
+func WithPrepare(prepare func(ctx context.Context, dir, namingScope string) error) OptionFunc {
+	return func(o *Option) {
+		o.Prepare = append(o.Prepare, prepare)
+	}
+}
+
+// WithNamedPorts keeps the ports the session's naming scope names, as a plain
+// `codefly run` does, instead of OS-probed ephemeral ones. A composition
+// whose workspace configurations refer to each other's endpoints in a cycle
+// (a hop naming its upstreams, an upstream naming the hop) can only start
+// this way: an ephemeral port is known once its service initializes, so
+// neither side of the cycle can be told the other's address first. Each
+// session's scope is its own, so two sessions still never share a port name.
+func WithNamedPorts() OptionFunc {
+	return func(o *Option) {
+		o.NamedPorts = true
 	}
 }
 
@@ -358,6 +402,11 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	defer unlockSetup()
 	args := dependencyCommandArguments(opt, channel.scope)
+	for _, prepare := range opt.Prepare {
+		if err := prepare(ctx, dir, channel.scope); err != nil {
+			return nil, fmt.Errorf("prepare the dependency run: %w", err)
+		}
+	}
 
 	if opt.KeepRunning {
 		if deps, err := attachDependencies(ctx, channel, dir, identity, opt, unlockSetup); err == nil {
@@ -729,6 +778,9 @@ func dependencyCommandArguments(opt *Option, scope string) []string {
 	if len(opt.ExcludedDependencies) > 0 {
 		args = append(args, "--exclude-dependency", strings.Join(opt.ExcludedDependencies, ","))
 	}
+	if len(opt.ExcludedWorkspaceConfigurations) > 0 {
+		args = append(args, "--exclude-workspace-configuration", strings.Join(opt.ExcludedWorkspaceConfigurations, ","))
+	}
 
 	// Test-owned dependency stacks run in independent package processes, so
 	// their in-memory RuntimeManagers cannot coordinate deterministic named
@@ -738,7 +790,10 @@ func dependencyCommandArguments(opt *Option, scope string) []string {
 	// --headless prevents the CLI from trying to open /dev/tty for
 	// interactive context selection. Always needed when running as a
 	// subprocess (go test, CI, MCP, pipes).
-	args = append(args, "--temporary-ports", "--exclude-root", "--cli-server", "--headless")
+	if !opt.NamedPorts {
+		args = append(args, "--temporary-ports")
+	}
+	args = append(args, "--exclude-root", "--cli-server", "--headless")
 	return args
 }
 
