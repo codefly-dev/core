@@ -48,11 +48,6 @@ var consumerNameExceptions = []string{
 	"vendor/",
 	"code/testdata/repos/",
 	"internal/ciguard/consumer_names_test.go",
-	// STOPGAP until the K1 move merges (branch obin-cleanup-k1 deletes these
-	// paths from core); drop the three entries in that merge.
-	"solutionhost/",
-	"workloadidentity/",
-	"docs/module-manifest.md",
 }
 
 func TestCoreNamesNoConsumer(t *testing.T) {
