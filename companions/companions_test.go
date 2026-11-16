@@ -11,6 +11,7 @@ import (
 
 	"github.com/Masterminds/semver"
 	"github.com/codefly-dev/core/companions"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -35,10 +36,12 @@ func manifestVersion(t *testing.T, dir string) string {
 	return v.String()
 }
 
-func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
+// In a test binary with no registered index, the images are the recipes of
+// this checkout: the tags track their manifests.
+func TestImagesTrackTheRecipesInATestBinary(t *testing.T) {
 	ctx := context.Background()
 
-	images, err := companions.Embedded(ctx)
+	images, err := companions.Images(ctx)
 	require.NoError(t, err)
 
 	// Directory holding the info.codefly.yaml that owns each image tag. The
@@ -47,15 +50,34 @@ func TestEmbeddedDerivesEveryTagFromManifest(t *testing.T) {
 
 	got := map[string]string{}
 	for _, img := range images {
-		require.Containsf(t, dirs, img.Name, "unexpected embedded image %s", img.FullName())
+		require.Containsf(t, dirs, img.Name, "unexpected image %s", img.FullName())
 		require.Equalf(t, resources.ImageRegistry, img.Repository,
-			"embedded image %s must be addressed through the canonical registry", img.Name)
+			"image %s must be addressed through the canonical registry", img.Name)
 		require.Equalf(t, manifestVersion(t, img.Name), img.Tag,
-			"embedded tag for %s must match %s/info.codefly.yaml", img.Name, img.Name)
+			"tag for %s must match %s/info.codefly.yaml", img.Name, img.Name)
 		got[img.Name] = img.Tag
 	}
 
 	require.Len(t, got, len(dirs), "every companion image must be enumerated")
+}
+
+// The caller's index decides every tag: core compiles none in.
+func TestTheRegisteredIndexDecidesEveryTag(t *testing.T) {
+	index := companionindex.Index{"proto": "9.0.1", "go": "9.0.2", "python": "9.0.3", "node": "9.0.4", "execution": "9.0.5", "codefly": "9.0.6"}
+	require.NoError(t, companionindex.Register(index))
+	t.Cleanup(func() { require.NoError(t, companionindex.Register(nil)) })
+
+	images, err := companions.Images(context.Background())
+	require.NoError(t, err)
+	require.Len(t, images, len(index))
+	for _, img := range images {
+		require.Equalf(t, index[img.Name], img.Tag, "tag for %s", img.Name)
+	}
+	specs, err := companions.BuildSpecs()
+	require.NoError(t, err)
+	for _, spec := range specs {
+		require.Equalf(t, index[spec.Name], spec.Version, "build spec version for %s", spec.Name)
+	}
 }
 
 // The codefly companion is the only image staging a per-architecture binary;

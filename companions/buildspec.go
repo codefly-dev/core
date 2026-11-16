@@ -2,6 +2,7 @@ package companions
 
 import (
 	"fmt"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,7 +27,9 @@ type BuildSpec struct {
 	// Name is the companion's directory under companions/, and the image name
 	// the builder qualifies with its registry.
 	Name string
-	// Version is the image tag, read from the companion's info.codefly.yaml.
+	// Version is the image tag, the one the companion index names (a tool
+	// building from a core checkout registers that checkout's recipes,
+	// companionindex.FromRecipes).
 	Version string
 	// Dockerfile is the repository-root-relative POSIX path to the Dockerfile.
 	Dockerfile string
@@ -97,11 +100,11 @@ var specs = []BuildSpec{
 }
 
 // BuildSpecs returns the build spec for every companion image, each version
-// resolved from its info.codefly.yaml, in build order.
+// the companion index names, in build order.
 func BuildSpecs() ([]BuildSpec, error) {
 	out := make([]BuildSpec, 0, len(specs))
 	for _, spec := range specs {
-		version, err := manifestVersion(spec.Name)
+		version, err := companionindex.Version(spec.Name)
 		if err != nil {
 			return nil, fmt.Errorf("cannot derive <%s> companion version: %w", spec.Name, err)
 		}

@@ -17,6 +17,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"os"
 	"os/exec"
 	"strings"
@@ -114,6 +115,14 @@ func changedFiles(baseRef string) ([]string, error) {
 }
 
 func run(baseRef string) ([]string, error) {
+	// Run from the repository root: the versions are this checkout's recipes.
+	index, err := companionindex.FromRecipes(".")
+	if err != nil {
+		return nil, err
+	}
+	if err := companionindex.Register(index); err != nil {
+		return nil, err
+	}
 	specs, err := companions.BuildSpecs()
 	if err != nil {
 		return nil, err

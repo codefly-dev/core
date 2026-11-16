@@ -25,6 +25,23 @@ var consumerNames = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9])(` + strings.Join([]
 	"platform-obin", "platform-core", "saas-starter", "core-solutions", "infra-base", "lodestar",
 }, "|") + `)([^A-Za-z0-9]|$)`)
 
+// consumerNameList is consumerNames' alternatives, for a cheap pre-check.
+var consumerNameList = []string{
+	"obin", "robin", "wiki", "lastlogin", "workos", "authkit",
+	"platform-core", "saas-starter", "core-solutions", "infra-base", "lodestar",
+}
+
+// mentionsAnyName reports whether lowered contains any name as a substring,
+// so the line scan runs only on files that might match.
+func mentionsAnyName(lowered []byte) bool {
+	for _, name := range consumerNameList {
+		if bytes.Contains(lowered, []byte(name)) {
+			return true
+		}
+	}
+	return false
+}
+
 // consumerNameExceptions are paths this guard does not read: third-party
 // content, and this file, which has to spell the names it refuses.
 var consumerNameExceptions = []string{
@@ -71,6 +88,9 @@ func TestCoreNamesNoConsumer(t *testing.T) {
 		}
 		if bytes.IndexByte(data, 0) >= 0 {
 			return nil // binary
+		}
+		if !mentionsAnyName(bytes.ToLower(data)) {
+			return nil
 		}
 		scanner := bufio.NewScanner(bytes.NewReader(data))
 		scanner.Buffer(make([]byte, 0, 64*1024), len(data)+1)

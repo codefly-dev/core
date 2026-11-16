@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"io"
 	"log/slog"
 	"os"
@@ -971,6 +972,12 @@ func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDiges
 	if cfg.workDir != "" {
 		cmd.Dir = cfg.workDir
 		cmd.Env = append(cmd.Env, agents.WorkDirEnvironment+"="+cfg.workDir)
+	}
+	// The agent runs the companion images its caller chose: the registered
+	// index travels with it (an index the caller itself inherited is already
+	// in os.Environ).
+	if index := companionindex.Registered(); index != nil {
+		cmd.Env = append(cmd.Env, companionindex.Environment+"="+index.Environ())
 	}
 	if len(cfg.extraEnv) > 0 {
 		// Caller-supplied env wins over parent inheritance — exec
