@@ -439,7 +439,7 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 		return nil
 	}
 	for _, dir := range moduleDirs {
-		proc, err := r.Env().NewProcess("go", "mod", "download")
+		proc, err := r.newGoProcess(ctx, "mod", "download")
 		if err != nil {
 			return w.Wrapf(err, "cannot create go mod download process for %s", dir)
 		}
@@ -573,7 +573,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	args := append([]string{"build", "-n=false"}, r.buildFlags()...)
 	args = append(args, "-o", target)
 
-	proc, err := r.Env().NewProcess("go", args...)
+	proc, err := r.newGoProcess(ctx, args...)
 	if err != nil {
 		return w.Wrapf(err, "cannot create go build process")
 	}
