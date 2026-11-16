@@ -63,13 +63,6 @@ var specs = []BuildSpec{
 		CLIBinary:  "bin/linux/${TARGETARCH}/codefly",
 	},
 	{
-		Name:       "execution",
-		Dockerfile: "companions/execution/Dockerfile",
-		Context:    ".",
-		Platforms:  []string{"linux/amd64", "linux/arm64"},
-		CLIBinary:  "bin/linux/${TARGETARCH}/codefly",
-	},
-	{
 		Name:       "go",
 		Dockerfile: "companions/go/Dockerfile",
 		Context:    ".",

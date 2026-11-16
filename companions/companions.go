@@ -24,7 +24,6 @@ var derived = []struct {
 	name string
 }{
 	{dir: "node", name: "node"},
-	{dir: "execution", name: "execution"},
 	{dir: "codefly", name: "codefly"},
 }
 

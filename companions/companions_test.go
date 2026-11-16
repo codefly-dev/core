@@ -46,7 +46,7 @@ func TestImagesTrackTheRecipesInATestBinary(t *testing.T) {
 
 	// Directory holding the info.codefly.yaml that owns each image tag. The
 	// name is also the ghcr package name, so the two cannot drift.
-	dirs := []string{"proto", "go", "python", "node", "execution", "codefly"}
+	dirs := []string{"proto", "go", "python", "node", "codefly"}
 
 	got := map[string]string{}
 	for _, img := range images {
@@ -63,7 +63,7 @@ func TestImagesTrackTheRecipesInATestBinary(t *testing.T) {
 
 // The caller's index decides every tag: core compiles none in.
 func TestTheRegisteredIndexDecidesEveryTag(t *testing.T) {
-	index := companionindex.Index{"proto": "9.0.1", "go": "9.0.2", "python": "9.0.3", "node": "9.0.4", "execution": "9.0.5", "codefly": "9.0.6"}
+	index := companionindex.Index{"proto": "9.0.1", "go": "9.0.2", "python": "9.0.3", "node": "9.0.4", "codefly": "9.0.6"}
 	require.NoError(t, companionindex.Register(index))
 	t.Cleanup(func() { require.NoError(t, companionindex.Register(nil)) })
 

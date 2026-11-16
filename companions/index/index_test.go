@@ -50,7 +50,7 @@ func TestAnUnnamedCompanionIsAnError(t *testing.T) {
 func TestFromRecipesReadsThisCheckout(t *testing.T) {
 	index, err := companionindex.FromRecipes("../..")
 	require.NoError(t, err)
-	for _, name := range []string{"codefly", "execution", "go", "node", "proto", "python"} {
+	for _, name := range []string{"codefly", "go", "node", "proto", "python"} {
 		require.Containsf(t, index, name, "recipe %s", name)
 	}
 }
