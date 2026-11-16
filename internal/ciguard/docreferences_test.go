@@ -65,10 +65,10 @@ func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 	// which are therefore worth resolving. A package absent from here is not
 	// checked, so adding a doc for a new package means adding it.
 	packages := map[string]string{
-		"workcontext":  "workcontext",
-		"conformance":  filepath.Join("workcontext", "conformance"),
-		"readiness":    "readiness",
-		"network":      "network",
+		"workcontext": "workcontext",
+		"conformance": filepath.Join("workcontext", "conformance"),
+		"readiness":   "readiness",
+		"network":     "network",
 	}
 	exported := map[string]map[string]bool{}
 	for name, directory := range packages {
@@ -229,10 +229,10 @@ func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
 	root := repoRoot(t)
 
 	packages := map[string]string{
-		"workcontext":  "workcontext",
-		"conformance":  filepath.Join("workcontext", "conformance"),
-		"readiness":    "readiness",
-		"network":      "network",
+		"workcontext": "workcontext",
+		"conformance": filepath.Join("workcontext", "conformance"),
+		"readiness":   "readiness",
+		"network":     "network",
 	}
 	signatures := map[string]map[string]signatureOf{}
 	for name, directory := range packages {
