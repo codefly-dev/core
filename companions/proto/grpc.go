@@ -265,11 +265,8 @@ func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpD
 
 	var proc base.Proc
 	if depUpdate {
-		if proc, err = runner.NewProcess("buf", "dep", "update"); err != nil {
-			return w.Wrapf(err, "cannot create process")
-		}
-		if err = proc.Run(ctx); err != nil {
-			return w.Wrapf(err, "cannot update buf")
+		if err = updateBufDependencies(ctx, runner); err != nil {
+			return w.Wrapf(err, "cannot update buf dependencies")
 		}
 	}
 
