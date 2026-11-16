@@ -24,7 +24,7 @@ func extensionWorkspace(t *testing.T, extension, baseFile, base, ownFile, own st
 }
 
 func TestWorkspaceExtensionPreservesImportedKeysAndAppendsRoutes(t *testing.T) {
-	ws := extensionWorkspace(t, "configuration-extensions:\n  edge:\n    append: {MODULES: ','}\n", "edge.env", "MODULES=robin,tracing\nROBIN_REST=${endpoint:host/hop/http}\n", "edge.env", "MODULES=wiki\nWIKI_REST=${endpoint:wiki/backend/http}\n")
+	ws := extensionWorkspace(t, "configuration-extensions:\n  edge:\n    append: {MODULES: ','}\n", "edge.env", "MODULES=assistant,tracing\nASSISTANT_REST=${endpoint:host/hop/http}\n", "edge.env", "MODULES=notes\nNOTES_REST=${endpoint:notes/backend/http}\n")
 	provided, err := configurations.ReadWorkspaceConfigurations(t.Context(), ws, &resources.Environment{Name: "local"})
 	require.NoError(t, err)
 	require.Len(t, provided.Infos, 1)
@@ -32,7 +32,7 @@ func TestWorkspaceExtensionPreservesImportedKeysAndAppendsRoutes(t *testing.T) {
 	for _, v := range provided.Infos[0].ConfigurationValues {
 		values[v.Key] = v.Value
 	}
-	require.Equal(t, map[string]string{"MODULES": "robin,tracing,wiki", "ROBIN_REST": "${endpoint:host/hop/http}", "WIKI_REST": "${endpoint:wiki/backend/http}"}, values)
+	require.Equal(t, map[string]string{"MODULES": "assistant,tracing,notes", "ASSISTANT_REST": "${endpoint:host/hop/http}", "NOTES_REST": "${endpoint:notes/backend/http}"}, values)
 	require.Len(t, provided.Origins, 4, "both contributors to MODULES must remain visible")
 	require.Empty(t, provided.Decisions, "extension must not report whole-group replacement")
 	loader, err := configurations.NewConfigurationLocalReader(t.Context(), ws)
@@ -42,14 +42,14 @@ func TestWorkspaceExtensionPreservesImportedKeysAndAppendsRoutes(t *testing.T) {
 }
 
 func TestWorkspaceExtensionAssemblesFixtureGrantDocument(t *testing.T) {
-	ws := extensionWorkspace(t, "configuration-extensions:\n  fixture-grants: {}\n", "fixture-grants.yaml", "roles:\n  - name: Module viewer\n    permissions: [documents.read]\nassignments:\n  modules: [viewer]\n", "fixture-grants.yaml", "roles:\n  - name: Wiki viewer\n    permissions: [wiki.read]\nassignments:\n  wiki: [viewer]\ninstallations: [wiki]\n")
+	ws := extensionWorkspace(t, "configuration-extensions:\n  fixture-grants: {}\n", "fixture-grants.yaml", "roles:\n  - name: Module viewer\n    permissions: [documents.read]\nassignments:\n  modules: [viewer]\n", "fixture-grants.yaml", "roles:\n  - name: Notes viewer\n    permissions: [notes.read]\nassignments:\n  notes: [viewer]\ninstallations: [notes]\n")
 	provided, err := configurations.ReadWorkspaceConfigurations(t.Context(), ws, &resources.Environment{Name: "local"})
 	require.NoError(t, err)
 	var document map[string]any
 	require.NoError(t, yaml.Unmarshal(provided.Infos[0].Data.Content, &document))
 	require.Len(t, document["roles"], 2)
-	require.Equal(t, map[string]any{"modules": []any{"viewer"}, "wiki": []any{"viewer"}}, document["assignments"])
-	require.Equal(t, []any{"wiki"}, document["installations"])
+	require.Equal(t, map[string]any{"modules": []any{"viewer"}, "notes": []any{"viewer"}}, document["assignments"])
+	require.Equal(t, []any{"notes"}, document["installations"])
 	require.Len(t, provided.Origins, 2)
 	require.Equal(t, "../core/configurations/local/fixture-grants.yaml", provided.Origins[0].File)
 }
@@ -60,10 +60,10 @@ func TestWorkspaceExtensionRefusesConflictsByName(t *testing.T) {
 		{"equal collision", "{}", "edge.env", "UPSTREAM=same\n", "edge.env", "UPSTREAM=same\n", "key UPSTREAM"},
 		{"normalized collision", "{}", "edge.env", "upstream-url=base\n", "edge.env", "UPSTREAM_URL=own\n", "key UPSTREAM_URL"},
 		{"duplicate key", "{}", "edge.env", "A=x\nA=y\n", "edge.env", "B=z\n", "edge/A"},
-		{"append duplicate", "{append: {MODULES: ','}}", "edge.env", "MODULES=wiki\n", "edge.env", "MODULES=wiki\n", "key MODULES"},
-		{"append typo", "{append: {MODULS: ','}}", "edge.env", "MODULES=core\n", "edge.env", "MODULES=wiki\n", "key MODULS"},
-		{"append secret", "{append: {MODULES: ','}}", "edge.secret.env", "MODULES=secret\n", "edge.env", "MODULES=wiki\n", "supplied plaintext"},
-		{"document collision", "{}", "edge.yaml", "routes: {wiki: base}\n", "edge.yaml", "routes: {wiki: own}\n", "key $.routes.wiki"},
+		{"append duplicate", "{append: {MODULES: ','}}", "edge.env", "MODULES=notes\n", "edge.env", "MODULES=notes\n", "key MODULES"},
+		{"append typo", "{append: {MODULS: ','}}", "edge.env", "MODULES=core\n", "edge.env", "MODULES=notes\n", "key MODULS"},
+		{"append secret", "{append: {MODULES: ','}}", "edge.secret.env", "MODULES=secret\n", "edge.env", "MODULES=notes\n", "supplied plaintext"},
+		{"document collision", "{}", "edge.yaml", "routes: {notes: base}\n", "edge.yaml", "routes: {notes: own}\n", "key $.routes.notes"},
 		{"document type", "{}", "edge.yaml", "roles: []\n", "edge.yaml", "roles: scalar\n", "key $.roles"},
 		{"duplicate yaml", "{}", "edge.yaml", "roles: []\nroles: []\n", "edge.yaml", "other: []\n", "key $.roles"},
 		{"yaml alias", "{}", "edge.yaml", "roles: &roles []\ncopy: *roles\n", "edge.yaml", "other: []\n", "YAML aliases"},
@@ -81,7 +81,7 @@ func TestWorkspaceExtensionRefusesConflictsByName(t *testing.T) {
 }
 
 func TestWorkspaceExtensionKeepsRequirementsAndComposesTransitively(t *testing.T) {
-	ws := extensionWorkspace(t, "configuration-extensions:\n  edge: {}\n", "edge.env", "REQUIRED=${profile}\n", "edge.env", "WIKI=own\n")
+	ws := extensionWorkspace(t, "configuration-extensions:\n  edge: {}\n", "edge.env", "REQUIRED=${profile}\n", "edge.env", "NOTES=own\n")
 	provided, err := configurations.ReadWorkspaceConfigurations(t.Context(), ws, &resources.Environment{Name: "local"})
 	require.NoError(t, err)
 	require.Len(t, provided.Unsupplied, 1)
@@ -99,7 +99,7 @@ func TestWorkspaceExtensionKeepsRequirementsAndComposesTransitively(t *testing.T
 }
 
 func TestWorkspaceExtensionProfilesAndSiblingAmbiguity(t *testing.T) {
-	ws := extensionWorkspace(t, "configuration-extensions:\n  edge: {append: {MODULES: ','}}\n", "edge.env", "MODULES=core\n", "edge.env", "MODULES=wiki\n")
+	ws := extensionWorkspace(t, "configuration-extensions:\n  edge: {append: {MODULES: ','}}\n", "edge.env", "MODULES=core\n", "edge.env", "MODULES=notes\n")
 	root := filepath.Dir(ws.Dir())
 	writeConfigurationFile(t, root, "core/configurations/base/edge.env", "MODULES=old\n")
 	writeConfigurationFile(t, root, "core/configurations/local/profile.codefly.yaml", "derives-from: base\n")

@@ -116,9 +116,9 @@ func byFile(t *testing.T, r report) map[string]finding {
 //
 // This is the defect the gate exists to avoid repeating: codefly-dev/core#891's
 // table reports nine repositories at five versions because it read one go.mod
-// per repository. The obin-ai modules pin core in
+// per repository. The acme modules pin core in
 // modules/<name>/services/<svc>/code/go.mod and nowhere near the root, and
-// obin-ai/module-robin spans v0.5.11 to v0.19.11 across eleven of them.
+// acme/module-assistant spans v0.5.11 to v0.19.11 across eleven of them.
 func TestEveryNestedGoModIsJudged(t *testing.T) {
 	result := check(t, "fleet", at)
 
@@ -629,8 +629,8 @@ func TestTheStepSummaryCarriesTheNumbers(t *testing.T) {
 // A pin to a commit that is not an ancestor of core's default branch fails,
 // and it fails BEFORE the merge that would destroy it.
 //
-// This is obin-ai/module-robin's 2026-11-04 outage, caught one step earlier.
-// robin#659 squash-merged and deleted the branch holding a commit its own
+// This is acme/module-assistant's 2026-11-04 outage, caught one step earlier.
+// assistant#659 squash-merged and deleted the branch holding a commit its own
 // go.mod pinned, and `go mod download` then failed repository-wide with
 // "unknown revision". The pin had passed its gate on a reference that merging
 // destroyed. A commit sitting on an unmerged branch is that reference, and
@@ -696,7 +696,7 @@ func TestAPseudoVersionOnTheDefaultBranchIsNotFlagged(t *testing.T) {
 // plus the two it can refuse with.
 //
 // The post-merge state -- a commit the repository no longer has at all, which
-// is where module-robin ended up -- is covered here rather than end to end:
+// is where module-assistant ended up -- is covered here rather than end to end:
 // reproducing it needs a pseudo-version that resolves on the proxy while its
 // commit is gone from core, and no such commit exists in core today to record.
 // The 404-to-`missing` mapping is the whole of what that state needs.

@@ -20,11 +20,11 @@ func TestNormalizeRepo(t *testing.T) {
 }
 
 func TestParseWorktreeCoordinate(t *testing.T) {
-	repo, ref, err := parseWorktreeCoordinate("obin-ai/module-document-store@main")
+	repo, ref, err := parseWorktreeCoordinate("acme/module-document-store@main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if repo != "obin-ai/module-document-store" || ref != "main" {
+	if repo != "acme/module-document-store" || ref != "main" {
 		t.Fatalf("got (%q, %q)", repo, ref)
 	}
 	for _, bad := range []string{"", "no-at-sign", "@main", "repo@"} {

@@ -15,7 +15,7 @@ func TestConsumedAPIsRoundTrip(t *testing.T) {
 	consumed := m.ConsumedAPIs()
 	require.Equal(t, []manifest.ConsumedAPI{{
 		ID:       "accounts",
-		Module:   "saas-starter",
+		Module:   "app-starter",
 		Service:  "accounts",
 		Endpoint: "connect",
 		Protocol: "connect",
@@ -32,8 +32,8 @@ func TestConsumedAPIsRoundTrip(t *testing.T) {
 
 func TestConsumedAPIsCanonicalOrder(t *testing.T) {
 	reordered := strings.Replace(validManifest,
-		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts",
-		"  consumes:\n    - id: billing\n      protocol: grpc\n      module: saas-starter\n      service: billing\n      endpoint: grpc\n      as: billing\n    - id: accounts\n      protocol: connect\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      as: accounts", 1)
+		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: app-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts",
+		"  consumes:\n    - id: billing\n      protocol: grpc\n      module: app-starter\n      service: billing\n      endpoint: grpc\n      as: billing\n    - id: accounts\n      protocol: connect\n      module: app-starter\n      service: accounts\n      endpoint: connect\n      as: accounts", 1)
 	require.NotEqual(t, validManifest, reordered)
 
 	m, err := manifest.Load([]byte(reordered))
@@ -41,16 +41,16 @@ func TestConsumedAPIsCanonicalOrder(t *testing.T) {
 
 	value := m.ConsumedAPIsEnvValue()
 	require.Equal(t,
-		`[{"id":"accounts","module":"saas-starter","service":"accounts","endpoint":"connect","protocol":"connect","as":"accounts"},`+
-			`{"id":"billing","module":"saas-starter","service":"billing","endpoint":"grpc","protocol":"grpc","as":"billing"}]`,
+		`[{"id":"accounts","module":"app-starter","service":"accounts","endpoint":"connect","protocol":"connect","as":"accounts"},`+
+			`{"id":"billing","module":"app-starter","service":"billing","endpoint":"grpc","protocol":"grpc","as":"billing"}]`,
 		value)
 }
 
 func TestConsumedAPIsEmptyWhenNoneDeclared(t *testing.T) {
 	withoutConsumes := strings.Replace(validManifest,
-		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts\n",
+		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: app-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts\n",
 		"", 1)
-	require.NotContains(t, withoutConsumes, "saas-starter")
+	require.NotContains(t, withoutConsumes, "app-starter")
 
 	m, err := manifest.Load([]byte(withoutConsumes))
 	require.NoError(t, err)
@@ -78,9 +78,9 @@ func TestConsumedAPIsSkipsUnboundEntries(t *testing.T) {
 
 func TestConsumedAPIsAllUnboundYieldsNil(t *testing.T) {
 	allUnbound := strings.Replace(validManifest,
-		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts\n",
+		"  consumes:\n    - id: accounts\n      protocol: connect\n      module: app-starter\n      service: accounts\n      endpoint: connect\n      version: \">=0.1.0 <0.2.0\"\n      services: [AuditService, DatasourceService]\n      as: accounts\n",
 		"  consumes:\n    - id: accounts\n      protocol: connect\n", 1)
-	require.NotContains(t, allUnbound, "saas-starter")
+	require.NotContains(t, allUnbound, "app-starter")
 
 	m, err := manifest.Load([]byte(allUnbound))
 	require.NoError(t, err)

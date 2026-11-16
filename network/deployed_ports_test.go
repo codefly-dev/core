@@ -39,7 +39,7 @@ func TestDeployedEndpointPortsGolden(t *testing.T) {
 		"rest":      8080,
 	}, ports)
 
-	ports, err = network.DeployedEndpointPorts(ctx, "saas-starter", "accounts", endpoints("saas-starter"))
+	ports, err = network.DeployedEndpointPorts(ctx, "app-starter", "accounts", endpoints("app-starter"))
 	require.NoError(t, err)
 	require.Equal(t, uint16(6003), ports["authority"])
 	require.Equal(t, uint16(9090), ports["grpc"])

@@ -1,5 +1,5 @@
 kind: service
-name: wiki-api
+name: notes-api
 version: 0.0.0
 agent:
   kind: runtime::service

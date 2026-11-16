@@ -20,7 +20,7 @@ func compositionFile(t *testing.T, root, relative, content string) {
 
 func TestWorkspaceCompositionOwnsPinsAndPreservesProductDeclaration(t *testing.T) {
 	root := t.TempDir()
-	compositionFile(t, root, "core/workspace.codefly.yaml", `name: platform-core
+	compositionFile(t, root, "core/workspace.codefly.yaml", `name: platform-base
 layout: modules
 modules:
   - name: accounts
@@ -31,19 +31,19 @@ environments:
   - name: local
 `)
 	compositionFile(t, root, "core/modules/documents/module.codefly.yaml", "kind: module\nname: documents\nservices: []\n")
-	compositionFile(t, root, "product/workspace.codefly.yaml", `name: platform-obin
+	compositionFile(t, root, "product/workspace.codefly.yaml", `name: platform-acme
 layout: modules
 workspaces:
-  - name: platform-core
+  - name: platform-base
     path: ../core
 solutions:
-  - name: wiki
+  - name: notes
     source: team/solutions
-    module: solutions/wiki
+    module: solutions/notes
     version: 2.0.0
-  - name: lastlogin-go
+  - name: greeter-go
     source: team/solutions
-    module: solutions/lastlogin-go
+    module: solutions/greeter-go
     version: 2.0.0
 environments:
   - name: staging
@@ -51,10 +51,10 @@ environments:
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "product"))
 	require.NoError(t, err)
-	require.Equal(t, []string{"accounts", "documents", "wiki", "lastlogin-go"}, workspace.ModulesNames())
+	require.Equal(t, []string{"accounts", "documents", "notes", "greeter-go"}, workspace.ModulesNames())
 	require.Equal(t, "1.2.3", workspace.Modules[0].Version)
 	require.Equal(t, filepath.Join(root, "core"), workspace.ModuleDeclarationDir("accounts"))
-	require.Equal(t, filepath.Join(root, "product"), workspace.ModuleDeclarationDir("wiki"))
+	require.Equal(t, filepath.Join(root, "product"), workspace.ModuleDeclarationDir("notes"))
 	require.Len(t, workspace.Environments, 1)
 	require.Equal(t, "staging", workspace.Environments[0].Name)
 	documents, err := workspace.LoadModuleFromName(ctx, "documents")
@@ -78,12 +78,12 @@ func TestWorkspaceCompositionRejectsCyclesAndRepinning(t *testing.T) {
 	for _, test := range []struct{ name, child, parent, want string }{
 		{"cycle", "workspaces:\n  - name: product\n    path: ../product\n", "", "cycle"},
 		{"duplicate", "modules:\n  - name: shared\n", "modules:\n  - name: shared\n", "conflicts"},
-		{"solution collision", "modules:\n  - name: wiki\n", "solutions:\n  - name: wiki\n", "conflicts"},
+		{"solution collision", "modules:\n  - name: notes\n", "solutions:\n  - name: notes\n", "conflicts"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\n"+test.child)
-			compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\n"+test.parent)
+			compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\n"+test.child)
+			compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\n"+test.parent)
 			_, err := resources.LoadWorkspaceFromDir(context.Background(), filepath.Join(root, "product"))
 			require.ErrorContains(t, err, test.want)
 		})
@@ -92,7 +92,7 @@ func TestWorkspaceCompositionRejectsCyclesAndRepinning(t *testing.T) {
 
 func TestWorkspaceCompositionCannotSilentlyIgnoreUnresolvedRelease(t *testing.T) {
 	root := t.TempDir()
-	compositionFile(t, root, "workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    source: team/platform-core\n    version: 1.0.0\n")
+	compositionFile(t, root, "workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    source: team/platform-base\n    version: 1.0.0\n")
 	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
 	require.ErrorContains(t, err, "requires host resolution")
 }

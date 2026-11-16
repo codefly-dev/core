@@ -25,7 +25,7 @@ func TestCLIServerPort_DifferentWorkspacesDifferentPorts(t *testing.T) {
 		"mind-server",
 		"codefly-agents",
 		"demo-project",
-		"saas-starter",
+		"app-starter",
 		"bench-runner",
 	}
 	seen := make(map[uint16]string)

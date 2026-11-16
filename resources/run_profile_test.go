@@ -209,7 +209,7 @@ func TestRunProfileReferencesAreCheckedAtResolveNotLoad(t *testing.T) {
 func TestRunProfileDoesNotMakeAPinnedCompositionUnloadable(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: wiki\n    source: acme/core-solutions\n    version: \"0a18964f\"\nrun-profiles:\n  local:\n    exclude-dependencies: [documents/docx]\n    exclude-workspace-configurations: [document-formats]\n")
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: notes\n    source: acme/solution-kit\n    version: \"0a18964f\"\nrun-profiles:\n  local:\n    exclude-dependencies: [documents/docx]\n    exclude-workspace-configurations: [document-formats]\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)

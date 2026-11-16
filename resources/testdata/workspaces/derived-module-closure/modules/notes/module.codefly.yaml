@@ -1,0 +1,4 @@
+kind: module
+name: notes
+services:
+    - name: notes-api

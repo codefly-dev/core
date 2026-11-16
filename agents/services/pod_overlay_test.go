@@ -631,20 +631,20 @@ func TestAddKustomizeResourceIsIdempotent(t *testing.T) {
 // webhook by declaring it.
 func TestProjectServiceAccountRendersDeclaredAttachment(t *testing.T) {
 	dir := renderedWorkloadTree(t)
-	err := ProjectServiceAccount(context.Background(), dir, "lodestar", "store", declaredPodOverlay())
+	err := ProjectServiceAccount(context.Background(), dir, "beacon", "store", declaredPodOverlay())
 	require.NoError(t, err)
 
 	serviceAccount, err := os.ReadFile(filepath.Join(dir, "serviceaccount.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(serviceAccount), "name: store")
-	require.Contains(t, string(serviceAccount), "namespace: lodestar")
-	require.Contains(t, string(serviceAccount), "iam.gke.io/gcp-service-account: platform-db@obinh-usc1.iam.gserviceaccount.com")
+	require.Contains(t, string(serviceAccount), "namespace: beacon")
+	require.Contains(t, string(serviceAccount), "iam.gke.io/gcp-service-account: platform-db@acme-usc1.iam.gserviceaccount.com")
 	require.Contains(t, string(serviceAccount), "app.kubernetes.io/managed-by: codefly")
 
 	rendered, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(rendered), "serviceAccountName: store")
-	require.Contains(t, string(rendered), `obin.ai/workload-identity: "true"`)
+	require.Contains(t, string(rendered), `acme.dev/workload-identity: "true"`)
 	require.Contains(t, string(rendered), "image: example/store")
 
 	// The ServiceAccount is wired into the kustomization of the directory it was
@@ -663,7 +663,7 @@ func TestProjectServiceAccountRefusesWhenNothingBound(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "service.yaml"), []byte("apiVersion: v1\nkind: Service\nmetadata:\n  name: store\n"), 0o644))
 
-	err := ProjectServiceAccount(context.Background(), dir, "lodestar", "store", declaredPodOverlay())
+	err := ProjectServiceAccount(context.Background(), dir, "beacon", "store", declaredPodOverlay())
 	require.ErrorContains(t, err, "bound no workload")
 }
 
@@ -674,7 +674,7 @@ func TestProjectServiceAccountWithoutIdentityIsNoOp(t *testing.T) {
 	before, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 	require.NoError(t, err)
 
-	require.NoError(t, ProjectServiceAccount(context.Background(), dir, "lodestar", "store", nil))
+	require.NoError(t, ProjectServiceAccount(context.Background(), dir, "beacon", "store", nil))
 
 	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 	require.NoError(t, err)
@@ -687,7 +687,7 @@ func TestProjectServiceAccountWithoutIdentityIsNoOp(t *testing.T) {
 // never reference.
 func TestProjectServiceAccountRequiresAName(t *testing.T) {
 	dir := renderedWorkloadTree(t)
-	err := ProjectServiceAccount(context.Background(), dir, "lodestar", "", declaredPodOverlay())
+	err := ProjectServiceAccount(context.Background(), dir, "beacon", "", declaredPodOverlay())
 	require.ErrorContains(t, err, "requires a name")
 }
 
@@ -703,16 +703,16 @@ func TestProjectServiceAccountRejectsConflictsWithoutWriting(t *testing.T) {
 			case "service account":
 				data = []byte(strings.Replace(string(data), "      containers:", "      serviceAccountName: other\n      containers:", 1))
 			case "identity label":
-				data = []byte(strings.Replace(string(data), "        app: store", "        app: store\n        obin.ai/workload-identity: \"false\"", 1))
+				data = []byte(strings.Replace(string(data), "        app: store", "        app: store\n        acme.dev/workload-identity: \"false\"", 1))
 			case "unreferenced workload":
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
 			case "different namespace":
-				data = []byte(strings.Replace(string(data), "namespace: lodestar", "namespace: elsewhere", 1))
+				data = []byte(strings.Replace(string(data), "namespace: beacon", "namespace: elsewhere", 1))
 			}
 			require.NoError(t, os.WriteFile(path, data, 0o644))
 			kustomization, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
 			require.NoError(t, err)
-			require.Error(t, ProjectServiceAccount(t.Context(), dir, "lodestar", "store", identity))
+			require.Error(t, ProjectServiceAccount(t.Context(), dir, "beacon", "store", identity))
 			after, err := os.ReadFile(path)
 			require.NoError(t, err)
 			require.Equal(t, data, after)
@@ -731,13 +731,13 @@ func TestProjectServiceAccountPreservesExistingServiceAccount(t *testing.T) {
 kind: ServiceAccount
 metadata:
   name: store
-  namespace: lodestar
+  namespace: beacon
   annotations:
     example.test/owner: retained
 imagePullSecrets:
   - name: private-registry
 `), 0o644))
-	require.NoError(t, ProjectServiceAccount(t.Context(), dir, "lodestar", "store", declaredPodOverlay()))
+	require.NoError(t, ProjectServiceAccount(t.Context(), dir, "beacon", "store", declaredPodOverlay()))
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "private-registry")
@@ -746,8 +746,8 @@ imagePullSecrets:
 
 func declaredPodOverlay() *PodTemplateOverlay {
 	return &PodTemplateOverlay{
-		ServiceAccount: &WorkloadServiceAccount{Annotations: map[string]string{"iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com"}},
-		PodLabels:      map[string]string{"obin.ai/workload-identity": "true"},
+		ServiceAccount: &WorkloadServiceAccount{Annotations: map[string]string{"iam.gke.io/gcp-service-account": "platform-db@acme-usc1.iam.gserviceaccount.com"}},
+		PodLabels:      map[string]string{"acme.dev/workload-identity": "true"},
 	}
 }
 
@@ -761,7 +761,7 @@ func renderedWorkloadTree(t *testing.T) string {
 kind: Deployment
 metadata:
   name: store
-  namespace: lodestar
+  namespace: beacon
 spec:
   template:
     metadata:
@@ -819,11 +819,11 @@ func TestProjectServiceAccountHandlesPodAndCronJob(t *testing.T) {
 				workload = pod
 				workload["apiVersion"] = "v1"
 				workload["metadata"].(map[string]any)["name"] = "store"
-				workload["metadata"].(map[string]any)["namespace"] = "lodestar"
+				workload["metadata"].(map[string]any)["namespace"] = "beacon"
 			} else {
 				workload = map[string]any{
 					"apiVersion": "batch/v1",
-					"metadata":   map[string]any{"name": "store", "namespace": "lodestar"},
+					"metadata":   map[string]any{"name": "store", "namespace": "beacon"},
 					"spec":       map[string]any{"schedule": "0 * * * *", "jobTemplate": map[string]any{"spec": map[string]any{"template": pod}}},
 				}
 			}
@@ -832,14 +832,14 @@ func TestProjectServiceAccountHandlesPodAndCronJob(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), data, 0o640))
 			require.NoError(t, os.Chmod(filepath.Join(dir, "deployment.yaml"), 0o640))
-			require.NoError(t, ProjectServiceAccount(t.Context(), dir, "lodestar", "store", declaredPodOverlay()))
+			require.NoError(t, ProjectServiceAccount(t.Context(), dir, "beacon", "store", declaredPodOverlay()))
 			data, err = os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 			require.NoError(t, err)
 			var document yaml.Node
 			require.NoError(t, yaml.Unmarshal(data, &document))
 			template := workloadPodTemplate(document.Content[0])
 			require.Equal(t, "store", mappingScalar(mappingChild(template, "spec"), "serviceAccountName"))
-			require.Equal(t, "true", mappingScalar(mappingChild(mappingChild(template, "metadata"), "labels"), "obin.ai/workload-identity"))
+			require.Equal(t, "true", mappingScalar(mappingChild(mappingChild(template, "metadata"), "labels"), "acme.dev/workload-identity"))
 			info, err := os.Stat(filepath.Join(dir, "deployment.yaml"))
 			require.NoError(t, err)
 			require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
@@ -850,7 +850,7 @@ func TestProjectServiceAccountHandlesPodAndCronJob(t *testing.T) {
 func TestProjectServiceAccountValidatesKustomizeTransformations(t *testing.T) {
 	dir := renderedWorkloadTree(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("namePrefix: production-\nnamespace: deployed\nresources:\n  - deployment.yaml\n"), 0o644))
-	require.NoError(t, ProjectServiceAccount(t.Context(), dir, "lodestar", "store", declaredPodOverlay()))
+	require.NoError(t, ProjectServiceAccount(t.Context(), dir, "beacon", "store", declaredPodOverlay()))
 }
 
 func TestProjectServiceAccountCancellationWhileLockedPreservesInputs(t *testing.T) {
@@ -862,7 +862,7 @@ func TestProjectServiceAccountCancellationWhileLockedPreservesInputs(t *testing.
 	t.Cleanup(func() { require.NoError(t, lock.Close()) })
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	require.ErrorIs(t, ProjectServiceAccount(ctx, dir, "lodestar", "store", declaredPodOverlay()), context.DeadlineExceeded)
+	require.ErrorIs(t, ProjectServiceAccount(ctx, dir, "beacon", "store", declaredPodOverlay()), context.DeadlineExceeded)
 	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, before, after)
@@ -880,7 +880,7 @@ func TestProjectServiceAccountSerializesConflictingWriters(t *testing.T) {
 				ServiceAccount: &WorkloadServiceAccount{Annotations: map[string]string{"identity.example/principal": principal}},
 				PodLabels:      map[string]string{"identity.example/principal": principal},
 			}
-			results <- ProjectServiceAccount(t.Context(), dir, "lodestar", "store", identity)
+			results <- ProjectServiceAccount(t.Context(), dir, "beacon", "store", identity)
 		}()
 	}
 	close(start)

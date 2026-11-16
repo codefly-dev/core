@@ -32,7 +32,7 @@ const (
 // Two owners serving one protocol, each declaring its methods in its own
 // vocabulary: the same call requires different scopes at each.
 var ownerDeclarations = declaredCallees{
-	"robin":     {reach: {"robin.answers:read"}, listKinds: {"robin.answers:list"}},
+	"planner":   {reach: {"planner.answers:read"}, listKinds: {"planner.answers:list"}},
 	"documents": {reach: {"documents.versions:read", "documents:read"}, listKinds: nil},
 }
 
@@ -58,17 +58,17 @@ func describe(resolved *Resolved) string {
 
 func TestEachListedAudienceResolvesItsOwnCeilingFromItsOwnPolicies(t *testing.T) {
 	resolved, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{
-		"OWNER_AUDIENCES":      "robin,documents",
-		"owner-resource-kinds": "robin=robin.answers,documents=documents.versions",
+		"OWNER_AUDIENCES":      "planner,documents",
+		"owner-resource-kinds": "planner=planner.answers,documents=documents.versions",
 	}), WithCallees(ownerDeclarations))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := strings.Join([]string{
 		"owner:documents → documents invoke=documents.versions:read,documents:read headless=",
-		"owner:robin → robin invoke=robin.answers:read headless=robin.answers:list",
+		"owner:planner → planner invoke=planner.answers:read headless=planner.answers:list",
 		"owner-review:documents → documents invoke=documents.versions:read,documents.versions:review",
-		"owner-review:robin → robin invoke=robin.answers:read,robin.answers:review",
+		"owner-review:planner → planner invoke=planner.answers:read,planner.answers:review",
 	}, "\n")
 	if got := describe(resolved); got != want {
 		t.Fatalf("delivered:\n%s\nwant:\n%s", got, want)
@@ -78,8 +78,8 @@ func TestEachListedAudienceResolvesItsOwnCeilingFromItsOwnPolicies(t *testing.T)
 	}
 	// The order a composition lists them in is not part of the document.
 	reordered, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{
-		"OWNER_AUDIENCES":      "documents,robin",
-		"owner-resource-kinds": "documents=documents.versions,robin=robin.answers",
+		"OWNER_AUDIENCES":      "documents,planner",
+		"owner-resource-kinds": "documents=documents.versions,planner=planner.answers",
 	}), WithCallees(ownerDeclarations))
 	if err != nil || describe(reordered) != want {
 		t.Fatalf("a reordered list delivers the same bindings: %v\n%s", err, describe(reordered))
@@ -87,10 +87,10 @@ func TestEachListedAudienceResolvesItsOwnCeilingFromItsOwnPolicies(t *testing.T)
 }
 
 func TestACallOneListedAudienceDoesNotServeIsRefusedByName(t *testing.T) {
-	callees := declaredCallees{"robin": ownerDeclarations["robin"], "documents": {reach: {"documents:read"}}}
+	callees := declaredCallees{"planner": ownerDeclarations["planner"], "documents": {reach: {"documents:read"}}}
 	_, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{
-		"OWNER_AUDIENCES":      "robin,documents",
-		"OWNER_RESOURCE_KINDS": "robin=robin.answers,documents=documents.versions",
+		"OWNER_AUDIENCES":      "planner,documents",
+		"OWNER_RESOURCE_KINDS": "planner=planner.answers,documents=documents.versions",
 	}), WithCallees(callees))
 	if !errors.Is(err, ErrUnresolvedCall) {
 		t.Fatalf("want ErrUnresolvedCall, got %v", err)
@@ -98,7 +98,7 @@ func TestACallOneListedAudienceDoesNotServeIsRefusedByName(t *testing.T) {
 	if want := "binding owner headless call " + listKinds + " at documents: documents does not serve"; !strings.Contains(err.Error(), want) {
 		t.Fatalf("the refusal names the binding, the call and the audience (%q): %v", want, err)
 	}
-	if strings.Contains(err.Error(), "at robin") {
+	if strings.Contains(err.Error(), "at planner") {
 		t.Fatalf("the audience that serves the call is not refused: %v", err)
 	}
 }
@@ -126,7 +126,7 @@ func TestAnOptionalAudienceListLeftEmptyIsOmitted(t *testing.T) {
 }
 
 func TestAnOptionalAudienceListFilledWithoutItsKindsIsRefusedByName(t *testing.T) {
-	_, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{"OWNER_AUDIENCES": "robin"}), WithCallees(ownerDeclarations))
+	_, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{"OWNER_AUDIENCES": "planner"}), WithCallees(ownerDeclarations))
 	if !errors.Is(err, ErrUnresolvedSlot) {
 		t.Fatalf("want ErrUnresolvedSlot, got %v", err)
 	}
@@ -140,15 +140,15 @@ func TestPerAudienceKindsAreHeldToTheList(t *testing.T) {
 		sentinel error
 		message  string
 	}{
-		"robin=robin.answers": {ErrUnresolvedSlot, "names no kind for the listed audience documents"},
-		"robin=robin.answers,documents=documents.versions,x=y": {ErrAmbiguousSlot, `names a kind for "x", which the binding's audience list does not list`},
-		"robin=robin.answers,robin=robin.other,documents=d":    {ErrAmbiguousSlot, `names a kind for the audience "robin" twice`},
-		"robin=robin.answers,documents":                        {ErrAmbiguousSlot, `carries "documents", which is not <audience>=<kind>`},
-		"robin=robin.answers,documents=Documents":              {ErrAmbiguousSlot, `resolves the kind of "documents" to "Documents"`},
+		"planner=planner.answers":                                   {ErrUnresolvedSlot, "names no kind for the listed audience documents"},
+		"planner=planner.answers,documents=documents.versions,x=y":  {ErrAmbiguousSlot, `names a kind for "x", which the binding's audience list does not list`},
+		"planner=planner.answers,planner=planner.other,documents=d": {ErrAmbiguousSlot, `names a kind for the audience "planner" twice`},
+		"planner=planner.answers,documents":                         {ErrAmbiguousSlot, `carries "documents", which is not <audience>=<kind>`},
+		"planner=planner.answers,documents=Documents":               {ErrAmbiguousSlot, `resolves the kind of "documents" to "Documents"`},
 	} {
 		t.Run(kinds, func(t *testing.T) {
 			_, err := audiencesContract(t).Resolve(audiencesValues(map[string]string{
-				"OWNER_AUDIENCES": "robin,documents", "OWNER_RESOURCE_KINDS": kinds,
+				"OWNER_AUDIENCES": "planner,documents", "OWNER_RESOURCE_KINDS": kinds,
 			}), WithCallees(ownerDeclarations))
 			if !errors.Is(err, want.sentinel) || !strings.Contains(err.Error(), "binding owner-review resource_kinds ← assistant/owner-resource-kinds "+want.message) {
 				t.Fatalf("want %v naming %q, got %v", want.sentinel, want.message, err)
@@ -205,7 +205,7 @@ func TestAnAudienceListIsAGroupAndEncodesAsWritten(t *testing.T) {
 	if err := constructed.Validate(); err != nil {
 		t.Fatalf("a constructed list-addressed binding validates: %v", err)
 	}
-	if got := AudienceBindingID("owner", "robin"); got != "owner:robin" || namePattern.MatchString(got) {
+	if got := AudienceBindingID("owner", "planner"); got != "owner:planner" || namePattern.MatchString(got) {
 		t.Fatalf("a derived id is outside the declared-id grammar: %q", got)
 	}
 }

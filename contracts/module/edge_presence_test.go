@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// perClassContract is one contract declaring one edge in each spelling: robin
+// perClassContract is one contract declaring one edge in each spelling: planner
 // required wherever it is delivered, annotations optional on a development
 // cell and required in production.
 func perClassContract(t *testing.T) *Contract {
@@ -18,7 +18,7 @@ func perClassContract(t *testing.T) *Contract {
 	}
 	document := append(append([]byte(nil), data...), []byte(
 		"edge_dependencies:\n"+
-			"  - {module: robin, presence: required}\n"+
+			"  - {module: planner, presence: required}\n"+
 			"  - module: annotations\n"+
 			"    presence_by_class: {development: optional, production: required}\n")...)
 	contract, err := Parse(document)
@@ -45,9 +45,9 @@ func TestAPerClassPresenceResolvesPerEnvironmentClass(t *testing.T) {
 			if len(resolved.EdgeDependencies) != 2 {
 				t.Fatalf("resolved %d edges, want 2: %+v", len(resolved.EdgeDependencies), resolved.EdgeDependencies)
 			}
-			robin, annotations := resolved.EdgeDependencies[0], resolved.EdgeDependencies[1]
-			if robin.Module != "robin" || robin.Presence != PresenceRequired {
-				t.Errorf("the plain spelling moved with the class: %+v", robin)
+			planner, annotations := resolved.EdgeDependencies[0], resolved.EdgeDependencies[1]
+			if planner.Module != "planner" || planner.Presence != PresenceRequired {
+				t.Errorf("the plain spelling moved with the class: %+v", planner)
 			}
 			if annotations.Module != "annotations" || annotations.Presence != want {
 				t.Errorf("annotations resolved to %q in class %s, want %q", annotations.Presence, class, want)

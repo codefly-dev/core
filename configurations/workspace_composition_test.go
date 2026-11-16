@@ -13,10 +13,10 @@ import (
 func TestComposedWorkspaceProvidesConfigurationWithoutProductCopies(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	writeConfigurationFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\n")
+	writeConfigurationFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\n")
 	writeConfigurationFile(t, root, "core/configurations/staging/platform.env", "GATEWAY=core-endpoint\n")
 	writeConfigurationFile(t, root, "core/configurations/staging/identity.env", "PROVIDER=owner-provider\n")
-	writeConfigurationFile(t, root, "product/workspace.codefly.yaml", "name: platform-obin\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\n")
+	writeConfigurationFile(t, root, "product/workspace.codefly.yaml", "name: platform-acme\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\n")
 	writeConfigurationFile(t, root, "product/configurations/staging/identity.env", "PROVIDER=product-provider\n")
 	ws, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "product"))
 	require.NoError(t, err)

@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testRepository = "https://github.com/codefly-dev/module-saas-starter.git"
-const testPackage = "codefly/saas-starter"
-const testSigner = "https://github.com/codefly-dev/module-saas-starter/.github/workflows/release.yml@refs/heads/main"
+const testRepository = "https://github.com/codefly-dev/module-app-starter.git"
+const testPackage = "codefly/app-starter"
+const testSigner = "https://github.com/codefly-dev/module-app-starter/.github/workflows/release.yml@refs/heads/main"
 
 type releaseFixture struct {
 	release  *Release

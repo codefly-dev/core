@@ -20,7 +20,7 @@ func TestLoadBindsInterfacesFromTheHost(t *testing.T) {
 	root := t.TempDir()
 	agent := "agent:\n    kind: codefly:service\n    name: go-grpc\n    version: 0.0.1\n    publisher: codefly.dev\n"
 	for name, content := range map[string]string{
-		"workspace.codefly.yaml":              "name: product\nlayout: modules\nworkspaces:\n    - name: platform-core\n      source: team/platform-core\n      version: 1.0.0\nmodules:\n    - name: records\n",
+		"workspace.codefly.yaml":              "name: product\nlayout: modules\nworkspaces:\n    - name: platform-base\n      source: team/platform-base\n      version: 1.0.0\nmodules:\n    - name: records\n",
 		"modules/records/module.codefly.yaml": "kind: module\nname: records\nservices:\n    - name: records\n",
 		"modules/records/services/records/service.codefly.yaml": "kind: service\nname: records\nversion: 0.0.1\n" + agent +
 			"endpoints:\n    - name: grpc\n      api: grpc\nservice-dependencies:\n    - interface: codefly.dev/authority@0.1.0\n      kind: external\n",

@@ -224,7 +224,7 @@ func TestCeilingPDP_ManifestDenies_InnerNeverConsulted(t *testing.T) {
 		"action not in manifest must deny even if inner would allow — that's the whole point of the ceiling")
 	require.Contains(t, d.Reason, "manifest-ceiling")
 	require.Equal(t, 0, inner.CallCount(),
-		"inner must NOT be consulted when manifest denies — saves saas-starter round-trip")
+		"inner must NOT be consulted when manifest denies — saves app-starter round-trip")
 }
 
 func TestCeilingPDP_ManifestAllows_RoleDenies_Deny(t *testing.T) {

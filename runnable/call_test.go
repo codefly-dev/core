@@ -70,7 +70,7 @@ func TestARestMutationKeepsItsBodyAndIsNotAConnectCall(t *testing.T) {
 // spelling.
 func TestAGetCarriesItsInputAsItsQueryAndNoBody(t *testing.T) {
 	request, err := runnable.CallRequestFor(routedBinding(http.MethodGet, "/v1/releases/history"),
-		[]byte(`{"repo":"obin-ai/handbook","limit":25,"ratio":1.5,"all":true}`))
+		[]byte(`{"repo":"acme/handbook","limit":25,"ratio":1.5,"all":true}`))
 	if err != nil {
 		t.Fatalf("addressing a GET: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestAGetCarriesItsInputAsItsQueryAndNoBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the query does not parse: %v", err)
 	}
-	for name, want := range map[string]string{"repo": "obin-ai/handbook", "limit": "25", "ratio": "1.5", "all": "true"} {
+	for name, want := range map[string]string{"repo": "acme/handbook", "limit": "25", "ratio": "1.5", "all": "true"} {
 		if got := values.Get(name); got != want {
 			t.Fatalf("query %s=%q, want %q (whole query %q)", name, got, want, request.Query)
 		}

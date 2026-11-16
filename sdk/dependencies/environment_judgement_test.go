@@ -59,12 +59,12 @@ func moduleConsumer(t *testing.T) string {
 func solutionConsumer(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: saas\n")
+	writeFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: saas\n")
 	writeFile(t, root, "core/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-	writeFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: wiki\n    path: solutions/wiki\n")
-	writeFile(t, root, "product/solutions/wiki/module.codefly.yaml", "kind: module\nname: wiki\nservices:\n  - name: api\n")
-	writeFile(t, root, "product/solutions/wiki/services/api/service.codefly.yaml", consumerManifest)
-	return filepath.Join(root, "product", "solutions", "wiki", "services", "api")
+	writeFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\nsolutions:\n  - name: notes\n    path: solutions/notes\n")
+	writeFile(t, root, "product/solutions/notes/module.codefly.yaml", "kind: module\nname: notes\nservices:\n  - name: api\n")
+	writeFile(t, root, "product/solutions/notes/services/api/service.codefly.yaml", consumerManifest)
+	return filepath.Join(root, "product", "solutions", "notes", "services", "api")
 }
 
 func usageMapping(visibility string) *basev0.NetworkMapping {
