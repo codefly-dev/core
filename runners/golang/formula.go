@@ -224,6 +224,7 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	cmd := exec.CommandContext(ctx, command[0], args...)
 	cmd.Dir = sourceDir
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, gitMaintenanceOffEnv(cmd.Env)...)
 	if ownsWorkspace {
 		cmd.Env = append(cmd.Env, "GOWORK="+workspace.workFile)
 	} else {

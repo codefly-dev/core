@@ -266,7 +266,7 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	}
 	args := buildTestArgsWithPackages(opt, env.defaultPackageTargets())
 
-	proc, err := env.Env().NewProcess("go", args...)
+	proc, err := env.newGoProcess(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func RunGoBuild(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 	}
 
 	args := append([]string{"build"}, targets...)
-	proc, err := env.Env().NewProcess("go", args...)
+	proc, err := env.newGoProcess(ctx, args...)
 	if err != nil {
 		return "", err
 	}
@@ -441,7 +441,7 @@ func RunGoLint(ctx context.Context, env *GoRunnerEnvironment, sourceLocation str
 	}
 
 	args := append([]string{"vet"}, targets...)
-	proc, err := env.Env().NewProcess("go", args...)
+	proc, err := env.newGoProcess(ctx, args...)
 	if err != nil {
 		return "", err
 	}
