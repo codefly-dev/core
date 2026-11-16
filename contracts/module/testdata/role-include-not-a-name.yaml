@@ -1,0 +1,22 @@
+# A role includes a bundle by its module and its name, each lowercase.
+schema: codefly/module-contract/v1
+principal: assistant
+owner_aware: true
+namespaces: []
+queues: []
+scope_ceilings: []
+roles:
+    - name: admin
+      includes:
+          - {module: Agent, bundle: talk}
+    - name: user
+      includes: [{module: agent, bundle: talk}]
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.turns
+                actions: [read, run]
+destinations: []

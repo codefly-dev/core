@@ -125,6 +125,18 @@ const (
 	ruleThroughOnRoles    = "through-on-role-scopes"
 	ruleThroughNotOnCalls = "through-not-on-requirements"
 	ruleRoleThroughKnown  = "role-through-binding-known"
+
+	ruleBundleName        = "bundle-name"
+	ruleBundleUnique      = "bundle-unique"
+	ruleBundleGrants      = "bundle-grants"
+	ruleBundleKindName    = "bundle-kind-name"
+	ruleBundleKindAction  = "bundle-kind-has-action"
+	ruleBundleKindUnique  = "bundle-kind-unique"
+	ruleBundleThroughName = "bundle-through-name"
+	ruleBundleIncludes    = "bundle-includes-published"
+	ruleBundleAcyclic     = "bundle-includes-acyclic"
+	ruleRoleIncludeName   = "role-include-name"
+	ruleRoleIncludeUnique = "role-include-unique"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -224,6 +236,17 @@ func rules() []rule {
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
 		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
+		{name: ruleRoleIncludeName, check: checkRoleIncludeNames},
+		{name: ruleRoleIncludeUnique, check: checkRoleIncludesUnique},
+		{name: ruleBundleName, check: checkBundleNames},
+		{name: ruleBundleUnique, check: checkBundlesUnique},
+		{name: ruleBundleGrants, check: checkBundlesGrant},
+		{name: ruleBundleKindName, check: checkBundleKindNames},
+		{name: ruleBundleKindAction, check: checkBundleKindsHaveActions},
+		{name: ruleBundleKindUnique, check: checkBundleKindsUnique},
+		{name: ruleBundleThroughName, check: checkBundleThroughNames},
+		{name: ruleBundleIncludes, check: checkBundleIncludes},
+		{name: ruleBundleAcyclic, check: checkBundlesAcyclic},
 	}, governanceRules()...)
 }
 
@@ -390,6 +413,14 @@ func (contract *Contract) actionLists() []struct {
 					actions []string
 				}{"role " + role.Name + " " + list.label + scope.ResourceKind, scope.Actions})
 			}
+		}
+	}
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			lists = append(lists, struct {
+				label   string
+				actions []string
+			}{"bundle " + bundle.Name + " " + scope.ResourceKind, scope.Actions})
 		}
 	}
 	for _, scope := range contract.governanceScopes() {
@@ -1402,6 +1433,137 @@ func checkGovernanceNotThrough(contract *Contract) error {
 	for _, scope := range contract.governanceScopes() {
 		if scope.Through != "" {
 			return fmt.Errorf("%w: source_governance names %s through %q; a governing scope is one of the unit's own, reached through nothing", ErrInvalid, scope.ResourceKind, scope.Through)
+		}
+	}
+	return nil
+}
+
+func checkBundleNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if !namePattern.MatchString(bundle.Name) {
+			return fmt.Errorf("%w: bundle %q is not a lowercase name", ErrInvalid, bundle.Name)
+		}
+	}
+	return nil
+}
+
+func checkBundlesUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.Bundles))
+	for _, bundle := range contract.Bundles {
+		names = append(names, bundle.Name)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: bundle %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkBundlesGrant(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if len(bundle.Scopes) == 0 && len(bundle.Includes) == 0 {
+			return fmt.Errorf("%w: bundle %q grants nothing", ErrInvalid, bundle.Name)
+		}
+	}
+	return nil
+}
+
+func checkBundleKindNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if !namePattern.MatchString(scope.ResourceKind) {
+				return fmt.Errorf("%w: bundle %q resource kind %q is not a lowercase name", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkBundleKindsHaveActions(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: bundle %q grants resource kind %q no action", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleKindsUnique: a bundle names a kind once per place it is reached,
+// as a role does.
+func checkBundleKindsUnique(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		seen := map[[2]string]bool{}
+		for _, scope := range bundle.Scopes {
+			key := [2]string{scope.ResourceKind, scope.Through}
+			if seen[key] {
+				return fmt.Errorf("%w: bundle %q names resource kind %q twice", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+			seen[key] = true
+		}
+	}
+	return nil
+}
+
+// checkBundleThroughNames: a bundle reaches a kind downstream of a module,
+// named by its principal, which the unit including it resolves to its own
+// binding to that module.
+func checkBundleThroughNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if scope.Through != "" && !namePattern.MatchString(scope.Through) {
+				return fmt.Errorf("%w: bundle %q reaches %s through %q, which is not a module's name", ErrInvalid, bundle.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludes: a bundle includes bundles its module publishes.
+func checkBundleIncludes(contract *Contract) error {
+	published := map[string]bool{}
+	for _, bundle := range contract.Bundles {
+		published[bundle.Name] = true
+	}
+	for _, bundle := range contract.Bundles {
+		for _, included := range bundle.Includes {
+			if !published[included] {
+				return fmt.Errorf("%w: %s bundle %q includes %q, which it does not publish", ErrInvalid, contract.Principal, bundle.Name, included)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundlesAcyclic: a bundle never includes itself, through any chain.
+func checkBundlesAcyclic(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if cycle := contract.bundleCycle(bundle.Name, nil); cycle != nil {
+			return fmt.Errorf("%w: %s bundle %q includes itself (%s)", ErrInvalid, contract.Principal, bundle.Name, strings.Join(cycle, " -> "))
+		}
+	}
+	return nil
+}
+
+func checkRoleIncludeNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, include := range role.Includes {
+			if !namePattern.MatchString(include.Module) || !namePattern.MatchString(include.Bundle) {
+				return fmt.Errorf("%w: role %q includes %q/%q, which is not a module and a bundle, each a lowercase name", ErrInvalid, role.Name, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleIncludesUnique(contract *Contract) error {
+	for _, role := range contract.Roles {
+		names := make([]string, 0, len(role.Includes))
+		for _, include := range role.Includes {
+			names = append(names, include.Module+"/"+include.Bundle)
+		}
+		if duplicate, found := firstDuplicate(names); found {
+			return fmt.Errorf("%w: role %q includes %s twice", ErrInvalid, role.Name, duplicate)
 		}
 	}
 	return nil

@@ -238,6 +238,7 @@ type ResolveOption func(*resolveOptions)
 
 type resolveOptions struct {
 	callees Callees
+	bundles Bundles
 	// class is the environment class the resolution resolves a per-class edge
 	// presence for. Empty is "no class declared", which resolves every plain
 	// presence and refuses a per-class one by name.
@@ -255,8 +256,22 @@ func WithEnvironmentClass(class string) ResolveOption {
 
 // WithCallees resolves the bindings that name calls through callees: each such
 // operation's ceiling is the union of what its calls require.
+//
+// Callees that also answer bundles (Bundles) resolve every role's includes
+// too, so one reader of the composed modules serves both.
 func WithCallees(callees Callees) ResolveOption {
-	return func(o *resolveOptions) { o.callees = callees }
+	return func(o *resolveOptions) {
+		o.callees = callees
+		if bundles, ok := callees.(Bundles); ok && o.bundles == nil {
+			o.bundles = bundles
+		}
+	}
+}
+
+// WithBundles resolves every role's includes through bundles: each included
+// bundle's scopes, read from the module that publishes it.
+func WithBundles(bundles Bundles) ResolveOption {
+	return func(o *resolveOptions) { o.bundles = bundles }
 }
 
 var (
@@ -300,6 +315,12 @@ type Contract struct {
 	// where the module is delivered: core reads them as declared. A bare
 	// module, whose access is the organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
+	// Bundles are named sets of scopes the module publishes for a unit that
+	// composes it to grant in one of its roles (Role.Includes): what one kind
+	// of screen calls, across every module it reaches. A bundle grants
+	// nothing by itself and is no role of this module's; a unit's role that
+	// includes it is resolved with its scopes (Bundle, WithBundles).
+	Bundles []Bundle `yaml:"bundles,omitempty"`
 	// InstallationRole selects the agent's standing role: empty is undeclared,
 	// "none" declares no standing grant, otherwise an exact declared role name.
 	// It never selects a role for a person or team.
@@ -419,6 +440,10 @@ type Role struct {
 	// a role grants a permission at another module without naming that
 	// module's kinds.
 	Bindings []RoleBinding `yaml:"bindings,omitempty"`
+	// Includes are bundles other modules publish (Contract.Bundles) that the
+	// role grants: Resolve reads each from its module's own declarations
+	// (WithBundles) and grants its scopes as the role's own.
+	Includes []RoleInclude `yaml:"includes,omitempty"`
 }
 
 // RoleBinding names one binding of the unit and one operation of it a role
@@ -927,6 +952,12 @@ type OmittedBinding struct {
 // the composition leaves out is left out with it.
 type ResolvedRole struct {
 	Name string
+	// Scopes are the role's scopes as it grants them: those it declares, with
+	// the scopes of every bundle it includes granted beside them (Bundle,
+	// WithBundles), through each named binding as declared, in one
+	// deterministic order. A deliverer reads a role's scopes here, never off
+	// the contract, which names its includes only by name.
+	Scopes []CeilingScope
 	// Grants are, per audience, the scopes "<resource kind>:<action>" the
 	// role grants there. Sorted, each once.
 	Grants map[string][]string
@@ -1175,22 +1206,33 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 			resolved.Bindings = append(resolved.Bindings, entry)
 		}
 	}
-	resolved.Roles, ambiguous = contract.resolveRoles(resolved, delivered, ambiguous)
+	roles, included := contract.includedRoles(resolved, delivered, opts.bundles)
+	resolved.Roles, ambiguous = contract.resolveRoles(roles, resolved, delivered, ambiguous)
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
 		if len(calls) > 0 {
 			err = errors.Join(err, callsError(calls))
 		}
+		if len(included) > 0 {
+			err = errors.Join(err, includesError(included))
+		}
 		return nil, err
 	}
-	if len(calls) > 0 {
-		return nil, callsError(calls)
+	if len(calls) > 0 || len(included) > 0 {
+		var parts []error
+		if len(calls) > 0 {
+			parts = append(parts, callsError(calls))
+		}
+		if len(included) > 0 {
+			parts = append(parts, includesError(included))
+		}
+		return nil, errors.Join(parts...)
 	}
 	return resolved, nil
 }
 
 // resolveRoles addresses every grant of every role (ResolvedRole), appending
 // to ambiguous each role scope two audiences underwrite.
-func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
+func (contract *Contract) resolveRoles(declared []Role, resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
 	own := contract.ownCeilings()
 	// underwriters are the audiences a literal role scope is held at: the
 	// principal for the unit's own kind, and each delivered audience of a
@@ -1233,8 +1275,8 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 			}
 		}
 	}
-	roles := make([]ResolvedRole, 0, len(contract.Roles))
-	for _, role := range contract.Roles {
+	roles := make([]ResolvedRole, 0, len(declared))
+	for _, role := range declared {
 		grants := map[string][]string{}
 		address(role.Name, "", role.Scopes, grants)
 		for _, granted := range role.Bindings {
@@ -1243,7 +1285,7 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 				grants[binding.Audience] = append(grants[binding.Audience], binding.Scopes[granted.Operation]...)
 			}
 		}
-		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
+		entry := ResolvedRole{Name: role.Name, Scopes: slices.Clone(role.Scopes), Grants: sortedGrants(grants)}
 		for _, scope := range role.Scopes {
 			if scope.Through == "" || len(delivered[scope.Through]) == 0 {
 				continue // direct, or through an optional binding left out with it

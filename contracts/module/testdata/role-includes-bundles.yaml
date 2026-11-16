@@ -1,0 +1,23 @@
+# A role includes bundles another module publishes.
+schema: codefly/module-contract/v1
+principal: assistant
+owner_aware: true
+namespaces: []
+queues: []
+scope_ceilings: []
+roles:
+    - name: admin
+      includes:
+          - {module: agent, bundle: talk}
+          - {module: agent, bundle: review}
+    - name: user
+      includes: [{module: agent, bundle: talk}]
+bindings:
+    - id: agent
+      operations: [invoke]
+      audience: {from: assistant/agent-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: agent.turns
+                actions: [read, run]
+destinations: []

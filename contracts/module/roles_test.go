@@ -109,7 +109,7 @@ func TestARoleGrantsWhatABindingsCallsRequire(t *testing.T) {
 		}},
 		{Name: "user", Grants: map[string][]string{"documents": {"documents:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
 	}
 
@@ -212,7 +212,7 @@ func TestInstallationOwnedScopesAreAddressedApart(t *testing.T) {
 			Grants:                  map[string][]string{},
 			InstallationOwnedGrants: map[string][]string{"assistant": {"assistant.tasks:read"}, "documents": {"documents.collection:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
 	}
 	plain, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "robin,documents"), WithCallees(rolesDeclarations))
@@ -269,7 +269,7 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 				"model": {"documents:read"},
 			}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 	shared := func(ceilings []ScopeCeiling) []string {
@@ -346,7 +346,7 @@ destinations: []
 		{Name: "admin", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
 		{Name: "user", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 }

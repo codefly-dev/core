@@ -1,0 +1,25 @@
+# A module publishes bundles: what one kind of screen calls, its own kinds directly and another module's through itself, one including another.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      scopes:
+          - resource_kind: agent.turns
+            actions: [run]
+          - resource_kind: notes
+            actions: [read, write]
+            through: assistant
+    - name: review
+      includes: [talk]
+      scopes:
+          - resource_kind: agent.turns
+            actions: [read]
+          - resource_kind: traces
+            actions: [read]
