@@ -183,17 +183,11 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot init runner")
 	}
 
-	proc, err := runner.NewProcess("buf", "dep", "update")
-	if err != nil {
-		return w.Wrapf(err, "cannot create process")
-	}
-
-	err = proc.Run(ctx)
-	if err != nil {
+	if err := updateBufDependencies(ctx, runner); err != nil {
 		return w.Wrapf(err, "cannot update buf")
 	}
 
-	proc, err = runner.NewProcess("buf", "generate")
+	proc, err := runner.NewProcess("buf", "generate")
 	if err != nil {
 		return w.Wrapf(err, "cannot create process")
 	}
