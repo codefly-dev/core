@@ -256,7 +256,7 @@ work does not forge declarations or republish those agents.
 
 Use A first: shared offline core/CLI computation, with the existing GitHub App
 path delivering exact-pin PRs for SAFE and notices for NEW CAPABILITY or BREAKING.
-Keep B (a fleet service running as an Obin solution) as a future delivery adapter
+Keep B (a fleet service running as a hosted solution) as a future delivery adapter
 to the same contracts. A service must not define a second verdict algorithm.
 Delivery owns authentication, recipient authorization, retries, deduplication,
 and rereading the baseline before proposing an update. SAFE describes contract
@@ -269,12 +269,11 @@ command in this repository. The remaining owner work is:
 
 - [CLI #753](https://github.com/codefly-dev/cli/issues/753): contract/usage
   generation, release publication, offline checks and structured output.
-- [saas-starter #852](https://github.com/codefly-dev/module-saas-starter/issues/852):
+- [app-starter #852](https://github.com/codefly-dev/module-app-starter/issues/852):
   real SDK/behavioral contracts and GitHub App delivery, including the
   publisher-bound registration change.
-- [platform-obin #25](https://github.com/obin-ai/platform-obin/issues/25): qualify
-  `module-saas-starter → lodestar → platform-obin → lastlogin-go, lastlogin-python,
-  wiki` using actual release artifacts, pins, delivery, and declared boot checks.
+- a consuming platform: qualify a module → platform → solutions chain using
+  actual release artifacts, pins, delivery, and declared boot checks.
 
 The checked-in YAML is a synthetic contract scenario, not a recording of that
 chain. Tests exercise per-consumer differences, transitive type changes,

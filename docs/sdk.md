@@ -326,7 +326,7 @@ beta, _ := sdk.WithDependencies(ctx, sdk.WithDirectory("/abs/path/office/portal"
 workspace found up from the working directory:
 
 ```go
-deps, _ := sdk.WithDependencies(ctx, sdk.WithService("lastlogin-go/backend"))
+deps, _ := sdk.WithDependencies(ctx, sdk.WithService("greeter-go/backend"))
 ```
 
 It is the option for a caller that owns no `service.codefly.yaml` of its own — a

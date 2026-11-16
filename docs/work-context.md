@@ -271,7 +271,7 @@ owner-blind version:
 | module-document-store | `modules/documents/services/documents/code/pkg/business/workclaims/claims.go:191-199` | a matching scope with no resource ids returns allow |
 | module-runtime | `pkg/runnable/installation.go:225`, `pkg/infra/accounts/authority.go:297` | copies kind, actions and ids into its own `Scope` / `WorkContextScope` and drops the owner |
 | saas-sdk-python | `src/saas_sdk/work_context.py:158-163` (`WorkScope`), `:638-646` (`_scopes_of`), `:322-327` (`require_scope`) | `WorkScope` has no owner, `_scopes_of` drops it, and `require_scope` allows the whole kind. It refuses the unknown field today, so it widens once it regenerates from this core |
-| module-saas-starter, module-saas-starter-security accounts | `module/services/accounts/code/pkg/adapters/` (`work_context_rpcs.go`, `delegated_read_audience.go`) | copy kind, actions and ids into their own types and drop the owner |
+| module-app-starter, module-app-starter-security accounts | `module/services/accounts/code/pkg/adapters/` (`work_context_rpcs.go`, `delegated_read_audience.go`) | copy kind, actions and ids into their own types and drop the owner |
 | cli execution recorder | `pkg/executionrecorder/work_context_authority.go` | reads kind, actions and ids field by field |
 
 The authority's `Claims.Allows` builds on `ScopeContained` and fails closed,

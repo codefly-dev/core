@@ -53,28 +53,19 @@ See [nested data delivery](configuration-contract.md#nested-data-delivery).
    workload with configuration, secrets and identity but no managed services.
 5. Land the consumer migration before releasing the Core removals. Update the
    CLI dependency to the reviewed Core change, then release the pair. Producers
-   and Lodestar retain the wire format and adopt the released consumer.
+   and their consumers retain the wire format and adopt the released consumer.
 
 Core must never depend on the private CLI module. Its checks exercise its generic
 contracts; the CLI owns producer-admission and GitOps integration tests.
 
 ## Producer and consumer evidence
 
-At infra-base `7011c60b99116c397e73a8ad11e9cf5afe6f2044`, the sanctioned
-`obinctl coordinate-contract --all` emits this unchanged schema. The
-`hosted-us-east1.lodestar.json` output supplies `staging/lodestar` and three
-`accounts` values: `DATABASE_INSTANCE`, `DATABASE_READER_USER`, and
-`DATABASE_WRITER_USER`. It supplies no workload identity, secret references,
-cluster or GitOps target. Its values can be imported and rendered; that is not
-proof that Lodestar reads them or authenticates successfully. The CLI preserves
-that actual output as a regression fixture.
-
-[Infra-base #1116](https://github.com/obin-ai/infra-base/issues/1116) owns the
-remaining producer declarations and CLI qualification; #1099 still owns Azure
-consumer bindings. [Lodestar #339](https://github.com/obin-ai/lodestar/issues/339)
-must consume the reviewed CLI and producer output, not fill missing identity,
-trust or delivery fields by hand. Its current Azure instructions still name the
-retired schema, and it has not demonstrated the requested GCP model render.
+A producer's actual `codefly/coordinate/v1` output is the evidence: the CLI
+keeps one as a regression fixture and imports and renders it. Importing and
+rendering a producer's values is not proof that a consumer reads them or
+authenticates successfully; that qualification belongs to the producer and
+consumer repositories, which consume the reviewed CLI and producer output
+rather than filling missing identity, trust or delivery fields by hand.
 
 ## Existing work
 

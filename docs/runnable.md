@@ -748,7 +748,7 @@ or a boolean in its JSON spelling, sorted by name so one input object addresses
 one request line.
 
 It lives here because more than one caller makes a prepared call — the task
-runtime's worker dispatches an installed binding, robin's chat turn calls one
+runtime's worker dispatches an installed binding, assistant's chat turn calls one
 as the asking person — and the wire form of `HTTPRoute` is this package's to
 define. It addresses the call and nothing more: what authorizes it, which
 headers it carries, which client dials it, how an answer is classified and

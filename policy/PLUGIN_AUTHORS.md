@@ -125,7 +125,7 @@ honest about risk. `force_push` is critical; `read_pr` is low.
    Approve? (y/N)
    ```
 4. On approve: a Principal of `kind=agent` is created in
-   saas-starter with role grants matching the manifest
+   app-starter with role grants matching the manifest
 5. The plugin is now installed; subsequent calls use this Principal
 
 ### What happens at call time
@@ -135,7 +135,7 @@ When a tool the plugin exposes is called:
 1. The PDP first checks your **manifest declaration**: is the
    action declared? If not, deny — your plugin can't ask for
    authority it didn't reserve at install. This is the **ceiling**.
-2. The PDP then checks the **role grant** in saas-starter: is the
+2. The PDP then checks the **role grant** in app-starter: is the
    principal currently allowed to do this action? Roles can be
    revoked; the manifest grant doesn't survive revocation.
 3. If both pass, the call reaches your handler with the principal
@@ -381,7 +381,7 @@ code that REQUIRES the answer surfaces the failure.
 - The host's PDP caches positive decisions (5-30s TTL configured
   by the operator) — repeated checks for the same `(principal,
   action, resource)` short-circuit at the host without hitting
-  saas-starter.
+  app-starter.
 - If you're looping over many resources, the cache amortizes
   across the loop.
 
@@ -454,7 +454,7 @@ Three outcomes:
 
 The host:
 
-1. Records the request as a `delegation_grants` row in saas-starter
+1. Records the request as a `delegation_grants` row in app-starter
 2. Notifies the grantor (Slack, in-app, email)
 3. Blocks until the grantor approves, denies, or it expires
 4. On approve: mints a Biscuit token attenuated to the requested
@@ -596,10 +596,10 @@ or display. Don't gate logic on it.
 
 Filter the data you return — don't gate the action. If the action
 needs different authorization for different users, that's a role
-grant in saas-starter (admin role gets one set of grants; member
+grant in app-starter (admin role gets one set of grants; member
 role gets another). Both call the same tool; both reach your
 handler; both run the same code. The DATA they see differs based
-on what saas-starter grants them.
+on what app-starter grants them.
 
 ### "What if my plugin needs admin-only operations?"
 
@@ -632,7 +632,7 @@ plan around the limitation.
 
 ### "Can I read the role grants my plugin has?"
 
-Not from inside the plugin. The grants live in saas-starter; the
+Not from inside the plugin. The grants live in app-starter; the
 plugin sees the OUTCOME (call allowed or denied). If you need to
 introspect, the host has APIs for that — call from the host, not
 from inside the plugin.

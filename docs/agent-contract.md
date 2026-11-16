@@ -135,14 +135,11 @@ refusals; linking generated bindings or Core's shared server does not advertise
 adoption. The release manifest records the operation contract while wire
 protocol 1, startup protocol 2 and shared server capabilities remain unchanged.
 
-The proposal was opened first in
-[handbook#260](https://github.com/obin-ai/handbook/pull/260).
 This is the Core transport for
 [core#748](https://github.com/codefly-dev/core/issues/748), not a completed local
 run: the build-to-Init producer is
 [cli#932](https://github.com/codefly-dev/cli/issues/932), and consumer selection
-and refusal tests belong to
-[service-libreoffice#63](https://github.com/obin-ai/service-libreoffice/issues/63).
+and refusal tests belong to the consuming agents.
 Those implementations and a combined boot must qualify the downstream rollout.
 
 ### Deployment composition provenance
@@ -179,8 +176,8 @@ semantics; the shared server does not automatically advertise adoption.
 Wire protocol 1 and startup protocol 2 are unchanged. No version roster or
 fleet repin substitutes for live adoption.
 
-[Handbook proposal #266](https://github.com/obin-ai/handbook/pull/266) preceded
-the proto edit for [core#751](https://github.com/codefly-dev/core/issues/751).
+A design proposal preceded the proto edit for
+[core#751](https://github.com/codefly-dev/core/issues/751).
 The CLI producer is sequenced after Core in
 [cli#937](https://github.com/codefly-dev/cli/issues/937). Core tests do
 not qualify that handoff, downstream agent adoption, or a staging render.

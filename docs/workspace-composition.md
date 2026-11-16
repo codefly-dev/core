@@ -7,17 +7,17 @@ copying the platform's module inventory:
 name: product
 layout: modules
 workspaces:
-  - name: platform-core
-    source: team/platform-core
+  - name: platform-base
+    source: team/platform-base
     version: 1.0.0
 solutions:
-  - name: wiki
+  - name: notes
     source: team/solutions
-    module: solutions/wiki
+    module: solutions/notes
     version: 2.0.0
-  - name: lastlogin-go
+  - name: greeter-go
     source: team/solutions
-    module: solutions/lastlogin-go
+    module: solutions/greeter-go
     version: 2.0.0
 ```
 
@@ -70,11 +70,11 @@ solution-groups:
   - id: knowledge
     title: Knowledge
     order: 2
-    solutions: [wiki, proposals]
+    solutions: [notes, proposals]
   - id: identity
     title: Identity
     order: 1
-    solutions: [lastlogin-go]
+    solutions: [greeter-go]
 ```
 
 A group is a heading in the host's navigation, where it sorts, and the
@@ -126,7 +126,7 @@ unfulfilled profile requirements and source-file evidence.
 Env keys combine only when disjoint. A collision is refused by name even for
 identical values, using Core's case/dash/underscore matching. An explicit
 `append` entry names the consuming key's exact spelling and a nonempty delimiter:
-`MODULES=robin,tracing` plus `MODULES=wiki` becomes `robin,tracing,wiki`. Both
+`MODULES=assistant,tracing` plus `MODULES=notes` becomes `assistant,tracing,notes`. Both
 values must be supplied plaintext without templates; empty or duplicate list
 items and `${profile}` are refused. Endpoint references remain unresolved until
 the existing runtime resolver judges and resolves them.

@@ -138,7 +138,7 @@ what to change. A red check whose message does not tell the reader what to
 change is how a gate gets ignored into uselessness.
 
 ```
-  [FAIL] modules/robin/services/tool-owner/code/go.mod
+  [FAIL] modules/assistant/services/tool-owner/code/go.mod
          pinned to v0.18.3; core has published 19 version(s) since, the oldest of
          which (v0.19.0) has been available for 23 days
 
@@ -148,7 +148,7 @@ What to do
   lock this module owns, then tidies and verifies the build. It is the verb
   that owns the pin; a hand edit to go.mod reaches this file and leaves the
   nested fixtures and templates behind
-    - modules/robin/services/tool-owner/code/go.mod
+    - modules/assistant/services/tool-owner/code/go.mod
 ```
 
 The same numbers go out as GitHub annotations, against the `require` line in
@@ -159,11 +159,10 @@ behind. The gate reports drift; it does not close it.
 
 ## Every go.mod, not the first
 
-A repository's pins are wherever its modules are. The obin-ai modules pin core
+A repository's pins are wherever its modules are. A module repository pins core
 in `modules/<name>/services/<svc>/code/go.mod` and nowhere near the root, and
-one repository spans v0.5.11 to v0.19.11 across eleven of them. Across the nine
-repositories that pin core there are **40 `go.mod` files at 18 distinct pins** —
-where #891's table, reading one per repository, found nine at five.
+one repository can span many core versions across its services. Reading one
+`go.mod` per repository reports a narrower spread than the real one.
 
 `vendor`, `node_modules` and `.git` are skipped: those manifests belong to the
 dependency. **`testdata` is not skipped.** A fixture pinned to an old core is
@@ -213,11 +212,10 @@ be.)
 
 ### A pinned commit must be reachable from core's `main`
 
-On 2026-11-04 `obin-ai/module-robin`'s `main` went red for every Go job:
-robin#659 squash-merged and deleted the branch holding a commit its own
-`go.mod` pinned, and `go mod download` then failed repository-wide with
-`unknown revision`. Robin's pin gate had passed on that commit — **it certified
-a reference that merging would destroy.**
+A squash merge that deletes the branch holding a commit a `go.mod` pins makes
+`go mod download` fail repository-wide with `unknown revision`, though the pin
+gate passed on that commit — **it certified a reference that merging would
+destroy.**
 
 A pseudo-version naming a commit that is not an ancestor of the default branch
 is exactly that reference. It resolves today, because the branch still exists.
@@ -227,14 +225,13 @@ squash-merges, so every such pin in this fleet is one merge away from dead.
 So the gate asks GitHub whether the commit is an ancestor of core's `main`
 (`compare/main...<sha>`) and reads `ahead_by`: zero means the commit is on
 `main`; anything else means it sits on a branch, and the pin fails **before**
-the merge that would destroy it. Two of the nine repositories were pinned this
-way when the check was written.
+the merge that would destroy it.
 
 **The module proxy cannot answer this, and that is worth being precise about.**
 `proxy.golang.org` is a mirror: it caches a module version permanently and goes
 on serving it after the commit is gone upstream. A proxy lookup succeeding
 proves the proxy once saw the commit, never that the commit is still there — so
-the orphan detection this gate started with could not have caught the robin
+the orphan detection this gate started with could not have caught that
 failure. The two services genuinely disagree, and one recorded commit proves
 it: `9d2348c460ae` is not on core's `main`, and the proxy serves its
 pseudo-version with a `200` anyway. Anything resolving direct — a private

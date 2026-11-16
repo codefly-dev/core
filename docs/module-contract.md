@@ -85,7 +85,7 @@ owner of each kind of thing commented on — so the audiences of one of its
 bindings are a list only the composition can write. Such a binding declares
 `audiences:` in place of `audience:`, a slot whose key is a `*-audiences` one
 and whose value is the audiences comma-separated, with no space
-(`robin,documents`, one line like every slot value). It means *this binding
+(`assistant,documents`, one line like every slot value). It means *this binding
 may be exercised toward any of these audiences*, and `Resolve` delivers it as
 **one resolved binding per listed audience**, sorted:
 
@@ -107,10 +107,10 @@ bindings:
       invoke: [read, review]
 ```
 
-With `OWNER_AUDIENCES=documents,robin` and
-`OWNER_RESOURCE_KINDS=documents=documents.versions,robin=robin.answers`, that
-resolves to four bindings: `owner:documents`, `owner:robin`,
-`owner-review:documents` and `owner-review:robin`. Each is its own unit of
+With `OWNER_AUDIENCES=documents,assistant` and
+`OWNER_RESOURCE_KINDS=documents=documents.versions,assistant=assistant.answers`, that
+resolves to four bindings: `owner:documents`, `owner:assistant`,
+`owner-review:documents` and `owner-review:assistant`. Each is its own unit of
 authority, delivered in the manifest exactly as a single-audience binding is —
 id `<binding>:<audience>` (`modulecontract.AudienceBindingID`), the audience,
 and the ceiling resolved for **that** audience:
@@ -232,7 +232,7 @@ host from the shape of the roles:
 ```yaml
 source_governance:
   scopes:
-    - {resource_kind: wiki.page, actions: [write]}
+    - {resource_kind: notes.page, actions: [write]}
 ```
 
 Whoever is issued one of these scopes on the installation connects, changes
@@ -262,7 +262,7 @@ role rules. A bare module can declare
 ```yaml
 installation_role: none
 edge_dependencies:
-  - {module: robin, presence: required}
+  - {module: assistant, presence: required}
   - {module: annotations, presence: optional}
 ```
 
@@ -285,7 +285,7 @@ ENVIRONMENT CLASS instead:
 
 ```yaml
 edge_dependencies:
-  - {module: robin, presence: required}
+  - {module: assistant, presence: required}
   - module: annotations
     presence_by_class: {development: optional, production: required}
 ```
@@ -327,15 +327,15 @@ literally:
 
 ```yaml
 scope_ceilings:
-  - resource_kind: wiki.page
+  - resource_kind: notes.page
     actions: [read, write, publish]
 roles:
   - name: admin
     scopes:
-      - {resource_kind: wiki.page, actions: [read, write, publish]}
+      - {resource_kind: notes.page, actions: [read, write, publish]}
   - name: user
     scopes:
-      - {resource_kind: wiki.page, actions: [read, write]}
+      - {resource_kind: notes.page, actions: [read, write]}
       - {resource_kind: documents, actions: [read]}
 ```
 
@@ -462,7 +462,7 @@ spelled like `scopes`:
 roles:
   - name: user
     scopes:
-      - {resource_kind: wiki.page, actions: [read]}
+      - {resource_kind: notes.page, actions: [read]}
     installation_owned_scopes:
       - {resource_kind: documents.collection, actions: [read]}
 ```
