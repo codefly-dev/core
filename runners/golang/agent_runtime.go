@@ -12,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/codefly-dev/core/discovery"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
@@ -349,20 +350,15 @@ func RunGoTests(ctx context.Context, env *GoRunnerEnvironment, sourceLocation st
 }
 
 func goTestWorkDir(sourceLocation string) string {
-	cur := sourceLocation
-	for {
+	for _, cur := range discovery.Ancestors(sourceLocation, discovery.Repository) {
 		if _, err := os.Stat(filepath.Join(cur, "go.mod")); err == nil {
 			return cur
 		}
 		if _, err := os.Stat(filepath.Join(cur, "go.work")); err == nil {
 			return cur
 		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return sourceLocation
-		}
-		cur = parent
 	}
+	return sourceLocation
 }
 
 func (r *GoRunnerEnvironment) defaultPackageTargets() []string {

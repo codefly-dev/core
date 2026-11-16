@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codefly-dev/core/discovery"
 	"github.com/codefly-dev/core/languages"
 	"golang.org/x/mod/modfile"
 	googleproto "google.golang.org/protobuf/proto"
@@ -259,14 +260,12 @@ func mayBeForeign(binding goBinding, requires []string, protoDir string) (bool, 
 }
 
 // goRequires returns the module paths required by the go.mod that governs
-// dir: the nearest one at or above it, exactly the one the go command builds
-// dir's packages under. No go.mod requires nothing.
+// dir: the nearest one at or above it within dir's repository, the one the go
+// command builds dir's packages under. A go.mod above the repository, or in
+// the system temporary directory, governs nothing here (discovery.Repository).
+// No go.mod requires nothing.
 func goRequires(dir string) ([]string, error) {
-	current, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, err
-	}
-	for {
+	for _, current := range discovery.Ancestors(dir, discovery.Repository) {
 		name := filepath.Join(current, "go.mod")
 		data, err := os.ReadFile(name) //nolint:gosec // the go.mod governing a generated output root
 		switch {
@@ -283,12 +282,8 @@ func goRequires(dir string) ([]string, error) {
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err
 		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return nil, nil
-		}
-		current = parent
 	}
+	return nil, nil
 }
 
 // foreignGoFiles returns the names of the files in set a Go binding must not

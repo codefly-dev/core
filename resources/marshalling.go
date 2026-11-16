@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 
-	"github.com/codefly-dev/core/wire"
+	"github.com/codefly-dev/core/discovery"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/wire"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
 )
@@ -236,15 +236,15 @@ func FindUp[C Configuration](ctx context.Context) (*string, error) {
 	return FindUpFrom[C](ctx, cur)
 }
 
-// FindUpFrom looks for a configuration in dir and up. Callers that must not
+// FindUpFrom looks for a configuration in dir and up, never entering a
+// ceiling (discovery.Ceilings): a workspace nests repositories, so the search
+// crosses them, but it never reads the system temporary directory or a
+// directory CODEFLY_CEILING_DIRECTORIES names from below. Callers that must not
 // depend on the process working directory — a long-lived session anchored to
 // the directory it was created in — pass their own absolute directory.
 func FindUpFrom[C Configuration](ctx context.Context, dir string) (*string, error) {
 	w := wool.Get(ctx).In("configurations.FindUpFrom", wool.GenericField[C](), wool.DirField(dir))
-	cur := dir
-	var atRoot bool
-	for {
-		// Look for a configuration
+	for _, cur := range discovery.Ancestors(dir, discovery.Ceilings) {
 		p, err := Path[C](ctx, cur)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot get path")
@@ -253,17 +253,8 @@ func FindUpFrom[C Configuration](ctx context.Context, dir string) (*string, erro
 			w.Trace("found", wool.DirField(p))
 			return &cur, nil
 		}
-		// Move up one directory
-		cur = filepath.Dir(cur)
-
-		// Stop if we reach the root directory
-		if cur == "/" || cur == "." {
-			if atRoot {
-				return nil, nil
-			}
-			atRoot = true
-		}
 	}
+	return nil, nil
 }
 
 // vestigialModuleKeys are top-level keys that module manifests on disk carry

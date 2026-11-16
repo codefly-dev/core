@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codefly-dev/core/discovery"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
@@ -144,34 +145,31 @@ type LocalOverlay struct {
 	dir string
 }
 
-// LoadLocalOverlay searches from dir upward to the filesystem root for a
-// codefly.local.yaml and loads the first one found. The search order is
-// nearest-first: a codefly.local.yaml in the workspace directory wins over one
-// in an ancestor. Returns (nil, nil) when no overlay exists anywhere up the
-// tree — an absent overlay is the normal case, not an error.
+// LoadLocalOverlay searches from dir upward for a codefly.local.yaml and loads
+// the first one found, nearest first: one in the workspace directory wins over
+// one in an ancestor. The search never leaves the repository dir belongs to,
+// nor enters a ceiling (discovery.Repository): an overlay above the repository
+// is another checkout's. Returns (nil, nil) when there is none — an absent
+// overlay is the normal case, not an error.
 func LoadLocalOverlay(ctx context.Context, dir string) (*LocalOverlay, error) {
 	w := wool.Get(ctx).In("resources.LoadLocalOverlay", wool.DirField(dir))
-	cur := dir
-	for {
+	for _, cur := range discovery.Ancestors(dir, discovery.Repository) {
 		candidate := filepath.Join(cur, LocalOverlayConfigurationName)
-		if _, err := os.Stat(candidate); err == nil {
-			content, err := os.ReadFile(candidate)
-			if err != nil {
-				return nil, w.Wrapf(err, "cannot read overlay %s", candidate)
-			}
-			var overlay LocalOverlay
-			if err := yaml.Unmarshal(content, &overlay); err != nil {
-				return nil, w.Wrapf(err, "cannot parse overlay %s", candidate)
-			}
-			overlay.dir = cur
-			return &overlay, nil
+		if _, err := os.Stat(candidate); err != nil {
+			continue
 		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return nil, nil
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot read overlay %s", candidate)
 		}
-		cur = parent
+		var overlay LocalOverlay
+		if err := yaml.Unmarshal(content, &overlay); err != nil {
+			return nil, w.Wrapf(err, "cannot parse overlay %s", candidate)
+		}
+		overlay.dir = cur
+		return &overlay, nil
 	}
+	return nil, nil
 }
 
 // SaveLocalOverlay writes the overlay as codefly.local.yaml directly in dir
