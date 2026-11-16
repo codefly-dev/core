@@ -252,9 +252,11 @@ verified and an administrator's approval covers it.
 **Installation declarations express machine intent and edge presence separately.**
 `installation_role` is optional: absent or `""` leaves the host's existing
 selection unchanged; literal `none` declares no standing machine grant; any
-other value must exactly name a declared role. This never assigns a role to a
-person or team. `none` is reserved and cannot be a role name. Selecting a role
-relaxes none of the authority's role rules. A bare module can declare
+other value names a declared role. This never assigns a role to a person or
+team. Core carries the selector as a string; whether it names a declared role,
+exactly, and that no role is named `none`, are role rules the authority decides
+when it admits the manifest. Selecting a role relaxes none of the authority's
+role rules. A bare module can declare
 `none` without declaring roles.
 
 ```yaml
@@ -272,8 +274,9 @@ the live target and binding; a principal is not itself a target UUID. Route
 aliases, binding IDs and release strings are never fallbacks. Core does not
 require a principal to exist in a local composition. Entries are explicit;
 none are inferred from bindings. Absent and empty lists mean the
-same thing. Selector and module values with surrounding whitespace are refused,
-never trimmed; declaration fields must be strings.
+same thing. Module values with surrounding whitespace are refused, never
+trimmed (a selector's is the authority's to refuse); declaration fields must be
+strings.
 
 **A presence may differ along the promotion path.** An edge whose presence is
 genuinely not the same everywhere — optional on a development cell that has not
@@ -631,7 +634,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (168 documents) ships
+`modulecontract.Fixtures()` (165 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

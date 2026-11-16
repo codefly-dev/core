@@ -61,7 +61,7 @@ const (
 	audienceKey    = "MODEL_AUDIENCE"
 	audienceSlot   = "assistant/model-audience"
 	audienceLookup = "model-audience"
-	audienceValue  = "model-gateway"
+	audienceValue  = "models"
 	kindValue      = "modelservice.profiles"
 	kindScope      = kindValue + ":read"
 	bindingKey     = "MODEL_BINDING"
@@ -484,7 +484,7 @@ const (
 	audiencesKey    = "OWNER_AUDIENCES"
 	listKindsLookup = "owner-resource-kinds"
 	listKindsKey    = "OWNER_RESOURCE_KINDS"
-	listKindsValue  = "documents=documents.passages,robin=robin.tasks"
+	listKindsValue  = "documents=documents.passages,planner=planner.tasks"
 	listKind        = "documents.passages"
 	listScope       = listKind + ":read"
 )
@@ -498,17 +498,17 @@ func AudienceListFixtures() []ResolutionFixture {
 		{
 			Name: "an audience list", Group: group, Key: audiencesLookup, Slot: fieldAudiences, Outcome: OutcomeAccepted,
 			Audience: "documents", Kind: listKind, Scopes: []string{listScope},
-			Records: []Record{{Key: audiencesKey, Value: "robin,documents"}, {Key: listKindsKey, Value: listKindsValue}},
+			Records: []Record{{Key: audiencesKey, Value: "planner,documents"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 		{
 			Name: "an audience list naming no one between two commas", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists "", which is not an audience`, Rule: ruleResolvedList,
-			Records: []Record{{Key: audiencesKey, Value: "robin,,documents"}, {Key: listKindsKey, Value: listKindsValue}},
+			Records: []Record{{Key: audiencesKey, Value: "planner,,documents"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 		{
 			Name: "an audience list naming an audience twice", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
-			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists the audience "robin" twice`, Rule: ruleResolvedList,
-			Records: []Record{{Key: audiencesKey, Value: "robin,documents,robin"}, {Key: listKindsKey, Value: listKindsValue}},
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists the audience "planner" twice`, Rule: ruleResolvedList,
+			Records: []Record{{Key: audiencesKey, Value: "planner,documents,planner"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 	}
 }

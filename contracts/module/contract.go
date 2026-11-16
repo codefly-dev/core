@@ -89,7 +89,7 @@
 // so the audiences of one of its bindings are a LIST only the composition can
 // write. Such a binding declares `audiences` in place of `audience`: a slot
 // whose key is a *-audiences one and whose value is comma-separated names
-// (assistant,documents). It means "this binding may be exercised toward any of
+// (planner,documents). It means "this binding may be exercised toward any of
 // these audiences", and the resolution delivers it as one binding per listed
 // audience, each its own unit of authority at the issuer: id
 // <binding>:<audience> (AudienceBindingID), the audience, and the ceiling

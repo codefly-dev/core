@@ -41,18 +41,15 @@ const (
 	ruleKeyIsAName        = "key-is-a-name"
 	ruleWholeNumbers      = "numbers-are-whole"
 
-	ruleInstallationStrings        = "installation-declaration-strings"
-	ruleInstallationRole           = "installation-role"
-	ruleInstallationRoleWhitespace = "installation-role-whitespace"
-	ruleRoleReserved               = "role-reserved"
-	ruleEdgeModuleName             = "edge-module-name"
-	ruleEdgeModuleWhitespace       = "edge-module-whitespace"
-	ruleEdgeModuleUnique           = "edge-module-unique"
-	ruleEdgePresence               = "edge-presence"
-	ruleEdgePresenceOneSpelling    = "edge-presence-one-spelling"
-	ruleEdgePresenceDeclared       = "edge-presence-declared"
-	ruleEdgePresenceClass          = "edge-presence-class"
-	ruleEdgePresenceClassValue     = "edge-presence-class-value"
+	ruleInstallationStrings     = "installation-declaration-strings"
+	ruleEdgeModuleName          = "edge-module-name"
+	ruleEdgeModuleWhitespace    = "edge-module-whitespace"
+	ruleEdgeModuleUnique        = "edge-module-unique"
+	ruleEdgePresence            = "edge-presence"
+	ruleEdgePresenceOneSpelling = "edge-presence-one-spelling"
+	ruleEdgePresenceDeclared    = "edge-presence-declared"
+	ruleEdgePresenceClass       = "edge-presence-class"
+	ruleEdgePresenceClassValue  = "edge-presence-class-value"
 
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
@@ -157,9 +154,6 @@ func rules() []rule {
 		{name: ruleKeyIsAName, check: func(*Contract) error { return nil }},
 		{name: ruleWholeNumbers, check: func(*Contract) error { return nil }},
 		{name: ruleInstallationStrings, check: func(*Contract) error { return nil }},
-		{name: ruleInstallationRoleWhitespace, check: checkInstallationRoleWhitespace},
-		{name: ruleInstallationRole, check: checkInstallationRole},
-		{name: ruleRoleReserved, check: checkRoleReserved},
 		{name: ruleEdgeModuleName, check: checkEdgeModuleNames},
 		{name: ruleEdgeModuleWhitespace, check: checkEdgeModuleWhitespace},
 		{name: ruleEdgeModuleUnique, check: checkEdgeModulesUnique},
@@ -1266,36 +1260,6 @@ func checkRoleThroughBindingsKnown(contract *Contract) error {
 			if scope.Through != "" && contract.declaredBinding(scope.Through) == nil {
 				return fmt.Errorf("%w: role %q grants %s through binding %q, which the contract does not declare", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
 			}
-		}
-	}
-	return nil
-}
-
-func checkInstallationRoleWhitespace(contract *Contract) error {
-	if strings.TrimSpace(contract.InstallationRole) != contract.InstallationRole {
-		return fmt.Errorf("%w: installation_role %q has surrounding whitespace; declare the exact role name or none", ErrInvalid, contract.InstallationRole)
-	}
-	return nil
-}
-
-func checkInstallationRole(contract *Contract) error {
-	if contract.InstallationRole == "" || contract.InstallationRole == "none" {
-		return nil
-	}
-	names := make([]string, 0, len(contract.Roles))
-	for _, role := range contract.Roles {
-		if role.Name == contract.InstallationRole {
-			return nil
-		}
-		names = append(names, role.Name)
-	}
-	return fmt.Errorf("%w: installation_role %q is not a declared role; declared roles: %v (or declare none)", ErrInvalid, contract.InstallationRole, names)
-}
-
-func checkRoleReserved(contract *Contract) error {
-	for _, role := range contract.Roles {
-		if role.Name == "none" {
-			return fmt.Errorf("%w: role name none is reserved for the installation_role declaration of no standing grant", ErrInvalid)
 		}
 	}
 	return nil

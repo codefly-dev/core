@@ -84,8 +84,6 @@ func TestInstallationDeclarationShapesAreStrict(t *testing.T) {
 
 func TestProgrammaticInstallationDeclarationsUseTheSameRules(t *testing.T) {
 	for _, change := range []func(*Contract){
-		func(c *Contract) { c.InstallationRole = "ghost" },
-		func(c *Contract) { c.InstallationRole = " none " },
 		func(c *Contract) { c.EdgeDependencies = []EdgeDependency{{Module: "", Presence: "required"}} },
 		func(c *Contract) { c.EdgeDependencies = []EdgeDependency{{Module: " other ", Presence: "required"}} },
 		func(c *Contract) {
