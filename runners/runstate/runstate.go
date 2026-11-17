@@ -249,9 +249,9 @@ func inspect(dir string) (Run, bool, error) {
 
 // SweepOptions bounds a Sweep.
 type SweepOptions struct {
-	// Workspace keeps the sweep to the runs of one workspace path. Empty means
-	// every workspace on the machine.
-	Workspace string
+	// Include keeps the sweep to the runs it accepts, which is how a caller
+	// bounds it to one workspace. Nil means every run on the machine.
+	Include func(Run) bool
 	// DryRun reports what would be removed and removes nothing.
 	DryRun bool
 }
@@ -293,7 +293,7 @@ func Sweep(root string, options SweepOptions) ([]Swept, error) {
 				failures = append(failures, err)
 				continue
 			}
-			if !collectable || (options.Workspace != "" && run.Workspace != options.Workspace) {
+			if !collectable || (options.Include != nil && !options.Include(run)) {
 				continue
 			}
 			if !options.DryRun {

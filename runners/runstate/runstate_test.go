@@ -162,12 +162,13 @@ func TestSweepRemovesOnlyDeadDisposableStateInScope(t *testing.T) {
 	unmarked := stateDir(t, root, "clickhouse", "6666")
 	notState := stateDir(t, root, "trivy", "db")
 
-	preview, err := Sweep(root, SweepOptions{Workspace: "/work/shop", DryRun: true})
+	inShop := func(run Run) bool { return run.Workspace == "/work/shop" }
+	preview, err := Sweep(root, SweepOptions{Include: inShop, DryRun: true})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{deadNested, deadFlat}, dirs(preview))
 	require.DirExists(t, deadNested, "a dry run removes nothing")
 
-	swept, err := Sweep(root, SweepOptions{Workspace: "/work/shop"})
+	swept, err := Sweep(root, SweepOptions{Include: inShop})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{deadNested, deadFlat}, dirs(swept))
 	require.Equal(t, disposable, swept[0].Run)
@@ -179,7 +180,7 @@ func TestSweepRemovesOnlyDeadDisposableStateInScope(t *testing.T) {
 
 	swept, err = Sweep(root, SweepOptions{})
 	require.NoError(t, err)
-	require.Equal(t, []string{elsewhere}, dirs(swept), "no workspace means every workspace")
+	require.Equal(t, []string{elsewhere}, dirs(swept), "no filter means every run")
 	require.DirExists(t, live)
 	require.DirExists(t, kept)
 }
