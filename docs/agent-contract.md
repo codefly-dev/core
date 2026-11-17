@@ -106,6 +106,32 @@ identity. Missing capability and wrong/missing acknowledgement are distinct
 errors. Native operations that do not need recovery should not require this
 capability. Advertising support never bypasses the ownership check.
 
+## Native run state
+
+An agent that runs a store as a host process keeps its state (a cluster, a data
+file, a configuration) in a directory it owns under `runstate.Root()`,
+`<user cache dir>/codefly/<store>/...`. No agent may infer the right to delete
+that directory: a stop, a destroy, or having started the process is not one.
+
+The right is stated by the run's caller. `Environment.disposable` is set by the
+invocation that generated the run's naming scope (a disposable invocation: a
+scope nothing can run again); an unscoped run, and a scope a caller named, is a
+developer's data and is never disposable. `runners/runstate` is the one
+mechanism every native store uses for it:
+
+- **On Init**, `runstate.Claim(dir, runstate.For(workspacePath, environment))`
+  records the run on the directory and the calling agent as its user, and
+  `Hold.Track(pid)` adds every process the agent starts there that can outlive
+  it (a detached server). A persistent claim on a directory is final.
+- **On Stop**, nothing: a service restarts inside a run, and finds its data.
+- **On Destroy**, `Hold.Release()` then `runstate.Collect(dir)`, which removes
+  the directory only when it is disposable and nothing uses it any more.
+
+A run that only stops its agents, or is killed, never reaches Destroy. The
+caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
+disposable run ends, and `codefly clear` sweeps every ended disposable run in
+its scope. A directory no agent claimed is never removed.
+
 ## Evolution and releases
 
 ### Local runtime image handoff
