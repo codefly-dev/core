@@ -128,6 +128,15 @@ mechanism every native store uses for it:
   not by asking the server; only a server that forks away from the process the
   agent started needs its own report.
 - **On Stop**, nothing: a service restarts inside a run, and finds its data.
+  An agent that stops its server on Stop stops it through its own handle.
+- **A server several agents of a run share** (one postmaster for every
+  Postgres service of a run) is found and stopped through the same records,
+  not through a list the store keeps beside them: `runstate.Tracked(dir)`
+  returns the tracked processes still running, so a later agent attaches to
+  the server an earlier one started and tracks it too; on Stop each agent
+  calls `Hold.StopTracked(ctx, options)`, which stops the server only when no
+  other live claim still tracks it, and keeps the claim. An agent that died
+  uses nothing. The birth is checked before every signal, as below.
 - **On Destroy**, `Hold.Release()` then `runstate.Collect(dir)`, which removes
   the directory only when it is disposable and nothing uses it any more.
 

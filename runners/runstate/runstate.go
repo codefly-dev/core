@@ -25,6 +25,9 @@
 // SweepOptions.StopAbandoned) stops exactly those: the tracked processes of a
 // disposable directory no live run claims any more.
 //
+// A server several agents of a run share is found (Tracked) and stopped by the
+// last agent to stop using it (Hold.StopTracked) through the same records.
+//
 // A directory nobody claimed is never touched: it predates this package or
 // belongs to something else, and nothing here may infer the right to delete it
 // (codefly-dev/core#424).
@@ -267,22 +270,14 @@ func inspect(dir string) (usage, error) {
 	if err != nil || !found {
 		return state, err
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, markerDir, holdersDir))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return state, fmt.Errorf("read the holders of %s: %w", dir, err)
+	records, err := readHolders(dir, "")
+	if err != nil {
+		return state, err
 	}
-	for _, entry := range entries {
-		// An interrupted write leaves its temporary file, which is no holder.
-		if filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, markerDir, holdersDir, entry.Name()))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		var h holder
+	for _, record := range records {
+		h := record.holder
 		// A record that cannot be read is a holder that cannot be ruled out.
-		if err != nil || json.Unmarshal(data, &h) != nil || h.claims() {
+		if !record.readable || h.claims() {
 			state.held = true
 			continue
 		}
@@ -567,4 +562,104 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return os.Rename(temporary.Name(), path)
+}
+
+// Tracked returns the processes recorded on dir with Hold.Track that still
+// run, whichever agent recorded them and whether or not that agent is left.
+// It is how the agents of a run that share one server find the server one of
+// them started. A recorded PID that now names another process is not one.
+func Tracked(dir string) ([]runners.ProcessIdentity, error) {
+	records, err := readHolders(dir, "")
+	if err != nil {
+		return nil, err
+	}
+	var seen []mark
+	var servers []runners.ProcessIdentity
+	for _, record := range records {
+		for _, tracked := range record.holder.Tracked {
+			if slices.Contains(seen, tracked) {
+				continue
+			}
+			seen = append(seen, tracked)
+			identity, err := runners.InspectProcess(tracked.PID)
+			if err == nil && identity.StartID == tracked.StartID && identity.BootID == tracked.BootID {
+				servers = append(servers, identity)
+			}
+		}
+	}
+	return servers, nil
+}
+
+// StopTracked ends this claim's use of the processes it tracks, and returns
+// the PIDs it stopped. It is the orderly stop of a server several agents of a
+// run share: each agent calls it when its service stops, and the server stops
+// with the last of them.
+//
+// A tracked process another live claim on the directory still tracks is left
+// running: that agent serves from it. So is one a record that cannot be read
+// may track. Every other is stopped as StopAbandoned stops a server: asked,
+// given the grace period, then killed, and never signalled unless it is still
+// the birth that was tracked. This is the agent stopping what its own run
+// started, so it applies to a developer's directory as to a disposable one.
+//
+// The claim itself stays: the agent still uses the directory, and tracks the
+// server again if it starts again. After an error it still tracks what it
+// tracked.
+func (h *Hold) StopTracked(ctx context.Context, options StopOptions) ([]int, error) {
+	if h == nil || h.path == "" || len(h.holder.Tracked) == 0 {
+		return nil, nil
+	}
+	dir := filepath.Dir(filepath.Dir(filepath.Dir(h.path)))
+	others, err := readHolders(dir, h.path)
+	if err != nil {
+		return nil, err
+	}
+	var unused []mark
+	for _, tracked := range h.holder.Tracked {
+		used := slices.ContainsFunc(others, func(other holderRecord) bool {
+			return !other.readable || (other.holder.claims() && slices.Contains(other.holder.Tracked, tracked))
+		})
+		if !used && tracked.alive() {
+			unused = append(unused, tracked)
+		}
+	}
+	pids, err := stop(ctx, dir, unused, options)
+	if err != nil {
+		return pids, err
+	}
+	h.holder.Tracked = nil
+	return pids, h.write()
+}
+
+// holderRecord is one holder file of a state directory.
+type holderRecord struct {
+	holder holder
+	// readable is false for a record that could not be read: a claim being
+	// written, or a holder that cannot be ruled out.
+	readable bool
+}
+
+// readHolders reads the holder records of dir, except the one at skip.
+func readHolders(dir, skip string) ([]holderRecord, error) {
+	holders := filepath.Join(dir, markerDir, holdersDir)
+	entries, err := os.ReadDir(holders)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read the holders of %s: %w", dir, err)
+	}
+	var records []holderRecord
+	for _, entry := range entries {
+		path := filepath.Join(holders, entry.Name())
+		// An interrupted write leaves its temporary file, which is no holder.
+		if filepath.Ext(entry.Name()) != ".json" || path == skip {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		var record holderRecord
+		record.readable = err == nil && json.Unmarshal(data, &record.holder) == nil
+		records = append(records, record)
+	}
+	return records, nil
 }

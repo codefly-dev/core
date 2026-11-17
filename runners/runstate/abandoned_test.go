@@ -297,6 +297,24 @@ func TestStopAbandonedNeverTouchesStateInUse(t *testing.T) {
 	require.True(t, s.running(), "one live claim keeps the whole directory")
 }
 
+// The agent that started the server died with its run; another agent, of a
+// run that lives, claims the same directory. Its claim alone keeps the server.
+func TestStopAbandonedNeverStopsAServerInADirectoryALiveAgentClaims(t *testing.T) {
+	dir, s := claimWithServer(t, disposable, "plain", "postgres", "run", "a015")
+	abandon(t, dir)
+	_, err := Claim(dir, disposable)
+	require.NoError(t, err)
+
+	pids, err := StopAbandoned(context.Background(), dir, quick)
+	require.NoError(t, err)
+	require.Empty(t, pids)
+
+	swept, err := Sweep(filepath.Dir(dir), SweepOptions{StopAbandoned: &quick})
+	require.NoError(t, err)
+	require.Empty(t, swept)
+	require.True(t, s.running(), "one live claim keeps the whole directory")
+}
+
 // A record that cannot be read is a holder that cannot be ruled out.
 func TestStopAbandonedNeverActsOnAnUnreadableRecord(t *testing.T) {
 	dir, s := claimWithServer(t, disposable, "plain", "redis", "a007")
