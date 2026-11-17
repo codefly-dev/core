@@ -227,3 +227,51 @@ func TestClaimsAreIndependent(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, removed)
 }
+
+// orphan rewrites every holder of dir as an agent that still runs but whose
+// run is gone: what a CLI that was killed leaves when its agents survive it.
+func orphan(t *testing.T, dir string) {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(dir, markerDir, holdersDir, "*.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var h holder
+		require.NoError(t, json.Unmarshal(data, &h))
+		require.NotNil(t, h.Run, "a claim records the run that launched the agent")
+		h.Run.StartID++
+		data, err = json.Marshal(h)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+}
+
+// An agent that outlives the run that launched it is orphaned: it holds
+// nothing, and its run's disposable state is nobody's.
+func TestAnOrphanedAgentHoldsNothing(t *testing.T) {
+	dir := stateDir(t, t.TempDir(), "postgres", "run", "7777")
+	_, err := Claim(dir, disposable)
+	require.NoError(t, err)
+	orphan(t, dir)
+
+	removed, err := Collect(dir)
+	require.NoError(t, err)
+	require.True(t, removed)
+}
+
+// What the orphan started and still runs is another matter: the directory is
+// in use until that is stopped.
+func TestAnOrphanedAgentsRunningServerKeepsItsState(t *testing.T) {
+	dir := stateDir(t, t.TempDir(), "redis", "8888")
+	hold, err := Claim(dir, disposable)
+	require.NoError(t, err)
+	require.NoError(t, hold.Track(os.Getpid()))
+	orphan(t, dir)
+
+	removed, err := Collect(dir)
+	require.NoError(t, err)
+	require.False(t, removed)
+	require.DirExists(t, dir)
+}

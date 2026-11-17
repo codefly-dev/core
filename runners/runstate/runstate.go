@@ -15,7 +15,8 @@
 // agent (base.v0.Environment.disposable); the agent records it on the
 // directory together with the processes using it (Claim, Hold.Track); and a
 // directory is removed (Collect) only when it was declared disposable by every
-// run that ever claimed it and none of those processes is left. The agent
+// run that ever claimed it and none of those processes is left: no agent still
+// run by its launcher, and no server an agent started there. The agent
 // collects when its run destroys it, which is the ordinary end of a run; Sweep
 // collects what a killed run could not, and is what `codefly clear` calls.
 //
@@ -107,15 +108,19 @@ func (m mark) alive() bool {
 	return identity.StartID == m.StartID && identity.BootID == m.BootID
 }
 
-// holder is one agent using a state directory, and the processes it left
-// there that can outlive it.
+// holder is one agent using a state directory: the agent, the run that
+// launched it, and the processes it left there that can outlive it.
 type holder struct {
 	Agent   mark   `json:"agent"`
+	Run     *mark  `json:"run,omitempty"`
 	Tracked []mark `json:"tracked,omitempty"`
 }
 
+// alive reports whether the holder still uses the directory. An agent whose
+// run is gone is orphaned and holds nothing by itself: its run was killed, and
+// only what it started and still runs keeps the directory in use.
 func (h holder) alive() bool {
-	if h.Agent.alive() {
+	if h.Agent.alive() && (h.Run == nil || h.Run.alive()) {
 		return true
 	}
 	for _, tracked := range h.Tracked {
@@ -132,8 +137,9 @@ type Hold struct {
 	holder holder
 }
 
-// Claim records the calling process as a user of dir for run. The directory is
-// the caller's: Claim creates only its own records inside it.
+// Claim records the calling process, and the process that launched it, as a
+// user of dir for run. The directory is the caller's: Claim creates only its
+// own records inside it.
 //
 // A directory stays disposable only while every run that claims it says so. A
 // persistent claim is final, because a scope a developer can name again is a
@@ -156,6 +162,11 @@ func Claim(dir string, run Run) (*Hold, error) {
 	}
 	_ = file.Close()
 	hold := &Hold{path: file.Name(), holder: holder{Agent: agent}}
+	if parent := os.Getppid(); parent > 1 {
+		if run, err := markOf(parent); err == nil {
+			hold.holder.Run = &run
+		}
+	}
 	// The holder first: once the directory can read as disposable it already
 	// has a live user.
 	if err := hold.write(); err != nil {
