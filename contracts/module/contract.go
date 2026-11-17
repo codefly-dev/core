@@ -396,7 +396,10 @@ type EdgeDependency struct {
 
 // ForeignMethod is one served method of a protocol the module does not own,
 // by its full gRPC name, and what a call to it must hold, in the module's own
-// vocabulary.
+// vocabulary. Carries is what a call may exercise beyond what it requires (the
+// hop policy's carries, which a method the module defines states as an option
+// on its own proto): no decision reads it, and the service performing that
+// effect checks it by name. It is held to the rules Requires is.
 type ForeignMethod struct {
 	// Service names the Codefly service that serves this method when the module
 	// publishes more than one RPC service. Omission retains single-service
@@ -405,6 +408,27 @@ type ForeignMethod struct {
 	Service  string         `yaml:"service,omitempty"`
 	Method   string         `yaml:"method"`
 	Requires []CeilingScope `yaml:"requires"`
+	Carries  []CeilingScope `yaml:"carries,omitempty"`
+}
+
+// foreignScope is one scope a foreign method names, and the word it names it
+// under: what the call requires, or what it carries.
+type foreignScope struct {
+	verb  string
+	scope CeilingScope
+}
+
+// scopes are every scope the method names, required and carried: one
+// vocabulary, so one set of rules.
+func (method ForeignMethod) scopes() []foreignScope {
+	out := make([]foreignScope, 0, len(method.Requires)+len(method.Carries))
+	for _, scope := range method.Requires {
+		out = append(out, foreignScope{verb: "requires", scope: scope})
+	}
+	for _, scope := range method.Carries {
+		out = append(out, foreignScope{verb: "carries", scope: scope})
+	}
+	return out
 }
 
 // ScopeCeiling is one resource kind of the module's own vocabulary and the

@@ -1019,9 +1019,9 @@ func checkForeignMethodsRequire(contract *Contract) error {
 
 func checkForeignScopesHaveActions(contract *Contract) error {
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
-			if len(scope.Actions) == 0 {
-				return fmt.Errorf("%w: foreign method %q requires %q with no action", ErrInvalid, method.Method, scope.ResourceKind)
+		for _, named := range method.scopes() {
+			if scope := named.scope; len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: foreign method %q %s %q with no action", ErrInvalid, method.Method, named.verb, scope.ResourceKind)
 			}
 		}
 	}
@@ -1040,11 +1040,11 @@ func (contract *Contract) ownCeilings() map[string][]string {
 func checkForeignMethodsOwnKinds(contract *Contract) error {
 	own := contract.ownCeilings()
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
+		for _, named := range method.scopes() {
 			// A module decides calls to itself in its own vocabulary: a kind
 			// it does not declare is one no caller could be granted here.
-			if _, declared := own[scope.ResourceKind]; !declared {
-				return fmt.Errorf("%w: foreign method %q requires %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, scope.ResourceKind)
+			if _, declared := own[named.scope.ResourceKind]; !declared {
+				return fmt.Errorf("%w: foreign method %q %s %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, named.verb, named.scope.ResourceKind)
 			}
 		}
 	}
@@ -1054,14 +1054,15 @@ func checkForeignMethodsOwnKinds(contract *Contract) error {
 func checkForeignMethodsOwnActions(contract *Contract) error {
 	own := contract.ownCeilings()
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
+		for _, named := range method.scopes() {
+			scope := named.scope
 			actions, declared := own[scope.ResourceKind]
 			if !declared {
 				continue
 			}
 			for _, action := range scope.Actions {
 				if !slices.Contains(actions, action) {
-					return fmt.Errorf("%w: foreign method %q requires %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, scope.ResourceKind, action, scope.ResourceKind)
+					return fmt.Errorf("%w: foreign method %q %s %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, named.verb, scope.ResourceKind, action, scope.ResourceKind)
 				}
 			}
 		}
@@ -1249,9 +1250,9 @@ func checkThroughOnRoleScopes(contract *Contract) error {
 // own vocabulary, decided where it is served, so it is reached through nothing.
 func checkThroughNotOnRequirements(contract *Contract) error {
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
-			if scope.Through != "" {
-				return fmt.Errorf("%w: foreign method %q requires %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, scope.ResourceKind, scope.Through)
+		for _, named := range method.scopes() {
+			if scope := named.scope; scope.Through != "" {
+				return fmt.Errorf("%w: foreign method %q %s %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, named.verb, scope.ResourceKind, scope.Through)
 			}
 		}
 	}

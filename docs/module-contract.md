@@ -212,7 +212,10 @@ method of a protocol the module only serves (an OpenTelemetry collector's
 method by its full gRPC name with what a call must hold, in the module's own
 vocabulary: every kind is one of its `scope_ceilings` and every action within
 that ceiling, and the list names each method once, each requiring at least one
-action. The render delivers them beside the methods its published contracts
+action. An entry may also say what a call `carries:` beyond what it requires
+(a first write creating what it writes to, a review recorded with a read),
+under the same rules as `requires:`: no decision reads it, and the service
+performing that effect checks it by name. The render delivers them beside the methods its published contracts
 declare, so the hop in front of the module decides them like any other.
 An entry may name `service:` to select its serving service. The composition
 requires that service to publish a gRPC or Connect listener; without a selector
@@ -713,7 +716,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (170 documents) ships
+`modulecontract.Fixtures()` (175 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare
