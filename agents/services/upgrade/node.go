@@ -18,6 +18,9 @@ import (
 //     within the allowed range.
 //   - include_major: `npm install <pkg>@latest` per package, computed
 //     from `npm outdated --json`. This crosses major boundaries.
+//   - a package of Only naming its version (`pkg@1.2.3`): `npm install` at
+//     that version, the only way a dependency declared at an exact version
+//     moves (npmSelectedInstalls).
 //
 // Changes are computed from the diff of `npm ls --json` snapshots.
 // dry_run uses `npm outdated --json` (no writes).
@@ -25,13 +28,52 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 	if !have("npm") {
 		return &Result{}, nil
 	}
+	names, selected := splitNpmOnly(opts.Only)
+	var selectedGroups []npmInstallGroup
+	var selectedChanges []*builderv0.UpgradeChange
+	if len(selected) > 0 {
+		manifests, err := readNpmManifests(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+		if selectedGroups, selectedChanges, err = npmSelectedInstalls(selected, manifests); err != nil {
+			return nil, err
+		}
+	}
+	// Only naming nothing but versions selects those packages alone: an empty
+	// Only from here on would mean every dependency.
+	selectedAlone := len(selected) > 0 && len(names) == 0
+	opts.Only = names
 	if opts.DryRun {
-		return nodeDryRun(ctx, dir, opts)
+		if selectedAlone {
+			return &Result{Changes: selectedChanges}, nil
+		}
+		result, err := nodeDryRun(ctx, dir, opts)
+		if err != nil {
+			return nil, err
+		}
+		result.Changes = mergeUpgradeChanges(selectedChanges, result.Changes)
+		return result, nil
 	}
 
 	before, err := snapshotNpm(ctx, dir)
 	if err != nil {
 		return nil, err
+	}
+	for _, group := range selectedGroups {
+		if _, err := runCmd(ctx, dir, "npm", group.installArgs()...); err != nil {
+			return nil, err
+		}
+	}
+	if selectedAlone {
+		after, err := snapshotNpm(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+		return &Result{
+			Changes:      mergeUpgradeChanges(diffMods(before, after), selectedChanges),
+			LockfileDiff: gitDiffShortstat(ctx, dir, "package.json", "package-lock.json"),
+		}, nil
 	}
 	out, err := runCmd(ctx, dir, "npm", "outdated", "--json", "--depth=0")
 	if err != nil && len(out) == 0 {
@@ -53,11 +95,7 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 		// it *finds* outdated packages — that's not a run failure, so only
 		// bubble the error when there's no JSON to parse.
 		for _, group := range npmLatestInstallGroups(raw, opts.Only, workspaces) {
-			args := append([]string{"install"}, group.Packages...)
-			if group.Workspace != "" {
-				args = append(args, "--workspace", group.Workspace)
-			}
-			if _, err := runCmd(ctx, dir, "npm", args...); err != nil {
+			if _, err := runCmd(ctx, dir, "npm", group.installArgs()...); err != nil {
 				return nil, err
 			}
 		}
@@ -76,7 +114,7 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 		return nil, err
 	}
 	return &Result{
-		Changes:      mergeUpgradeChanges(diffMods(before, after), plannedChanges),
+		Changes:      mergeUpgradeChanges(diffMods(before, after), mergeUpgradeChanges(selectedChanges, plannedChanges)),
 		LockfileDiff: gitDiffShortstat(ctx, dir, "package.json", "package-lock.json"),
 	}, nil
 }
@@ -181,6 +219,9 @@ func parseNpmOutdated(out []byte) (map[string][]npmOutdatedEntry, error) {
 type npmInstallGroup struct {
 	Workspace string
 	Packages  []string
+	// Save is how the manifest records the installed version: empty for npm's
+	// default, npmSaveExact, or the range operator to keep.
+	Save string
 }
 
 func npmLatestInstallGroups(entries map[string][]npmOutdatedEntry, only []string, workspaces map[string]string) []npmInstallGroup {
