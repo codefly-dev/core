@@ -227,7 +227,11 @@ var (
 
 // Callees answers what a call to another module requires, from that module's
 // own declarations: the scopes, each "<resource kind>:<action>", that the
-// audience's method policy for the call names. A call the audience does not
+// audience's method policy for the call names. That is what the method
+// requires and, beside it, what it carries (a permission the audience uses on
+// some calls of the method alone, such as reading content): the answer is the
+// ceiling of a binding that names the call, and a binding whose ceiling left
+// out what a call carries could never carry it. A call the audience does not
 // serve, or one that declares nothing, is an error naming it.
 type Callees interface {
 	Requires(audience, call string) ([]string, error)
@@ -944,12 +948,12 @@ type OmittedBinding struct {
 // reached through a binding (Through), Resolve addresses it to the one
 // audience that underwrites it (one no audience underwrites is addressed
 // nowhere, and the authority refuses the delivery granting it) — the
-// unit's principal for its own kind, the binding's resolved audience for a
-// consumed one (a binding spelling scopes names one audience: never a list,
-// whose kinds are each audience's own). A scope two audiences underwrite is
-// refused, naming both; the role then grants the binding it means through
-// bindings, which carries its audience. A grant through an optional binding
-// the composition leaves out is left out with it.
+// unit's principal for its own kind, for a consumed one the resolved audience
+// of the binding that carries it for an operation a person causes: spelled
+// out, or declared by that audience for the calls the binding names. A scope
+// two audiences underwrite is refused, naming both; the role then grants the
+// binding it means through bindings, which carries its audience. A grant
+// through an optional binding the composition leaves out is left out with it.
 type ResolvedRole struct {
 	Name string
 	// Scopes are the role's scopes as it grants them: those it declares, with
@@ -1236,7 +1240,11 @@ func (contract *Contract) resolveRoles(declared []Role, resolved *Resolved, deli
 	own := contract.ownCeilings()
 	// underwriters are the audiences a literal role scope is held at: the
 	// principal for the unit's own kind, and each delivered audience of a
-	// binding that spells the scope out for an operation a person causes.
+	// binding that, for an operation a person causes, spells the scope out or
+	// names calls that audience declares it for. A binding that names its
+	// calls names no kind, so a scope is held there only when it comes from
+	// somewhere that does name it: a bundle the role includes, read from the
+	// module publishing it, or the role's own spelling.
 	underwriters := func(kind, action string) []string {
 		var audiences []string
 		if slices.Contains(own[kind], action) {
@@ -1244,10 +1252,14 @@ func (contract *Contract) resolveRoles(declared []Role, resolved *Resolved, deli
 		}
 		for _, binding := range contract.Bindings {
 			for _, operation := range []string{OperationInvoke, OperationLookup} {
-				if slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
+				spelled := slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
 					return scope.ResourceKind == kind && slices.Contains(scope.Actions, action)
-				}) {
-					for _, index := range delivered[binding.ID] {
+				})
+				called := len(binding.Calls[operation]) > 0
+				for _, index := range delivered[binding.ID] {
+					// A ceiling read from calls is each audience's own: the
+					// scope is held at the audiences whose calls declare it.
+					if spelled || called && slices.Contains(resolved.Bindings[index].Scopes[operation], kind+":"+action) {
 						audiences = append(audiences, resolved.Bindings[index].Audience)
 					}
 				}

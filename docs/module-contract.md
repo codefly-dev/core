@@ -57,6 +57,21 @@ no callees, or a call the audience does not serve or that declares nothing, is
 refused under `ErrUnresolvedCall`, naming the binding and the call, never
 delivered with an empty ceiling.
 
+**`calls:` is the form to use for a ceiling at another module.** A
+`scope_ceiling` naming another module's kinds is a hand-written copy of that
+module's method policy; there is no include form for a ceiling, because the
+methods called already say it. What `Callees` answers for a call is what the
+method **requires and what it carries** — a permission the audience uses on
+some calls of the method alone, such as reading content beside metadata — so a
+ceiling read from calls can carry everything a call to those methods can use.
+A role's scope on the audience's kind is held at such a binding exactly as at
+one that spells its ceiling out (below), so a unit names another module's
+kinds in neither its bindings nor, including that module's bundles, its roles.
+A spelled `scope_ceiling` stays for what calls cannot say: the module's own
+kinds at itself, bare actions on a kind the composition chooses
+(`resource_kind` slot), and an audience that publishes no method policy to
+read.
+
 **A binding may be optional.** A binding is mandatory by default: every
 composition of the module fills its slots, or the render refuses it. A binding
 marked `optional: true` is one a composition may leave out, for a capability
@@ -342,11 +357,14 @@ roles:
 The authority holds what a role may grant, refusing the delivery otherwise:
 the unit's **own kinds**, each action within its
 `scope_ceilings`, and the **permissions at another module it consumes**: a
-scope one of its bindings spells out (`{resource_kind, actions}`) for `invoke`
-or `lookup`, the operations a person causes. A `headless` binding's scopes are
-never grantable (no person is in one). A bare action or a call names its kind
-only when the composition resolves it, so a role never spells one out; it
-**names the binding** instead:
+scope one of its bindings carries for `invoke` or `lookup`, the operations a
+person causes: one the binding spells out (`{resource_kind, actions}`), or one
+the calls it names are declared to require or carry by the audience. A
+`headless` binding's scopes are never grantable (no person is in one). A role
+grants a subset of such a binding by naming the scopes (through a bundle the
+audience publishes, so the unit spells none of its kinds), or everything the
+binding carries by **naming the binding**, which is also how it grants a bare
+action, whose kind only the composition resolves:
 
 ```yaml
 roles:
@@ -369,8 +387,11 @@ leaves out is left out with it.
 there. A role scope names no audience, and is still never ambiguous: unless it
 is reached through a binding (below), it is addressed
 to the one audience that underwrites it — the unit's principal for its own kind,
-that binding's resolved audience for a consumed one (a ceiling that spells
-scopes out belongs to a binding with one audience, never a list). A scope two
+the resolved audience of the binding that carries it for a person for a
+consumed one: the binding spelling it out, or each audience whose calls, as
+named by the binding, are declared to require or carry it (a ceiling read from
+calls is each audience's own, so a binding listing audiences holds a scope
+only at those that declare it). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
 then names the binding it means in `bindings`. A scope no audience underwrites
 is addressed nowhere, and the authority refuses the delivery granting it.
