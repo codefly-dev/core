@@ -14,7 +14,9 @@ import (
 // endpoint.Package set, every listed service lies in that package. Imported
 // schemas alone never establish serving. That a listener serves a subset is
 // legitimate only when its siblings serve the rest: ProtobufCoverage holds a
-// descriptor's listeners to that.
+// descriptor's listeners to that. A service listed with an Interface is the
+// protocol of an interface other modules implement: it exists in the
+// descriptor and contributes no procedure.
 func ProtobufProcedures(set *descriptorpb.FileDescriptorSet, endpoint APIContractEndpoint) ([]string, error) {
 	available := map[string]APIContractService{}
 	for _, service := range ProtobufServices(set, "") {
@@ -34,6 +36,9 @@ func ProtobufProcedures(set *descriptorpb.FileDescriptorSet, endpoint APIContrac
 			return nil, fmt.Errorf("service %s must use descriptor name %s and appear exactly once", service.FullName, declared.Name)
 		}
 		seenServices[service.FullName] = true
+		if err := service.validateInterface(); err != nil {
+			return nil, err
+		}
 		allowed := map[string]bool{}
 		for _, method := range declared.Procedures {
 			allowed[method] = true
@@ -64,8 +69,18 @@ func ProtobufProcedures(set *descriptorpb.FileDescriptorSet, endpoint APIContrac
 // a breaking change to it. A service of another package that no listener
 // lists — an imported schema, a foreign API the module only calls — is not
 // served, and needs no row.
+//
+// A module may also define, in a package it serves, the protocol of an
+// interface it publishes for other modules to implement: its descriptor
+// declares the service and none of its listeners serves it. That is exempt
+// only when a row says so, naming the interface (APIContractService.Interface)
+// — never because the service is merely unlisted, which is the stale catalog
+// this guards against — and only when no listener serves any of it. Its
+// compatibility is then the interface's own versioning, not this module's
+// served evidence.
 func ProtobufCoverage(set *descriptorpb.FileDescriptorSet, listeners []APIContractEndpoint) error {
 	served, listed, packages := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	published, servers := map[string]string{}, map[string]string{}
 	for _, listener := range listeners {
 		procedures, err := ProtobufProcedures(set, listener)
 		if err != nil {
@@ -76,6 +91,11 @@ func ProtobufCoverage(set *descriptorpb.FileDescriptorSet, listeners []APIContra
 		}
 		for _, service := range listener.Services {
 			listed[service.FullName] = true
+			if service.Interface != "" {
+				published[service.FullName] = service.Interface
+			} else if _, seen := servers[service.FullName]; !seen {
+				servers[service.FullName] = listener.Service + "/" + listener.Endpoint
+			}
 		}
 		if listener.Package != "" {
 			packages[listener.Package] = true
@@ -83,6 +103,12 @@ func ProtobufCoverage(set *descriptorpb.FileDescriptorSet, listeners []APIContra
 	}
 	for _, service := range ProtobufServices(set, "") {
 		if !listed[service.FullName] && !packages[servicePackage(service)] {
+			continue
+		}
+		if identity, declared := published[service.FullName]; declared {
+			if server, conflict := servers[service.FullName]; conflict {
+				return fmt.Errorf("service %s is declared as interface %s, implemented by other modules, and served by endpoint %s; it is one or the other", service.FullName, identity, server)
+			}
 			continue
 		}
 		for _, procedure := range service.Procedures {
