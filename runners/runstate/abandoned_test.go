@@ -201,6 +201,67 @@ func TestStopAbandonedNeverStopsTheServerOfARunThatStillLives(t *testing.T) {
 	require.True(t, s.running())
 }
 
+// An agent whose launcher was already gone when it claimed (it was reparented
+// to PID 1 before its Init) records no run. No run can be supervising it, so
+// once it is dead its server is abandoned like any killed run's.
+func TestStopAbandonedStopsTheServerOfADeadAgentThatRecordedNoRun(t *testing.T) {
+	dir, s := claimWithServer(t, disposable, "plain", "clickhouse", "a012")
+	rewriteHolders(t, dir, func(h *holder) {
+		h.Run = nil
+		h.Agent.StartID++
+	})
+
+	pids, err := StopAbandoned(context.Background(), dir, quick)
+	require.NoError(t, err)
+	require.Equal(t, []int{s.pid}, pids)
+	s.requireStopped(t)
+
+	removed, err := Collect(dir)
+	require.NoError(t, err)
+	require.True(t, removed)
+}
+
+// While that agent lives it claims the directory, run or no run.
+func TestStopAbandonedNeverStopsTheServerOfALiveAgentThatRecordedNoRun(t *testing.T) {
+	dir, s := claimWithServer(t, disposable, "plain", "clickhouse", "a013")
+	rewriteHolders(t, dir, func(h *holder) { h.Run = nil })
+
+	pids, err := StopAbandoned(context.Background(), dir, quick)
+	require.NoError(t, err)
+	require.Empty(t, pids)
+
+	swept, err := Sweep(filepath.Dir(dir), SweepOptions{StopAbandoned: &quick})
+	require.NoError(t, err)
+	require.Empty(t, swept)
+	require.True(t, s.running())
+}
+
+// With no run recorded and the agent dead, the only thing between a sweep and
+// a signal is the tracked birth: a recorded PID that now names another process
+// receives nothing, and the directory, which nothing uses, is collectable.
+func TestStopAbandonedNeverSignalsARecycledPIDOfAnAgentThatRecordedNoRun(t *testing.T) {
+	dir, s := claimWithServer(t, disposable, "plain", "clickhouse", "a014")
+	rewriteHolders(t, dir, func(h *holder) {
+		h.Run = nil
+		h.Agent.StartID++
+		for i := range h.Tracked {
+			h.Tracked[i].StartID++
+		}
+	})
+
+	pids, err := StopAbandoned(context.Background(), dir, quick)
+	require.NoError(t, err)
+	require.Empty(t, pids)
+
+	swept, err := Sweep(filepath.Dir(dir), SweepOptions{StopAbandoned: &quick})
+	require.NoError(t, err)
+	require.Equal(t, []string{dir}, dirs(swept))
+	require.Empty(t, swept[0].Stopped)
+
+	time.Sleep(200 * time.Millisecond)
+	require.True(t, s.running(), "a process that was not tracked is never signalled")
+}
+
 func TestStopAbandonedNeverTouchesPersistentState(t *testing.T) {
 	dir, s := claimWithServer(t, persistent, "plain", "postgres", "run", "a005")
 	abandon(t, dir)
