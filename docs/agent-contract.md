@@ -132,6 +132,28 @@ caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
 disposable run ends, and `codefly clear` sweeps every ended disposable run in
 its scope. A directory no agent claimed is never removed.
 
+A killed run also leaves its servers running: `kill -9` of the CLI reparents
+its agents and what they started, and a directory is in use for as long as a
+tracked server runs. Stopping those is the same mechanism, and the caller opts
+in: `runstate.StopAbandoned(ctx, dir, runstate.StopOptions{})` for one
+directory (then `Collect`), or `SweepOptions.StopAbandoned` for a sweep, which
+stops and then collects. An agent does it on Init for its own store, so the
+next run cleans up after a killed one; `codefly clear` does it for its scope.
+No agent keeps records of its own for this.
+
+It acts only on a directory every claiming run declared disposable and that no
+agent still run by its launcher claims, and only on the processes recorded with
+`Hold.Track`: each is sent `StopOptions.Signal` (SIGTERM unless the store's
+orderly shutdown is another signal), given `StopOptions.Grace` (ten seconds by
+default), then killed. The recorded birth is checked before every signal (boot
+and start identity, `runners/base.InspectProcess` and `SignalProcess`), so a
+PID that was reused is never signalled. A persistent directory's server, a
+directory with a live claim or an unreadable record, and a process nobody
+tracked are left as they are. A `DryRun` sweep stops nothing and names what it
+would stop (`Swept.Stopped`). An agent that serializes its directories with a
+lock of its own takes that lock around `StopAbandoned` and `Collect`, as it
+does around `Collect` today.
+
 ## Evolution and releases
 
 ### Local runtime image handoff

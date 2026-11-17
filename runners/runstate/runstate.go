@@ -20,18 +20,27 @@
 // collects when its run destroys it, which is the ordinary end of a run; Sweep
 // collects what a killed run could not, and is what `codefly clear` calls.
 //
+// A killed run also leaves its servers running, and they keep its directory in
+// use for good. A caller that opts in (StopAbandoned, or
+// SweepOptions.StopAbandoned) stops exactly those: the tracked processes of a
+// disposable directory no live run claims any more.
+//
 // A directory nobody claimed is never touched: it predates this package or
 // belongs to something else, and nothing here may infer the right to delete it
 // (codefly-dev/core#424).
 package runstate
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"syscall"
+	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runners "github.com/codefly-dev/core/runners/base"
@@ -116,19 +125,12 @@ type holder struct {
 	Tracked []mark `json:"tracked,omitempty"`
 }
 
-// alive reports whether the holder still uses the directory. An agent whose
-// run is gone is orphaned and holds nothing by itself: its run was killed, and
-// only what it started and still runs keeps the directory in use.
-func (h holder) alive() bool {
-	if h.Agent.alive() && (h.Run == nil || h.Run.alive()) {
-		return true
-	}
-	for _, tracked := range h.Tracked {
-		if tracked.alive() {
-			return true
-		}
-	}
-	return false
+// claims reports whether the holder's agent still uses the directory. An agent
+// whose run is gone is orphaned and holds nothing by itself: its run was
+// killed, and only what it started and still runs (Tracked) keeps the
+// directory in use.
+func (h holder) claims() bool {
+	return h.Agent.alive() && (h.Run == nil || h.Run.alive())
 }
 
 // Hold is the calling agent's claim on a state directory.
@@ -220,8 +222,8 @@ func (h *Hold) write() error { return writeJSON(h.path, h.holder) }
 // Collect removes dir when it is disposable and nothing uses it any more, and
 // reports whether it did. Persistent and unclaimed directories are left alone.
 func Collect(dir string) (bool, error) {
-	_, collectable, err := inspect(dir)
-	if err != nil || !collectable {
+	state, err := inspect(dir)
+	if err != nil || !state.collectable() {
 		return false, err
 	}
 	if err := os.RemoveAll(dir); err != nil {
@@ -230,15 +232,39 @@ func Collect(dir string) (bool, error) {
 	return true, nil
 }
 
-// inspect returns a claimed directory's run and whether Collect may remove it.
-func inspect(dir string) (Run, bool, error) {
+// usage is what a state directory's records say about it now.
+type usage struct {
+	run Run
+	// claimed is false for a directory no agent recorded a run on.
+	claimed bool
+	// held is true while an agent still run by its launcher claims the
+	// directory, or a record cannot be read and so cannot be ruled out.
+	held bool
+	// servers are the tracked processes still running.
+	servers []mark
+}
+
+// collectable reports whether Collect may remove the directory.
+func (u usage) collectable() bool {
+	return u.claimed && u.run.Disposable && !u.held && len(u.servers) == 0
+}
+
+// abandoned reports whether the directory is a killed disposable run's whose
+// servers were left running: nobody claims it and only they keep it.
+func (u usage) abandoned() bool {
+	return u.claimed && u.run.Disposable && !u.held && len(u.servers) > 0
+}
+
+// inspect reads a directory's run and who still uses it.
+func inspect(dir string) (usage, error) {
 	run, found, err := readRun(dir)
-	if err != nil || !found || !run.Disposable {
-		return run, false, err
+	state := usage{run: run, claimed: found}
+	if err != nil || !found {
+		return state, err
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, markerDir, holdersDir))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return run, false, fmt.Errorf("read the holders of %s: %w", dir, err)
+		return state, fmt.Errorf("read the holders of %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		// An interrupted write leaves its temporary file, which is no holder.
@@ -251,11 +277,152 @@ func inspect(dir string) (Run, bool, error) {
 		}
 		var h holder
 		// A record that cannot be read is a holder that cannot be ruled out.
-		if err != nil || json.Unmarshal(data, &h) != nil || h.alive() {
-			return run, false, nil
+		if err != nil || json.Unmarshal(data, &h) != nil || h.claims() {
+			state.held = true
+			continue
+		}
+		for _, tracked := range h.Tracked {
+			if tracked.alive() && !slices.Contains(state.servers, tracked) {
+				state.servers = append(state.servers, tracked)
+			}
 		}
 	}
-	return run, true, nil
+	return state, nil
+}
+
+// StopOptions is how an abandoned run's servers are stopped.
+type StopOptions struct {
+	// Signal asks a server to stop. Zero means SIGTERM; a store whose orderly
+	// shutdown is another signal names it.
+	Signal syscall.Signal
+	// Grace is how long the servers get to stop before they are killed. Zero
+	// means ten seconds.
+	Grace time.Duration
+}
+
+const (
+	defaultStopGrace = 10 * time.Second
+	// killWait is how long a killed process gets to disappear.
+	killWait = 5 * time.Second
+	stopPoll = 50 * time.Millisecond
+)
+
+// StopAbandoned stops the servers a killed disposable run left running in dir,
+// and returns the PIDs it stopped. A killed run never destroys its agents, so
+// nothing else stops what they started; until it is stopped the directory is
+// in use and Collect keeps it. Call Collect afterwards.
+//
+// It acts only on a directory every claiming run declared disposable, that no
+// agent still run by its launcher claims, and only on the processes recorded
+// there with Hold.Track: each is asked to stop, given the grace period, then
+// killed. A recorded PID that now names another process is that run's server
+// gone, and is never signalled. Everything else is left exactly as it is: a
+// persistent or unclaimed directory, a directory in use, and any process not
+// tracked there.
+//
+// A cancelled context ends the wait without killing anything.
+func StopAbandoned(ctx context.Context, dir string, options StopOptions) ([]int, error) {
+	state, err := inspect(dir)
+	if err != nil || !state.abandoned() {
+		return nil, err
+	}
+	return stop(ctx, dir, state.servers, options)
+}
+
+func stop(ctx context.Context, dir string, servers []mark, options StopOptions) ([]int, error) {
+	signal, grace := options.Signal, options.Grace
+	if signal == 0 {
+		signal = syscall.SIGTERM
+	}
+	if grace <= 0 {
+		grace = defaultStopGrace
+	}
+	var failures []error
+	var signalled []mark
+	send := func(server mark, signal syscall.Signal) {
+		sent, err := server.signal(ctx, signal)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("stop process %d left in %s: %w", server.PID, dir, err))
+		} else if sent && !slices.Contains(signalled, server) {
+			signalled = append(signalled, server)
+		}
+	}
+	for _, server := range servers {
+		send(server, signal)
+	}
+	left, err := waitGone(ctx, signalled, grace)
+	if err != nil {
+		return stopped(signalled, left), errors.Join(append(failures, err)...)
+	}
+	for _, server := range left {
+		send(server, syscall.SIGKILL)
+	}
+	if left, err = waitGone(ctx, left, killWait); err != nil {
+		failures = append(failures, err)
+	}
+	for _, server := range left {
+		failures = append(failures, fmt.Errorf("process %d left in %s did not stop", server.PID, dir))
+	}
+	return stopped(signalled, left), errors.Join(failures...)
+}
+
+// signal delivers a signal to the marked birth and reports whether it was
+// delivered; a process that is gone, or whose PID now names another process,
+// receives nothing.
+func (m mark) signal(ctx context.Context, signal syscall.Signal) (bool, error) {
+	if m.PID == os.Getpid() || m.PID == os.Getppid() {
+		return false, errors.New("it is this process or its launcher")
+	}
+	identity, err := runners.InspectProcess(m.PID)
+	if errors.Is(err, runners.ErrProcessNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if identity.StartID != m.StartID || identity.BootID != m.BootID {
+		return false, nil
+	}
+	// The kernel handle binds delivery to this birth even if the PID is
+	// reused between the inspection and the signal.
+	err = runners.SignalProcess(ctx, identity, signal)
+	if errors.Is(err, runners.ErrProcessNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// waitGone waits up to budget for the marked processes to end and returns the
+// ones still running.
+func waitGone(ctx context.Context, servers []mark, budget time.Duration) ([]mark, error) {
+	deadline := time.NewTimer(budget)
+	defer deadline.Stop()
+	poll := time.NewTicker(stopPoll)
+	defer poll.Stop()
+	for {
+		servers = slices.DeleteFunc(slices.Clone(servers), func(server mark) bool { return !server.alive() })
+		if len(servers) == 0 {
+			return nil, nil
+		}
+		select {
+		case <-ctx.Done():
+			return servers, ctx.Err()
+		case <-deadline.C:
+			return servers, nil
+		case <-poll.C:
+		}
+	}
+}
+
+// stopped is the PIDs of signalled that are not in left.
+func stopped(signalled, left []mark) []int {
+	var pids []int
+	for _, server := range signalled {
+		if !slices.Contains(left, server) {
+			pids = append(pids, server.PID)
+		}
+	}
+	return pids
 }
 
 // SweepOptions bounds a Sweep.
@@ -263,14 +430,24 @@ type SweepOptions struct {
 	// Include keeps the sweep to the runs it accepts, which is how a caller
 	// bounds it to one workspace. Nil means every run on the machine.
 	Include func(Run) bool
-	// DryRun reports what would be removed and removes nothing.
+	// DryRun reports what would be removed and removes nothing. With
+	// StopAbandoned it stops nothing either, and reports what it would stop.
 	DryRun bool
+	// StopAbandoned makes the sweep also end what a killed run left running:
+	// the servers of a disposable directory nobody claims any more are
+	// stopped as StopAbandoned (the function) does, and the directory is then
+	// collected. Nil, the default, never signals a process: a directory whose
+	// server still runs is kept.
+	StopAbandoned *StopOptions
 }
 
 // Swept is one state directory a Sweep removed, or would remove.
 type Swept struct {
 	Dir string
 	Run Run
+	// Stopped is the PIDs of the servers the sweep stopped in the directory,
+	// or would stop on a dry run. Empty unless SweepOptions.StopAbandoned.
+	Stopped []int
 }
 
 // Sweep collects every disposable state directory under root whose users are
@@ -299,12 +476,37 @@ func Sweep(root string, options SweepOptions) ([]Swept, error) {
 				}
 				continue
 			}
-			run, collectable, err := inspect(child)
+			state, err := inspect(child)
 			if err != nil {
 				failures = append(failures, err)
 				continue
 			}
-			if !collectable || (options.Include != nil && !options.Include(run)) {
+			if options.Include != nil && !options.Include(state.run) {
+				continue
+			}
+			var stoppedPIDs []int
+			if options.StopAbandoned != nil && state.abandoned() {
+				if options.DryRun {
+					for _, server := range state.servers {
+						stoppedPIDs = append(stoppedPIDs, server.PID)
+					}
+				} else {
+					stoppedPIDs, err = stop(context.Background(), child, state.servers, *options.StopAbandoned)
+					if err != nil {
+						failures = append(failures, err)
+						continue
+					}
+					// Read again: the directory may have been claimed while
+					// its servers stopped.
+					if state, err = inspect(child); err != nil {
+						failures = append(failures, err)
+						continue
+					}
+					if !state.collectable() {
+						continue
+					}
+				}
+			} else if !state.collectable() {
 				continue
 			}
 			if !options.DryRun {
@@ -313,7 +515,7 @@ func Sweep(root string, options SweepOptions) ([]Swept, error) {
 					continue
 				}
 			}
-			swept = append(swept, Swept{Dir: child, Run: run})
+			swept = append(swept, Swept{Dir: child, Run: state.run, Stopped: stoppedPIDs})
 		}
 	}
 	walk(root, 1)
