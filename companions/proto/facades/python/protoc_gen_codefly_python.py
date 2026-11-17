@@ -26,6 +26,7 @@ import os
 import sys
 import tempfile
 
+from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2
 from google.protobuf.descriptor_pb2 import FileDescriptorSet
 from grpc_tools import protoc
@@ -83,7 +84,15 @@ def _public_closure(by_name, name):
 
 def generate(request: plugin_pb2.CodeGeneratorRequest) -> plugin_pb2.CodeGeneratorResponse:
     response = plugin_pb2.CodeGeneratorResponse()
-    response.supported_features = plugin_pb2.CodeGeneratorResponse.FEATURE_PROTO3_OPTIONAL
+    response.supported_features = (
+        plugin_pb2.CodeGeneratorResponse.FEATURE_PROTO3_OPTIONAL
+        | plugin_pb2.CodeGeneratorResponse.FEATURE_SUPPORTS_EDITIONS
+    )
+    # The editions the pinned grpc_tools compiles. It resolves each file's features
+    # itself, from the descriptors it is handed, which keep them: `features` is a
+    # built-in option, so without_options leaves it in place.
+    response.minimum_edition = descriptor_pb2.EDITION_PROTO2
+    response.maximum_edition = descriptor_pb2.EDITION_2023
     with tempfile.TemporaryDirectory() as work:
         descriptors = os.path.join(work, "request.binpb")
         with open(descriptors, "wb") as out:
