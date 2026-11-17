@@ -19,6 +19,7 @@ import (
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/runstate"
 	"github.com/codefly-dev/core/sdk/session"
 	"github.com/codefly-dev/core/wool"
 
@@ -491,6 +492,9 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	} else {
 		cmd.Env = withCLIServerPort(processEnvironment, channel.target)
 	}
+	if cmd.Env, err = runEnvironment(cmd.Env, opt); err != nil {
+		return nil, err
+	}
 	wool.Get(ctx).In("sdk.WithDependencies").Debug("starting CLI subprocess", wool.Field("cmd", cmd.String()))
 
 	proc, err := startManaged(ctx, cmd)
@@ -885,6 +889,27 @@ func newControlChannel(ctx context.Context, dir string, opt *Option) (*controlCh
 		session: invocation,
 		control: control,
 	}, nil
+}
+
+// runEnvironment says whose the run started with environment is.
+//
+// A dependency stack is started for this process and ends with it: the run is
+// told this process's birth, so that it stops in order when this process is
+// gone without having stopped it — a test binary that hit its timeout or was
+// killed calls nothing.
+//
+// A stack kept running is the opposite: it outlives this process for the next
+// one to attach to. It is nobody's, and an owner this process inherited is not
+// passed on to it.
+func runEnvironment(environment []string, opt *Option) ([]string, error) {
+	if opt.KeepRunning {
+		return runstate.Unowned(environment), nil
+	}
+	self, err := runstate.BirthOf(os.Getpid())
+	if err != nil {
+		return nil, fmt.Errorf("identify this process as the owner of the dependency run: %w", err)
+	}
+	return runstate.OwnedBy(environment, self), nil
 }
 
 func (c *controlChannel) isolated() bool {
