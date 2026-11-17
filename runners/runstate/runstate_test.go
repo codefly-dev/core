@@ -206,3 +206,23 @@ func TestRunOfAnEnvironmentIsDisposableOnlyUnderAScope(t *testing.T) {
 	require.Equal(t, persistent, For("/work/shop", &basev0.Environment{Disposable: true}))
 	require.Equal(t, persistent, For("/work/shop", nil))
 }
+
+// Each claim is its own: one user of a directory releasing must not release
+// another's, even from the same process.
+func TestClaimsAreIndependent(t *testing.T) {
+	dir := stateDir(t, t.TempDir(), "postgres", "run", "9999")
+	first, err := Claim(dir, disposable)
+	require.NoError(t, err)
+	second, err := Claim(dir, disposable)
+	require.NoError(t, err)
+
+	require.NoError(t, first.Release())
+	removed, err := Collect(dir)
+	require.NoError(t, err)
+	require.False(t, removed)
+
+	require.NoError(t, second.Release())
+	removed, err = Collect(dir)
+	require.NoError(t, err)
+	require.True(t, removed)
+}

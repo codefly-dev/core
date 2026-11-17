@@ -147,10 +147,15 @@ func Claim(dir string, run Run) (*Hold, error) {
 	if err := os.MkdirAll(holders, 0o700); err != nil {
 		return nil, fmt.Errorf("record the run using %s: %w", dir, err)
 	}
-	hold := &Hold{
-		path:   filepath.Join(holders, strconv.Itoa(agent.PID)+"-"+strconv.FormatUint(agent.StartID, 10)+".json"),
-		holder: holder{Agent: agent},
+	// A file per claim, not per process: two users in one process release
+	// independently. Until it is written it reads as a holder that cannot be
+	// ruled out, which is the safe reading.
+	file, err := os.CreateTemp(holders, strconv.Itoa(agent.PID)+"-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("record the run using %s: %w", dir, err)
 	}
+	_ = file.Close()
+	hold := &Hold{path: file.Name(), holder: holder{Agent: agent}}
 	// The holder first: once the directory can read as disposable it already
 	// has a live user.
 	if err := hold.write(); err != nil {
