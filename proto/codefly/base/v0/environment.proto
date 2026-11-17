@@ -22,6 +22,12 @@ message Environment {
     string naming_scope = 3;
     // fixture selects an explicit development data and authentication profile.
     string fixture = 4;
+    // disposable states that the invocation which generated naming_scope owns
+    // every piece of runtime state created under it and that the state is
+    // throwaway: an agent may remove its native state directories once the run
+    // releases them. It is the explicit authorization to delete data; an agent
+    // must never infer it from a scope's name or from having started a process.
+    bool disposable = 5;
 }
 
 // ManagedEnvironment is the platform-managed representation of an environment.
