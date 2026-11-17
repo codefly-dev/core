@@ -122,7 +122,11 @@ mechanism every native store uses for it:
 - **On Init**, `runstate.Claim(dir, runstate.For(workspacePath, environment))`
   records the run on the directory and the calling agent as its user, and
   `Hold.Track(pid)` adds every process the agent starts there that can outlive
-  it (a detached server). A persistent claim on a directory is final.
+  it (a detached server). A persistent claim on a directory is final. A server
+  started through a native or nix `Proc` is identified from that handle
+  (`proc.(runners.HostProcess).Process()`, the PID with its start identity),
+  not by asking the server; only a server that forks away from the process the
+  agent started needs its own report.
 - **On Stop**, nothing: a service restarts inside a run, and finds its data.
 - **On Destroy**, `Hold.Release()` then `runstate.Collect(dir)`, which removes
   the directory only when it is disposable and nothing uses it any more.

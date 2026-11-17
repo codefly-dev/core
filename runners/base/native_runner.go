@@ -617,3 +617,10 @@ func stopTrackedProcessGroup(ctx context.Context, cmd *exec.Cmd, group *TrackedP
 	}
 	return nil
 }
+
+// Process implements HostProcess.
+func (proc *NativeProc) Process() (ProcessIdentity, error) {
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	return startedProcess(proc.group)
+}

@@ -469,6 +469,7 @@ func (nix *NixEnvironment) NewProcess(bin string, args ...string) (Proc, error) 
 	return &NixProc{
 		env:     nix,
 		cmd:     cmd,
+		wrapped: materialized == nil,
 		output:  nix.out,
 		stopped: make(chan interface{}),
 		exitCh:  make(chan struct{}),
@@ -511,12 +512,15 @@ func (proc *NixProc) publishExit(err error) {
 
 // NixProc is a process that runs inside a Nix development shell.
 type NixProc struct {
-	env    *NixEnvironment
-	output io.Writer
-	cmd    []string
-	exec   *exec.Cmd
-	group  *TrackedProcessGroup
-	envs   []*resources.EnvironmentVariable
+	env *NixEnvironment
+	// wrapped is true when the command runs under a `nix develop` wrapper,
+	// so the process this Proc starts is the wrapper and not the command.
+	wrapped bool
+	output  io.Writer
+	cmd     []string
+	exec    *exec.Cmd
+	group   *TrackedProcessGroup
+	envs    []*resources.EnvironmentVariable
 	// carriers holds the file-delivered values this process was started
 	// with; they are removed once it has exited.
 	carriers *processCarriers
@@ -946,4 +950,16 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 	// and the goroutine blocked forever.
 	proc.stopOnce.Do(func() { close(proc.stopped) })
 	return err
+}
+
+// Process implements HostProcess. A command run under the `nix develop`
+// wrapper (no materialized dev shell) is refused: the process started is the
+// wrapper, and recording it as the command would track the wrong process.
+func (proc *NixProc) Process() (ProcessIdentity, error) {
+	if proc.wrapped {
+		return ProcessIdentity{}, errors.New("the command runs under a nix develop wrapper: its own process is not known")
+	}
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	return startedProcess(proc.group)
 }

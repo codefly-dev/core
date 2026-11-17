@@ -83,3 +83,18 @@ type Proc interface {
 	// stdout; stderr still goes to the writer set via WithOutput.
 	StdoutPipe() (io.ReadCloser, error)
 }
+
+// HostProcess is implemented by a Proc that runs as a process of this machine
+// (native and nix; not a container's). It is how the owner of a detached
+// server learns that server's birth from the handle it already holds, instead
+// of asking the server for its PID.
+type HostProcess interface {
+	// Process returns the identity of the process Start launched, as recorded
+	// at its start: the PID together with the boot and start identity that
+	// tell it from a later process reusing the number. It is the process the
+	// Proc started; a server that forks away from it is not that process. It
+	// wraps ErrProcessNotFound before Start. The identity stays the recorded
+	// birth after the process ends: re-inspect before signalling
+	// (SignalProcess).
+	Process() (ProcessIdentity, error)
+}
