@@ -26,6 +26,7 @@ import (
 	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	"github.com/codefly-dev/core/grpcconfig"
 	"github.com/codefly-dev/core/policy"
+	"github.com/codefly-dev/core/runners/runstate"
 	"github.com/codefly-dev/core/toolbox/policyguard"
 	"github.com/codefly-dev/core/wool"
 
@@ -52,6 +53,13 @@ const WorkDirEnvironment = "CODEFLY_AGENT_WORKDIR"
 // comfortably under the parent loader's gracefulShutdownTimeout (30s) so the parent
 // never has to SIGKILL the process group (which orphans children).
 const agentShutdownHardDeadline = 12 * time.Second
+
+// agentAbandonBudget is what an agent whose run is gone may spend, after its
+// own stop, ending what that run left in the state directories it claimed:
+// the grace a server gets to stop and the wait for one that had to be killed
+// (runstate.StopOptions). Nobody waits for such an agent, so it only bounds a
+// wedge.
+const agentAbandonBudget = 20 * time.Second
 
 // PluginRegistration holds the gRPC servers a plugin wants to expose.
 // All registration is handled by core -- plugins never import grpc directly.
@@ -304,6 +312,9 @@ func ResetRPCStats() {
 // Handshake on stdout: "<ProtocolVersion>|<endpoint>" where endpoint
 // is either an explicit dns:/// loopback target or "unix:<path>" (UDS).
 func Serve(reg PluginRegistration) {
+	// Before anything else: the process that started this one is the run this
+	// agent works for, and it is only known while it is still the parent.
+	launcher, launched := runstate.Launcher()
 	udsPath := os.Getenv("CODEFLY_AGENT_UDS_PATH")
 	var (
 		lis      net.Listener
@@ -466,17 +477,40 @@ func Serve(reg PluginRegistration) {
 	// dns:/// loopback target or "unix:<path>" (UDS).
 	fmt.Fprintf(os.Stdout, "%d|%s\n", ProtocolVersion, endpoint)
 
-	// Graceful shutdown on SIGTERM/SIGINT.
+	// Graceful shutdown on SIGTERM/SIGINT, and when the run that launched this
+	// agent is gone.
 	//
 	// Critical: call the Runtime's Stop FIRST so spawned child processes
 	// (user binaries, Docker containers, Nix shells) get torn down. Without
 	// this, killing the parent codefly leaks every child as a PPID=1 orphan
 	// because GracefulStop only stops the gRPC server — it does NOT touch
 	// whatever the agent has running.
+	//
+	// A run that is killed signals nobody, so the agent watches the birth of
+	// its launcher and stops in the same order once it is gone: nothing else
+	// ever would. It then ends what is left of a disposable run in the state
+	// directories it claimed, as their records decide it
+	// (runstate.AbandonClaimed), and exits.
 	go func() {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
-		<-ch
+		var orphaned <-chan struct{}
+		if launched {
+			orphaned = launcher.Gone(context.Background())
+		}
+		abandoned := false
+		deadline := agentShutdownHardDeadline
+		select {
+		case <-ch:
+		case <-orphaned:
+			abandoned = true
+			deadline += agentAbandonBudget
+			// The launcher read this agent's stdout and stderr. Nobody does
+			// now, and the first line written there would end the process
+			// with SIGPIPE before it has stopped anything.
+			signal.Ignore(syscall.SIGPIPE)
+			fmt.Fprintf(os.Stderr, "[agent] the run that launched this agent (process %d) is gone — stopping\n", launcher.PID)
+		}
 		// HARD BACKSTOP: once a shutdown signal arrives, the agent MUST exit well
 		// within the parent's SIGTERM→SIGKILL window (loader.go: 30s). The graceful
 		// path below is bounded in theory, but any single unbounded step — a Runtime
@@ -487,7 +521,7 @@ func Serve(reg PluginRegistration) {
 		// ourselves first. Only armed AFTER the signal, so it never affects a running
 		// agent.
 		go func() {
-			time.Sleep(agentShutdownHardDeadline)
+			time.Sleep(deadline)
 			fmt.Fprintln(os.Stderr, "[agent] shutdown exceeded deadline — forcing exit (avoids the parent's SIGKILL)")
 			os.Exit(0)
 		}()
@@ -495,6 +529,17 @@ func Serve(reg PluginRegistration) {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
 			cancel()
+		}
+		if abandoned {
+			abandonCtx, cancel := context.WithTimeout(context.Background(), agentAbandonBudget)
+			removed, err := runstate.AbandonClaimed(abandonCtx, runstate.StopOptions{})
+			cancel()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[agent] what the run left in this agent's state directories was not all ended: %v\n", err)
+			}
+			if len(removed) > 0 {
+				fmt.Fprintf(os.Stderr, "[agent] removed the disposable state of the run that is gone: %v\n", removed)
+			}
 		}
 		// Bounded graceful shutdown: GracefulStop blocks until every
 		// in-flight RPC returns, which is unbounded — a stuck Start

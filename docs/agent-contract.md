@@ -145,7 +145,29 @@ caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
 disposable run ends, and `codefly clear` sweeps every ended disposable run in
 its scope. A directory no agent claimed is never removed.
 
-A killed run also leaves its servers running: `kill -9` of the CLI reparents
+A run belongs to the process that started it and ends with it, on both hops,
+by the same birth identity as everything else here (`runstate.Birth`, watched
+with `Birth.Gone`, which never signals anything):
+
+- **The caller that starts a run for itself** (the SDK starting a dependency
+  stack for a test) declares itself in the run's environment
+  (`runstate.OwnedBy`, `CODEFLY_RUN_OWNER`). The CLI reads it
+  (`runstate.Owner`) and stops the run in order once the owner is
+  gone, as if it had been asked to: a test binary that timed out or was killed
+  calls nothing. A stack kept running has no owner.
+- **An agent's owner is the run that launched it.** `agents.Serve` watches the
+  birth of its launcher (`runstate.Launcher`) and, once it is gone, does what
+  it does on SIGTERM (the Runtime's `Stop`, then exit), because a killed run
+  signals nobody. It then calls `runstate.AbandonClaimed`, which ends what is
+  left of that run in the directories the agent claimed exactly as
+  `StopAbandoned` and `Collect` below decide it: a disposable directory's
+  tracked servers are stopped and the directory removed; a persistent
+  directory, and whatever the agent's own `Stop` left running in it, is left
+  as it is for the same run to come back to. An agent needs no code for this
+  beyond `Claim` and `Track`; it needs to be built on a Core that has it.
+
+An agent built on an older Core does not notice, and a killed run then leaves
+its servers running: `kill -9` of the CLI reparents
 its agents and what they started, and a directory is in use for as long as a
 tracked server runs. Stopping those is the same mechanism, and the caller opts
 in: `runstate.StopAbandoned(ctx, dir, runstate.StopOptions{})` for one
