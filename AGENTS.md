@@ -10,62 +10,18 @@ not import it, and do not make CI depend on it), any individual agent
 implementation, or user workspaces. Core defines contracts that those fill in.
 When a change you need belongs to one of them, it gets made there.
 
-## How you build here
-
-1. **What a person exercises is a composed service.** A playground is a service
-   in this repo's own workspace, started by `codefly run service`, reaching its
-   API through a declared dependency and an `${endpoint:…}` reference, with
-   identities from `--fixture`. A surface with no backend is a story on
-   fixtures. Never a hand-written dev server, a static page beside it, a
-   launcher that passes an address between processes, or a demo container. A
-   module that cannot be exercised without a host is a fixture gap filed
-   against the CLI or the SDK, never a harness written here.
-2. **Code generated from a contract comes from `codefly generate`** — `proto`,
-   `client`, `contracts`, `runnables`, `runnable-bindings`. Never this repo's
-   own generator pipeline, never a hand-written client for a contract that has
-   one, never a local gate on hand-generated output. A missing language, plugin
-   or flag is an issue against the CLI, named in the pull request.
-3. **Never hardcode anything the system resolves.** No address, port, DSN,
-   credential or host name is written down — not in code, configuration,
-   tests, scripts, docs, or a command you type. Addresses come from
-   `codefly.For(ctx)`, from `${endpoint:…}` in configuration, from the
-   generated client in a frontend, and from the suite's resolver in a test;
-   secrets from `codefly config generate`; a running service's address from
-   `codefly endpoint`. A value the SDK or the CLI cannot resolve, or resolves
-   wrong, is a bug in that tool to fix, not a value to type or copy from a
-   log: typing it encodes something true on one machine for ten minutes, and
-   it fails quietly.
-4. **Local first, from the lowest level; no pull request until it is
-   validated on an environment.** Every change climbs this ladder in order and
-   is fixed at the first rung that fails: (1) unit tests; (2) composed tests
-   with the Codefly SDK (`WithDependency`) and the local authority, so
-   permissions are proven, not assumed; (3) this repo's playground, exercised
-   in a browser; (4) the solution run locally (`codefly run`, authority dev
-   mode, the fixture people); (5) a deploy to a non-production environment
-   (a dev cell) built from the local branch — no CI, no merge, and the
-   only push is the gitops promotion; (6) QA and validation there. Only then
-   (7) the pull request — even for an approved release. A **product or
-   contract change** — a boundary, a capability, a story's promise, a
-   decision, a concept, a word, a gate — is still proposed first; a technical
-   change is proposed, if a contract has to move at all, only after it runs.
-   Integration tests driven from the API against a running environment are the
-   next rung, being built.
-5. **No cluster tests.** No test — CI job, workflow step, make target, script
-   or build-tagged suite — starts k3s, k3d, kind, minikube or any Kubernetes
-   cluster. Authorization and admission are proven in-process against the
-   authority core; a deployment is validated by `codefly run` and a hosted dev
-   cell, never by a test.
-
 ## How to behave
 
 Codefly's contributor rules, stated in full here. Core is a *library*, so a
 defect is observed downstream and the temptation is always to absorb it
 locally rather than fix what owns it.
 
-- **Prove reuse before you build**, and **build the simplest thing that works;
-  size is the signal**: fill a gap on what the platform already has, keep a
-  coding task to about **500 hand-written lines**, and past **2,000** **stop and
-  ask the user**, as when you cannot name the one responsibility a change adds.
+- **Local first.** A playground is a composed service (`codefly run service`); generated code comes
+  from `codefly generate`; nothing the system resolves is written down; no pull request until the
+  change is validated on an environment; no test starts a Kubernetes cluster.
+- **Prove reuse before you build**, and **build the simplest thing that works**: fill a gap on what
+  the platform already has, and stop and ask the user when you cannot name the one responsibility a
+  change adds.
 - **Look for the `codefly` command before doing anything by hand.** The CLI owns
   the fleet verbs — `codefly agent deps --pin`, `codefly agent release --pin`,
   `codefly update deps`, `codefly update workspace`, `codefly generate proto` —
