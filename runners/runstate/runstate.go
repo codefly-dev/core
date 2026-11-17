@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runners "github.com/codefly-dev/core/runners/base"
 )
 
@@ -65,6 +66,18 @@ type Run struct {
 	NamingScope string `json:"naming_scope,omitempty"`
 	// Disposable is the caller's statement that the state is throwaway.
 	Disposable bool `json:"disposable"`
+}
+
+// For is the run an agent was loaded for: its workspace's path and the
+// environment the caller handed it. Disposability needs a naming scope: the
+// unscoped run of a workspace is the developer's own, whatever else is said.
+func For(workspacePath string, environment *basev0.Environment) Run {
+	scope := environment.GetNamingScope()
+	return Run{
+		Workspace:   workspacePath,
+		NamingScope: scope,
+		Disposable:  environment.GetDisposable() && scope != "",
+	}
 }
 
 // mark is a process's birth: the PID plus the facts that tell it from a later
