@@ -123,17 +123,20 @@ const (
 	ruleThroughNotOnCalls = "through-not-on-requirements"
 	ruleRoleThroughKnown  = "role-through-binding-known"
 
-	ruleBundleName        = "bundle-name"
-	ruleBundleUnique      = "bundle-unique"
-	ruleBundleGrants      = "bundle-grants"
-	ruleBundleKindName    = "bundle-kind-name"
-	ruleBundleKindAction  = "bundle-kind-has-action"
-	ruleBundleKindUnique  = "bundle-kind-unique"
-	ruleBundleThroughName = "bundle-through-name"
-	ruleBundleIncludes    = "bundle-includes-published"
-	ruleBundleAcyclic     = "bundle-includes-acyclic"
-	ruleRoleIncludeName   = "role-include-name"
-	ruleRoleIncludeUnique = "role-include-unique"
+	ruleBundleName         = "bundle-name"
+	ruleBundleUnique       = "bundle-unique"
+	ruleBundleGrants       = "bundle-grants"
+	ruleBundleKindName     = "bundle-kind-name"
+	ruleBundleKindAction   = "bundle-kind-has-action"
+	ruleBundleKindUnique   = "bundle-kind-unique"
+	ruleBundleThroughName  = "bundle-through-name"
+	ruleBundleIncludes     = "bundle-includes-published"
+	ruleBundleIncludeName  = "bundle-include-name"
+	ruleBundleIncludeOther = "bundle-include-another-module"
+	ruleBundleIncludeThru  = "bundle-include-through-publisher"
+	ruleBundleAcyclic      = "bundle-includes-acyclic"
+	ruleRoleIncludeName    = "role-include-name"
+	ruleRoleIncludeUnique  = "role-include-unique"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -239,6 +242,9 @@ func rules() []rule {
 		{name: ruleBundleKindAction, check: checkBundleKindsHaveActions},
 		{name: ruleBundleKindUnique, check: checkBundleKindsUnique},
 		{name: ruleBundleThroughName, check: checkBundleThroughNames},
+		{name: ruleBundleIncludeName, check: checkBundleIncludeNames},
+		{name: ruleBundleIncludeOther, check: checkBundleIncludesAnotherModule},
+		{name: ruleBundleIncludeThru, check: checkBundleIncludesThroughPublisher},
 		{name: ruleBundleIncludes, check: checkBundleIncludes},
 		{name: ruleBundleAcyclic, check: checkBundlesAcyclic},
 	}, governanceRules()...)
@@ -1483,7 +1489,50 @@ func checkBundleThroughNames(contract *Contract) error {
 	return nil
 }
 
-// checkBundleIncludes: a bundle includes bundles its module publishes.
+// checkBundleIncludeNames: an include of another module's bundle names the
+// module and the bundle, each a lowercase name. One of the same module is the
+// bundle's name alone, so an include reached through a module names one.
+func checkBundleIncludeNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if (include.Module != "" || include.Through != "") && (!namePattern.MatchString(include.Module) || !namePattern.MatchString(include.Bundle)) {
+				return fmt.Errorf("%w: %s bundle %q includes %q/%q, which is not a module and a bundle, each a lowercase name", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludesAnotherModule: the {module, bundle, through} form names
+// another module. A bundle of the module's own is included by name, so that
+// one bundle has one spelling and an own chain is held acyclic here.
+func checkBundleIncludesAnotherModule(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if include.Module != "" && include.Module == contract.Principal {
+				return fmt.Errorf("%w: %s bundle %q includes %s/%s as another module's bundle, and %s is the module itself; a bundle of the same module is included by its name (%s)", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludesThroughPublisher: another module's bundle is reached
+// through the including module, named as a scope it spells names it. No other
+// place is declared: not directly, and not through a third module.
+func checkBundleIncludesThroughPublisher(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if include.Module != "" && include.Through != contract.Principal {
+				return fmt.Errorf("%w: %s bundle %q includes %s/%s through %q; another module's bundle is reached through the module including it, so it is written through: %s", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle, include.Through, contract.Principal)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludes: a bundle included by name is one its module publishes.
+// Another module's is held where that module's contract is read (Publishers).
 func checkBundleIncludes(contract *Contract) error {
 	published := map[string]bool{}
 	for _, bundle := range contract.Bundles {
@@ -1491,8 +1540,8 @@ func checkBundleIncludes(contract *Contract) error {
 	}
 	for _, bundle := range contract.Bundles {
 		for _, included := range bundle.Includes {
-			if !published[included] {
-				return fmt.Errorf("%w: %s bundle %q includes %q, which it does not publish", ErrInvalid, contract.Principal, bundle.Name, included)
+			if included.Module == "" && !published[included.Bundle] {
+				return fmt.Errorf("%w: %s bundle %q includes %q, which it does not publish", ErrInvalid, contract.Principal, bundle.Name, included.Bundle)
 			}
 		}
 	}

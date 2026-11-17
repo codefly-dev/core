@@ -77,7 +77,7 @@ func TestAnUnknownBundleAndACycleAreRefusedByName(t *testing.T) {
 	if _, err := agent.Bundle("audit"); !errors.Is(err, ErrUnresolvedInclude) || !strings.Contains(err.Error(), `agent publishes no bundle "audit"`) {
 		t.Fatalf("unknown bundle: %v", err)
 	}
-	agent.Bundles[0].Includes = []string{"review"}
+	agent.Bundles[0].Includes = []BundleInclude{{Bundle: "review"}}
 	if _, err := agent.Bundle("review"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "includes itself (talk -> review -> talk)") {
 		t.Fatalf("cycle: %v", err)
 	}

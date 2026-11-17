@@ -407,24 +407,44 @@ an optional binding the composition leaves out is left out with it.
 `bundles`: named sets of scopes, each what one kind of screen calls across
 every module it reaches. A bundle scope is reached directly (no `through`) or
 downstream of a module (`through: <that module's principal>`, the publisher's
-own or another the screen calls), and a bundle may include other bundles of
-the same module:
+own or another the screen calls). A bundle may include other bundles: one of
+the same module by its name, and one **another module publishes, reached
+through the module including it**, as `{module, bundle, through}`:
 
 ```yaml
 # the publishing module, principal agent
 bundles:
   - name: talk
+    includes:
+      - {module: model, bundle: infer, through: agent}
+      - {module: notes, bundle: annotate, through: agent}
     scopes:
       - {resource_kind: agent.turns, actions: [run]}
-      - {resource_kind: notes, actions: [read, write], through: agent}
+      - {resource_kind: notes, actions: [redact], through: agent}
   - name: review
     includes: [talk]
     scopes:
       - {resource_kind: traces, actions: [read]}
 ```
 
+An include of another module's bundle grants every scope of that bundle
+**exactly as if the includer spelled it with `through: <includer>`**: the
+includer names none of the other module's kinds, and a publisher that changes
+what its bundle holds changes every bundle including it. `through` is the
+includer's own principal and nothing else — not omitted (a screen reaching the
+other module directly) and not a third module — because one place is all the
+spelled form names: whatever place the included bundle itself reaches a kind
+at, the includer reaches it through itself alone, so an include never reaches
+further than the hand-written scope it replaces, and the unit including the
+bundle is asked for one binding, to the includer. Both forms live in one
+bundle: a permission the other module keeps in no bundle (`notes:redact`
+above, which `notes` offers no screen) is still spelled by hand beside the
+include. **A bundle grants each permission once**, held after its includes are
+expanded: one it spells that a bundle it includes also grants is refused
+naming both, so a hand-written copy cannot drift from its source.
+
 A bundle grants nothing by itself and is no role of the publisher's. A unit's
-role grants one by naming it in `includes`:
+role grants one by naming it in `includes`, another module's or **its own**:
 
 ```yaml
 roles:
@@ -436,22 +456,60 @@ The contract holds a bundle to a lowercase name (`bundle-name`), declared once
 (`bundle-unique`), granting something (`bundle-grants`), each kind a lowercase name
 (`bundle-kind-name`) with an action (`bundle-kind-has-action`) once per place
 (`bundle-kind-unique`), naming a module it reaches through by name (`bundle-through-name`),
-including only bundles it publishes (`bundle-includes-published`) and never
-itself through any chain (`bundle-includes-acyclic`); a role includes a module
+including by name only bundles it publishes (`bundle-includes-published`) and
+never itself through any chain (`bundle-includes-acyclic`); an include of
+another module's bundle names a module and a bundle, each a lowercase name
+(`bundle-include-name`), a module other than its own
+(`bundle-include-another-module`), through its own principal
+(`bundle-include-through-publisher`); a role includes a module
 and a bundle, each a lowercase name (`role-include-name`), each once
-(`role-include-unique`). `Contract.Bundle(name)` expands a bundle's includes
-into one deterministic answer: each kind once per place, actions sorted, kinds
-sorted. `Resolve` reads each include from the module publishing it, through
-`WithBundles` (or callees that also answer `Bundles`), and grants its scopes as
-the role's own literal scopes: a kind reached directly is addressed like any
-role scope, one reached downstream of a module downstream of the unit's one
-binding a person causes to that module. A role grants each permission once: one
-it also grants itself beside an include is refused, so its own scopes are its
-page's own calls alone. An include that cannot be read, or a module the unit
-has no single such binding to, is refused under
-`ErrUnresolvedInclude`, naming the role and the include. What a bundle may
-grant is the authority's policy, held where the unit is delivered, as for any
-role scope.
+(`role-include-unique`).
+
+**Bundles are read through one resolver.** `Publishers` is a function reading
+the contract a module publishes, by its principal, and is the `Bundles` every
+reader passes to `Resolve` (`WithBundles`, or callees that also answer
+`Bundles`); `PublishedContracts(contracts...)` builds one over contracts in
+hand. `Publishers.Bundle(module, name)` expands a bundle into one deterministic
+answer — each kind once per place, actions sorted, kinds sorted — following
+includes into other modules' contracts. `Contract.Bundle(name)` expands a
+bundle of one contract alone and refuses, by name, one that includes another
+module's: a reader holding `contract.Bundle(name)` behind its `Bundles` moves
+to `Publishers`. What cannot be read is refused under `ErrUnresolvedInclude`
+in one sentence naming the whole chain — the role, the module and bundle, and
+what is missing: the publisher's contract (`role admin includes agent/talk:
+agent bundle "talk" includes model/infer: no contract was supplied for module
+model (supplied: agent, notes)`), the bundle (`model publishes no bundle
+"infer" (it publishes discover)`), or the binding (below). Includes that come
+back to a bundle across modules are refused under `ErrInvalid` naming the
+chain (`agent/talk -> model/infer -> agent/talk`).
+
+`Resolve` grants an included bundle's scopes as the role's own literal scopes:
+a kind reached directly is addressed like any role scope, one reached
+downstream of a module downstream of the unit's one binding a person causes to
+that module — so a unit including a bundle that reaches kinds through its
+publisher declares an `invoke` or `lookup` binding to that publisher, and is
+refused naming the kind, the module and the audiences it does declare such
+bindings to when it has none, or when it has two. **A unit may include its own
+bundle**, read from the contract being resolved (no other declarations are
+needed for it): what that bundle reaches onward `through` the unit itself, for
+another unit's screen, the unit's own page reaches directly, so it is granted
+as the role's direct scope on that kind and addressed like any literal scope —
+at the audience of the unit's binding that holds it. A role grants each
+permission once, held after expansion: one it also grants itself beside an
+include is refused, so its own scopes are its page's own calls alone. What a
+bundle may grant is the authority's policy, held where the unit is delivered,
+as for any role scope.
+
+**What an older reader does with these.** The module contract is decoded
+strictly, so a contract using a newer form is refused by a core that predates
+it, never read as something else. No key was added: `bundles[].includes` took
+a list of names and now also takes `{module, bundle, through}` entries, and a
+core before this change refuses such an entry as a value of the wrong shape
+(`cannot unmarshal !!map into string`). A contract that includes only bundles
+of its own module, and every `roles[].includes`, reads the same before and
+after. A core from before bundles existed refuses the `bundles` key and a
+role's `includes` key outright. In Go, `Bundle.Includes` is `[]BundleInclude`
+where it was `[]string`.
 
 **A role may grant a scope only on what the installation owns.**
 `installation_owned_scopes` lists scopes the role grants only on the resources
@@ -634,7 +692,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (165 documents) ships
+`modulecontract.Fixtures()` (170 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare
