@@ -240,6 +240,10 @@ type usage struct {
 	// held is true while an agent still run by its launcher claims the
 	// directory, or a record cannot be read and so cannot be ruled out.
 	held bool
+	// running is true while a run that launched one of the directory's agents
+	// still lives, even though that agent is gone: the run restarts its
+	// agents, and what they left there is still its own.
+	running bool
 	// servers are the tracked processes still running.
 	servers []mark
 }
@@ -250,9 +254,10 @@ func (u usage) collectable() bool {
 }
 
 // abandoned reports whether the directory is a killed disposable run's whose
-// servers were left running: nobody claims it and only they keep it.
+// servers were left running: its agents' runs are gone, nobody claims it, and
+// only the servers keep it.
 func (u usage) abandoned() bool {
-	return u.claimed && u.run.Disposable && !u.held && len(u.servers) > 0
+	return u.claimed && u.run.Disposable && !u.held && !u.running && len(u.servers) > 0
 }
 
 // inspect reads a directory's run and who still uses it.
@@ -280,6 +285,9 @@ func inspect(dir string) (usage, error) {
 		if err != nil || json.Unmarshal(data, &h) != nil || h.claims() {
 			state.held = true
 			continue
+		}
+		if h.Run != nil && h.Run.alive() {
+			state.running = true
 		}
 		for _, tracked := range h.Tracked {
 			if tracked.alive() && !slices.Contains(state.servers, tracked) {
@@ -312,13 +320,14 @@ const (
 // nothing else stops what they started; until it is stopped the directory is
 // in use and Collect keeps it. Call Collect afterwards.
 //
-// It acts only on a directory every claiming run declared disposable, that no
-// agent still run by its launcher claims, and only on the processes recorded
-// there with Hold.Track: each is asked to stop, given the grace period, then
+// It acts only on a directory every claiming run declared disposable, whose
+// agents' runs are all gone, and only on the processes recorded there with
+// Hold.Track: each is asked to stop, given the grace period, then
 // killed. A recorded PID that now names another process is that run's server
 // gone, and is never signalled. Everything else is left exactly as it is: a
-// persistent or unclaimed directory, a directory in use, and any process not
-// tracked there.
+// persistent or unclaimed directory, a directory in use, the server of an
+// agent that died inside a run that goes on, and any process not tracked
+// there.
 //
 // A cancelled context ends the wait without killing anything.
 func StopAbandoned(ctx context.Context, dir string, options StopOptions) ([]int, error) {

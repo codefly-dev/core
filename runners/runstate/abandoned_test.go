@@ -97,7 +97,12 @@ func rewriteHolders(t *testing.T, dir string, change func(*holder)) {
 // leaves what it tracked alone: a killed run whose server outlived it.
 func abandon(t *testing.T, dir string) {
 	t.Helper()
-	rewriteHolders(t, dir, func(h *holder) { h.Agent.StartID++ })
+	rewriteHolders(t, dir, func(h *holder) {
+		h.Agent.StartID++
+		if h.Run != nil {
+			h.Run.StartID++
+		}
+	})
 }
 
 // claimWithServer is a state directory claimed for run by an agent that
@@ -173,6 +178,26 @@ func TestStopAbandonedDoesNotKillOnceCancelled(t *testing.T) {
 	pids, err := StopAbandoned(ctx, dir, StopOptions{Grace: time.Minute})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Empty(t, pids)
+	require.True(t, s.running())
+}
+
+// An agent that crashed inside a run that goes on is restarted by it: the
+// server it left is that run's, not an abandoned one.
+func TestStopAbandonedNeverStopsTheServerOfARunThatStillLives(t *testing.T) {
+	dir, s := claimWithServer(t, disposable, "plain", "clickhouse", "a011")
+	rewriteHolders(t, dir, func(h *holder) {
+		require.NotNil(t, h.Run, "a claim records the run that launched the agent")
+		h.Agent.StartID++
+	})
+
+	pids, err := StopAbandoned(context.Background(), dir, quick)
+	require.NoError(t, err)
+	require.Empty(t, pids)
+	require.True(t, s.running())
+
+	swept, err := Sweep(filepath.Dir(dir), SweepOptions{StopAbandoned: &quick})
+	require.NoError(t, err)
+	require.Empty(t, swept)
 	require.True(t, s.running())
 }
 

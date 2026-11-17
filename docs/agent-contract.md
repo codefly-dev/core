@@ -145,8 +145,9 @@ stops and then collects. An agent does it on Init for its own store, so the
 next run cleans up after a killed one; `codefly clear` does it for its scope.
 No agent keeps records of its own for this.
 
-It acts only on a directory every claiming run declared disposable and that no
-agent still run by its launcher claims, and only on the processes recorded with
+It acts only on a directory every claiming run declared disposable and whose
+agents' runs are all gone (an agent that died inside a run that goes on left
+that run's server, not an abandoned one), and only on the processes recorded with
 `Hold.Track`: each is sent `StopOptions.Signal` (SIGTERM unless the store's
 orderly shutdown is another signal), given `StopOptions.Grace` (ten seconds by
 default), then killed. The recorded birth is checked before every signal (boot
