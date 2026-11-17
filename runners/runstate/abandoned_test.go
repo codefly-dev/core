@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"os"
@@ -23,6 +24,9 @@ func TestMain(m *testing.M) {
 		if mode == "stubborn" {
 			signal.Ignore(syscall.SIGTERM)
 		}
+		// Announce it: nothing may signal this process before its signal
+		// disposition is installed, however slowly it started.
+		_, _ = os.Stdout.WriteString("ready\n")
 		// Bounded, so that a failed test cannot leave it behind for good.
 		time.Sleep(2 * time.Minute)
 		os.Exit(0)
@@ -40,7 +44,11 @@ func startServer(t *testing.T, mode string) *server {
 	t.Helper()
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), serverEnv+"="+mode)
+	ready, err := cmd.StdoutPipe()
+	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
+	_, err = bufio.NewReader(ready).ReadString('\n')
+	require.NoError(t, err, "the server never came up")
 	s := &server{pid: cmd.Process.Pid, done: make(chan struct{})}
 	go func() {
 		_ = cmd.Wait()
@@ -50,10 +58,6 @@ func startServer(t *testing.T, mode string) *server {
 		_ = cmd.Process.Kill()
 		<-s.done
 	})
-	if mode == "stubborn" {
-		// Let it install its signal disposition before anything signals it.
-		time.Sleep(300 * time.Millisecond)
-	}
 	return s
 }
 
