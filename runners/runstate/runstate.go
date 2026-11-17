@@ -25,6 +25,10 @@
 // SweepOptions.StopAbandoned) stops exactly those: the tracked processes of a
 // disposable directory no live run claims any more.
 //
+// An agent that outlives its run notices (Launcher, Birth.Gone) and ends what
+// that run left in the directories it claimed by the same rule
+// (AbandonClaimed); see owner.go for who a run belongs to.
+//
 // A server several agents of a run share is found (Tracked) and stopped by the
 // last agent to stop using it (Hold.StopTracked) through the same records.
 //
@@ -93,21 +97,10 @@ func For(workspacePath string, environment *basev0.Environment) Run {
 	}
 }
 
-// mark is a process's birth: the PID plus the facts that tell it from a later
-// process reusing the number.
-type mark struct {
-	PID     int    `json:"pid"`
-	StartID uint64 `json:"start"`
-	BootID  string `json:"boot"`
-}
+// mark is a process's birth as this package records it.
+type mark = Birth
 
-func markOf(pid int) (mark, error) {
-	identity, err := runners.InspectProcess(pid)
-	if err != nil {
-		return mark{}, err
-	}
-	return mark{PID: pid, StartID: identity.StartID, BootID: identity.BootID}, nil
-}
+func markOf(pid int) (mark, error) { return BirthOf(pid) }
 
 // alive reports whether the marked process still runs. An inspection that
 // fails for any reason other than the process being gone counts as alive: a
@@ -181,12 +174,12 @@ func Claim(dir string, run Run) (*Hold, error) {
 	if err != nil {
 		return nil, err
 	}
-	if found && (!recorded.Disposable || run.Disposable) {
-		return hold, nil
+	if !found || (recorded.Disposable && !run.Disposable) {
+		if err := writeJSON(filepath.Join(dir, markerDir, runFile), run); err != nil {
+			return nil, err
+		}
 	}
-	if err := writeJSON(filepath.Join(dir, markerDir, runFile), run); err != nil {
-		return nil, err
-	}
+	remember(hold.path, dir)
 	return hold, nil
 }
 
@@ -216,6 +209,7 @@ func (h *Hold) Release() error {
 	if err := os.Remove(h.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	forget(h.path)
 	h.path = ""
 	return nil
 }
