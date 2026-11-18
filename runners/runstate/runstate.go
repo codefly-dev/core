@@ -453,6 +453,57 @@ type Swept struct {
 // directory it cannot remove is reported in the error and the sweep goes on.
 func Sweep(root string, options SweepOptions) ([]Swept, error) {
 	var swept []Swept
+	recorded, failures := recordedDirs(root)
+	for _, child := range recorded {
+		state, err := inspect(child)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if options.Include != nil && !options.Include(state.run) {
+			continue
+		}
+		var stoppedPIDs []int
+		if options.StopAbandoned != nil && state.abandoned() {
+			if options.DryRun {
+				for _, server := range state.servers {
+					stoppedPIDs = append(stoppedPIDs, server.PID)
+				}
+			} else {
+				stoppedPIDs, err = stop(context.Background(), child, state.servers, *options.StopAbandoned)
+				if err != nil {
+					failures = append(failures, err)
+					continue
+				}
+				// Read again: the directory may have been claimed while
+				// its servers stopped.
+				if state, err = inspect(child); err != nil {
+					failures = append(failures, err)
+					continue
+				}
+				if !state.collectable() {
+					continue
+				}
+			}
+		} else if !state.collectable() {
+			continue
+		}
+		if !options.DryRun {
+			if err := os.RemoveAll(child); err != nil {
+				failures = append(failures, fmt.Errorf("remove disposable run state %s: %w", child, err))
+				continue
+			}
+		}
+		swept = append(swept, Swept{Dir: child, Run: state.run, Stopped: stoppedPIDs})
+	}
+	return swept, errors.Join(failures...)
+}
+
+// recordedDirs is every directory under root that carries this package's
+// records, down to sweepDepth, with what could not be read on the way. A
+// directory without records is walked into, never returned.
+func recordedDirs(root string) ([]string, []error) {
+	var recorded []string
 	var failures []error
 	var walk func(dir string, depth int)
 	walk = func(dir string, depth int) {
@@ -474,50 +525,11 @@ func Sweep(root string, options SweepOptions) ([]Swept, error) {
 				}
 				continue
 			}
-			state, err := inspect(child)
-			if err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			if options.Include != nil && !options.Include(state.run) {
-				continue
-			}
-			var stoppedPIDs []int
-			if options.StopAbandoned != nil && state.abandoned() {
-				if options.DryRun {
-					for _, server := range state.servers {
-						stoppedPIDs = append(stoppedPIDs, server.PID)
-					}
-				} else {
-					stoppedPIDs, err = stop(context.Background(), child, state.servers, *options.StopAbandoned)
-					if err != nil {
-						failures = append(failures, err)
-						continue
-					}
-					// Read again: the directory may have been claimed while
-					// its servers stopped.
-					if state, err = inspect(child); err != nil {
-						failures = append(failures, err)
-						continue
-					}
-					if !state.collectable() {
-						continue
-					}
-				}
-			} else if !state.collectable() {
-				continue
-			}
-			if !options.DryRun {
-				if err := os.RemoveAll(child); err != nil {
-					failures = append(failures, fmt.Errorf("remove disposable run state %s: %w", child, err))
-					continue
-				}
-			}
-			swept = append(swept, Swept{Dir: child, Run: state.run, Stopped: stoppedPIDs})
+			recorded = append(recorded, child)
 		}
 	}
 	walk(root, 1)
-	return swept, errors.Join(failures...)
+	return recorded, failures
 }
 
 func readRun(dir string) (Run, bool, error) {

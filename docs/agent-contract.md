@@ -145,6 +145,13 @@ caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
 disposable run ends, and `codefly clear` sweeps every ended disposable run in
 its scope. A directory no agent claimed is never removed.
 
+A persistent run's directory is removed by nobody but a person: every scope a
+developer ran and stopped keeps one. `runstate.List` reports each recorded
+directory with its run, whether anything still uses it and when a run last
+claimed it, and `runstate.Discard` removes the one a person named, refusing a
+directory in use or one no run is recorded on. `codefly clear` is their caller;
+no run, agent or sweep is.
+
 ### Containers of a disposable run
 
 The same fact decides the container runtime, and no agent decides it. A stop
