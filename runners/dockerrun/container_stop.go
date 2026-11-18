@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"

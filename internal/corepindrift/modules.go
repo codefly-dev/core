@@ -74,11 +74,10 @@ func skipDirectory(name string) bool {
 
 // discover walks root for every go.mod and reads what each says about core.
 //
-// Every one of them, not the first: the obin-ai modules pin core in
-// modules/<name>/services/<svc>/code/go.mod and nowhere near the root, and
-// obin-ai/module-robin spans v0.5.11 to v0.19.11 across eleven of them. A gate
-// reading one go.mod per repository is how the spread in
-// codefly-dev/core#891's table came out narrower than the fleet's real one.
+// Every one of them, not the first: a module repository pins core in
+// modules/<name>/services/<svc>/code/go.mod and nowhere near the root, and one
+// repository can span many core versions across its services. A gate reading
+// one go.mod per repository reports a narrower spread than the real one.
 func discover(root string) ([]goMod, error) {
 	info, err := os.Stat(root)
 	if err != nil {

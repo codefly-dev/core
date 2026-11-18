@@ -12,13 +12,13 @@
 //
 //   - AUTHORITY (this package) — what business actions a Principal
 //     IS ALLOWED to perform. Lives
-//     in this package + saas-starter.
+//     in this package + the host.
 //     Enforced by the PDP at every
 //     tool call.
 //
 //   - ACCOUNTABILITY (audit)   — who did what under whose
 //     authority. Cross-cuts both
-//     layers. saas-starter audit_events
+//     layers. the host audit_events
 //     and delegation_chain in tokens.
 //
 // All three travel via the same Principal-bearing Biscuit-or-JWT
@@ -79,10 +79,10 @@
 //     INSIDE a tool (the outer call is already authorized by the
 //     Guard). Implementation is a UDS callback to the host.
 //
-//   - PermissionsBackend (decider.go) — saas-starter-facing. The
-//     thinnest interface a saas-starter gRPC client must satisfy
+//   - PermissionsBackend (decider.go) — the host-facing. The
+//     thinnest interface a host gRPC client must satisfy
 //     to plug into SaasPDP. Pulls the dependency arrow one-way:
-//     core has no compile-time tie to saas-starter; saas-starter
+//     core has no compile-time tie to the host; the host
 //     wires itself in via this interface.
 //
 // **PDP — the decision engine:**
@@ -106,7 +106,7 @@
 //   - CeilingPDP (pdp_ceiling.go)
 //     Wraps an inner PDP, intersects with the plugin's manifest
 //     PermissionPolicy. First gate — fail fast on undeclared
-//     actions before round-tripping to saas-starter.
+//     actions before round-tripping to the host.
 //
 //   - ShadowPDP (pdp_shadow.go)
 //     Wraps an inner PDP, ALWAYS allows but records the inner
@@ -180,7 +180,7 @@
 //
 // **M7 escalation (escalation.go):**
 //
-//   - `EscalationGrantor` interface — saas-starter implements,
+//   - `EscalationGrantor` interface — the host implements,
 //     core defines. Routes escalation requests through Slack/
 //     email/UI approval pipeline.
 //   - `RequestEscalation(ctx, req)` — SDK helper plugins call
@@ -191,7 +191,7 @@
 //
 // **M8 pattern grants** — `via_pattern` audit caveat marks
 // tokens minted via auto-approval pattern matches at the
-// saas-starter side.
+// the host side.
 //
 // **Plugin → host callback channel (callback.go):**
 //
@@ -213,7 +213,7 @@
 //     reason on every call.
 //
 // **Why a callback channel rather than running the PDP in-process
-// in the plugin.** Plugins must NOT depend on saas-starter's gen
+// in the plugin.** Plugins must NOT depend on the host's gen
 // client (one-way dependency arrow). Permission state is mutable
 // (revocations must be visible immediately); centralizing the
 // PDP cache + metrics in the host is the only place that property
@@ -327,19 +327,19 @@
 // inner PDP's Evaluate.
 //
 // Add a new principal kind: it's already extensible — the
-// principals.kind CHECK constraint in saas-starter governs
+// principals.kind CHECK constraint in the host governs
 // what's accepted. Update both ends.
 //
 // =============================================================
-// WHAT'S IN saas-starter, NOT HERE
+// WHAT'S IN the host, NOT HERE
 // =============================================================
 //
 // The role-assignment data, audit_events, delegation_grants
-// (M7+), and the actual principal CRUD live in saas-starter's
+// (M7+), and the actual principal CRUD live in the host's
 // principals/role tables. core/policy is the codefly-side wire +
-// enforcement; saas-starter is the source of truth.
+// enforcement; the host is the source of truth.
 //
 // The bridge is the PermissionDecider interface (pdp_saas.go,
-// when implemented) — keeps core decoupled from saas-starter's
+// when implemented) — keeps core decoupled from the host's
 // generated client. Hosts wire a concrete client at startup.
 package policy

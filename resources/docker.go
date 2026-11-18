@@ -6,9 +6,8 @@ import (
 )
 
 // ImageRegistry is the registry every image codefly publishes lives in:
-// companions, agent runtime images, the agent OCI store. ghcr is canonical
-// (infra-base docs/container-registry.md); packages are public and pulled
-// anonymously, pushes come from release workflows with GITHUB_TOKEN.
+// companions, agent runtime images, the agent OCI store. ghcr is canonical;
+// packages are public and pulled anonymously, pushes come from release workflows with GITHUB_TOKEN.
 const ImageRegistry = "ghcr.io/codefly-dev"
 
 type DockerImage struct {

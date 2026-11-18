@@ -293,13 +293,13 @@ func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
 	read := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"read"}}}
 	identityBound := &runnablev0.Operation{InvokeScopes: write, Recovery: basev0.RunnableExecution_RECOVERY_RECEIPT}
 
-	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin/answer-agent", "runtime-worker"))
+	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "assistant/answer-agent", "runtime-worker"))
 	require.NoError(t, err)
 	require.Equal(t, "ana", recorded.GetOwnerPrincipalId())
 	require.Len(t, recorded.GetActors(), 2)
 	require.Equal(t, "answer-agent", recorded.GetActors()[0].GetAgentId())
 	caller := func(actors ...string) *basev0.WorkContextV1 { return workContext("ana", actors...) }
-	chain := []string{"robin/answer-agent", "runtime-worker"}
+	chain := []string{"assistant/answer-agent", "runtime-worker"}
 
 	require.NoError(t, runnable.AdmitReceiptLookup(identityBound, recorded, caller(chain...), write))
 	for name, refused := range map[string]func() error{
@@ -310,7 +310,7 @@ func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
 			return runnable.AdmitReceiptLookup(identityBound, recorded, caller("other-agent", "runtime-worker"), write)
 		},
 		"another agent sharing the principal": func() error {
-			return runnable.AdmitReceiptLookup(identityBound, recorded, caller("robin/other-agent", "runtime-worker"), write)
+			return runnable.AdmitReceiptLookup(identityBound, recorded, caller("assistant/other-agent", "runtime-worker"), write)
 		},
 		"the same person acting directly": func() error {
 			return runnable.AdmitReceiptLookup(identityBound, recorded, caller(), write)
@@ -366,12 +366,12 @@ func TestDerivedNamesAreBoundedDeterministically(t *testing.T) {
 // was recorded for; any other caller is refused as a conflict carrying no
 // content (r100 M-B).
 func TestAReceiptIsReplayedOnlyToTheCallerThatMadeIt(t *testing.T) {
-	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin/answer-agent"))
+	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "assistant/answer-agent"))
 	require.NoError(t, err)
-	require.NoError(t, runnable.AdmitReceiptReplay(recorded, workContext("ana", "robin/answer-agent")))
+	require.NoError(t, runnable.AdmitReceiptReplay(recorded, workContext("ana", "assistant/answer-agent")))
 	for _, other := range []*basev0.WorkContextV1{
-		workContext("bob", "robin/answer-agent"),
-		workContext("ana", "robin/other-agent"),
+		workContext("bob", "assistant/answer-agent"),
+		workContext("ana", "assistant/other-agent"),
 		workContext("ana"),
 		{},
 	} {

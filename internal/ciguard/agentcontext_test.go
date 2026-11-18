@@ -17,7 +17,7 @@ import (
 
 // An agent reads AGENTS.md on every request, so an oversized or malformed set of
 // context files is worse than none: it spends context and measurably reduces
-// adherence (obin-ai/handbook#68). Two parts of that standard a machine can hold
+// adherence. Two parts of the contributor standard a machine can hold
 // are the root file's length budget and each skill's frontmatter contract, so
 // they are checked here rather than remembered.
 //

@@ -13,12 +13,12 @@ func TestResolveModuleClosureDerivesParticipationFromDeclarations(t *testing.T) 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki"})
+	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes"})
 	require.NoError(t, err)
 
-	// wiki declares saas and documents; saas reaches accounts within itself and
+	// notes declares saas and documents; saas reaches accounts within itself and
 	// pulls in nothing further. analytics is pinned but nothing reaches it.
-	require.Equal(t, []string{"wiki", "saas", "documents"}, closure.Names())
+	require.Equal(t, []string{"notes", "saas", "documents"}, closure.Names())
 	require.True(t, closure.Contains("documents"))
 	require.False(t, closure.Contains("analytics"))
 	require.Contains(t, workspace.ModulesNames(), "analytics")
@@ -29,17 +29,17 @@ func TestResolveModuleClosureRecordsEdges(t *testing.T) {
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki"})
+	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes"})
 	require.NoError(t, err)
 
 	// The same-module auth-gateway -> accounts dependency crosses no module
-	// boundary, so it contributes no participation edge. wiki-api declares two
+	// boundary, so it contributes no participation edge. notes-api declares two
 	// dependencies into saas (auth-gateway and sessions); an edge says a service
 	// pulls a module in, so the pair collapses to one rather than surfacing the
 	// same participation fact twice.
 	require.Equal(t, []resources.ModuleEdge{
-		{From: "wiki", FromService: "wiki-api", To: "saas"},
-		{From: "wiki", FromService: "wiki-api", To: "documents"},
+		{From: "notes", FromService: "notes-api", To: "saas"},
+		{From: "notes", FromService: "notes-api", To: "documents"},
 	}, closure.Edges)
 }
 
@@ -48,16 +48,16 @@ func TestResolveModuleClosureSkipsExternalDependencies(t *testing.T) {
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	// wiki-api declares an external dependency on module "stripe", which the
+	// notes-api declares an external dependency on module "stripe", which the
 	// workspace does not pin. External capabilities live outside the workspace,
 	// so they must not demand a pin.
-	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki"})
+	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes"})
 	require.NoError(t, err)
 	require.False(t, closure.Contains("stripe"))
 }
 
 // A dependency pulls a module in only for the stages its kind constrains.
-// wiki-api consumes saas and documents at runtime and reads codegen's contract
+// notes-api consumes saas and documents at runtime and reads codegen's contract
 // at build time; a run that demanded a pin for codegen would be asking for a
 // module it never touches.
 func TestResolveModuleClosureScopesToTheStage(t *testing.T) {
@@ -65,11 +65,11 @@ func TestResolveModuleClosureScopesToTheStage(t *testing.T) {
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	run, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki"})
+	run, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes"})
 	require.NoError(t, err)
 	require.False(t, run.Contains("codegen"))
 
-	build, err := workspace.ResolveModuleClosure(ctx, resources.StageBuild, []string{"wiki"})
+	build, err := workspace.ResolveModuleClosure(ctx, resources.StageBuild, []string{"notes"})
 	require.NoError(t, err)
 	require.True(t, build.Contains("codegen"))
 }
@@ -79,7 +79,7 @@ func TestResolveModuleClosureRejectsUnknownStage(t *testing.T) {
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	_, err = workspace.ResolveModuleClosure(ctx, resources.Stage("deploy"), []string{"wiki"})
+	_, err = workspace.ResolveModuleClosure(ctx, resources.Stage("deploy"), []string{"notes"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown stage")
 }
@@ -93,9 +93,9 @@ func TestResolveModuleClosureSeedsAreIndependent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"analytics", "saas"}, closure.Names())
 
-	both, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki", "analytics"})
+	both, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes", "analytics"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"wiki", "analytics", "saas", "documents"}, both.Names())
+	require.Equal(t, []string{"notes", "analytics", "saas", "documents"}, both.Names())
 }
 
 func TestResolveModuleClosureRejectsUnpinnedSeed(t *testing.T) {
@@ -106,7 +106,7 @@ func TestResolveModuleClosureRejectsUnpinnedSeed(t *testing.T) {
 	_, err = workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"ghost"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `module "ghost" is not pinned`)
-	require.Contains(t, err.Error(), "analytics, codegen, documents, saas, wiki")
+	require.Contains(t, err.Error(), "analytics, codegen, documents, notes, saas")
 }
 
 // A declaration reaching a module the pin set does not cover is the drift the
@@ -129,16 +129,16 @@ func TestModuleClosureValidateServiceDependenciesScopesToTheRun(t *testing.T) {
 	require.NoError(t, err)
 
 	// analytics consumes a private saas endpoint, so the workspace-wide pass
-	// fails. That edge belongs to no run seeded from wiki, and scoping the same
+	// fails. That edge belongs to no run seeded from notes, and scoping the same
 	// check to the closure is what keeps validation and the run in agreement.
 	require.Error(t, workspace.ValidateServiceDependencies(ctx))
 
-	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki"})
+	closure, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes"})
 	require.NoError(t, err)
 	require.NoError(t, closure.ValidateServiceDependencies(ctx))
 }
 
-// An edge's verdict must not depend on company. wiki reads codegen's contract
+// An edge's verdict must not depend on company. notes reads codegen's contract
 // at build time and codegen keeps that endpoint private, so the edge is a
 // violation at build and irrelevant at run — whether or not some unrelated seed
 // happens to pull codegen into the run closure alongside it.
@@ -147,12 +147,12 @@ func TestModuleClosureValidateServiceDependenciesScopesToTheStage(t *testing.T) 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
 	require.NoError(t, err)
 
-	seeded, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki", "codegen"})
+	seeded, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"notes", "codegen"})
 	require.NoError(t, err)
 	require.True(t, seeded.Contains("codegen"))
 	require.NoError(t, seeded.ValidateServiceDependencies(ctx))
 
-	build, err := workspace.ResolveModuleClosure(ctx, resources.StageBuild, []string{"wiki"})
+	build, err := workspace.ResolveModuleClosure(ctx, resources.StageBuild, []string{"notes"})
 	require.NoError(t, err)
 	require.True(t, build.Contains("codegen"))
 	err = build.ValidateServiceDependencies(ctx)

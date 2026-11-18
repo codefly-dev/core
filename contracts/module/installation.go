@@ -3,7 +3,7 @@ package module
 import (
 	"fmt"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 	"gopkg.in/yaml.v3"
 )
 

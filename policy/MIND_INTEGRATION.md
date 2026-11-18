@@ -14,7 +14,7 @@ plugins. The host owns:
 
 - **Principal resolution** — figuring out who's making each request
   (user-driven via session JWT, agent-driven via service principal)
-- **Decider construction** — wiring saas-starter's permission RPCs
+- **Decider construction** — wiring app-starter's permission RPCs
   into the codefly `policy.Decider` interface
 - **Session lifecycle** — one process and authority envelope per principal,
   tenant, and job/session
@@ -68,7 +68,7 @@ the remaining wiring is documented here for core maintainers.
 ### 1. `policy.PermissionsBackend` — adapt your auth backend
 
 This is the THINNEST interface that bridges core/policy to your
-authorization store (saas-starter, OPA, Cedar, custom, etc.).
+authorization store (app-starter, OPA, Cedar, custom, etc.).
 
 ```go
 type PermissionsBackend interface {
@@ -78,7 +78,7 @@ type PermissionsBackend interface {
 }
 ```
 
-For saas-starter, the implementation calls
+For app-starter, the implementation calls
 `PermissionService.Decide` (the M2 RPC) and unpacks the response:
 
 ```go
@@ -94,11 +94,11 @@ func (b *SaasStarterBackend) Decide(ctx context.Context,
         Action:      action,
         Resource:    resource,
         OrgId:       orgID,
-        // scope intentionally not in saas-starter's Decide v1;
+        // scope intentionally not in app-starter's Decide v1;
         // pass via context if needed.
     })
     if err != nil {
-        return false, "", "", fmt.Errorf("saas-starter decide: %w", err)
+        return false, "", "", fmt.Errorf("app-starter decide: %w", err)
     }
     allowed := resp.Decision == api.Decision_DECISION_ALLOW
     return allowed, resp.Reason, resp.DecisionPath, nil
@@ -106,7 +106,7 @@ func (b *SaasStarterBackend) Decide(ctx context.Context,
 ```
 
 This type lives in your host's codebase (Mind, gateway, CLI),
-not in core. core has zero compile-time knowledge of saas-starter.
+not in core. core has zero compile-time knowledge of app-starter.
 
 ### 2. `policy.Decider` — wrap the backend with caching + observability
 
@@ -139,7 +139,7 @@ The PDP gates EVERY `CallTool` to the plugin via `policyguard.Guard`.
 Layered for production:
 
 ```go
-// 1. Inner: the SaasPDP backed by your saas-starter client.
+// 1. Inner: the SaasPDP backed by your app-starter client.
 inner := policy.NewSaasPDP(backend).
     WithCache(15 * time.Second).
     WithMetrics(metrics)
@@ -172,7 +172,7 @@ needs to build the PDP from env + manifest. We can either:
   to the inline callback) — adds a second callback channel
 - Have the plugin build its own PDP with `policy.BuildPDP` reading
   CODEFLY_PDP_MODE — simpler, but the plugin would need a way to
-  reach saas-starter directly (which we don't want)
+  reach app-starter directly (which we don't want)
 
 The current architecture: **outer tool authorization happens on the
 host side via the same callback channel as inline `Authorized()`.**
@@ -212,7 +212,7 @@ keep-alive).
 Suppose Mind receives a request from user `antoine@codefly.dev`
 to "review my open PRs". Mind:
 
-1. Reads the user's session JWT, validates against saas-starter,
+1. Reads the user's session JWT, validates against app-starter,
    extracts `principal_id=u-antoine`, `org_id=org-codefly`
 2. Constructs a `policy.Principal{ID: "u-antoine", Kind: KindHuman,
    OrgID: "org-codefly", DisplayName: "antoine@codefly.dev"}`
@@ -305,7 +305,7 @@ Every PDP decision flows through `RecordDecision`, which:
   resource, decision, decision_path, latency_ms
 - (Future M9) Attaches a span event for distributed tracing
 
-Your host adds the audit-log write — saas-starter's
+Your host adds the audit-log write — app-starter's
 `audit_events` table is the canonical sink. Wire a custom PDP
 wrapper that writes audit on top of `RecordDecision`:
 
@@ -509,7 +509,7 @@ import "github.com/codefly-dev/core/policy"
 
 // At host startup, wire your grantor implementation. The
 // SaasStarterEscalationGrantor lives in your host binary and
-// adapts saas-starter's RequestDelegation / WaitForDelegation /
+// adapts app-starter's RequestDelegation / WaitForDelegation /
 // DecideDelegation RPCs to core's EscalationGrantor interface.
 // See MIND_INTEGRATION_M7.md for the implementation template.
 grantor := &mindhost.SaasStarterEscalationGrantor{
@@ -526,10 +526,10 @@ resource, justification)`. The SDK:
 1. Validates the request (action, principal, justification non-
    empty).
 2. Calls grantor.Request — blocks until the grantor (a human in
-   your saas-starter approval UI) decides OR the request's
+   your app-starter approval UI) decides OR the request's
    timeout elapses.
 3. On approve: receives a freshly minted scoped-auth token from
-   saas-starter; stamps the verified ScopedAuthorization on the
+   app-starter; stamps the verified ScopedAuthorization on the
    returned ctx; attaches the encoded token as outgoing gRPC
    metadata for the retry.
 4. On deny: returns `policy.ErrEscalationDenied` wrapping the
@@ -542,7 +542,7 @@ The plugin retries the original action with the elevated ctx —
 the receiving plugin's Guard takes the fast path and dispatches
 without further PDP consultation.
 
-See `MIND_INTEGRATION_M7.md` for the full saas-starter
+See `MIND_INTEGRATION_M7.md` for the full app-starter
 implementation guide (table schema, RPC sketches, UI surface).
 
 ## What you DON'T need to do
@@ -600,10 +600,10 @@ cancellation, process loss, concurrency, redaction, and cleanup.
 ## Open follow-ups
 
 - **SaasStarterBackend implementation in your host.** The interface
-  is defined in core; the concrete adapter against saas-starter's
+  is defined in core; the concrete adapter against app-starter's
   generated client lives outside core (typically in your CLI or
   Mind binary). One file, ~30 lines.
 - **M7 escalation flow** — `host.RequestEscalation` API, on top of
-  saas-starter's `delegation_grants` table. Not in core yet.
-- **M9 audit UI** — saas-starter's audit_events query interface.
-  Independent of core; needs Mind/saas-starter UI work.
+  app-starter's `delegation_grants` table. Not in core yet.
+- **M9 audit UI** — app-starter's audit_events query interface.
+  Independent of core; needs Mind/app-starter UI work.

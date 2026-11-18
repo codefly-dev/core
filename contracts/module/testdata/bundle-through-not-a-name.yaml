@@ -1,0 +1,13 @@
+# A bundle names the module it reaches a kind through by its principal.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      scopes: [{resource_kind: notes, actions: [read], through: Notes}]

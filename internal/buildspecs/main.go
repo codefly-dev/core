@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"os"
 	"strings"
 
@@ -51,6 +52,15 @@ func entries(specs []companions.BuildSpec) []entry {
 func main() {
 	bake := flag.Bool("bake", false, "emit a Buildx Bake graph with companion bases built from this checkout")
 	flag.Parse()
+	// Run from the repository root: the specs are this checkout's recipes.
+	index, err := companionindex.FromRecipes(".")
+	if err == nil {
+		err = companionindex.Register(index)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	specs, err := companions.BuildSpecs()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

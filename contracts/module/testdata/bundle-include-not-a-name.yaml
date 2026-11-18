@@ -1,0 +1,14 @@
+# An include of another module's bundle names a module and a bundle, each a lowercase name.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      includes: [{module: Model, bundle: infer, through: assistant}]
+      scopes: [{resource_kind: agent.turns, actions: [run]}]

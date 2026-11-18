@@ -19,8 +19,8 @@ route spells one call differently: a Connect procedure is POSTed with the
 input as its body, and a REST route is called with its own verb — POST or PUT
 carrying the input as the body, GET carrying it as the query. Every caller of a
 prepared binding needs that same translation, and there is more than one: the
-runtime's task worker dispatches an installed binding, and robin's chat turn
-calls one as the asking person. Writing it in each would put the wire form of
+runtime's task worker dispatches an installed binding, and an assistant's chat
+turn calls one as the asking person. Writing it in each would put the wire form of
 HTTPRoute — which this package defines and documents (docs/runnable.md, "The
 REST reader") — in two places that can disagree about the same owner, so it is
 one function here instead.

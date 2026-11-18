@@ -236,14 +236,14 @@ func (p *SandboxPolicy) Apply(sb sandbox.Sandbox, expand PathExpander) error {
 //     the host means one place to review, one place to fix.
 //  2. The plugin doesn't have the role-assignment data anyway.
 //     Asking "what role does this principal have?" requires hitting
-//     saas-starter, which the plugin can't (and shouldn't) do.
+//     the host, which the plugin can't (and shouldn't) do.
 //
 // The plugin DECLARES (manifest); the host ENFORCES (PDP). Plugins
 // can READ the principal context (PrincipalFrom) for audit
 // branching or display, but never gate behavior on it.
 
 // PermissionDeclaration is one entry in a plugin's permissions
-// manifest block. Mirrors saas-starter's role_permissions row
+// manifest block. Mirrors the host's role_permissions row
 // shape, with a `Reason` field that surfaces in the install-time
 // review UI ("this plugin wants Action X to do Y").
 //
@@ -441,7 +441,7 @@ func validateGlobPattern(field, pattern string) error {
 //
 // **Note**: this is the manifest-ceiling check, NOT the
 // role-grant check. The PDP also runs role-grant checks against
-// saas-starter; both must pass.
+// the host; both must pass.
 func (p PermissionPolicy) Allows(action, resource string) bool {
 	for _, d := range p.All() {
 		if !globMatch(d.Action, action) {

@@ -198,7 +198,7 @@ func init() {
 	RegisterCaveat("rate_limit", rateLimitProducerFactory, rateLimitVerifierFactory)
 	RegisterCaveat("allowlist", allowlistProducerFactory, allowlistVerifierFactory)
 	// M7 / M8 audit caveats — audit-only, no semantic check at
-	// plugin side. Saas-starter mints these into tokens to mark
+	// plugin side. The host mints these into tokens to mark
 	// the provenance: "this token was issued via M7 escalation"
 	// (via_approval) or "via M8 pattern match" (via_pattern).
 	// Plugin's verifier records the caveat in audit logs and
@@ -719,7 +719,7 @@ func containsString(xs []string, target string) bool {
 // =====================================================================
 //
 // These caveats are AUDIT-ONLY: they record provenance in the
-// token but don't enforce semantic constraints. Saas-starter
+// token but don't enforce semantic constraints. The host
 // mints them on M7 (via_approval) or M8 (via_pattern) tokens to
 // mark how the token came to exist. Plugin-side verifiers
 // accept any value (the signature already proved authenticity)
@@ -731,7 +731,7 @@ func containsString(xs []string, target string) bool {
 // approved via M7" is `caveats.via_approval IS NOT NULL`. With
 // a single key we'd need value-based filtering.
 //
-// Convention for caveat values (saas-starter side):
+// Convention for caveat values (the host side):
 //
 //	via_approval:
 //	  grant_id:      "ulid-..."        # delegation_grants.id
@@ -745,7 +745,7 @@ func containsString(xs []string, target string) bool {
 
 // auditCaveatProducerFactory returns a factory for an audit-only
 // caveat. Producer is nil — operators emit these from outside
-// (saas-starter mint code), not from a YAML-driven producer.
+// (the host mint code), not from a YAML-driven producer.
 // Plugins consume them via verifier.
 func auditCaveatProducerFactory(name string) CaveatProducerFactory {
 	return func(spec CaveatSpec) (CaveatProducer, CaveatPrecheck, error) {
@@ -760,7 +760,7 @@ func auditCaveatProducerFactory(name string) CaveatProducerFactory {
 }
 
 // auditCaveatVerifierFactory returns a verifier that accepts any
-// value. Saas-starter mints these into tokens; plugins verify
+// value. The host mints these into tokens; plugins verify
 // only that the token's signature is valid (already done) and
 // that the caveat is present.
 func auditCaveatVerifierFactory(name string) CaveatVerifierFactory {
@@ -769,7 +769,7 @@ func auditCaveatVerifierFactory(name string) CaveatVerifierFactory {
 			// Accept any non-nil value. The signature check has
 			// already proven the audit data wasn't tampered.
 			if v == nil {
-				return fmt.Errorf("%s: nil caveat value (saas-starter must populate the metadata map)", name)
+				return fmt.Errorf("%s: nil caveat value (the minting host must populate the metadata map)", name)
 			}
 			return nil
 		}, nil

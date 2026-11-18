@@ -1,0 +1,27 @@
+# A bundle includes another module's bundle, reached through the module including it, beside a scope it spells and a bundle of its own.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      includes:
+          - {module: model, bundle: infer, through: assistant}
+      scopes:
+          - resource_kind: agent.turns
+            actions: [run]
+          - resource_kind: notes
+            actions: [redact]
+            through: assistant
+    - name: review
+      includes:
+          - talk
+          - {module: notes, bundle: read, through: assistant}
+      scopes:
+          - resource_kind: agent.turns
+            actions: [read]

@@ -366,7 +366,7 @@ func receiptLookupOf(method protoreflect.MethodDescriptor) string {
 
 // validateLookupMethod ties the declared receipt lookup to a method that
 // actually exists beside the operation. Whether it takes the effect id is not
-// a descriptor fact — document-store carries it in call metadata — so what is
+// a descriptor fact — an owner may carry it in call metadata — so what is
 // checkable is checked: the same service publishes it, it is unary, and it is
 // not the operation itself. That last one is the point: a package declaring
 // RECOVERY_RECEIPT says an uncertain outcome is resolved by reading the

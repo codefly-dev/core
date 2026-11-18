@@ -47,7 +47,7 @@ func TestDigestPinnedBasePasses(t *testing.T) {
 	requireRules(t, imagepolicy.Check(pinned, imagepolicy.Policy{RequireDigest: true}))
 }
 
-// service-rust's runtime and obin service-xlsx both name a floating tag. These
+// service-rust's runtime and acme service-xlsx both name a floating tag. These
 // are not merely unscanned, they are unreproducible: the bytes behind the tag
 // move, so a clean scan describes an image that may no longer exist.
 func TestFloatingTagIsRefused(t *testing.T) {

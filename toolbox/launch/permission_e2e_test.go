@@ -713,9 +713,9 @@ func TestE2E_ScopedAuth_InvalidTokenFailsClosed(t *testing.T) {
 // approves every request, minting a fresh scoped-auth token
 // signed by the shared secret + bound to the supplied audience.
 //
-// In production, the grantor is wired to saas-starter (see
+// In production, the grantor is wired to app-starter (see
 // MIND_INTEGRATION_M7.md). For E2E tests, this stand-in
-// exercises the SDK without standing up the full saas-starter
+// exercises the SDK without standing up the full app-starter
 // approval pipeline.
 type e2eApprovingGrantor struct {
 	secret   []byte

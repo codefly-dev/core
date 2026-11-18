@@ -551,3 +551,111 @@ func TestProtobufListenersShareServiceAndDescriptor(t *testing.T) {
 	}
 	require.Equal(t, []string{"connect", "internal"}, names)
 }
+
+// ownerProtocolDescriptor is the shape of a module that defines, in the
+// package of the API it serves, a protocol other modules serve: accounts.v1
+// holds Accounts, which the module serves, and OwnerAuthority, which it
+// publishes as an interface and only calls.
+func ownerProtocolDescriptor() *descriptorpb.FileDescriptorSet {
+	set := accountsDescriptor("Get")
+	set.File = append(set.File, &descriptorpb.FileDescriptorProto{Name: proto.String("authority.proto"), Package: proto.String("accounts.v1"), Syntax: proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Target")}},
+		Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("OwnerAuthority"), Method: []*descriptorpb.MethodDescriptorProto{
+			{Name: proto.String("CheckPinned"), InputType: proto.String(".accounts.v1.Target"), OutputType: proto.String(".accounts.v1.Target")},
+			{Name: proto.String("Reach"), InputType: proto.String(".accounts.v1.Target"), OutputType: proto.String(".accounts.v1.Target")}}}},
+	})
+	return set
+}
+
+// A service of a served package that the module publishes as an interface for
+// others to implement is served by no listener of the module, and the catalog
+// says so by naming the interface on the service's row. Only that declaration
+// exempts it: the same service undeclared is still a method nobody serves, and
+// a row cannot both declare it implemented elsewhere and serve it.
+func TestProtobufCoverageExemptsOnlyAServiceDeclaredAsAnInterfaceOthersImplement(t *testing.T) {
+	set := ownerProtocolDescriptor()
+	data, err := proto.Marshal(set)
+	require.NoError(t, err)
+	served := ProtobufServices(accountsDescriptor("Get"), "accounts.v1")
+	listeners := func(services ...APIContractService) (APIContractEndpoint, []APIContractEndpoint) {
+		grpc := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: "accounts.v1", Digest: "same", Services: append(append([]APIContractService{}, served...), services...)}
+		connect := APIContractEndpoint{Service: "accounts", Endpoint: "connect", Package: "accounts.v1", Digest: "same", Services: served}
+		return grpc, []APIContractEndpoint{grpc, connect}
+	}
+
+	// Undeclared: refused, naming the method, as before.
+	_, undeclared := listeners()
+	require.ErrorContains(t, ProtobufCoverage(set, undeclared), "/accounts.v1.OwnerAuthority/CheckPinned is served by no listener")
+
+	// Declared as the interface its implementers serve: one row, on one of
+	// the listeners sharing the descriptor, and the evidence is the served
+	// service's alone.
+	published := APIContractService{Name: "OwnerAuthority", FullName: "accounts.v1.OwnerAuthority", Interface: "example.dev/account-owner@0.1.0"}
+	grpc, declared := listeners(published)
+	require.NoError(t, ProtobufCoverage(set, declared))
+	procedures, err := ProtobufProcedures(set, grpc)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/accounts.v1.Accounts/Get"}, procedures)
+	var items []*updatev0.ContractItem
+	require.NoError(t, protobufContractItems(grpc, declared, "api/accounts/grpc", data, &items, nil))
+	for _, item := range items {
+		require.NotContains(t, item.Id, "OwnerAuthority")
+		require.NotContains(t, item.Id, "Target")
+	}
+
+	// The declaration is not a way to drop methods: it serves none of them.
+	serving := published
+	serving.Procedures = []string{"/accounts.v1.OwnerAuthority/CheckPinned"}
+	_, both := listeners(serving)
+	require.ErrorContains(t, ProtobufCoverage(set, both), "service accounts.v1.OwnerAuthority is declared as interface example.dev/account-owner@0.1.0, implemented by other modules, and lists procedures")
+
+	// Nor does it cover a sibling listener that serves part of the service.
+	grpc, declared = listeners(published)
+	partial := APIContractEndpoint{Service: "accounts", Endpoint: "internal", Package: "accounts.v1", Digest: "same",
+		Services: []APIContractService{{Name: "OwnerAuthority", FullName: "accounts.v1.OwnerAuthority", Procedures: []string{"/accounts.v1.OwnerAuthority/Reach"}}}}
+	require.ErrorContains(t, ProtobufCoverage(set, append(declared, partial)), "service accounts.v1.OwnerAuthority is declared as interface example.dev/account-owner@0.1.0, implemented by other modules, and served by endpoint accounts/internal")
+
+	// It names one published interface version, and a service of the descriptor.
+	vague := published
+	vague.Interface = "account-owner"
+	_, unnamed := listeners(vague)
+	require.ErrorContains(t, ProtobufCoverage(set, unnamed), "must be <publisher>/<name>@<version>")
+	absent := APIContractService{Name: "Gone", FullName: "accounts.v1.Gone", Interface: "example.dev/account-owner@0.1.0"}
+	_, stale := listeners(absent)
+	require.ErrorContains(t, ProtobufCoverage(set, stale), "service accounts.v1.Gone is absent from its descriptor")
+
+	// An unserved service nobody declared stays refused beside a declared one.
+	set.File[1].Service = append(set.File[1].Service, &descriptorpb.ServiceDescriptorProto{Name: proto.String("Forgotten"), Method: []*descriptorpb.MethodDescriptorProto{
+		{Name: proto.String("Do"), InputType: proto.String(".accounts.v1.Target"), OutputType: proto.String(".accounts.v1.Target")}}})
+	_, declared = listeners(published)
+	require.ErrorContains(t, ProtobufCoverage(set, declared), "/accounts.v1.Forgotten/Do is served by no listener")
+}
+
+// The catalog carries the declaration, so a packaged module is read the way
+// its source was generated; a catalog row that declares an interface and
+// lists procedures is refused where the catalog is validated.
+func TestAPIContractCatalogCarriesAnInterfaceImplementedByOthers(t *testing.T) {
+	endpoint := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", API: "grpc", Kind: APIContractKindProtobuf, Package: "accounts.v1",
+		Path: "contracts/api/accounts/grpc/contract.binpb", Digest: "sha256:" + strings.Repeat("a", 64),
+		Services: []APIContractService{
+			{Name: "Accounts", FullName: "accounts.v1.Accounts", Procedures: []string{"/accounts.v1.Accounts/Get"}},
+			{Name: "OwnerAuthority", FullName: "accounts.v1.OwnerAuthority", Interface: "example.dev/account-owner@0.1.0", Procedures: []string{}},
+		}}
+	catalog := &APIContractCatalog{Schema: APIContractCatalogSchema, Package: "accounts", Version: "1.0.0", Endpoints: []APIContractEndpoint{endpoint}}
+	require.NoError(t, catalog.Validate())
+	data, err := json.Marshal(catalog)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"interface":"example.dev/account-owner@0.1.0"`)
+	var decoded APIContractCatalog
+	require.NoError(t, decodeStrictJSON(data, &decoded))
+	require.Equal(t, "example.dev/account-owner@0.1.0", decoded.Endpoints[0].Services[1].Interface)
+	served, err := json.Marshal(endpoint.Services[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(served), "interface", "a served service's row is unchanged")
+
+	catalog.Endpoints[0].Services[1].Procedures = []string{"/accounts.v1.OwnerAuthority/Reach"}
+	require.ErrorContains(t, catalog.Validate(), "implemented by other modules, and lists procedures")
+	catalog.Endpoints[0].Services[1].Procedures = nil
+	catalog.Endpoints[0].Services[1].Interface = "account-owner"
+	require.ErrorContains(t, catalog.Validate(), "must be <publisher>/<name>@<version>")
+}

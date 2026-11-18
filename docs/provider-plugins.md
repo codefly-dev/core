@@ -58,9 +58,8 @@ today require bespoke setup scripts and dashboard instructions.
 
 ### Adversarial-review disposition and P0 decisions
 
-The independent adversarial review in
-`docs/provider-plugins-adversarial-review.md` approved the direction with
-required changes. The following decisions are normative and supersede any
+An independent adversarial review (2026-07-30, against core `d1be66774b58`)
+approved the direction with required changes. The following decisions are normative and supersede any
 contradictory wording later in this document:
 
 1. **Third-party publication is an intended capability.** Stripe, Sentry, and
@@ -119,7 +118,7 @@ sink against the durable-capture semantics.
 
 ## Why this is the right time
 
-The SaaS starter now contains independent setup scripts for WorkOS, Stripe,
+The SaaS starter now contains independent setup scripts for IdentityCo, Stripe,
 Resend, PostHog, Sentry, OpenTelemetry, and Turnstile. The scripts established
 the real common lifecycle:
 
@@ -136,7 +135,7 @@ the real common lifecycle:
 10. report exact remaining operator-owned actions.
 
 That repetition is now mature enough to extract. Extracting it earlier would
-have produced a WorkOS- or Stripe-shaped interface. Waiting longer would copy
+have produced an IdentityCo- or Stripe-shaped interface. Waiting longer would copy
 the same security-sensitive shell lifecycle into every starter.
 
 Research also found concrete drift between scripts and current vendor
@@ -1577,7 +1576,7 @@ Callback exposure modes:
 
 `local-direct`:
 
-- provider/browser can call loopback directly, as with a WorkOS browser
+- provider/browser can call loopback directly, as with an IdentityCo browser
   redirect;
 - no remote public webhook provisioning.
 
@@ -2233,7 +2232,7 @@ gate so ordinary unit tests cannot incur remote mutations.
 
 Run the real Codefly graph and provider:
 
-- WorkOS identity;
+- IdentityCo identity;
 - Stripe sandbox checkout, portal, webhook, reconciliation;
 - Resend invitation and delivery lifecycle;
 - Sentry controlled frontend/backend errors and release correlation;
@@ -2570,7 +2569,7 @@ Exit gate:
 
 Before calling the abstraction universal for the SaaS starter, validate:
 
-- **WorkOS**: browser redirect plus provider-managed SSO/admin API and manual
+- **IdentityCo**: browser redirect plus provider-managed SSO/admin API and manual
   dashboard actions;
 - **PostHog**: different ingestion and management origins/credentials;
 - **Turnstile**: public browser key plus secret verification key and
@@ -2599,7 +2598,7 @@ parallel work:
    `codefly agent ci` provider mode** (`codefly-dev/cli`).
 5. **S1 — Stripe provider vertical slice and SaaS starter migration**
    (`provider-stripe` when created; bootstrap tracked in
-   `module-saas-starter`).
+   `module-app-starter`).
 6. **S2 — Sentry observe/project provider and credential-separation
    validation** (`provider-sentry`; bootstrap tracked in the starter).
 7. **S3 — Resend provider and webhook/security qualification**

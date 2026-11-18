@@ -9,9 +9,14 @@ import (
 
 // Environment is the runtime configuration context shared with agents.
 type Environment struct {
-	Name                 string `yaml:"name"`
-	Description          string `yaml:"description,omitempty"`
-	NamingScope          string `yaml:"naming-scope,omitempty"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	NamingScope string `yaml:"naming-scope,omitempty"`
+	// Disposable states that the invocation which generated NamingScope owns
+	// every piece of runtime state created under it and that the state is
+	// throwaway (see runners/runstate). Only the caller that generated the
+	// scope may set it, so it is never read from or written to a workspace.
+	Disposable           bool   `yaml:"-"`
 	Fixture              string `yaml:"fixture,omitempty"`
 	ConfigurationProfile string `yaml:"configuration-profile,omitempty"`
 	// ConfigurationProfiles is an ordered profile chain, the explicit
@@ -63,6 +68,7 @@ func (env *Environment) Proto() (*basev0.Environment, error) {
 		Description: env.Description,
 		NamingScope: env.NamingScope,
 		Fixture:     env.Fixture,
+		Disposable:  env.Disposable,
 	}
 	err := Validate(proto)
 	if err != nil {
@@ -134,6 +140,7 @@ func EnvironmentFromProto(env *basev0.Environment) *Environment {
 		Description: env.Description,
 		NamingScope: env.NamingScope,
 		Fixture:     env.Fixture,
+		Disposable:  env.Disposable,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	companionindex "github.com/codefly-dev/core/companions/index"
 	"io"
 	"log/slog"
 	"os"
@@ -602,13 +603,13 @@ func WithoutSandbox() LoadOption {
 // WithPrincipal binds an authority context (the Principal) to the
 // spawned plugin. Tool calls dispatched by the plugin go through the
 // PDP, which uses the Principal's identity to resolve role grants
-// in saas-starter and decide allow/deny.
+// in the host's permissions backend and decide allow/deny.
 //
 // **What this enables.** Without WithPrincipal, the plugin runs
 // "anonymously" — sandbox-confined but with no authority claim.
 // With WithPrincipal, the plugin's actions are attributed to the
 // Principal in audit logs and authorized against that Principal's
-// permissions in saas-starter. This is the load-bearing wire for
+// permissions in the host's permissions backend. This is the load-bearing wire for
 // the M3+ permission system.
 //
 // **What this is NOT.** It's not authentication of the codefly
@@ -971,6 +972,12 @@ func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDiges
 	if cfg.workDir != "" {
 		cmd.Dir = cfg.workDir
 		cmd.Env = append(cmd.Env, agents.WorkDirEnvironment+"="+cfg.workDir)
+	}
+	// The agent runs the companion images its caller chose: the registered
+	// index travels with it (an index the caller itself inherited is already
+	// in os.Environ).
+	if index := companionindex.Registered(); index != nil {
+		cmd.Env = append(cmd.Env, companionindex.Environment+"="+index.Environ())
 	}
 	if len(cfg.extraEnv) > 0 {
 		// Caller-supplied env wins over parent inheritance — exec

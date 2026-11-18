@@ -143,11 +143,11 @@ func TestManifestRejectsMalformedConsumedAPIs(t *testing.T) {
 	}{
 		{"only module set", func(s string) string {
 			return strings.Replace(s,
-				"      module: saas-starter\n      service: accounts\n      endpoint: connect\n",
-				"      module: saas-starter\n", 1)
+				"      module: app-starter\n      service: accounts\n      endpoint: connect\n",
+				"      module: app-starter\n", 1)
 		}, "must set module, service, and endpoint together"},
 		{"non-identifier module", func(s string) string {
-			return strings.Replace(s, "      module: saas-starter", "      module: Saas_Starter", 1)
+			return strings.Replace(s, "      module: app-starter", "      module: Saas_Starter", 1)
 		}, "module \"Saas_Starter\" is invalid"},
 		{"invalid version constraint", func(s string) string {
 			return strings.Replace(s, `      version: ">=0.1.0 <0.2.0"`, `      version: "latest"`, 1)
@@ -158,12 +158,12 @@ func TestManifestRejectsMalformedConsumedAPIs(t *testing.T) {
 		{"duplicate as", func(s string) string {
 			return strings.Replace(s,
 				"      services: [AuditService, DatasourceService]\n      as: accounts\n",
-				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: saas-starter\n      service: billing\n      endpoint: connect\n      as: accounts\n", 1)
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: app-starter\n      service: billing\n      endpoint: connect\n      as: accounts\n", 1)
 		}, "as \"accounts\" is duplicated"},
 		{"duplicate triple", func(s string) string {
 			return strings.Replace(s,
 				"      services: [AuditService, DatasourceService]\n      as: accounts\n",
-				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: saas-starter\n      service: accounts\n      endpoint: connect\n      as: billing\n", 1)
+				"      services: [AuditService, DatasourceService]\n      as: accounts\n    - id: billing\n      protocol: rest\n      module: app-starter\n      service: accounts\n      endpoint: connect\n      as: billing\n", 1)
 		}, "is duplicated"},
 		{"invalid as", func(s string) string {
 			return strings.Replace(s, "      as: accounts", "      as: 1bad", 1)
@@ -179,7 +179,7 @@ func TestManifestRejectsMalformedConsumedAPIs(t *testing.T) {
 func TestManifestRejectsConsumedFieldsOnExposedAPI(t *testing.T) {
 	withModule := strings.Replace(validManifest,
 		"    - id: gateway\n      protocol: grpc",
-		"    - id: gateway\n      protocol: grpc\n      module: saas-starter", 1)
+		"    - id: gateway\n      protocol: grpc\n      module: app-starter", 1)
 	_, err := manifest.Load([]byte(withModule))
 	require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
 
@@ -187,7 +187,7 @@ func TestManifestRejectsConsumedFieldsOnExposedAPI(t *testing.T) {
 	// deterministic (declaration order), not whichever a map happened to yield.
 	withMany := strings.Replace(validManifest,
 		"    - id: gateway\n      protocol: grpc",
-		"    - id: gateway\n      protocol: grpc\n      version: \">=0.1.0\"\n      as: gw\n      module: saas-starter", 1)
+		"    - id: gateway\n      protocol: grpc\n      version: \">=0.1.0\"\n      as: gw\n      module: app-starter", 1)
 	for range 20 {
 		_, err := manifest.Load([]byte(withMany))
 		require.ErrorContains(t, err, "api.exposes[0].module is not allowed")
@@ -264,7 +264,7 @@ api:
   consumes:
     - id: accounts
       protocol: connect
-      module: saas-starter
+      module: app-starter
       service: accounts
       endpoint: connect
       version: ">=0.1.0 <0.2.0"

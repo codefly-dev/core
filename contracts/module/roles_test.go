@@ -88,7 +88,7 @@ var rolesDeclarations = declaredCallees{
 		"/documents.v1.DocumentsService/ReadDocumentExcerpt": {"documents:read"},
 		"/targets.v1.TargetService/Reach":                    {"documents.versions:read"},
 	},
-	"robin": {"/targets.v1.TargetService/Reach": {"robin.answers:read"}},
+	"planner": {"/targets.v1.TargetService/Reach": {"planner.answers:read"}},
 }
 
 // TestARoleGrantsWhatABindingsCallsRequire: a role naming a binding that uses
@@ -97,7 +97,7 @@ var rolesDeclarations = declaredCallees{
 // and every grant, its own kinds and the scopes it spells out included,
 // carries the audience it is held at.
 func TestARoleGrantsWhatABindingsCallsRequire(t *testing.T) {
-	resolved, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "robin,documents"), WithCallees(rolesDeclarations))
+	resolved, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "planner,documents"), WithCallees(rolesDeclarations))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,17 +105,17 @@ func TestARoleGrantsWhatABindingsCallsRequire(t *testing.T) {
 		{Name: "admin", Grants: map[string][]string{
 			"assistant": {"assistant.tasks:read", "assistant.tasks:write"},
 			"documents": {"documents.collection:read", "documents.versions:read", "documents:read"},
-			"robin":     {"robin.answers:read"},
+			"planner":   {"planner.answers:read"},
 		}},
 		{Name: "user", Grants: map[string][]string{"documents": {"documents:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
 	}
 
 	// The binding's calls are read with it: a role granting one cannot be
 	// resolved without the callee declarations it is derived from.
-	if _, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "robin,documents")); !errors.Is(err, ErrUnresolvedCall) {
+	if _, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "planner,documents")); !errors.Is(err, ErrUnresolvedCall) {
 		t.Fatalf("a role granting a binding's calls with no callees to read them from: %v", err)
 	}
 }
@@ -128,7 +128,7 @@ func TestARoleGrantThroughAnOmittedBindingIsOmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	admin := resolved.Roles[0].Grants
-	if _, granted := admin["robin"]; granted || slices.Contains(admin["documents"], "documents.versions:read") {
+	if _, granted := admin["planner"]; granted || slices.Contains(admin["documents"], "documents.versions:read") {
 		t.Fatalf("the omitted owner binding still grants: %+v", admin)
 	}
 }
@@ -139,7 +139,7 @@ func TestARoleGrantThroughAnOmittedBindingIsOmitted(t *testing.T) {
 // saying nothing about which it means, so the resolution refuses it, naming
 // both; toward one audience it is one grant.
 func TestARoleScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
-	_, err := rolesGrantBindingsContract(t).Resolve(rolesValues("replica", "robin,documents"), WithCallees(rolesDeclarations))
+	_, err := rolesGrantBindingsContract(t).Resolve(rolesValues("replica", "planner,documents"), WithCallees(rolesDeclarations))
 	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role admin grants documents:read, which is underwritten at documents and replica") {
 		t.Fatalf("a role scope two audiences underwrite: %v", err)
 	}
@@ -212,10 +212,10 @@ func TestInstallationOwnedScopesAreAddressedApart(t *testing.T) {
 			Grants:                  map[string][]string{},
 			InstallationOwnedGrants: map[string][]string{"assistant": {"assistant.tasks:read"}, "documents": {"documents.collection:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("roles resolve to %+v, want %+v", resolved.Roles, want)
 	}
-	plain, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "robin,documents"), WithCallees(rolesDeclarations))
+	plain, err := rolesGrantBindingsContract(t).Resolve(rolesValues("documents", "planner,documents"), WithCallees(rolesDeclarations))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestAnInstallationOwnedScopeTwoAudiencesUnderwriteIsRefused(t *testing.T) {
 	if err := contract.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	_, err := contract.Resolve(rolesValues("replica", "robin,documents"), WithCallees(rolesDeclarations))
+	_, err := contract.Resolve(rolesValues("replica", "planner,documents"), WithCallees(rolesDeclarations))
 	if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "role user grants installation-owned documents:read, which is underwritten at documents and replica") {
 		t.Fatalf("an installation-owned scope two audiences underwrite: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestAScopeReachedThroughABindingIsCarriedPerBinding(t *testing.T) {
 				"model": {"documents:read"},
 			}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 	shared := func(ceilings []ScopeCeiling) []string {
@@ -346,7 +346,7 @@ destinations: []
 		{Name: "admin", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
 		{Name: "user", Grants: map[string][]string{"assistant": {"assistant.tasks:read"}}},
 	}
-	if !reflect.DeepEqual(resolved.Roles, want) {
+	if !reflect.DeepEqual(addressedOnly(resolved.Roles), want) {
 		t.Fatalf("Resolve addressed %#v, want %#v", resolved.Roles, want)
 	}
 }

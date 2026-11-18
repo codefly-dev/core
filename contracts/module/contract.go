@@ -10,7 +10,7 @@
 // module contract. Consumers import it as modulecontract, so the identifier
 // says what it is; the docs spell it that way too.
 //
-// It belongs to the lifecycle solutionhost owns, because the contract is the
+// It belongs to the host's delivery lifecycle, because the contract is the
 // request a module manifest carries: the CLI resolves it into the manifest's
 // authority block, which is signed and delivered to the host, and the host
 // grants its intersection with the administrator's approval.
@@ -89,7 +89,7 @@
 // so the audiences of one of its bindings are a LIST only the composition can
 // write. Such a binding declares `audiences` in place of `audience`: a slot
 // whose key is a *-audiences one and whose value is comma-separated names
-// (robin,documents). It means "this binding may be exercised toward any of
+// (planner,documents). It means "this binding may be exercised toward any of
 // these audiences", and the resolution delivers it as one binding per listed
 // audience, each its own unit of authority at the issuer: id
 // <binding>:<audience> (AudienceBindingID), the audience, and the ceiling
@@ -132,7 +132,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/wire"
 )
 
 const (
@@ -227,7 +227,11 @@ var (
 
 // Callees answers what a call to another module requires, from that module's
 // own declarations: the scopes, each "<resource kind>:<action>", that the
-// audience's method policy for the call names. A call the audience does not
+// audience's method policy for the call names. That is what the method
+// requires and, beside it, what it carries (a permission the audience uses on
+// some calls of the method alone, such as reading content): the answer is the
+// ceiling of a binding that names the call, and a binding whose ceiling left
+// out what a call carries could never carry it. A call the audience does not
 // serve, or one that declares nothing, is an error naming it.
 type Callees interface {
 	Requires(audience, call string) ([]string, error)
@@ -238,6 +242,7 @@ type ResolveOption func(*resolveOptions)
 
 type resolveOptions struct {
 	callees Callees
+	bundles Bundles
 	// class is the environment class the resolution resolves a per-class edge
 	// presence for. Empty is "no class declared", which resolves every plain
 	// presence and refuses a per-class one by name.
@@ -255,8 +260,22 @@ func WithEnvironmentClass(class string) ResolveOption {
 
 // WithCallees resolves the bindings that name calls through callees: each such
 // operation's ceiling is the union of what its calls require.
+//
+// Callees that also answer bundles (Bundles) resolve every role's includes
+// too, so one reader of the composed modules serves both.
 func WithCallees(callees Callees) ResolveOption {
-	return func(o *resolveOptions) { o.callees = callees }
+	return func(o *resolveOptions) {
+		o.callees = callees
+		if bundles, ok := callees.(Bundles); ok && o.bundles == nil {
+			o.bundles = bundles
+		}
+	}
+}
+
+// WithBundles resolves every role's includes through bundles: each included
+// bundle's scopes, read from the module that publishes it.
+func WithBundles(bundles Bundles) ResolveOption {
+	return func(o *resolveOptions) { o.bundles = bundles }
 }
 
 var (
@@ -300,6 +319,12 @@ type Contract struct {
 	// where the module is delivered: core reads them as declared. A bare
 	// module, whose access is the organisation's roles, declares none.
 	Roles []Role `yaml:"roles,omitempty"`
+	// Bundles are named sets of scopes the module publishes for a unit that
+	// composes it to grant in one of its roles (Role.Includes): what one kind
+	// of screen calls, across every module it reaches. A bundle grants
+	// nothing by itself and is no role of this module's; a unit's role that
+	// includes it is resolved with its scopes (Bundle, WithBundles).
+	Bundles []Bundle `yaml:"bundles,omitempty"`
 	// InstallationRole selects the agent's standing role: empty is undeclared,
 	// "none" declares no standing grant, otherwise an exact declared role name.
 	// It never selects a role for a person or team.
@@ -371,7 +396,10 @@ type EdgeDependency struct {
 
 // ForeignMethod is one served method of a protocol the module does not own,
 // by its full gRPC name, and what a call to it must hold, in the module's own
-// vocabulary.
+// vocabulary. Carries is what a call may exercise beyond what it requires (the
+// hop policy's carries, which a method the module defines states as an option
+// on its own proto): no decision reads it, and the service performing that
+// effect checks it by name. It is held to the rules Requires is.
 type ForeignMethod struct {
 	// Service names the Codefly service that serves this method when the module
 	// publishes more than one RPC service. Omission retains single-service
@@ -380,6 +408,27 @@ type ForeignMethod struct {
 	Service  string         `yaml:"service,omitempty"`
 	Method   string         `yaml:"method"`
 	Requires []CeilingScope `yaml:"requires"`
+	Carries  []CeilingScope `yaml:"carries,omitempty"`
+}
+
+// foreignScope is one scope a foreign method names, and the word it names it
+// under: what the call requires, or what it carries.
+type foreignScope struct {
+	verb  string
+	scope CeilingScope
+}
+
+// scopes are every scope the method names, required and carried: one
+// vocabulary, so one set of rules.
+func (method ForeignMethod) scopes() []foreignScope {
+	out := make([]foreignScope, 0, len(method.Requires)+len(method.Carries))
+	for _, scope := range method.Requires {
+		out = append(out, foreignScope{verb: "requires", scope: scope})
+	}
+	for _, scope := range method.Carries {
+		out = append(out, foreignScope{verb: "carries", scope: scope})
+	}
+	return out
 }
 
 // ScopeCeiling is one resource kind of the module's own vocabulary and the
@@ -419,6 +468,10 @@ type Role struct {
 	// a role grants a permission at another module without naming that
 	// module's kinds.
 	Bindings []RoleBinding `yaml:"bindings,omitempty"`
+	// Includes are bundles other modules publish (Contract.Bundles) that the
+	// role grants: Resolve reads each from its module's own declarations
+	// (WithBundles) and grants its scopes as the role's own.
+	Includes []RoleInclude `yaml:"includes,omitempty"`
 }
 
 // RoleBinding names one binding of the unit and one operation of it a role
@@ -919,14 +972,20 @@ type OmittedBinding struct {
 // reached through a binding (Through), Resolve addresses it to the one
 // audience that underwrites it (one no audience underwrites is addressed
 // nowhere, and the authority refuses the delivery granting it) — the
-// unit's principal for its own kind, the binding's resolved audience for a
-// consumed one (a binding spelling scopes names one audience: never a list,
-// whose kinds are each audience's own). A scope two audiences underwrite is
-// refused, naming both; the role then grants the binding it means through
-// bindings, which carries its audience. A grant through an optional binding
-// the composition leaves out is left out with it.
+// unit's principal for its own kind, for a consumed one the resolved audience
+// of the binding that carries it for an operation a person causes: spelled
+// out, or declared by that audience for the calls the binding names. A scope
+// two audiences underwrite is refused, naming both; the role then grants the
+// binding it means through bindings, which carries its audience. A grant
+// through an optional binding the composition leaves out is left out with it.
 type ResolvedRole struct {
 	Name string
+	// Scopes are the role's scopes as it grants them: those it declares, with
+	// the scopes of every bundle it includes granted beside them (Bundle,
+	// WithBundles), through each named binding as declared, in one
+	// deterministic order. A deliverer reads a role's scopes here, never off
+	// the contract, which names its includes only by name.
+	Scopes []CeilingScope
 	// Grants are, per audience, the scopes "<resource kind>:<action>" the
 	// role grants there. Sorted, each once.
 	Grants map[string][]string
@@ -1175,26 +1234,41 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 			resolved.Bindings = append(resolved.Bindings, entry)
 		}
 	}
-	resolved.Roles, ambiguous = contract.resolveRoles(resolved, delivered, ambiguous)
+	roles, included := contract.includedRoles(resolved, delivered, opts.bundles)
+	resolved.Roles, ambiguous = contract.resolveRoles(roles, resolved, delivered, ambiguous)
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
 		if len(calls) > 0 {
 			err = errors.Join(err, callsError(calls))
 		}
+		if len(included) > 0 {
+			err = errors.Join(err, includesError(included))
+		}
 		return nil, err
 	}
-	if len(calls) > 0 {
-		return nil, callsError(calls)
+	if len(calls) > 0 || len(included) > 0 {
+		var parts []error
+		if len(calls) > 0 {
+			parts = append(parts, callsError(calls))
+		}
+		if len(included) > 0 {
+			parts = append(parts, includesError(included))
+		}
+		return nil, errors.Join(parts...)
 	}
 	return resolved, nil
 }
 
 // resolveRoles addresses every grant of every role (ResolvedRole), appending
 // to ambiguous each role scope two audiences underwrite.
-func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
+func (contract *Contract) resolveRoles(declared []Role, resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
 	own := contract.ownCeilings()
 	// underwriters are the audiences a literal role scope is held at: the
 	// principal for the unit's own kind, and each delivered audience of a
-	// binding that spells the scope out for an operation a person causes.
+	// binding that, for an operation a person causes, spells the scope out or
+	// names calls that audience declares it for. A binding that names its
+	// calls names no kind, so a scope is held there only when it comes from
+	// somewhere that does name it: a bundle the role includes, read from the
+	// module publishing it, or the role's own spelling.
 	underwriters := func(kind, action string) []string {
 		var audiences []string
 		if slices.Contains(own[kind], action) {
@@ -1202,10 +1276,14 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 		}
 		for _, binding := range contract.Bindings {
 			for _, operation := range []string{OperationInvoke, OperationLookup} {
-				if slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
+				spelled := slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
 					return scope.ResourceKind == kind && slices.Contains(scope.Actions, action)
-				}) {
-					for _, index := range delivered[binding.ID] {
+				})
+				called := len(binding.Calls[operation]) > 0
+				for _, index := range delivered[binding.ID] {
+					// A ceiling read from calls is each audience's own: the
+					// scope is held at the audiences whose calls declare it.
+					if spelled || called && slices.Contains(resolved.Bindings[index].Scopes[operation], kind+":"+action) {
 						audiences = append(audiences, resolved.Bindings[index].Audience)
 					}
 				}
@@ -1233,8 +1311,8 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 			}
 		}
 	}
-	roles := make([]ResolvedRole, 0, len(contract.Roles))
-	for _, role := range contract.Roles {
+	roles := make([]ResolvedRole, 0, len(declared))
+	for _, role := range declared {
 		grants := map[string][]string{}
 		address(role.Name, "", role.Scopes, grants)
 		for _, granted := range role.Bindings {
@@ -1243,7 +1321,7 @@ func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string]
 				grants[binding.Audience] = append(grants[binding.Audience], binding.Scopes[granted.Operation]...)
 			}
 		}
-		entry := ResolvedRole{Name: role.Name, Grants: sortedGrants(grants)}
+		entry := ResolvedRole{Name: role.Name, Scopes: slices.Clone(role.Scopes), Grants: sortedGrants(grants)}
 		for _, scope := range role.Scopes {
 			if scope.Through == "" || len(delivered[scope.Through]) == 0 {
 				continue // direct, or through an optional binding left out with it

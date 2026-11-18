@@ -9,7 +9,7 @@ import (
 )
 
 // SaasPDP is the production Decider for hosts that authenticate
-// against saas-starter (or any other backend exposing a
+// against the host (or any other backend exposing a
 // PermissionsBackend). It adapts the simpler backend shape into
 // the full PDP/Decider interface, layering on:
 //
@@ -22,18 +22,18 @@ import (
 //     NEVER as silent allow
 //   - Latency tracking: PDPMetrics gets the wall-time per call
 //
-// **Why this lives in core, not in saas-starter.** core has no
-// compile-time dependency on saas-starter — SaasPDP takes a
-// PermissionsBackend interface that saas-starter (or any other
+// **Why this lives in core, not in the host.** core has no
+// compile-time dependency on the host — SaasPDP takes a
+// PermissionsBackend interface that the host (or any other
 // implementation) wires concretely. The dependency arrow is
-// always saas-starter → core, never the reverse.
+// always the host → core, never the reverse.
 //
 // **Cache invalidation.** TTL only, no broadcast invalidation in
 // v1. Operators tune Cache TTL per their tolerance for stale
 // allows. M10 hardening adds Postgres NOTIFY-driven invalidation
 // for permission changes.
 type SaasPDP struct {
-	// Backend is the saas-starter (or test) implementation that
+	// Backend is the host (or test) implementation that
 	// answers Decide. Required.
 	Backend PermissionsBackend
 

@@ -268,6 +268,32 @@ is blocked by:
 - a version published again with a different surface;
 - a line the module stops implementing, since its consumers lose their provider.
 
+## A protocol a module defines for others to implement
+
+A module may define, in a protobuf package one of its listeners serves, the
+protocol of an interface it publishes for other modules to implement: the
+descriptor declares the service, and no listener of the module serves it. The
+module's API catalog says so with a row that names the interface and lists no
+procedures:
+
+```json
+{"name": "OwnerService", "fullName": "notes.v1.OwnerService",
+ "interface": "example.dev/note-owner@0.1.0", "procedures": []}
+```
+
+`APIContractService.Interface` is an interface identity
+(`<publisher>/<name>@<version>`). It is the one thing that exempts a service of
+a served package from `ProtobufCoverage`, which otherwise requires every
+service of the package to be served by a listener of the module. The exemption
+is a declaration, never an absence: an unlisted service is still refused. Core
+refuses a row that names an interface and lists procedures, one whose service a
+sibling listener serves, and one whose service is not in the descriptor. The
+service's compatibility is then the interface's own versioning (section 4), not
+the module's served evidence.
+
+Core reads no definition here, so it does not check that the interface named
+lists that service: the host does, with the definition it resolves.
+
 ## How the existing contract notions relate
 
 These are not migrated; this is how they line up.
@@ -275,7 +301,7 @@ These are not migrated; this is how they line up.
 | Notion | Relation |
 | --- | --- |
 | `ModuleInterface` (`module.interface`) | The module's side: what it exports, at what visibility, and which interface versions it implements. |
-| `APIContractCatalog` | The descriptor set or OpenAPI document one exported endpoint serves, pinned by digest in a package: the concrete artifact behind a `grpc`/`rest` implementation. |
+| `APIContractCatalog` | The descriptor set or OpenAPI document one exported endpoint serves, pinned by digest in a package: the concrete artifact behind a `grpc`/`rest` implementation. A service row with `interface` set is a protocol the module defines and others serve (above). |
 | `RunnableContract` | The typed input and output of a runnable. A possible future interface type; not one today. |
 | `standards.APIS()` | The endpoint APIs. Endpoint interface types are spelled the same. |
 | Configuration groups | What a `capability` interface schematises. |
@@ -285,6 +311,8 @@ These are not migrated; this is how they line up.
 Core defines the model and every check. The host (the CLI):
 
 - attaches the `InterfaceResolver`;
+- holds a catalog row's `interface` to the definition it names: the definition
+  resolves, and lists the row's service;
 - calls `AddInterfaceEvolutions` when it builds a module update report;
 - calls `ValidateProvidedConfiguration` on what `CreateConnectionConfiguration`
   returns;

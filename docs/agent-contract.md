@@ -106,6 +106,112 @@ identity. Missing capability and wrong/missing acknowledgement are distinct
 errors. Native operations that do not need recovery should not require this
 capability. Advertising support never bypasses the ownership check.
 
+## Native run state
+
+An agent that runs a store as a host process keeps its state (a cluster, a data
+file, a configuration) in a directory it owns under `runstate.Root()`,
+`<user cache dir>/codefly/<store>/...`. No agent may infer the right to delete
+that directory: a stop, a destroy, or having started the process is not one.
+
+The right is stated by the run's caller. `Environment.disposable` is set by the
+invocation that generated the run's naming scope (a disposable invocation: a
+scope nothing can run again); an unscoped run, and a scope a caller named, is a
+developer's data and is never disposable. `runners/runstate` is the one
+mechanism every native store uses for it:
+
+- **On Init**, `runstate.Claim(dir, runstate.For(workspacePath, environment))`
+  records the run on the directory and the calling agent as its user, and
+  `Hold.Track(pid)` adds every process the agent starts there that can outlive
+  it (a detached server). A persistent claim on a directory is final. A server
+  started through a native or nix `Proc` is identified from that handle
+  (`proc.(runners.HostProcess).Process()`, the PID with its start identity),
+  not by asking the server; only a server that forks away from the process the
+  agent started needs its own report.
+- **On Stop**, nothing: a service restarts inside a run, and finds its data.
+  An agent that stops its server on Stop stops it through its own handle.
+- **A server several agents of a run share** (one postmaster for every
+  Postgres service of a run) is found and stopped through the same records,
+  not through a list the store keeps beside them: `runstate.Tracked(dir)`
+  returns the tracked processes still running, so a later agent attaches to
+  the server an earlier one started and tracks it too; on Stop each agent
+  calls `Hold.StopTracked(ctx, options)`, which stops the server only when no
+  other live claim still tracks it, and keeps the claim. An agent that died
+  uses nothing. The birth is checked before every signal, as below.
+- **On Destroy**, `Hold.Release()` then `runstate.Collect(dir)`, which removes
+  the directory only when it is disposable and nothing uses it any more.
+
+A run that only stops its agents, or is killed, never reaches Destroy. The
+caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
+disposable run ends, and `codefly clear` sweeps every ended disposable run in
+its scope. A directory no agent claimed is never removed.
+
+### Containers of a disposable run
+
+The same fact decides the container runtime, and no agent decides it. A stop
+keeps a container: the next run of the same scope reuses it by name, and the
+data directory core mounts into it (`WithPersistentCacheMount`,
+`<codefly home>/runtime-cache/<container name>/<key>`) is a developer's
+database. A disposable run's scope is never run again, so the party that ended
+the run removes what it left, once its agents have exited:
+`dockerrun.RemoveDisposableRun(ctx, scope, run)`, with `run` as
+`runstate.For` reads it and `scope` the run's own recovery scope. It removes
+every container labelled with exactly that scope, running or stopped, the
+anonymous volumes those containers created, and the runtime-cache directory of
+each container that mounts from it. For a run that is not disposable it removes
+nothing. A container bound to a session ledger, one another host labelled, and a
+named volume are left.
+
+An agent needs no code for this: its `Stop` and `Destroy` stay as they are. It
+needs its containers created through `dockerrun` (which labels them with the
+scope the run projects), on a Core that has the label, and its data kept either
+in a `WithPersistentCacheMount` directory or in an anonymous volume. Data an
+agent keeps for a container anywhere else is not found.
+
+A run belongs to the process that started it and ends with it, on both hops,
+by the same birth identity as everything else here (`runstate.Birth`, watched
+with `Birth.Gone`, which never signals anything):
+
+- **The caller that starts a run for itself** (the SDK starting a dependency
+  stack for a test) declares itself in the run's environment
+  (`runstate.OwnedBy`, `CODEFLY_RUN_OWNER`). The CLI reads it
+  (`runstate.Owner`) and stops the run in order once the owner is
+  gone, as if it had been asked to: a test binary that timed out or was killed
+  calls nothing. A stack kept running has no owner.
+- **An agent's owner is the run that launched it.** `agents.Serve` watches the
+  birth of its launcher (`runstate.Launcher`) and, once it is gone, does what
+  it does on SIGTERM (the Runtime's `Stop`, then exit), because a killed run
+  signals nobody. It then calls `runstate.AbandonClaimed`, which ends what is
+  left of that run in the directories the agent claimed exactly as
+  `StopAbandoned` and `Collect` below decide it: a disposable directory's
+  tracked servers are stopped and the directory removed; a persistent
+  directory, and whatever the agent's own `Stop` left running in it, is left
+  as it is for the same run to come back to. An agent needs no code for this
+  beyond `Claim` and `Track`; it needs to be built on a Core that has it.
+
+An agent built on an older Core does not notice, and a killed run then leaves
+its servers running: `kill -9` of the CLI reparents
+its agents and what they started, and a directory is in use for as long as a
+tracked server runs. Stopping those is the same mechanism, and the caller opts
+in: `runstate.StopAbandoned(ctx, dir, runstate.StopOptions{})` for one
+directory (then `Collect`), or `SweepOptions.StopAbandoned` for a sweep, which
+stops and then collects. An agent does it on Init for its own store, so the
+next run cleans up after a killed one; `codefly clear` does it for its scope.
+No agent keeps records of its own for this.
+
+It acts only on a directory every claiming run declared disposable and whose
+agents' runs are all gone (an agent that died inside a run that goes on left
+that run's server, not an abandoned one), and only on the processes recorded with
+`Hold.Track`: each is sent `StopOptions.Signal` (SIGTERM unless the store's
+orderly shutdown is another signal), given `StopOptions.Grace` (ten seconds by
+default), then killed. The recorded birth is checked before every signal (boot
+and start identity, `runners/base.InspectProcess` and `SignalProcess`), so a
+PID that was reused is never signalled. A persistent directory's server, a
+directory with a live claim or an unreadable record, and a process nobody
+tracked are left as they are. A `DryRun` sweep stops nothing and names what it
+would stop (`Swept.Stopped`). An agent that serializes its directories with a
+lock of its own takes that lock around `StopAbandoned` and `Collect`, as it
+does around `Collect` today.
+
 ## Evolution and releases
 
 ### Local runtime image handoff
@@ -135,14 +241,11 @@ refusals; linking generated bindings or Core's shared server does not advertise
 adoption. The release manifest records the operation contract while wire
 protocol 1, startup protocol 2 and shared server capabilities remain unchanged.
 
-The proposal was opened first in
-[handbook#260](https://github.com/obin-ai/handbook/pull/260).
 This is the Core transport for
 [core#748](https://github.com/codefly-dev/core/issues/748), not a completed local
 run: the build-to-Init producer is
 [cli#932](https://github.com/codefly-dev/cli/issues/932), and consumer selection
-and refusal tests belong to
-[service-libreoffice#63](https://github.com/obin-ai/service-libreoffice/issues/63).
+and refusal tests belong to the consuming agents.
 Those implementations and a combined boot must qualify the downstream rollout.
 
 ### Deployment composition provenance
@@ -179,8 +282,8 @@ semantics; the shared server does not automatically advertise adoption.
 Wire protocol 1 and startup protocol 2 are unchanged. No version roster or
 fleet repin substitutes for live adoption.
 
-[Handbook proposal #266](https://github.com/obin-ai/handbook/pull/266) preceded
-the proto edit for [core#751](https://github.com/codefly-dev/core/issues/751).
+A design proposal preceded the proto edit for
+[core#751](https://github.com/codefly-dev/core/issues/751).
 The CLI producer is sequenced after Core in
 [cli#937](https://github.com/codefly-dev/cli/issues/937). Core tests do
 not qualify that handoff, downstream agent adoption, or a staging render.

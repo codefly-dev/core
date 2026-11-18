@@ -1,7 +1,7 @@
 # Two-level defense-in-depth: scoped authorization tokens
 
 **Status:** proposal (2026-05-10).
-**Author audience:** codefly + saas-starter engineers.
+**Author audience:** codefly + app-starter engineers.
 **Decision required:** sign-off before implementation phase 1.
 
 ---
@@ -117,7 +117,7 @@ Sources of tool policies (any combination, evaluated in order):
          - "labels contains 'force-merge'"
    ```
 
-3. **Saas-starter role grants.** The existing RBAC check (M2's
+3. **App-starter role grants.** The existing RBAC check (M2's
    `Decide` RPC). Always runs as the final step — the gateway
    checks role grants before minting.
 
@@ -127,7 +127,7 @@ The gateway pipeline:
 1. Load tool policy for (toolbox, tool)
 2. Evaluate manifest declaration  (does the plugin DECLARE this action?)
 3. Evaluate operator rules        (does the operator's tool policy ALLOW?)
-4. Evaluate role grants           (does saas-starter grant the principal?)
+4. Evaluate role grants           (does app-starter grant the principal?)
 5. If all pass: mint a ScopedAuthorization with computed caveats
 6. Forward to plugin with the token in metadata
 ```
@@ -265,7 +265,7 @@ The evaluator:
 
 1. Loads the `ToolPolicy` for the tool (manifest + operator rules).
 2. Evaluates rules against the input context.
-3. Calls saas-starter `Decide` for the role-grant check (the
+3. Calls app-starter `Decide` for the role-grant check (the
    existing M2 RPC).
 4. If all pass, mints a `ScopedAuthorization` and signs with the
    per-spawn HMAC secret.
@@ -347,7 +347,7 @@ replacing:
                    ┌─────────────────────────────────────┐
                    │ Gateway evaluator (NEW)             │
                    │ - Tool policy (manifest + rules)    │
-                   │ - Role grants via saas-starter      │
+                   │ - Role grants via app-starter      │
                    │ - Mint ScopedAuthorization          │
                    └─────────────────────────────────────┘
                                    │
@@ -422,7 +422,7 @@ can't escalate.
 - **Time skew.** Plugin and gateway must agree on time within a
   small skew window (e.g., 30s). NTP keeps this tight in practice.
   Tokens beyond skew tolerance are rejected.
-- **Saas-starter compromise.** If the auth backend is owned, all
+- **App-starter compromise.** If the auth backend is owned, all
   bets are off — that's the trust root.
 
 ### Threat model summary
@@ -519,11 +519,11 @@ engine.
 
 ### Phase 3 — Approval flow integration (M7) ✅ DONE (core side)
 
-Core ships the SDK + interfaces; saas-starter implements the
+Core ships the SDK + interfaces; app-starter implements the
 RPCs and approval UI per `MIND_INTEGRATION_M7.md`.
 
 - `policy.EscalationRequest` / `EscalationResult` types
-- `policy.EscalationGrantor` interface — saas-starter implements
+- `policy.EscalationGrantor` interface — app-starter implements
 - `policy.RequestEscalation(ctx, req)` SDK helper — plugins call this
   to escalate; returns ctx with scoped-auth token attached
 - `policy.AuthorizedOrEscalate(ctx, authorizer, action, resource, justification)` —
@@ -531,16 +531,16 @@ RPCs and approval UI per `MIND_INTEGRATION_M7.md`.
 - `policy.SetGlobalEscalationGrantor(g)` — host wires the grantor
   at startup; SDK helpers find it via the global registry
 - `via_approval` caveat baked into approved-escalation tokens
-  for audit (saas-starter side; convention documented)
+  for audit (app-starter side; convention documented)
 - E2E tests: full flow with fake grantor approving + denying
-- Saas-starter migration `38_create_delegation_grants.up.sql`
+- App-starter migration `38_create_delegation_grants.up.sql`
   with NOTIFY trigger for instant streaming wake-up
 
-**Saas-starter pending** (see MIND_INTEGRATION_M7.md):
+**App-starter pending** (see MIND_INTEGRATION_M7.md):
 - `RequestDelegation` / `WaitForDelegation` (server-stream) /
   `DecideDelegation` RPCs
 - `SaasStarterEscalationGrantor` adapter in the host binary
-- Approval UI surface in saas-starter frontend
+- Approval UI surface in app-starter frontend
 - Notification fan-out (Slack / email / in-app) on pending insert
 
 ### Phase 4 — Public-key signing (M6) ✅ DONE (ed25519)
@@ -584,13 +584,13 @@ specific need.
 
 ### Phase 5b — M8 audit caveats (`via_approval`, `via_pattern`)
 
-Registered as built-in caveats in core. Saas-starter mints these
+Registered as built-in caveats in core. App-starter mints these
 into tokens to mark M7 (escalation-approved) or M8 (pattern-
 matched) provenance. Plugin-side verifiers accept any value (the
 signature already proved authenticity); audit logs capture the
 caveats for the delegation-chain trail.
 
-NOT declarable in YAML — minted directly by the saas-starter
+NOT declarable in YAML — minted directly by the app-starter
 backend. Attempting to declare in YAML rejects loudly so
 operators don't think they're configuring something.
 

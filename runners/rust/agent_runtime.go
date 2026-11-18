@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codefly-dev/core/discovery"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
@@ -174,17 +175,10 @@ func RunCargoTests(ctx context.Context, env *RustRunnerEnvironment, sourceLocati
 // cargoTestWorkDir walks up from sourceLocation to the directory holding
 // Cargo.toml so cargo resolves the right workspace.
 func cargoTestWorkDir(sourceLocation string) string {
-	cur := sourceLocation
-	for {
-		if _, err := os.Stat(filepath.Join(cur, "Cargo.toml")); err == nil {
-			return cur
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return sourceLocation
-		}
-		cur = parent
+	if dir, ok := discovery.Find(sourceLocation, "Cargo.toml", discovery.Repository); ok {
+		return dir
 	}
+	return sourceLocation
 }
 
 // writeLastTestOutput dumps the raw `cargo test` stream to

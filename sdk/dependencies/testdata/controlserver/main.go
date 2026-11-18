@@ -30,6 +30,7 @@ import (
 	"time"
 
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	"github.com/codefly-dev/core/runners/runstate"
 	"github.com/codefly-dev/core/sdk/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -86,6 +87,8 @@ func main() {
 	// SDK's unexported state.
 	server.note(fmt.Sprintf("identity session=%s socket=%s scope=%s",
 		session.FromEnvironment(os.Environ()).ID, socket, namingScope(os.Args)))
+
+	server.note("owner=" + os.Getenv(runstate.OwnerEnvironment))
 
 	srv := grpc.NewServer()
 	v0.RegisterCLIServer(srv, server)

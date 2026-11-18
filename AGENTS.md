@@ -12,15 +12,16 @@ When a change you need belongs to one of them, it gets made there.
 
 ## How to behave
 
-Fleet standard — [handbook#68](https://github.com/obin-ai/handbook/issues/68).
-These land hard here: core is a *library*, so a defect is observed downstream and
-the temptation is always to absorb it locally rather than fix what owns it.
+Codefly's contributor rules, stated in full here. Core is a *library*, so a
+defect is observed downstream and the temptation is always to absorb it
+locally rather than fix what owns it.
 
-- **Prove reuse before you build**, and **build the simplest thing that works;
-  size is the signal**: fill a gap on what the platform already has, keep a
-  coding task to about **500 hand-written lines**, and past **2,000** **stop and
-  ask the user**. Both in full, with their tells, in [the
-  handbook](https://github.com/obin-ai/handbook/blob/main/AGENTS.md).
+- **Local first.** A playground is a composed service (`codefly run service`); generated code comes
+  from `codefly generate`; nothing the system resolves is written down; no pull request until the
+  change is validated on an environment; no test starts a Kubernetes cluster.
+- **Prove reuse before you build**, and **build the simplest thing that works**: fill a gap on what
+  the platform already has, and stop and ask the user when you cannot name the one responsibility a
+  change adds.
 - **Look for the `codefly` command before doing anything by hand.** The CLI owns
   the fleet verbs — `codefly agent deps --pin`, `codefly agent release --pin`,
   `codefly update deps`, `codefly update workspace`, `codefly generate proto` —
@@ -102,7 +103,6 @@ image core alone cannot build. Run them locally before touching that surface.
 | `configurations/` | what services provide and consume, injected as env vars |
 | `runners/`, `companions/` | process execution; sidecar images for language tooling |
 | `imagepolicy/` | target-declared Dockerfile requirements ([docs](docs/image-policy.md)) |
-| `solutionhost/` | `ModuleManifest`, the one signed record of a module instance on a host: its workloads, endpoints and requested authority ([docs](docs/module-manifest.md)) |
 | `contracts/module/` | the ONE implementation of `codefly/module-contract/v1` (Go package `module`, imported as `modulecontract`) — the request a module publishes, strict decoding, every refusal as a named rule (`rules.go`), slot resolution, a serialisable model, shipped fixtures every reader is driven through and a self-check that deletes each rule and proves a fixture notices ([docs](docs/module-contract.md)). The cell (`codefly/cell/v1`) has no implementation in core |
 | `code/semantic` | the **only** package allowed to use cgo (tree-sitter) |
 | `internal/ciguard` | invariants about CI config that no other test would notice |
@@ -113,8 +113,8 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
 
 ## Rules that bite
 
-- **Core owns runtime configuration and secrets; CLI owns deployment.** Infra-base
-  and other producers emit the CLI's `codefly/coordinate/v1` declarations.
+- **Core owns runtime configuration and secrets; CLI owns deployment.**
+  Infrastructure producers emit the CLI's `codefly/coordinate/v1` declarations.
   Cluster, registry, ingress, managed services, identity attachments and GitOps
   policy stay in CLI. Never translate private producer inventories in Core/CLI.
   See [`docs/configuration-contract.md`](docs/configuration-contract.md).

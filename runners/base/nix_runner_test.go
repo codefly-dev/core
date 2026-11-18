@@ -118,3 +118,33 @@ func TestNixEnvironment_NoFlake(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "flake.nix")
 }
+
+// With a materialized dev shell the command is executed directly, so the
+// process the Proc started is the command itself and not a nix wrapper.
+func TestNixProcReportsTheProcessItStarted(t *testing.T) {
+	requireNix(t)
+	ctx := context.Background()
+	env, err := base.NewNixEnvironment(ctx, nixTestDir(t))
+	require.NoError(t, err, "nix environment not usable")
+	require.NoError(t, env.Init(ctx))
+
+	proc, err := env.NewProcess("sleep", "30")
+	require.NoError(t, err)
+	host, ok := proc.(base.HostProcess)
+	require.True(t, ok)
+	_, err = host.Process()
+	require.ErrorIs(t, err, base.ErrProcessNotFound, "nothing is started yet")
+
+	require.NoError(t, proc.Start(ctx))
+	t.Cleanup(func() { _ = proc.Stop(context.Background()) })
+
+	identity, err := host.Process()
+	require.NoError(t, err)
+	live, err := base.InspectProcess(identity.PID)
+	require.NoError(t, err)
+	require.Equal(t, live.StartID, identity.StartID)
+	require.Equal(t, live.BootID, identity.BootID)
+	// The dev shell's sleep is a coreutils binary: what matters is that it is
+	// the command and not the wrapper.
+	require.NotEqual(t, "nix", filepath.Base(live.Executable))
+}

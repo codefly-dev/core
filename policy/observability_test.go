@@ -73,7 +73,7 @@ func TestPDPMetrics_FailClosed_BothDenyAndFailClosedIncrement(t *testing.T) {
 	policy.RecordDecision(context.Background(), m, policy.DecisionEvent{
 		Toolbox:    "git",
 		Tool:       "git.status",
-		Decision:   policy.PDPDecision{Allow: false, Reason: "saas-starter unreachable"},
+		Decision:   policy.PDPDecision{Allow: false, Reason: "app-starter unreachable"},
 		FailClosed: true,
 	})
 

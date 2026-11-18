@@ -70,9 +70,6 @@ import (
 	_ "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/update/v0"
-	_ "github.com/codefly-dev/core/generated/go/mind/debug/v1"
-	_ "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
-	_ "github.com/codefly-dev/core/generated/go/mind/v1"
 )
 
 const regenerate = "codefly generate proto --proto ./proto --output ./generated --local"

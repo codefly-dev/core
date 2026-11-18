@@ -118,7 +118,7 @@ func TestResolveFixtureNamesTheAvailableFixtures(t *testing.T) {
 
 	_, err = Fixtures(packages[0], fixtureManifest("codefly/other", devAdminFixture()))
 	require.ErrorIs(t, err, ErrCollision)
-	require.ErrorContains(t, err, `declared by both "codefly/saas-starter" and "codefly/other"`)
+	require.ErrorContains(t, err, `declared by both "codefly/app-starter" and "codefly/other"`)
 
 	// A lost package must not resolve to a fixture set that silently omits
 	// whatever it declared, nor take down the caller.

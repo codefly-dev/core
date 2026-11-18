@@ -552,13 +552,13 @@ func TestAnInheritedGroupStillReplacesAComposedModuleGroupWhole(t *testing.T) {
 	writeConfigurationFile(t, root, "product/workspace.codefly.yaml", `name: product
 layout: modules
 workspaces:
-  - name: platform-core
+  - name: platform-base
     path: ../core
 modules:
   - name: host
     path: ../host
 `)
-	writeConfigurationFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\n")
+	writeConfigurationFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\n")
 	writeConfigurationFile(t, root, "core/configurations/local/app-config.env", "CONFIG_DIR=/platform\n")
 	writeConfigurationFile(t, root, "host/module.codefly.yaml", "kind: module\nname: host\nservices: []\n")
 	writeConfigurationFile(t, root, "host/configurations/local/app-config.env",

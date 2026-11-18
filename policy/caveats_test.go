@@ -410,7 +410,7 @@ func TestRegisterCaveat_BothNil_Panics(t *testing.T) {
 // =====================================================================
 
 func TestAuditCaveat_ViaApproval_NotDeclarableInYAML(t *testing.T) {
-	// via_approval is minted by saas-starter, not declared in
+	// via_approval is minted by app-starter, not declared in
 	// YAML. Trying to declare it must fail loud.
 	producerFactory, _, ok := policy.LookupCaveat("via_approval")
 	require.True(t, ok)
@@ -433,7 +433,7 @@ func TestAuditCaveat_Verifier_AcceptsAnyNonNilValue(t *testing.T) {
 	verifier, err := verifierFactory(policy.CaveatSpec{})
 	require.NoError(t, err)
 
-	// Accept structured map (typical from saas-starter).
+	// Accept structured map (typical from app-starter).
 	require.NoError(t, verifier(map[string]any{
 		"grant_id":    "ulid-001",
 		"grantor_id":  "u-approver",

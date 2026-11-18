@@ -1,9 +1,9 @@
 # M7 — Synchronous escalation flow (implementer guide)
 
-This document is for engineers implementing the **saas-starter
+This document is for engineers implementing the **app-starter
 side** of the M7 escalation flow. The codefly core side is
 already in place (`core/policy/escalation.go`); this doc covers
-what saas-starter needs to add and how it wires into core.
+what app-starter needs to add and how it wires into core.
 
 For plugin authors using escalation, see PLUGIN_AUTHORS.md
 section 3 ("REQUEST"). For the broader two-level model, see
@@ -13,7 +13,7 @@ TWO_LEVEL_AUTHZ.md.
 
 ## TL;DR
 
-Saas-starter adds:
+App-starter adds:
 
 1. **`delegation_grants` table** — already shipped as migration
    `38_create_delegation_grants.up.sql`.
@@ -24,9 +24,9 @@ Saas-starter adds:
    - `DecideDelegation` — grantor approves or denies
 3. **`SaasStarterEscalationGrantor`** — adapter implementing
    core's `policy.EscalationGrantor` interface; lives in your
-   host binary (Mind / CLI / wherever the saas-starter gen
+   host binary (Mind / CLI / wherever the app-starter gen
    client is imported).
-4. **Approval UI** in saas-starter frontend — pending-request
+4. **Approval UI** in app-starter frontend — pending-request
    list + approve/deny actions.
 5. **Notification fan-out** — Slack / email / in-app for new
    pending requests.
@@ -203,7 +203,7 @@ message ListPendingDelegationsResponse {
 
 ## 3. SaasStarterEscalationGrantor adapter
 
-Lives in your host binary (Mind / CLI / wherever the saas-starter
+Lives in your host binary (Mind / CLI / wherever the app-starter
 gen client is). One implementation per host:
 
 ```go
@@ -215,7 +215,7 @@ import (
     "time"
 
     "github.com/codefly-dev/core/policy"
-    api "yourrepo/saas-starter/gen"
+    api "yourrepo/app-starter/gen"
 )
 
 type SaasStarterEscalationGrantor struct {
@@ -314,7 +314,7 @@ policy.SetGlobalEscalationGrantor(g)
 
 ## 4. Server-side mint of the scoped-auth token
 
-The DecideDelegation handler (saas-starter side) must mint a
+The DecideDelegation handler (app-starter side) must mint a
 fresh `ScopedAuthorization` when status='approved' and write
 the encoded token into `delegation_grants.minted_token_id` (just
 the id, not the full token — the token returns via the streaming
@@ -403,14 +403,14 @@ RPCs are designed for):
   user (audit-friendly).
 
 Notification routes (Slack / email / in-app push) integrate via
-saas-starter's existing notification machinery — fire on
+app-starter's existing notification machinery — fire on
 `status='pending' INSERT`.
 
 ---
 
 ## 6. Test surface
 
-Saas-starter integration tests should cover:
+App-starter integration tests should cover:
 
 - **Idempotency**: two RequestDelegation with the same hash →
   same row id returned.
@@ -436,12 +436,12 @@ ctx. See `core/policy/escalation_test.go`.
 | M1-M3 | Principal model, identity wire, callback | ✅ |
 | M4 | Manifest as ceiling | ✅ |
 | M5 | Enforce-mode rollout | (operational) |
-| **M7** | **Synchronous escalation** | **core ✅, saas-starter pending** |
+| **M7** | **Synchronous escalation** | **core ✅, app-starter pending** |
 | M8 | Pattern grants (auto-approve patterns) | (extends M7's `kind='pattern'`) |
 | M9 | Audit UI for delegation chains | (uses delegation_grants tables) |
 | M10 | Hardening (TRL, anomaly detection) | |
 
-Once saas-starter ships items 1-3 of this doc, M7 is end-to-end
+Once app-starter ships items 1-3 of this doc, M7 is end-to-end
 operational. M8 layers on top by adding pattern-match logic in
 RequestDelegation (auto-issue when an active pattern matches the
 request).

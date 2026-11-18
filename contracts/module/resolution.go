@@ -55,7 +55,7 @@ const (
 	ruleResolvedName = "resolved-single-line"
 	// ruleResolvedList: an audience list resolves to comma-separated names,
 	// each once, and per-audience kinds to <audience>=<kind> pairs naming a
-	// listed audience each, once. Without it, "robin,,documents" delivers a
+	// listed audience each, once. Without it, "planner,,documents" delivers a
 	// binding addressed to no one.
 	ruleResolvedList = "resolved-list-grammar"
 )

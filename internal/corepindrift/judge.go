@@ -271,10 +271,10 @@ func judgePseudo(ctx context.Context, result finding, cat *catalog, reach *reach
 	// is a mirror and caches a version permanently, so it keeps serving a
 	// pseudo-version after the commit is gone upstream. Ask the repository.
 	//
-	// This is what obin-ai/module-robin needed on 2026-11-04: robin#659
-	// squash-merged, deleted the branch holding a commit its go.mod pinned, and
-	// every Go job went red with "unknown revision". The pin had passed its
-	// gate on a reference that merging destroyed.
+	// A consumer needs exactly this when a squash merge deletes the branch
+	// holding a commit its go.mod pinned: every Go job goes red with "unknown
+	// revision", though the pin passed its gate on a reference that merging
+	// destroyed.
 	// A rev this cannot read must not be sent as one: the API would 404 on it
 	// and the 404 means "core does not have this commit", which would be a
 	// false orphan failure attributable to the gate rather than the pin.
@@ -308,9 +308,7 @@ func judgePseudo(ctx context.Context, result finding, cat *catalog, reach *reach
 				"%s names commit %s, which exists but is NOT an ancestor of core's %s "+
 					"— it is %d commit(s) ahead of it, so it sits on a branch. Core "+
 					"squash-merges: when that branch merges, this exact commit stops "+
-					"existing and this pin fails to fetch everywhere at once. That is not "+
-					"hypothetical — it is what took obin-ai/module-robin's main red on "+
-					"2026-11-04",
+					"existing and this pin fails to fetch everywhere at once.",
 				result.pin, shortRev(result.pin), defaultBranch, answer.aheadBy)
 			result.remedy = fmt.Sprintf(
 				"pin something merging cannot destroy: a release (`codefly agent deps "+

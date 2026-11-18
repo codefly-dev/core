@@ -197,7 +197,7 @@ func composition(modules ...string) *resources.Workspace {
 // signature so that a reader cannot leave it out and get an answer.
 func TestTheVerdictRefusesToJudgeWithoutAComposition(t *testing.T) {
 	dependency := &resources.ServiceDependency{Module: "saas", Name: "accounts", Kind: resources.DependencyKindRuntime}
-	err := resources.JudgeCompositionEdge(nil, "wiki", "saas", dependency)
+	err := resources.JudgeCompositionEdge(nil, "notes", "saas", dependency)
 	if !errors.Is(err, resources.ErrUnjudgedProvenance) {
 		t.Fatalf("nil provenance must be refused as unjudged, got %v", err)
 	}

@@ -799,11 +799,11 @@ func importingWorkspace(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"core/workspace.codefly.yaml":                               "name: platform-core\nlayout: modules\nmodules:\n    - name: platform\n",
+		"core/workspace.codefly.yaml":                               "name: platform-base\nlayout: modules\nmodules:\n    - name: platform\n",
 		"core/modules/platform/module.codefly.yaml":                 platformModule,
 		"core/modules/platform/services/redis/service.codefly.yaml": bindingService("redis", "tcp", ""),
 		"core/modules/platform/services/api/service.codefly.yaml":   bindingService("api", "grpc", ""),
-		"product/workspace.codefly.yaml":                            "name: product\nlayout: modules\nworkspaces:\n    - name: platform-core\n      source: team/platform-core\n      version: 1.0.0\nmodules:\n    - name: apps\n",
+		"product/workspace.codefly.yaml":                            "name: product\nlayout: modules\nworkspaces:\n    - name: platform-base\n      source: team/platform-base\n      version: 1.0.0\nmodules:\n    - name: apps\n",
 		"product/modules/apps/module.codefly.yaml":                  "kind: module\nname: apps\nservices:\n    - name: web\n",
 		"product/modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
 			webDependencies+"    - interface: codefly.dev/authority@0.1.0\n      kind: external\n    - name: api\n      module: platform\n      interface: example.dev/widgets@^1.1\n"),

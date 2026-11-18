@@ -282,7 +282,7 @@ func (mod *Module) ApplicationsDir() string {
 //     directory, relative to the workspace or absolute. Portable only when the
 //     path is right for every checkout.
 //   - by identity: Source ("source:") names the canonical repo (e.g.
-//     "obin-ai/module-saas-starter"), Module ("module:") an optional subpath
+//     "acme/module-billing"), Module ("module:") an optional subpath
 //     within it, and Version ("version:") the wanted version. Where the module
 //     physically lives is decided per-machine by the codefly.local.yaml overlay
 //     (see LocalOverlay); with no overlay it defaults to the pinned artifact at

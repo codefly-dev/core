@@ -6,11 +6,11 @@ import (
 )
 
 // CeilingPDP enforces the manifest declarations as the maximum
-// authority a plugin can ever exercise — even if a saas-starter
+// authority a plugin can ever exercise — even if a host
 // role grants more, this layer denies actions outside the manifest.
 //
 // **Why this wrapper exists separately from the inner PDP.**
-// The role-grant check (saas-starter) and the manifest-ceiling
+// The role-grant check (the host) and the manifest-ceiling
 // check answer different questions:
 //
 //   - Role-grant: "is this principal CURRENTLY allowed to do X?"
@@ -21,7 +21,7 @@ import (
 //
 // Putting them in the same wrapper makes the order explicit:
 //  1. Manifest ceiling — fast, local, fail-loud on undeclared
-//  2. Inner PDP (typically saas-starter) — slower, remote, deals
+//  2. Inner PDP (typically the host) — slower, remote, deals
 //     with role grants and approval flows
 //
 // First-deny-wins. If the manifest doesn't declare the action,
@@ -78,7 +78,7 @@ func NewCeilingPDP(inner PDP, manifest PermissionPolicy, requireManifest bool) C
 // manifest decision is the FIRST gate — it short-circuits before
 // the inner PDP is touched. This both:
 //
-//  1. Avoids a saas-starter round-trip for actions the plugin
+//  1. Avoids a host round-trip for actions the plugin
 //     couldn't perform anyway (faster + cheaper)
 //  2. Makes the ceiling check unmistakable in audit logs (the
 //     decision_path includes "manifest-ceiling" when this layer

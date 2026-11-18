@@ -1,0 +1,14 @@
+# A bundle includes a bundle its module publishes.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: review
+      includes: [talk]
+      scopes: [{resource_kind: agent.turns, actions: [read]}]

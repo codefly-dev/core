@@ -1,0 +1,14 @@
+# Another module's bundle is reached through the module including it, never directly.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      includes: [{module: model, bundle: infer}]
+      scopes: [{resource_kind: agent.turns, actions: [run]}]

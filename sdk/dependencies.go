@@ -34,6 +34,13 @@ func WithDependencyHome(home string) OptionFunc { return dependencies.WithDepend
 func WithWorkspaceConfiguration(name, key, value string) OptionFunc {
 	return dependencies.WithWorkspaceConfiguration(name, key, value)
 }
+func WithExcludedWorkspaceConfigurations(names ...string) OptionFunc {
+	return dependencies.WithExcludedWorkspaceConfigurations(names...)
+}
+func WithNamedPorts() OptionFunc { return dependencies.WithNamedPorts() }
+func WithPrepare(prepare func(ctx context.Context, dir, namingScope string) error) OptionFunc {
+	return dependencies.WithPrepare(prepare)
+}
 func WithWorkspaceSecret(name, key, value string) OptionFunc {
 	return dependencies.WithWorkspaceSecret(name, key, value)
 }

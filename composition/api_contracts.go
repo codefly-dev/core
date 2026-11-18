@@ -12,13 +12,14 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 type APIContractCatalog struct {
 	Schema    string                `json:"schema"`
-	Package   string                `json:"package"` // manifest ID, e.g. codefly/saas-starter
+	Package   string                `json:"package"` // manifest ID, e.g. acme/billing
 	Version   string                `json:"version"` // manifest Version
 	Endpoints []APIContractEndpoint `json:"endpoints"`
 }
@@ -39,6 +40,29 @@ type APIContractService struct {
 	Name       string   `json:"name"`       // AuditService
 	FullName   string   `json:"fullName"`   // saas.accounts.v1.AuditService
 	Procedures []string `json:"procedures"` // /saas.accounts.v1.AuditService/QueryAuditLog
+	// Interface, when set, is the published interface (<publisher>/<name>@<version>)
+	// this descriptor service is the protocol of, declaring that the modules
+	// implementing that interface serve it and this module's listeners do not.
+	// Such a row lists no procedures; it is the one thing that exempts a
+	// service of a served package from being served here (ProtobufCoverage).
+	Interface string `json:"interface,omitempty"`
+}
+
+// validateInterface holds a row that declares its service an interface other
+// modules implement to naming exactly one interface version and serving
+// nothing: the declaration says where the service is served, so it cannot
+// also be a way to list some of its methods here.
+func (service APIContractService) validateInterface() error {
+	if service.Interface == "" {
+		return nil
+	}
+	if _, err := resources.ParseInterfaceIdentity(service.Interface); err != nil {
+		return fmt.Errorf("service %s: %w", service.FullName, err)
+	}
+	if len(service.Procedures) != 0 {
+		return fmt.Errorf("service %s is declared as interface %s, implemented by other modules, and lists procedures; a listener that serves it does not declare it so", service.FullName, service.Interface)
+	}
+	return nil
 }
 
 type APIContractRoute struct {
@@ -119,6 +143,9 @@ func (endpoint APIContractEndpoint) validate() error {
 				return fmt.Errorf("%s declares service %q twice", label, service.FullName)
 			}
 			fullNames[service.FullName] = struct{}{}
+			if err := service.validateInterface(); err != nil {
+				return fmt.Errorf("%s: %w", label, err)
+			}
 			for _, procedure := range service.Procedures {
 				prefix := "/" + service.FullName + "/"
 				method := strings.TrimPrefix(procedure, prefix)

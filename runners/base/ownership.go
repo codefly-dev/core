@@ -240,3 +240,10 @@ func SignalProcess(ctx context.Context, identity ProcessIdentity, signal syscall
 		return err
 	}
 }
+
+func startedProcess(group *TrackedProcessGroup) (ProcessIdentity, error) {
+	if group == nil {
+		return ProcessIdentity{}, fmt.Errorf("the process is not started: %w", ErrProcessNotFound)
+	}
+	return group.Leader(), nil
+}

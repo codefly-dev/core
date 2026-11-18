@@ -182,3 +182,60 @@ def test_a_map_field_generates_a_python_map(tmp_path, monkeypatch):
     sheet.cells["A1"].value = "42"
     assert sheet.cells["A1"].value == "42"
     assert module.Sheet.FromString(sheet.SerializeToString()) == sheet
+
+
+def _program() -> FileDescriptorProto:
+    """An edition 2023 file with a member of each presence, buf.validate on one."""
+    from google.protobuf.descriptor_pb2 import EDITION_2023, FeatureSet
+
+    fd = FileDescriptorProto(name="run/v1/program.proto", package="run.v1", syntax="editions", edition=EDITION_2023)
+    fd.dependency.append("buf/validate/validate.proto")
+    program = fd.message_type.add(name="Program")
+    code = program.field.add(name="code", number=1, type=_STRING, label=_OPTIONAL)
+    code.options.features.field_presence = FeatureSet.LEGACY_REQUIRED
+    code.options.MergeFromString(b"\xba\x48\x02\x08\x01")
+    program.field.add(name="note", number=2, type=_STRING, label=_OPTIONAL)  # the edition's default: explicit
+    count = program.field.add(name="count", number=3, type=FieldDescriptorProto.TYPE_INT32, label=_OPTIONAL)
+    count.options.features.field_presence = FeatureSet.IMPLICIT
+    fd.service.add(name="Runner").method.add(name="Run", input_type=".run.v1.Program", output_type=".run.v1.Program")
+    return fd
+
+
+def test_an_editions_file_generates_with_each_members_presence(tmp_path, monkeypatch):
+    # The plugin declared proto3 optional only, so buf refused an editions file
+    # before asking for it ("does not support feature supports editions"), and a
+    # module that needed a required member had to say it in a proto2 file.
+    pytest.importorskip("grpc_tools")
+    from google.protobuf import descriptor_pb2, message
+
+    request = plugin_pb2.CodeGeneratorRequest(file_to_generate=["run/v1/program.proto"])
+    request.proto_file.extend([_descriptor_proto(), _validate(), _program()])
+
+    response = plugin.generate(request)
+    assert not response.error, response.error
+    assert response.supported_features & plugin_pb2.CodeGeneratorResponse.FEATURE_SUPPORTS_EDITIONS
+    assert response.supported_features & plugin_pb2.CodeGeneratorResponse.FEATURE_PROTO3_OPTIONAL
+    assert response.minimum_edition == descriptor_pb2.EDITION_PROTO2
+    assert response.maximum_edition == descriptor_pb2.EDITION_2023
+    assert {f.name for f in response.file} == {"run/v1/program_pb2.py", "run/v1/program_pb2_grpc.py"}
+    for generated in response.file:
+        path = tmp_path / generated.name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated.content)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    spec = importlib.util.spec_from_file_location("run.v1.program_pb2", tmp_path / "run/v1/program_pb2.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    fields = module.Program.DESCRIPTOR.fields_by_name
+    assert fields["code"].label == FieldDescriptorProto.LABEL_REQUIRED  # legacy required
+    assert fields["note"].has_presence and fields["note"].label == _OPTIONAL  # explicit
+    assert not fields["count"].has_presence  # implicit
+    missing = module.Program(note="n")
+    assert missing.FindInitializationErrors() == ["code"]
+    with pytest.raises(message.EncodeError, match="code"):
+        missing.SerializeToString()
+    whole = module.Program(code="print(1)")
+    assert not whole.HasField("note")
+    assert module.Program.FromString(whole.SerializeToString()) == whole

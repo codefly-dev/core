@@ -25,15 +25,15 @@ import (
 // already outer-authorized).
 //
 // **Why a callback channel rather than baking the PDP into the plugin.**
-//   - Plugins must NOT depend on saas-starter's gen client. The
-//     core/policy package keeps no compile-time tie to saas-starter;
+//   - Plugins must NOT depend on the host's gen client. The
+//     core/policy package keeps no compile-time tie to the host;
 //     the host owns the wire to the auth backend.
 //   - Permission state is mutable. A grant revoked between calls
 //     must be visible to the next Authorized() check; the host's
 //     PDP cache (with TTL) is the canonical place for that
 //     reasoning.
 //   - One PDP per host means one place to instrument, monitor,
-//     audit. N plugins each calling saas-starter directly means
+//     audit. N plugins each calling the host directly means
 //     N copies of the cache and the metrics.
 //
 // **Why UDS + HTTP+JSON rather than gRPC.**
@@ -68,7 +68,7 @@ import (
 const EnvPermissionsSocket = "CODEFLY_PERMISSIONS_SOCKET"
 
 // AuthorizeRequest is the JSON payload from plugin → host. Field
-// names map to saas-starter's Decide RPC for trivial pass-through.
+// names map to the host's Decide RPC for trivial pass-through.
 type AuthorizeRequest struct {
 	PrincipalID string `json:"principal_id"`
 	Action      string `json:"action"`
@@ -454,7 +454,7 @@ func WithAuthorizer(ctx context.Context, a Authorizer) context.Context {
 // When a plugin's policyguard.Guard takes the defense path (token
 // missing or invalid), it consults its PDP. In production, this
 // PDP should defer the authorization decision to the host (which
-// has the saas-starter client + the spawn-time principal). The
+// has the host client + the spawn-time principal). The
 // callback channel we already use for inline Authorized() works
 // for this too; this adapter exposes it as a PDP.
 //

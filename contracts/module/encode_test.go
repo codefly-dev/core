@@ -174,3 +174,23 @@ func TestForeignMethodServiceSurvivesEncoding(t *testing.T) {
 		t.Fatalf("lost service selector: %s", raw)
 	}
 }
+
+func TestWhatAForeignMethodCarriesSurvivesEncoding(t *testing.T) {
+	c, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := CeilingScope{ResourceKind: c.ScopeCeilings[0].ResourceKind, Actions: c.ScopeCeilings[0].Actions}
+	c.ForeignMethods = []ForeignMethod{{Method: "/foreign.v1.Service/Read", Requires: []CeilingScope{own}, Carries: []CeilingScope{own}}}
+	raw, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if carried := got.ForeignMethods[0].Carries; len(carried) != 1 || carried[0].ResourceKind != own.ResourceKind {
+		t.Fatalf("lost what the method carries: %s", raw)
+	}
+}

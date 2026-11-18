@@ -34,7 +34,13 @@ type Environment struct {
 	// naming_scope distinguishes otherwise similar test or ephemeral environments.
 	NamingScope string `protobuf:"bytes,3,opt,name=naming_scope,json=namingScope,proto3" json:"naming_scope,omitempty"`
 	// fixture selects an explicit development data and authentication profile.
-	Fixture       string `protobuf:"bytes,4,opt,name=fixture,proto3" json:"fixture,omitempty"`
+	Fixture string `protobuf:"bytes,4,opt,name=fixture,proto3" json:"fixture,omitempty"`
+	// disposable states that the invocation which generated naming_scope owns
+	// every piece of runtime state created under it and that the state is
+	// throwaway: an agent may remove its native state directories once the run
+	// releases them. It is the explicit authorization to delete data; an agent
+	// must never infer it from a scope's name or from having started a process.
+	Disposable    bool `protobuf:"varint,5,opt,name=disposable,proto3" json:"disposable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -97,6 +103,13 @@ func (x *Environment) GetFixture() string {
 	return ""
 }
 
+func (x *Environment) GetDisposable() bool {
+	if x != nil {
+		return x.Disposable
+	}
+	return false
+}
+
 // ManagedEnvironment is the platform-managed representation of an environment.
 type ManagedEnvironment struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -147,12 +160,15 @@ var File_codefly_base_v0_environment_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_environment_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/base/v0/environment.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\x80\x01\n" +
+	"!codefly/base/v0/environment.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xa0\x01\n" +
 	"\vEnvironment\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12!\n" +
 	"\fnaming_scope\x18\x03 \x01(\tR\vnamingScope\x12\x18\n" +
-	"\afixture\x18\x04 \x01(\tR\afixture\"8\n" +
+	"\afixture\x18\x04 \x01(\tR\afixture\x12\x1e\n" +
+	"\n" +
+	"disposable\x18\x05 \x01(\bR\n" +
+	"disposable\"8\n" +
 	"\x12ManagedEnvironment\x12\"\n" +
 	"\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\v^[a-z]{10}$R\x02idB\xbf\x01\n" +
 	"\x13com.codefly.base.v0B\x10EnvironmentProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"

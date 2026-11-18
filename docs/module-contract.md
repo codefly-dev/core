@@ -57,6 +57,21 @@ no callees, or a call the audience does not serve or that declares nothing, is
 refused under `ErrUnresolvedCall`, naming the binding and the call, never
 delivered with an empty ceiling.
 
+**`calls:` is the form to use for a ceiling at another module.** A
+`scope_ceiling` naming another module's kinds is a hand-written copy of that
+module's method policy; there is no include form for a ceiling, because the
+methods called already say it. What `Callees` answers for a call is what the
+method **requires and what it carries** — a permission the audience uses on
+some calls of the method alone, such as reading content beside metadata — so a
+ceiling read from calls can carry everything a call to those methods can use.
+A role's scope on the audience's kind is held at such a binding exactly as at
+one that spells its ceiling out (below), so a unit names another module's
+kinds in neither its bindings nor, including that module's bundles, its roles.
+A spelled `scope_ceiling` stays for what calls cannot say: the module's own
+kinds at itself, bare actions on a kind the composition chooses
+(`resource_kind` slot), and an audience that publishes no method policy to
+read.
+
 **A binding may be optional.** A binding is mandatory by default: every
 composition of the module fills its slots, or the render refuses it. A binding
 marked `optional: true` is one a composition may leave out, for a capability
@@ -85,7 +100,7 @@ owner of each kind of thing commented on — so the audiences of one of its
 bindings are a list only the composition can write. Such a binding declares
 `audiences:` in place of `audience:`, a slot whose key is a `*-audiences` one
 and whose value is the audiences comma-separated, with no space
-(`robin,documents`, one line like every slot value). It means *this binding
+(`assistant,documents`, one line like every slot value). It means *this binding
 may be exercised toward any of these audiences*, and `Resolve` delivers it as
 **one resolved binding per listed audience**, sorted:
 
@@ -107,10 +122,10 @@ bindings:
       invoke: [read, review]
 ```
 
-With `OWNER_AUDIENCES=documents,robin` and
-`OWNER_RESOURCE_KINDS=documents=documents.versions,robin=robin.answers`, that
-resolves to four bindings: `owner:documents`, `owner:robin`,
-`owner-review:documents` and `owner-review:robin`. Each is its own unit of
+With `OWNER_AUDIENCES=documents,assistant` and
+`OWNER_RESOURCE_KINDS=documents=documents.versions,assistant=assistant.answers`, that
+resolves to four bindings: `owner:documents`, `owner:assistant`,
+`owner-review:documents` and `owner-review:assistant`. Each is its own unit of
 authority, delivered in the manifest exactly as a single-audience binding is —
 id `<binding>:<audience>` (`modulecontract.AudienceBindingID`), the audience,
 and the ceiling resolved for **that** audience:
@@ -197,7 +212,10 @@ method of a protocol the module only serves (an OpenTelemetry collector's
 method by its full gRPC name with what a call must hold, in the module's own
 vocabulary: every kind is one of its `scope_ceilings` and every action within
 that ceiling, and the list names each method once, each requiring at least one
-action. The render delivers them beside the methods its published contracts
+action. An entry may also say what a call `carries:` beyond what it requires
+(a first write creating what it writes to, a review recorded with a read),
+under the same rules as `requires:`: no decision reads it, and the service
+performing that effect checks it by name. The render delivers them beside the methods its published contracts
 declare, so the hop in front of the module decides them like any other.
 An entry may name `service:` to select its serving service. The composition
 requires that service to publish a gRPC or Connect listener; without a selector
@@ -232,7 +250,7 @@ host from the shape of the roles:
 ```yaml
 source_governance:
   scopes:
-    - {resource_kind: wiki.page, actions: [write]}
+    - {resource_kind: notes.page, actions: [write]}
 ```
 
 Whoever is issued one of these scopes on the installation connects, changes
@@ -252,15 +270,17 @@ verified and an administrator's approval covers it.
 **Installation declarations express machine intent and edge presence separately.**
 `installation_role` is optional: absent or `""` leaves the host's existing
 selection unchanged; literal `none` declares no standing machine grant; any
-other value must exactly name a declared role. This never assigns a role to a
-person or team. `none` is reserved and cannot be a role name. Selecting a role
-relaxes none of the authority's role rules. A bare module can declare
+other value names a declared role. This never assigns a role to a person or
+team. Core carries the selector as a string; whether it names a declared role,
+exactly, and that no role is named `none`, are role rules the authority decides
+when it admits the manifest. Selecting a role relaxes none of the authority's
+role rules. A bare module can declare
 `none` without declaring roles.
 
 ```yaml
 installation_role: none
 edge_dependencies:
-  - {module: robin, presence: required}
+  - {module: assistant, presence: required}
   - {module: annotations, presence: optional}
 ```
 
@@ -272,8 +292,9 @@ the live target and binding; a principal is not itself a target UUID. Route
 aliases, binding IDs and release strings are never fallbacks. Core does not
 require a principal to exist in a local composition. Entries are explicit;
 none are inferred from bindings. Absent and empty lists mean the
-same thing. Selector and module values with surrounding whitespace are refused,
-never trimmed; declaration fields must be strings.
+same thing. Module values with surrounding whitespace are refused, never
+trimmed (a selector's is the authority's to refuse); declaration fields must be
+strings.
 
 **A presence may differ along the promotion path.** An edge whose presence is
 genuinely not the same everywhere — optional on a development cell that has not
@@ -282,7 +303,7 @@ ENVIRONMENT CLASS instead:
 
 ```yaml
 edge_dependencies:
-  - {module: robin, presence: required}
+  - {module: assistant, presence: required}
   - module: annotations
     presence_by_class: {development: optional, production: required}
 ```
@@ -324,26 +345,29 @@ literally:
 
 ```yaml
 scope_ceilings:
-  - resource_kind: wiki.page
+  - resource_kind: notes.page
     actions: [read, write, publish]
 roles:
   - name: admin
     scopes:
-      - {resource_kind: wiki.page, actions: [read, write, publish]}
+      - {resource_kind: notes.page, actions: [read, write, publish]}
   - name: user
     scopes:
-      - {resource_kind: wiki.page, actions: [read, write]}
+      - {resource_kind: notes.page, actions: [read, write]}
       - {resource_kind: documents, actions: [read]}
 ```
 
 The authority holds what a role may grant, refusing the delivery otherwise:
 the unit's **own kinds**, each action within its
 `scope_ceilings`, and the **permissions at another module it consumes**: a
-scope one of its bindings spells out (`{resource_kind, actions}`) for `invoke`
-or `lookup`, the operations a person causes. A `headless` binding's scopes are
-never grantable (no person is in one). A bare action or a call names its kind
-only when the composition resolves it, so a role never spells one out; it
-**names the binding** instead:
+scope one of its bindings carries for `invoke` or `lookup`, the operations a
+person causes: one the binding spells out (`{resource_kind, actions}`), or one
+the calls it names are declared to require or carry by the audience. A
+`headless` binding's scopes are never grantable (no person is in one). A role
+grants a subset of such a binding by naming the scopes (through a bundle the
+audience publishes, so the unit spells none of its kinds), or everything the
+binding carries by **naming the binding**, which is also how it grants a bare
+action, whose kind only the composition resolves:
 
 ```yaml
 roles:
@@ -366,8 +390,11 @@ leaves out is left out with it.
 there. A role scope names no audience, and is still never ambiguous: unless it
 is reached through a binding (below), it is addressed
 to the one audience that underwrites it — the unit's principal for its own kind,
-that binding's resolved audience for a consumed one (a ceiling that spells
-scopes out belongs to a binding with one audience, never a list). A scope two
+the resolved audience of the binding that carries it for a person for a
+consumed one: the binding spelling it out, or each audience whose calls, as
+named by the binding, are declared to require or carry it (a ceiling read from
+calls is each audience's own, so a binding listing audiences holds a scope
+only at those that declare it). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
 then names the binding it means in `bindings`. A scope no audience underwrites
 is addressed nowhere, and the authority refuses the delivery granting it.
@@ -400,6 +427,114 @@ audience a binding with an `audiences` list resolves to), never addressed to an
 audience here; a scope through
 an optional binding the composition leaves out is left out with it.
 
+**A module publishes bundles; a role includes them.** A module may publish
+`bundles`: named sets of scopes, each what one kind of screen calls across
+every module it reaches. A bundle scope is reached directly (no `through`) or
+downstream of a module (`through: <that module's principal>`, the publisher's
+own or another the screen calls). A bundle may include other bundles: one of
+the same module by its name, and one **another module publishes, reached
+through the module including it**, as `{module, bundle, through}`:
+
+```yaml
+# the publishing module, principal agent
+bundles:
+  - name: talk
+    includes:
+      - {module: model, bundle: infer, through: agent}
+      - {module: notes, bundle: annotate, through: agent}
+    scopes:
+      - {resource_kind: agent.turns, actions: [run]}
+      - {resource_kind: notes, actions: [redact], through: agent}
+  - name: review
+    includes: [talk]
+    scopes:
+      - {resource_kind: traces, actions: [read]}
+```
+
+An include of another module's bundle grants every scope of that bundle
+**exactly as if the includer spelled it with `through: <includer>`**: the
+includer names none of the other module's kinds, and a publisher that changes
+what its bundle holds changes every bundle including it. `through` is the
+includer's own principal and nothing else — not omitted (a screen reaching the
+other module directly) and not a third module — because one place is all the
+spelled form names: whatever place the included bundle itself reaches a kind
+at, the includer reaches it through itself alone, so an include never reaches
+further than the hand-written scope it replaces, and the unit including the
+bundle is asked for one binding, to the includer. Both forms live in one
+bundle: a permission the other module keeps in no bundle (`notes:redact`
+above, which `notes` offers no screen) is still spelled by hand beside the
+include. **A bundle grants each permission once**, held after its includes are
+expanded: one it spells that a bundle it includes also grants is refused
+naming both, so a hand-written copy cannot drift from its source.
+
+A bundle grants nothing by itself and is no role of the publisher's. A unit's
+role grants one by naming it in `includes`, another module's or **its own**:
+
+```yaml
+roles:
+  - name: admin
+    includes: [{module: agent, bundle: review}]
+```
+
+The contract holds a bundle to a lowercase name (`bundle-name`), declared once
+(`bundle-unique`), granting something (`bundle-grants`), each kind a lowercase name
+(`bundle-kind-name`) with an action (`bundle-kind-has-action`) once per place
+(`bundle-kind-unique`), naming a module it reaches through by name (`bundle-through-name`),
+including by name only bundles it publishes (`bundle-includes-published`) and
+never itself through any chain (`bundle-includes-acyclic`); an include of
+another module's bundle names a module and a bundle, each a lowercase name
+(`bundle-include-name`), a module other than its own
+(`bundle-include-another-module`), through its own principal
+(`bundle-include-through-publisher`); a role includes a module
+and a bundle, each a lowercase name (`role-include-name`), each once
+(`role-include-unique`).
+
+**Bundles are read through one resolver.** `Publishers` is a function reading
+the contract a module publishes, by its principal, and is the `Bundles` every
+reader passes to `Resolve` (`WithBundles`, or callees that also answer
+`Bundles`); `PublishedContracts(contracts...)` builds one over contracts in
+hand. `Publishers.Bundle(module, name)` expands a bundle into one deterministic
+answer — each kind once per place, actions sorted, kinds sorted — following
+includes into other modules' contracts. `Contract.Bundle(name)` expands a
+bundle of one contract alone and refuses, by name, one that includes another
+module's: a reader holding `contract.Bundle(name)` behind its `Bundles` moves
+to `Publishers`. What cannot be read is refused under `ErrUnresolvedInclude`
+in one sentence naming the whole chain — the role, the module and bundle, and
+what is missing: the publisher's contract (`role admin includes agent/talk:
+agent bundle "talk" includes model/infer: no contract was supplied for module
+model (supplied: agent, notes)`), the bundle (`model publishes no bundle
+"infer" (it publishes discover)`), or the binding (below). Includes that come
+back to a bundle across modules are refused under `ErrInvalid` naming the
+chain (`agent/talk -> model/infer -> agent/talk`).
+
+`Resolve` grants an included bundle's scopes as the role's own literal scopes:
+a kind reached directly is addressed like any role scope, one reached
+downstream of a module downstream of the unit's one binding a person causes to
+that module — so a unit including a bundle that reaches kinds through its
+publisher declares an `invoke` or `lookup` binding to that publisher, and is
+refused naming the kind, the module and the audiences it does declare such
+bindings to when it has none, or when it has two. **A unit may include its own
+bundle**, read from the contract being resolved (no other declarations are
+needed for it): what that bundle reaches onward `through` the unit itself, for
+another unit's screen, the unit's own page reaches directly, so it is granted
+as the role's direct scope on that kind and addressed like any literal scope —
+at the audience of the unit's binding that holds it. A role grants each
+permission once, held after expansion: one it also grants itself beside an
+include is refused, so its own scopes are its page's own calls alone. What a
+bundle may grant is the authority's policy, held where the unit is delivered,
+as for any role scope.
+
+**What an older reader does with these.** The module contract is decoded
+strictly, so a contract using a newer form is refused by a core that predates
+it, never read as something else. No key was added: `bundles[].includes` took
+a list of names and now also takes `{module, bundle, through}` entries, and a
+core before this change refuses such an entry as a value of the wrong shape
+(`cannot unmarshal !!map into string`). A contract that includes only bundles
+of its own module, and every `roles[].includes`, reads the same before and
+after. A core from before bundles existed refuses the `bundles` key and a
+role's `includes` key outright. In Go, `Bundle.Includes` is `[]BundleInclude`
+where it was `[]string`.
+
 **A role may grant a scope only on what the installation owns.**
 `installation_owned_scopes` lists scopes the role grants only on the resources
 the installation it is held on owns — those created or attached through it —
@@ -409,7 +544,7 @@ spelled like `scopes`:
 roles:
   - name: user
     scopes:
-      - {resource_kind: wiki.page, actions: [read]}
+      - {resource_kind: notes.page, actions: [read]}
     installation_owned_scopes:
       - {resource_kind: documents.collection, actions: [read]}
 ```
@@ -581,7 +716,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (155 documents) ships
+`modulecontract.Fixtures()` (175 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. Accepted documents declare

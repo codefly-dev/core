@@ -86,3 +86,20 @@ func TestHostValuesRejectRecursiveAliases(t *testing.T) {
 	_, err := resources.LoadFromBytes[resources.Workspace]([]byte("name: test\nhost-value: &recursive [*recursive]\n"))
 	require.ErrorContains(t, err, "contains itself")
 }
+
+// Disposable is the invocation's authorization to delete the runtime state it
+// creates. It must reach the agent, and it is never read from a workspace file.
+func TestEnvironmentDisposableReachesTheAgentAndIsNeverDeclared(t *testing.T) {
+	env := &resources.Environment{Name: "local", NamingScope: "invabcdefgh", Disposable: true}
+	proto, err := env.Proto()
+	require.NoError(t, err)
+	require.True(t, proto.GetDisposable())
+	require.True(t, resources.EnvironmentFromProto(proto).Disposable)
+
+	out, err := yaml.Marshal(env)
+	require.NoError(t, err)
+	require.NotContains(t, string(out), "disposable")
+	var declared resources.Environment
+	require.NoError(t, yaml.Unmarshal([]byte("name: local\ndisposable: true\n"), &declared))
+	require.False(t, declared.Disposable)
+}

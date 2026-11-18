@@ -41,18 +41,15 @@ const (
 	ruleKeyIsAName        = "key-is-a-name"
 	ruleWholeNumbers      = "numbers-are-whole"
 
-	ruleInstallationStrings        = "installation-declaration-strings"
-	ruleInstallationRole           = "installation-role"
-	ruleInstallationRoleWhitespace = "installation-role-whitespace"
-	ruleRoleReserved               = "role-reserved"
-	ruleEdgeModuleName             = "edge-module-name"
-	ruleEdgeModuleWhitespace       = "edge-module-whitespace"
-	ruleEdgeModuleUnique           = "edge-module-unique"
-	ruleEdgePresence               = "edge-presence"
-	ruleEdgePresenceOneSpelling    = "edge-presence-one-spelling"
-	ruleEdgePresenceDeclared       = "edge-presence-declared"
-	ruleEdgePresenceClass          = "edge-presence-class"
-	ruleEdgePresenceClassValue     = "edge-presence-class-value"
+	ruleInstallationStrings     = "installation-declaration-strings"
+	ruleEdgeModuleName          = "edge-module-name"
+	ruleEdgeModuleWhitespace    = "edge-module-whitespace"
+	ruleEdgeModuleUnique        = "edge-module-unique"
+	ruleEdgePresence            = "edge-presence"
+	ruleEdgePresenceOneSpelling = "edge-presence-one-spelling"
+	ruleEdgePresenceDeclared    = "edge-presence-declared"
+	ruleEdgePresenceClass       = "edge-presence-class"
+	ruleEdgePresenceClassValue  = "edge-presence-class-value"
 
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
@@ -125,6 +122,21 @@ const (
 	ruleThroughOnRoles    = "through-on-role-scopes"
 	ruleThroughNotOnCalls = "through-not-on-requirements"
 	ruleRoleThroughKnown  = "role-through-binding-known"
+
+	ruleBundleName         = "bundle-name"
+	ruleBundleUnique       = "bundle-unique"
+	ruleBundleGrants       = "bundle-grants"
+	ruleBundleKindName     = "bundle-kind-name"
+	ruleBundleKindAction   = "bundle-kind-has-action"
+	ruleBundleKindUnique   = "bundle-kind-unique"
+	ruleBundleThroughName  = "bundle-through-name"
+	ruleBundleIncludes     = "bundle-includes-published"
+	ruleBundleIncludeName  = "bundle-include-name"
+	ruleBundleIncludeOther = "bundle-include-another-module"
+	ruleBundleIncludeThru  = "bundle-include-through-publisher"
+	ruleBundleAcyclic      = "bundle-includes-acyclic"
+	ruleRoleIncludeName    = "role-include-name"
+	ruleRoleIncludeUnique  = "role-include-unique"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -145,9 +157,6 @@ func rules() []rule {
 		{name: ruleKeyIsAName, check: func(*Contract) error { return nil }},
 		{name: ruleWholeNumbers, check: func(*Contract) error { return nil }},
 		{name: ruleInstallationStrings, check: func(*Contract) error { return nil }},
-		{name: ruleInstallationRoleWhitespace, check: checkInstallationRoleWhitespace},
-		{name: ruleInstallationRole, check: checkInstallationRole},
-		{name: ruleRoleReserved, check: checkRoleReserved},
 		{name: ruleEdgeModuleName, check: checkEdgeModuleNames},
 		{name: ruleEdgeModuleWhitespace, check: checkEdgeModuleWhitespace},
 		{name: ruleEdgeModuleUnique, check: checkEdgeModulesUnique},
@@ -224,6 +233,20 @@ func rules() []rule {
 		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleThroughOnRoles, check: checkThroughOnRoleScopes},
 		{name: ruleRoleThroughKnown, check: checkRoleThroughBindingsKnown},
+		{name: ruleRoleIncludeName, check: checkRoleIncludeNames},
+		{name: ruleRoleIncludeUnique, check: checkRoleIncludesUnique},
+		{name: ruleBundleName, check: checkBundleNames},
+		{name: ruleBundleUnique, check: checkBundlesUnique},
+		{name: ruleBundleGrants, check: checkBundlesGrant},
+		{name: ruleBundleKindName, check: checkBundleKindNames},
+		{name: ruleBundleKindAction, check: checkBundleKindsHaveActions},
+		{name: ruleBundleKindUnique, check: checkBundleKindsUnique},
+		{name: ruleBundleThroughName, check: checkBundleThroughNames},
+		{name: ruleBundleIncludeName, check: checkBundleIncludeNames},
+		{name: ruleBundleIncludeOther, check: checkBundleIncludesAnotherModule},
+		{name: ruleBundleIncludeThru, check: checkBundleIncludesThroughPublisher},
+		{name: ruleBundleIncludes, check: checkBundleIncludes},
+		{name: ruleBundleAcyclic, check: checkBundlesAcyclic},
 	}, governanceRules()...)
 }
 
@@ -390,6 +413,14 @@ func (contract *Contract) actionLists() []struct {
 					actions []string
 				}{"role " + role.Name + " " + list.label + scope.ResourceKind, scope.Actions})
 			}
+		}
+	}
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			lists = append(lists, struct {
+				label   string
+				actions []string
+			}{"bundle " + bundle.Name + " " + scope.ResourceKind, scope.Actions})
 		}
 	}
 	for _, scope := range contract.governanceScopes() {
@@ -988,9 +1019,9 @@ func checkForeignMethodsRequire(contract *Contract) error {
 
 func checkForeignScopesHaveActions(contract *Contract) error {
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
-			if len(scope.Actions) == 0 {
-				return fmt.Errorf("%w: foreign method %q requires %q with no action", ErrInvalid, method.Method, scope.ResourceKind)
+		for _, named := range method.scopes() {
+			if scope := named.scope; len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: foreign method %q %s %q with no action", ErrInvalid, method.Method, named.verb, scope.ResourceKind)
 			}
 		}
 	}
@@ -1009,11 +1040,11 @@ func (contract *Contract) ownCeilings() map[string][]string {
 func checkForeignMethodsOwnKinds(contract *Contract) error {
 	own := contract.ownCeilings()
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
+		for _, named := range method.scopes() {
 			// A module decides calls to itself in its own vocabulary: a kind
 			// it does not declare is one no caller could be granted here.
-			if _, declared := own[scope.ResourceKind]; !declared {
-				return fmt.Errorf("%w: foreign method %q requires %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, scope.ResourceKind)
+			if _, declared := own[named.scope.ResourceKind]; !declared {
+				return fmt.Errorf("%w: foreign method %q %s %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, named.verb, named.scope.ResourceKind)
 			}
 		}
 	}
@@ -1023,14 +1054,15 @@ func checkForeignMethodsOwnKinds(contract *Contract) error {
 func checkForeignMethodsOwnActions(contract *Contract) error {
 	own := contract.ownCeilings()
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
+		for _, named := range method.scopes() {
+			scope := named.scope
 			actions, declared := own[scope.ResourceKind]
 			if !declared {
 				continue
 			}
 			for _, action := range scope.Actions {
 				if !slices.Contains(actions, action) {
-					return fmt.Errorf("%w: foreign method %q requires %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, scope.ResourceKind, action, scope.ResourceKind)
+					return fmt.Errorf("%w: foreign method %q %s %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, named.verb, scope.ResourceKind, action, scope.ResourceKind)
 				}
 			}
 		}
@@ -1218,9 +1250,9 @@ func checkThroughOnRoleScopes(contract *Contract) error {
 // own vocabulary, decided where it is served, so it is reached through nothing.
 func checkThroughNotOnRequirements(contract *Contract) error {
 	for _, method := range contract.ForeignMethods {
-		for _, scope := range method.Requires {
-			if scope.Through != "" {
-				return fmt.Errorf("%w: foreign method %q requires %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, scope.ResourceKind, scope.Through)
+		for _, named := range method.scopes() {
+			if scope := named.scope; scope.Through != "" {
+				return fmt.Errorf("%w: foreign method %q %s %s through %q; a requirement is the module's own, reached through nothing", ErrInvalid, method.Method, named.verb, scope.ResourceKind, scope.Through)
 			}
 		}
 	}
@@ -1235,36 +1267,6 @@ func checkRoleThroughBindingsKnown(contract *Contract) error {
 			if scope.Through != "" && contract.declaredBinding(scope.Through) == nil {
 				return fmt.Errorf("%w: role %q grants %s through binding %q, which the contract does not declare", ErrInvalid, role.Name, scope.ResourceKind, scope.Through)
 			}
-		}
-	}
-	return nil
-}
-
-func checkInstallationRoleWhitespace(contract *Contract) error {
-	if strings.TrimSpace(contract.InstallationRole) != contract.InstallationRole {
-		return fmt.Errorf("%w: installation_role %q has surrounding whitespace; declare the exact role name or none", ErrInvalid, contract.InstallationRole)
-	}
-	return nil
-}
-
-func checkInstallationRole(contract *Contract) error {
-	if contract.InstallationRole == "" || contract.InstallationRole == "none" {
-		return nil
-	}
-	names := make([]string, 0, len(contract.Roles))
-	for _, role := range contract.Roles {
-		if role.Name == contract.InstallationRole {
-			return nil
-		}
-		names = append(names, role.Name)
-	}
-	return fmt.Errorf("%w: installation_role %q is not a declared role; declared roles: %v (or declare none)", ErrInvalid, contract.InstallationRole, names)
-}
-
-func checkRoleReserved(contract *Contract) error {
-	for _, role := range contract.Roles {
-		if role.Name == "none" {
-			return fmt.Errorf("%w: role name none is reserved for the installation_role declaration of no standing grant", ErrInvalid)
 		}
 	}
 	return nil
@@ -1402,6 +1404,180 @@ func checkGovernanceNotThrough(contract *Contract) error {
 	for _, scope := range contract.governanceScopes() {
 		if scope.Through != "" {
 			return fmt.Errorf("%w: source_governance names %s through %q; a governing scope is one of the unit's own, reached through nothing", ErrInvalid, scope.ResourceKind, scope.Through)
+		}
+	}
+	return nil
+}
+
+func checkBundleNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if !namePattern.MatchString(bundle.Name) {
+			return fmt.Errorf("%w: bundle %q is not a lowercase name", ErrInvalid, bundle.Name)
+		}
+	}
+	return nil
+}
+
+func checkBundlesUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.Bundles))
+	for _, bundle := range contract.Bundles {
+		names = append(names, bundle.Name)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: bundle %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkBundlesGrant(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if len(bundle.Scopes) == 0 && len(bundle.Includes) == 0 {
+			return fmt.Errorf("%w: bundle %q grants nothing", ErrInvalid, bundle.Name)
+		}
+	}
+	return nil
+}
+
+func checkBundleKindNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if !namePattern.MatchString(scope.ResourceKind) {
+				return fmt.Errorf("%w: bundle %q resource kind %q is not a lowercase name", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkBundleKindsHaveActions(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: bundle %q grants resource kind %q no action", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleKindsUnique: a bundle names a kind once per place it is reached,
+// as a role does.
+func checkBundleKindsUnique(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		seen := map[[2]string]bool{}
+		for _, scope := range bundle.Scopes {
+			key := [2]string{scope.ResourceKind, scope.Through}
+			if seen[key] {
+				return fmt.Errorf("%w: bundle %q names resource kind %q twice", ErrInvalid, bundle.Name, scope.ResourceKind)
+			}
+			seen[key] = true
+		}
+	}
+	return nil
+}
+
+// checkBundleThroughNames: a bundle reaches a kind downstream of a module,
+// named by its principal, which the unit including it resolves to its own
+// binding to that module.
+func checkBundleThroughNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, scope := range bundle.Scopes {
+			if scope.Through != "" && !namePattern.MatchString(scope.Through) {
+				return fmt.Errorf("%w: bundle %q reaches %s through %q, which is not a module's name", ErrInvalid, bundle.Name, scope.ResourceKind, scope.Through)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludeNames: an include of another module's bundle names the
+// module and the bundle, each a lowercase name. One of the same module is the
+// bundle's name alone, so an include reached through a module names one.
+func checkBundleIncludeNames(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if (include.Module != "" || include.Through != "") && (!namePattern.MatchString(include.Module) || !namePattern.MatchString(include.Bundle)) {
+				return fmt.Errorf("%w: %s bundle %q includes %q/%q, which is not a module and a bundle, each a lowercase name", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludesAnotherModule: the {module, bundle, through} form names
+// another module. A bundle of the module's own is included by name, so that
+// one bundle has one spelling and an own chain is held acyclic here.
+func checkBundleIncludesAnotherModule(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if include.Module != "" && include.Module == contract.Principal {
+				return fmt.Errorf("%w: %s bundle %q includes %s/%s as another module's bundle, and %s is the module itself; a bundle of the same module is included by its name (%s)", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludesThroughPublisher: another module's bundle is reached
+// through the including module, named as a scope it spells names it. No other
+// place is declared: not directly, and not through a third module.
+func checkBundleIncludesThroughPublisher(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		for _, include := range bundle.Includes {
+			if include.Module != "" && include.Through != contract.Principal {
+				return fmt.Errorf("%w: %s bundle %q includes %s/%s through %q; another module's bundle is reached through the module including it, so it is written through: %s", ErrInvalid, contract.Principal, bundle.Name, include.Module, include.Bundle, include.Through, contract.Principal)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundleIncludes: a bundle included by name is one its module publishes.
+// Another module's is held where that module's contract is read (Publishers).
+func checkBundleIncludes(contract *Contract) error {
+	published := map[string]bool{}
+	for _, bundle := range contract.Bundles {
+		published[bundle.Name] = true
+	}
+	for _, bundle := range contract.Bundles {
+		for _, included := range bundle.Includes {
+			if included.Module == "" && !published[included.Bundle] {
+				return fmt.Errorf("%w: %s bundle %q includes %q, which it does not publish", ErrInvalid, contract.Principal, bundle.Name, included.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+// checkBundlesAcyclic: a bundle never includes itself, through any chain.
+func checkBundlesAcyclic(contract *Contract) error {
+	for _, bundle := range contract.Bundles {
+		if cycle := contract.bundleCycle(bundle.Name, nil); cycle != nil {
+			return fmt.Errorf("%w: %s bundle %q includes itself (%s)", ErrInvalid, contract.Principal, bundle.Name, strings.Join(cycle, " -> "))
+		}
+	}
+	return nil
+}
+
+func checkRoleIncludeNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, include := range role.Includes {
+			if !namePattern.MatchString(include.Module) || !namePattern.MatchString(include.Bundle) {
+				return fmt.Errorf("%w: role %q includes %q/%q, which is not a module and a bundle, each a lowercase name", ErrInvalid, role.Name, include.Module, include.Bundle)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleIncludesUnique(contract *Contract) error {
+	for _, role := range contract.Roles {
+		names := make([]string, 0, len(role.Includes))
+		for _, include := range role.Includes {
+			names = append(names, include.Module+"/"+include.Bundle)
+		}
+		if duplicate, found := firstDuplicate(names); found {
+			return fmt.Errorf("%w: role %q includes %s twice", ErrInvalid, role.Name, duplicate)
 		}
 	}
 	return nil

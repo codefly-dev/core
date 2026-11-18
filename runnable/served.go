@@ -17,7 +17,7 @@ import (
 // and treats a retry as a new effect, or reads no typed failure code and a
 // caller concludes "unproven" about a failure the owner did state.
 //
-// The values are the ones obin-ai/module-runtime's transport already sends,
+// The values are the ones the runtime module's transport already sends,
 // adopted rather than chosen, so pinning them changes no running behaviour. Its
 // three constants were explicitly placeholders awaiting this.
 const (

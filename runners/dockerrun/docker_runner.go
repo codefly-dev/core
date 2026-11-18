@@ -785,7 +785,8 @@ func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
 // The caller supplies only a stable logical key and the container target. Core
 // owns the host path and scopes it by the Docker environment name, which already
 // includes workspace, service, and Codefly naming scope. Caches survive normal
-// container teardown and may be reclaimed centrally in the future.
+// container teardown; a disposable run's go with its containers when it ends
+// (RemoveDisposableRun).
 func (docker *DockerEnvironment) WithPersistentCacheMount(ctx context.Context, key, targetDir string) (string, error) {
 	if err := validateCacheMountKey(key); err != nil {
 		return "", err
@@ -794,7 +795,7 @@ func (docker *DockerEnvironment) WithPersistentCacheMount(ctx context.Context, k
 		return "", fmt.Errorf("cache mount target must be an absolute path: %q", targetDir)
 	}
 
-	cacheDir := filepath.Join(resources.CodeflyHomeDir(), "runtime-cache", docker.name, key)
+	cacheDir := filepath.Join(resources.CodeflyHomeDir(), runtimeCacheDir, docker.name, key)
 	if _, err := shared.CheckDirectoryOrCreate(ctx, cacheDir); err != nil {
 		return "", fmt.Errorf("create persistent runtime cache %q: %w", key, err)
 	}

@@ -13,7 +13,7 @@ import (
 // vocabulary without one of them owning the others.
 //
 // **Why one type for humans + services + agents.** The auth layer
-// shouldn't care whether a row in saas-starter's principals table
+// shouldn't care whether a row in the host's principals table
 // represents Antoine, the auto-merge bot, or Mind. They all hold
 // permissions via the same role-assignment table. Kind is metadata
 // for the UI ("show me my agents") and audit ("filter to humans"),
@@ -28,7 +28,7 @@ import (
 // receives a Principal can trust the fields — verification has
 // already happened upstream.
 type Principal struct {
-	// ID is the saas-starter principals.id UUID. Stable across
+	// ID is the host principals.id UUID. Stable across
 	// credential rotations; this is what audit logs reference and
 	// what role assignments target.
 	ID string
@@ -63,7 +63,7 @@ type Principal struct {
 	Token string
 
 	// ExpiresAt is when the credential expires. Independent of the
-	// principal's lifetime in saas-starter (a service principal can
+	// principal's lifetime in the host (a service principal can
 	// live forever; this token might be 15 minutes old). Code that
 	// caches Principals MUST honor this — refusing the cache hit
 	// past expiry is what prevents stale-credential authority.
@@ -92,7 +92,7 @@ type Principal struct {
 
 // DelegationLink is one node in a chain of authority lending. Carries
 // enough to audit who-lent-what without requiring a roundtrip to
-// saas-starter to resolve.
+// the host to resolve.
 type DelegationLink struct {
 	// PrincipalID is the lender at this link.
 	PrincipalID string
@@ -104,7 +104,7 @@ type DelegationLink struct {
 	// Surfaced in audit + approval UI; not authoritative for auth.
 	DisplayName string
 
-	// GrantID is the saas-starter delegation_grants.id row that
+	// GrantID is the host delegation_grants.id row that
 	// authorized this hop. Lets auditors trace from a tool call back
 	// to the exact grant that allowed it. Empty if this link
 	// pre-dates the delegation_grants table (legacy delegation).
@@ -165,14 +165,14 @@ func (p *Principal) Validate() error {
 	}
 	switch p.Kind {
 	case KindHuman:
-		// Humans are cross-org global identities (matches saas-starter's
+		// Humans are cross-org global identities (matches the host's
 		// principals_org_scope CHECK constraint). OrgID is OPTIONAL —
 		// when set, it represents "the org context this principal is
 		// currently operating in", which is useful for audit attribution
 		// but not part of identity.
 	case KindService, KindAgent:
 		if p.OrgID == "" {
-			return fmt.Errorf("%w: %s kind requires OrgID (saas-starter principals_org_scope)", ErrPrincipalInvalid, p.Kind)
+			return fmt.Errorf("%w: %s kind requires OrgID (the host's organization scope)", ErrPrincipalInvalid, p.Kind)
 		}
 	case "":
 		return fmt.Errorf("%w: empty Kind", ErrPrincipalInvalid)

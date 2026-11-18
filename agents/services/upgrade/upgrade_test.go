@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -271,5 +272,61 @@ func TestSplitImage(t *testing.T) {
 		if repo != c.repo || tag != c.tag {
 			t.Errorf("splitImage(%q) = (%q, %q), want (%q, %q)", c.in, repo, tag, c.repo, c.tag)
 		}
+	}
+}
+
+// A dependency declared at an exact version can never move under `npm update`,
+// which only resolves inside the declared range. `pkg@version` moves it.
+func TestNpmSelectedInstallsMoveAnExactPin(t *testing.T) {
+	names, selected := splitNpmOnly([]string{"react", "next@16.4.6", "@scope/ui@2.0.0"})
+	if !reflect.DeepEqual(names, []string{"react"}) {
+		t.Fatalf("names = %v", names)
+	}
+	if !reflect.DeepEqual(selected, map[string]string{"next": "16.4.6", "@scope/ui": "2.0.0"}) {
+		t.Fatalf("selected = %v", selected)
+	}
+
+	manifests := []npmManifest{
+		{Declared: map[string]string{"next": "16.3.6", "@scope/ui": "^1.4.0"}},
+		{Workspace: "@scope/site", Declared: map[string]string{"next": "~16.3.6"}},
+	}
+	groups, changes, err := npmSelectedInstalls(selected, manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantGroups := []npmInstallGroup{
+		{Workspace: "@scope/site", Packages: []string{"next@16.4.6"}, Save: "~"},
+		{Packages: []string{"@scope/ui@2.0.0"}, Save: "^"},
+		{Packages: []string{"next@16.4.6"}, Save: npmSaveExact},
+	}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %+v, want %+v", groups, wantGroups)
+	}
+	wantChanges := []*builderv0.UpgradeChange{
+		{Package: "@scope/ui", From: "1.4.0", To: "2.0.0"},
+		{Package: "next", From: "16.3.6", To: "16.4.6"},
+	}
+	if !reflect.DeepEqual(changes, wantChanges) {
+		t.Fatalf("changes = %v, want %v", changes, wantChanges)
+	}
+	if got := wantGroups[2].installArgs(); !reflect.DeepEqual(got, []string{"install", "next@16.4.6", "--save-exact"}) {
+		t.Fatalf("exact install = %v", got)
+	}
+	if got := wantGroups[0].installArgs(); !reflect.DeepEqual(got, []string{"install", "next@16.4.6", "--save-prefix=~", "--workspace", "@scope/site"}) {
+		t.Fatalf("workspace install = %v", got)
+	}
+}
+
+func TestNpmSelectedInstallsRefuseWhatIsNotDeclared(t *testing.T) {
+	_, _, err := npmSelectedInstalls(map[string]string{"left-pad": "1.3.0"}, []npmManifest{{Declared: map[string]string{"next": "16.3.6"}}})
+	if err == nil || !strings.Contains(err.Error(), "left-pad") {
+		t.Fatalf("err = %v, want a refusal naming left-pad", err)
+	}
+}
+
+func TestNpmSelectedInstallsSkipWhatIsAlreadyThere(t *testing.T) {
+	groups, changes, err := npmSelectedInstalls(map[string]string{"next": "16.4.6"}, []npmManifest{{Declared: map[string]string{"next": "16.4.6"}}})
+	if err != nil || len(groups) != 0 || len(changes) != 0 {
+		t.Fatalf("groups = %v changes = %v err = %v, want nothing", groups, changes, err)
 	}
 }

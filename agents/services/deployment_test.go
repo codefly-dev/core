@@ -989,7 +989,7 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 	provenance := func() *builderv0.CompositionProvenance {
 		return &builderv0.CompositionProvenance{Members: []*builderv0.CompositionMember{
 			{Name: "module", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "product"},
-			{Name: "saas", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "platform-core"},
+			{Name: "saas", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "platform-base"},
 		}}
 	}
 	t.Run("request composed name passes where repo-local name refuses", func(t *testing.T) {
@@ -1024,7 +1024,7 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
 		require.Contains(t, response.GetState().GetMessage(), `solution "module" (of workspace "product")`)
-		require.Contains(t, response.GetState().GetMessage(), `module "saas" (of workspace "platform-core")`)
+		require.Contains(t, response.GetState().GetMessage(), `module "saas" (of workspace "platform-base")`)
 	})
 	for _, tc := range []struct {
 		name   string
@@ -1087,9 +1087,9 @@ func solutionWorkspace(t *testing.T) string {
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o755))
 		require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
 	}
-	write("core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: saas\n")
+	write("core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: saas\n")
 	write("core/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-	write("product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: module\n    path: solutions/module\n")
+	write("product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\nsolutions:\n  - name: module\n    path: solutions/module\n")
 	write("product/solutions/module/module.codefly.yaml", "kind: module\nname: module\nservices: []\n")
 	service := filepath.Join(root, "product", "solutions", "module", "services", "service")
 	require.NoError(t, os.MkdirAll(service, 0o755))

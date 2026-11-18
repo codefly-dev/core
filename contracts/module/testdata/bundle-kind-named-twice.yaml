@@ -1,0 +1,15 @@
+# A bundle names a kind once per place it is reached.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: agent.turns
+      actions: [read, run]
+bindings: []
+destinations: []
+bundles:
+    - name: talk
+      scopes:
+          - {resource_kind: agent.turns, actions: [run]}
+          - {resource_kind: agent.turns, actions: [read]}

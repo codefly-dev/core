@@ -1,0 +1,19 @@
+# What a foreign method carries is the module's own, reached through nothing.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.spans
+      actions: [export, review]
+bindings: []
+destinations: []
+foreign_methods:
+    - method: /opentelemetry.proto.collector.trace.v1.TraceService/Export
+      requires:
+          - resource_kind: assistant.spans
+            actions: [export]
+      carries:
+          - resource_kind: assistant.spans
+            actions: [review]
+            through: documents

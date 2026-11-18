@@ -22,21 +22,21 @@ func TestRuntimeOverridesFromInitReachAServiceThatIsNeverStarted(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
 	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{
-		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:wiki/documents/api"},
+		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
 
-	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:wiki/documents/api")
+	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 }
 
 func TestRuntimeOverridesSurviveAStartThatCarriesNone(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
 	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{
-		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:wiki/documents/api"},
+		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
 	wrapper.SetOverridesFromStart((&runtimev0.StartRequest{}).GetOverrides())
 
-	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:wiki/documents/api")
+	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 }
 
 // An agent host that populates only StartRequest keeps working unchanged.
@@ -45,10 +45,10 @@ func TestRuntimeOverridesFallBackToStartWhenInitCarriesNone(t *testing.T) {
 
 	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{}).GetOverrides())
 	wrapper.SetOverridesFromStart((&runtimev0.StartRequest{
-		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:wiki/documents/api"},
+		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
 
-	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:wiki/documents/api")
+	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 }
 
 // Both calls carrying a value for one key must not leave the process holding
@@ -80,15 +80,15 @@ func TestRuntimeOverridesAbsentWhenNoneAreInjected(t *testing.T) {
 // has to stamp the new manager.
 func TestRuntimeOverridesAreRestampedOnAnAgentThatIsLoadedAgain(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
-	overrides := map[string]string{"CODEFLY__API_CONSUMES": "documents:wiki/documents/api"}
+	overrides := map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"}
 
 	wrapper.SetOverridesFromInit(overrides)
-	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:wiki/documents/api")
+	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 
 	reload(wrapper)
 	wrapper.SetOverridesFromInit(overrides)
 
-	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:wiki/documents/api")
+	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 }
 
 // Agents advertising HOT_RELOAD are re-inited without restarting, so one live
@@ -130,7 +130,7 @@ func TestRuntimeOverridesSurviveADirectEnvironmentStampFromStart(t *testing.T) {
 // Core itself builds a zero-value wrapper as a fallback (grpc.go), so stamping
 // overrides must not be the one lifecycle call that crashes the agent.
 func TestRuntimeOverridesStampingIsNilSafe(t *testing.T) {
-	overrides := map[string]string{"CODEFLY__API_CONSUMES": "documents:wiki/documents/api"}
+	overrides := map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"}
 	require.NotPanics(t, func() {
 		(&RuntimeWrapper{}).SetOverridesFromInit(overrides)
 		(&RuntimeWrapper{}).SetOverridesFromStart(overrides)

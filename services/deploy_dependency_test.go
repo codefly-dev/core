@@ -71,7 +71,7 @@ func TestBuilderDeployRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 }
 
 // composedProduct writes a product that composes a platform workspace (module
-// saas) and declares one solution (wiki), and loads it: the one shape in which
+// saas) and declares one solution (notes), and loads it: the one shape in which
 // a member is a solution, which no in-memory workspace can state.
 func composedProduct(t *testing.T) *resources.Workspace {
 	t.Helper()
@@ -81,10 +81,10 @@ func composedProduct(t *testing.T) *resources.Workspace {
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o755))
 		require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
 	}
-	write("core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: saas\n")
+	write("core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: saas\n")
 	write("core/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
-	write("product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: wiki\n    path: solutions/wiki\n")
-	write("product/solutions/wiki/module.codefly.yaml", "kind: module\nname: wiki\nservices: []\n")
+	write("product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\nsolutions:\n  - name: notes\n    path: solutions/notes\n")
+	write("product/solutions/notes/module.codefly.yaml", "kind: module\nname: notes\nservices: []\n")
 	workspace, err := resources.LoadWorkspaceFromDir(context.Background(), filepath.Join(root, "product"))
 	require.NoError(t, err)
 	return workspace
@@ -100,17 +100,17 @@ func TestInstanceHandoutsJudgeWithTheComposition(t *testing.T) {
 	mappings := []*basev0.NetworkMapping{
 		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
 	}
-	wiki := &Instance{Workspace: product, Module: &resources.Module{Name: "wiki"}, Service: accountsConsumer("usage")}
+	notes := &Instance{Workspace: product, Module: &resources.Module{Name: "notes"}, Service: accountsConsumer("usage")}
 
 	runtime := &recordingRuntimeClient{}
-	_, err := (&RuntimeInstance{Instance: wiki, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
+	_, err := (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost, "the run hand-out refuses a solution's route")
 	require.Nil(t, runtime.request)
-	_, err = (&RuntimeInstance{Instance: wiki, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev0.InitRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev0.InitRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost)
 
 	builder := &recordingBuilderClient{}
-	_, err = (&BuilderInstance{Instance: wiki, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&BuilderInstance{Instance: notes, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost, "the deploy hand-out refuses a solution's route")
 	require.Nil(t, builder.request)
 
@@ -122,7 +122,7 @@ func TestInstanceHandoutsJudgeWithTheComposition(t *testing.T) {
 
 	// No composition at all: refused, never answered as if the module were a
 	// module of something.
-	unjudged := &Instance{Module: &resources.Module{Name: "wiki"}, Service: accountsConsumer("usage")}
+	unjudged := &Instance{Module: &resources.Module{Name: "notes"}, Service: accountsConsumer("usage")}
 	_, err = (&RuntimeInstance{Instance: unjudged, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrUnjudgedProvenance)
 	_, err = (&BuilderInstance{Instance: unjudged, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})

@@ -43,8 +43,8 @@ func moduleDir(t *testing.T, root, relative, module string, services map[string]
 //	saas/accounts   authority internal, events public, rest private, unasked internal
 //	data/migrator   http internal
 //	data/store      http internal
-//	wiki/pages      runtime -> saas/accounts [authority]      (platform module)
-//	wiki/search     runtime -> saas/accounts [authority]      (same module, listed once)
+//	notes/pages      runtime -> saas/accounts [authority]      (platform module)
+//	notes/search     runtime -> saas/accounts [authority]      (same module, listed once)
 //	billing/ledger  untyped -> saas/accounts (all permitted)
 //	saas/frontend   runtime -> saas/accounts [rest]           (own module, private)
 //	codegen/schemas build   -> saas/accounts [authority]      (contract, never calls)
@@ -54,7 +54,7 @@ func moduleDir(t *testing.T, root, relative, module string, services map[string]
 func productComposition(t *testing.T, reporting string) string {
 	t.Helper()
 	root := t.TempDir()
-	compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: saas\n  - name: data\n  - name: wiki\n  - name: billing\n  - name: codegen\n")
+	compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: saas\n  - name: data\n  - name: notes\n  - name: billing\n  - name: codegen\n")
 	moduleDir(t, root, "core/modules/saas", "saas", map[string]string{
 		"accounts": askingServiceManifest("accounts", "  - name: authority\n    api: grpc\n    visibility: internal\n  - name: events\n    api: http\n    visibility: public\n    exposure: none\n  - name: rest\n    api: rest\n    visibility: private\n  - name: unasked\n    api: tcp\n    visibility: internal\n", ""),
 		"frontend": askingServiceManifest("frontend", "", "  - name: accounts\n    kind: runtime\n    endpoints:\n      - name: rest\n      - name: authority\n"),
@@ -63,7 +63,7 @@ func productComposition(t *testing.T, reporting string) string {
 		"migrator": askingServiceManifest("migrator", "  - name: http\n    api: http\n    visibility: internal\n", ""),
 		"store":    askingServiceManifest("store", "  - name: http\n    api: http\n    visibility: internal\n", ""),
 	})
-	moduleDir(t, root, "core/modules/wiki", "wiki", map[string]string{
+	moduleDir(t, root, "core/modules/notes", "notes", map[string]string{
 		"pages":  askingServiceManifest("pages", "", "  - name: accounts\n    module: saas\n    kind: runtime\n    endpoints:\n      - name: authority\n"),
 		"search": askingServiceManifest("search", "", "  - name: accounts\n    module: saas\n    kind: runtime\n    endpoints:\n      - name: authority\n"),
 	})
@@ -73,7 +73,7 @@ func productComposition(t *testing.T, reporting string) string {
 	moduleDir(t, root, "core/modules/codegen", "codegen", map[string]string{
 		"schemas": askingServiceManifest("schemas", "", "  - name: accounts\n    module: saas\n    kind: build\n    endpoints:\n      - name: authority\n"),
 	})
-	compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nmodules:\n  - name: app\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: reporting\n    path: solutions/reporting\n")
+	compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nmodules:\n  - name: app\nworkspaces:\n  - name: platform-base\n    path: ../core\nsolutions:\n  - name: reporting\n    path: solutions/reporting\n")
 	moduleDir(t, root, "product/modules/app", "app", map[string]string{
 		"api": askingServiceManifest("api", "", "  - name: migrator\n    module: data\n    kind: completion\n  - name: stripe\n    module: vendor\n    kind: external\n"),
 	})
@@ -96,8 +96,8 @@ func TestCompositionCarriesTheProvenanceOfEveryMember(t *testing.T) {
 	workspace := loadProduct(t, productComposition(t, ""))
 	for name, want := range map[string]resources.Member{
 		"app":       {Name: "app", Role: resources.MemberRoleModule, Workspace: "product"},
-		"saas":      {Name: "saas", Role: resources.MemberRoleModule, Workspace: "platform-core"},
-		"data":      {Name: "data", Role: resources.MemberRoleModule, Workspace: "platform-core"},
+		"saas":      {Name: "saas", Role: resources.MemberRoleModule, Workspace: "platform-base"},
+		"data":      {Name: "data", Role: resources.MemberRoleModule, Workspace: "platform-base"},
 		"reporting": {Name: "reporting", Role: resources.MemberRoleSolution, Workspace: "product"},
 	} {
 		member, ok := workspace.Member(name)
@@ -124,7 +124,7 @@ func TestDeriveAllowModulesIsTheSetOfAsks(t *testing.T) {
 
 	authority, declared := derived.Of("saas", "accounts", "authority")
 	require.True(t, declared)
-	require.Equal(t, resources.AllowList{Visibility: resources.VisibilityInternal, Modules: []string{"billing", "saas", "wiki"}}, authority,
+	require.Equal(t, resources.AllowList{Visibility: resources.VisibilityInternal, Modules: []string{"billing", "notes", "saas"}}, authority,
 		"the asks, sorted, each module once, the owning module when it asks; the build edge from codegen derives nothing")
 
 	unasked, _ := derived.Of("saas", "accounts", "unasked")
@@ -166,7 +166,7 @@ func TestASolutionReachesModulesOnlyThroughTheHost(t *testing.T) {
 	workspace := loadProduct(t, productComposition(t, direct))
 	_, err := workspace.DeriveAllowModules(ctx)
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost)
-	require.ErrorContains(t, err, `solution "reporting" (of workspace "product") declares data/store on module "data" (of workspace "platform-core")`)
+	require.ErrorContains(t, err, `solution "reporting" (of workspace "product") declares data/store on module "data" (of workspace "platform-base")`)
 	err = workspace.ValidateServiceDependencies(ctx)
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost, "the static pass refuses the same edge")
 
@@ -181,7 +181,7 @@ func TestASolutionReachesModulesOnlyThroughTheHost(t *testing.T) {
 	// The judgement is the composition's, available to every pass that holds
 	// one, and it refuses what it cannot judge: an end the composition does
 	// not carry.
-	require.NoError(t, resources.JudgeCompositionEdge(workspace, "wiki", "saas", &resources.ServiceDependency{Module: "saas", Name: "accounts", Kind: resources.DependencyKindRuntime}), "module to module: visibility decides")
+	require.NoError(t, resources.JudgeCompositionEdge(workspace, "notes", "saas", &resources.ServiceDependency{Module: "saas", Name: "accounts", Kind: resources.DependencyKindRuntime}), "module to module: visibility decides")
 	require.NoError(t, resources.JudgeCompositionEdge(workspace, "saas", "reporting", &resources.ServiceDependency{Module: "reporting", Name: "report", Kind: resources.DependencyKindRuntime}), "module to solution: visibility decides")
 	require.ErrorIs(t, resources.JudgeCompositionEdge(workspace, "reporting", "app", &resources.ServiceDependency{Module: "app", Name: "api", Kind: resources.DependencyKindRuntime}), resources.ErrSolutionReachesThroughHost, "the product's own module is a module")
 	require.NoError(t, resources.JudgeCompositionEdge(workspace, "reporting", "app", &resources.ServiceDependency{Module: "app", Name: "api", Kind: resources.DependencyKindCompletion}), "waiting for a module's job reaches no endpoint")
@@ -195,17 +195,17 @@ func TestASolutionReachesModulesOnlyThroughTheHost(t *testing.T) {
 func TestDeriveAllowModulesRefusesWhatTheBoundaryRefuses(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	compositionFile(t, root, "workspace.codefly.yaml", "name: plain\nlayout: modules\nmodules:\n  - name: saas\n  - name: wiki\n")
+	compositionFile(t, root, "workspace.codefly.yaml", "name: plain\nlayout: modules\nmodules:\n  - name: saas\n  - name: notes\n")
 	moduleDir(t, root, "modules/saas", "saas", map[string]string{
 		"accounts": askingServiceManifest("accounts", "  - name: rest\n    api: rest\n    visibility: private\n", ""),
 	})
-	moduleDir(t, root, "modules/wiki", "wiki", map[string]string{
+	moduleDir(t, root, "modules/notes", "notes", map[string]string{
 		"pages": askingServiceManifest("pages", "", "  - name: accounts\n    module: saas\n    kind: runtime\n    endpoints:\n      - name: rest\n"),
 	})
 	workspace := loadProduct(t, root)
 	_, err := workspace.DeriveAllowModules(ctx)
 	require.ErrorContains(t, err, `is private to module "saas"`)
-	require.True(t, strings.Contains(err.Error(), "wiki/pages"), err.Error())
+	require.True(t, strings.Contains(err.Error(), "notes/pages"), err.Error())
 	require.Error(t, workspace.ValidateServiceDependencies(ctx))
 }
 
@@ -232,11 +232,11 @@ func TestDeriveAllowModulesOverAPlainWorkspace(t *testing.T) {
 func TestProvenanceIsInheritedThroughComposition(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: data\n")
+	compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: data\n")
 	moduleDir(t, root, "core/modules/data", "data", map[string]string{
 		"store": askingServiceManifest("store", "  - name: http\n    api: http\n    visibility: internal\n", ""),
 	})
-	compositionFile(t, root, "mid/workspace.codefly.yaml", "name: mid\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: reporting\n    path: solutions/reporting\n")
+	compositionFile(t, root, "mid/workspace.codefly.yaml", "name: mid\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\nsolutions:\n  - name: reporting\n    path: solutions/reporting\n")
 	moduleDir(t, root, "mid/solutions/reporting", "reporting", map[string]string{
 		"report": askingServiceManifest("report", "", "  - name: store\n    module: data\n    kind: runtime\n    endpoints:\n      - name: http\n"),
 	})
@@ -248,7 +248,7 @@ func TestProvenanceIsInheritedThroughComposition(t *testing.T) {
 	require.Equal(t, resources.Member{Name: "reporting", Role: resources.MemberRoleSolution, Workspace: "mid"}, reporting, "a composed workspace's solution stays its solution")
 	data, ok := product.Member("data")
 	require.True(t, ok)
-	require.Equal(t, resources.Member{Name: "data", Role: resources.MemberRoleModule, Workspace: "platform-core"}, data, "a grandchild's module is owned by the workspace that declared it")
+	require.Equal(t, resources.Member{Name: "data", Role: resources.MemberRoleModule, Workspace: "platform-base"}, data, "a grandchild's module is owned by the workspace that declared it")
 
 	// So the solution's direct route is refused in the product exactly as in
 	// the workspace that declared it, by every pass.
@@ -270,7 +270,7 @@ func TestEveryDeclarerIsJudgedAndAsks(t *testing.T) {
 		return "kind: runnable\nname: " + name + "\nversion: 0.0.1\nagent:\n  kind: codefly:runnable\n  name: python\n  version: 0.0.1\n  publisher: codefly.dev\ncontract:\n  protocol: codefly.runnable.served/v1\n  input:\n    fields:\n      - name: text\n        type: string\n  output:\n    fields:\n      - name: count\n        type: integer\nentrypoint:\n  handler: handler.py\nexecution:\n  facilities: [generated-service, kubernetes]\n  timeout: 2m\n  cancellation: signal\n  recovery: recompute\n  payload:\n    max-input-bytes: 65536\nservice-dependencies:\n" + dependencies
 	}
 	build := func(root string, reportingRunnable bool) string {
-		compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: data\n  - name: app\n")
+		compositionFile(t, root, "core/workspace.codefly.yaml", "name: platform-base\nlayout: modules\nmodules:\n  - name: data\n  - name: app\n")
 		moduleDir(t, root, "core/modules/data", "data", map[string]string{
 			"store": askingServiceManifest("store", "  - name: http\n    api: http\n    visibility: internal\n", ""),
 		})
@@ -282,7 +282,7 @@ func TestEveryDeclarerIsJudgedAndAsks(t *testing.T) {
 			compositionFile(t, root, "product/solutions/reporting/module.codefly.yaml", "kind: module\nname: reporting\nservices: []\nrunnables:\n  - name: digest\n")
 			compositionFile(t, root, "product/solutions/reporting/runnables/digest/runnable.codefly.yaml", runnable("digest", "  - name: store\n    module: data\n    kind: runtime\n    endpoints:\n      - name: http\n"))
 		}
-		compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\n"+solutions)
+		compositionFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-base\n    path: ../core\n"+solutions)
 		return filepath.Join(root, "product")
 	}
 
@@ -308,11 +308,11 @@ func TestEveryDeclarerIsJudgedAndAsks(t *testing.T) {
 func TestDeriveAllowModulesRefusesWhatTheStaticPassRefuses(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	compositionFile(t, root, "workspace.codefly.yaml", "name: plain\nlayout: modules\nmodules:\n  - name: saas\n  - name: wiki\n")
+	compositionFile(t, root, "workspace.codefly.yaml", "name: plain\nlayout: modules\nmodules:\n  - name: saas\n  - name: notes\n")
 	moduleDir(t, root, "modules/saas", "saas", map[string]string{
 		"accounts": askingServiceManifest("accounts", "  - name: authority\n    api: grpc\n    visibility: internal\n", ""),
 	})
-	moduleDir(t, root, "modules/wiki", "wiki", map[string]string{
+	moduleDir(t, root, "modules/notes", "notes", map[string]string{
 		"pages": askingServiceManifest("pages", "", "  - name: accounts\n    module: saas\n    kind: runtime\n    endpoints:\n      - name: nope\n"),
 	})
 	workspace := loadProduct(t, root)

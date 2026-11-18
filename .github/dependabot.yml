@@ -146,7 +146,6 @@ updates:
       - /companions/proto
       - /companions/python
       - /companions/codefly
-      - /companions/execution
     schedule:
       interval: weekly
     open-pull-requests-limit: 1
