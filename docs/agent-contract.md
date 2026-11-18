@@ -145,6 +145,28 @@ caller covers both with `runstate.Sweep`: the CLI sweeps its own scope when a
 disposable run ends, and `codefly clear` sweeps every ended disposable run in
 its scope. A directory no agent claimed is never removed.
 
+### Containers of a disposable run
+
+The same fact decides the container runtime, and no agent decides it. A stop
+keeps a container: the next run of the same scope reuses it by name, and the
+data directory core mounts into it (`WithPersistentCacheMount`,
+`<codefly home>/runtime-cache/<container name>/<key>`) is a developer's
+database. A disposable run's scope is never run again, so the party that ended
+the run removes what it left, once its agents have exited:
+`dockerrun.RemoveDisposableRun(ctx, scope, run)`, with `run` as
+`runstate.For` reads it and `scope` the run's own recovery scope. It removes
+every container labelled with exactly that scope, running or stopped, the
+anonymous volumes those containers created, and the runtime-cache directory of
+each container that mounts from it. For a run that is not disposable it removes
+nothing. A container bound to a session ledger, one another host labelled, and a
+named volume are left.
+
+An agent needs no code for this: its `Stop` and `Destroy` stay as they are. It
+needs its containers created through `dockerrun` (which labels them with the
+scope the run projects), on a Core that has the label, and its data kept either
+in a `WithPersistentCacheMount` directory or in an anonymous volume. Data an
+agent keeps for a container anywhere else is not found.
+
 A run belongs to the process that started it and ends with it, on both hops,
 by the same birth identity as everything else here (`runstate.Birth`, watched
 with `Birth.Gone`, which never signals anything):
