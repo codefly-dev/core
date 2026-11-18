@@ -16,7 +16,7 @@
 ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.11
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
-FROM python:3.14.10-alpine3.24@sha256:cfe4b5079e5852da965ae14f74a6e2b137ece05b918d27c575fb70de3c85db2b
+FROM python:3.15.2-alpine3.24@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
 
 # Re-install alpine dev tools so the python companion's runtime carries
 # the same toolbox as the codefly base. Dropped from the list:
