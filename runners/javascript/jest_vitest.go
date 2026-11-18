@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 )
@@ -225,7 +226,11 @@ func capOutput(s string, truncated *bool) string {
 		return s
 	}
 	*truncated = true
-	return s[:MaxCapturedOutputBytesPerCase] + "\n[output truncated]\n"
+	end := MaxCapturedOutputBytesPerCase
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] + "\n[output truncated]\n"
 }
 
 // silence unused-fmt warning when only used inside another file's path.

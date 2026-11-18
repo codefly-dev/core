@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/runners/javascript"
@@ -247,7 +248,7 @@ func TestVitest_TimeoutClassified(t *testing.T) {
 func TestVitest_OutputCappedAtMaxBytes(t *testing.T) {
 	// Build a fail-message larger than the cap. JSON-encode the
 	// payload so we don't have to escape every char by hand.
-	huge := strings.Repeat("x", javascript.MaxCapturedOutputBytesPerCase+8*1024)
+	huge := strings.Repeat("x", javascript.MaxCapturedOutputBytesPerCase-1) + "界"
 	jsonPayload := `{
       "numTotalTests": 1,
       "testResults": [{
@@ -267,6 +268,8 @@ func TestVitest_OutputCappedAtMaxBytes(t *testing.T) {
 	run := javascript.ParseJestVitestJSON(jsonPayload, 0)
 	resp := run.ToProtoResponse("vitest", "", time.Second)
 
+	_, err := proto.Marshal(resp)
+	require.NoError(t, err)
 	c := resp.Suites[0].Cases[0]
 	require.LessOrEqual(t, len(c.CapturedOutput), javascript.MaxCapturedOutputBytesPerCase+128,
 		"captured_output respects the cap + small marker overhead")
