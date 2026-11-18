@@ -14,7 +14,7 @@ import (
 // test in one file under one project. Shape pulled from real
 // `--reporter=json` output.
 const realisticPlaywrightPassing = `{
-  "stats": {"startTime":"2026-04-30T20:00:00Z","duration":1234,"expected":1,"skipped":0,"unexpected":0,"flaky":0},
+  "stats": {"startTime":"2026-04-30T20:00:00Z","duration":1234.885,"expected":1,"skipped":0,"unexpected":0,"flaky":0},
   "suites": [
     {
       "title": "chromium",

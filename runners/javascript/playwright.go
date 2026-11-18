@@ -24,12 +24,12 @@ type playwrightEnvelope struct {
 }
 
 type playwrightStats struct {
-	StartTime  string `json:"startTime"`
-	Duration   int64  `json:"duration"` // ms
-	Expected   int    `json:"expected"`
-	Skipped    int    `json:"skipped"`
-	Unexpected int    `json:"unexpected"`
-	Flaky      int    `json:"flaky"`
+	StartTime  string  `json:"startTime"`
+	Duration   float64 `json:"duration"` // fractional milliseconds
+	Expected   int     `json:"expected"`
+	Skipped    int     `json:"skipped"`
+	Unexpected int     `json:"unexpected"`
+	Flaky      int     `json:"flaky"`
 }
 
 type playwrightSuite struct {
