@@ -239,8 +239,8 @@ func TestManagedProcess_KillReapsTermResistantDescendant(t *testing.T) {
 }
 
 // TestManagedProcess_KillAfterStartupCancellation covers cancellation during
-// startup: exec.CommandContext kills only the leader, so cleanup still has to
-// find and terminate the surviving group on its own.
+// startup: the cancelled context asks only the leader to stop, so cleanup
+// still has to find and terminate the surviving group on its own.
 func TestManagedProcess_KillAfterStartupCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

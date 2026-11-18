@@ -72,6 +72,9 @@ type managedProcess struct {
 	// single teardown returns, so killErr is safe to read afterwards.
 	killOnce sync.Once
 	killErr  error
+
+	// askOnce guards the one SIGTERM an ordered stop sends the leader.
+	askOnce sync.Once
 }
 
 const (
@@ -83,6 +86,14 @@ const (
 	// completion before the signal is re-raised, so a long grace reads as a
 	// hung terminal; a resistant descendant is still SIGKILLed, just sooner.
 	signalTermGrace = 500 * time.Millisecond
+
+	// startFailureStopBudget is how long the CLI of a start that failed or
+	// timed out gets to stop what it started, in order, before its group is
+	// killed. It covers the CLI's own bounded exit — stopping its services,
+	// taking back what their agents left, reaping — which killTermGrace, a
+	// grace for ending a process, does not: a start that timed out with a
+	// composition half up was killed three seconds into stopping it.
+	startFailureStopBudget = 2 * time.Minute
 
 	// killBudget is a hard stop for a whole Kill — escalation plus the
 	// supervisor's release — for the case where enumerating the process table
@@ -110,6 +121,23 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 		return nil, fmt.Errorf("managed: StderrPipe: %w", err)
 	}
 
+	mp := &managedProcess{
+		cmd:     cmd,
+		stdoutR: bufio.NewReader(stdoutPipe),
+		stderrR: bufio.NewReader(stderrPipe),
+		done:    make(chan struct{}),
+	}
+	// A command bound to a context is asked to stop when the context ends,
+	// not killed: exec's default kills the leader alone, at once, which gives
+	// a leader with a teardown of its own (see stopInOrder) no part of it and
+	// orphans its group. The group is still torn down by Kill.
+	if cmd.Cancel != nil {
+		cmd.Cancel = func() error {
+			mp.askToStop()
+			return nil
+		}
+	}
+
 	// Start the child as the leader of its own process group, with its
 	// identity captured and a start credential in its environment so
 	// cleanup can prove the group is still ours.
@@ -117,14 +145,7 @@ func startManaged(_ any, cmd *exec.Cmd) (*managedProcess, error) {
 	if err != nil {
 		return nil, fmt.Errorf("managed: Start: %w", err)
 	}
-
-	mp := &managedProcess{
-		cmd:     cmd,
-		group:   group,
-		stdoutR: bufio.NewReader(stdoutPipe),
-		stderrR: bufio.NewReader(stderrPipe),
-		done:    make(chan struct{}),
-	}
+	mp.group = group
 
 	// Supervisor goroutine — reaps the child on exit.
 	go mp.supervise()
@@ -222,6 +243,42 @@ func (mp *managedProcess) watchSignals() {
 // call has finished and return the result it produced.
 func (mp *managedProcess) Kill() error {
 	return mp.killWithin(killTermGrace)
+}
+
+// stopInOrder asks the leader alone to stop, waits up to budget for it to
+// exit, and then tears down whatever is left of the group, as Kill does.
+//
+// It is for a leader that has a teardown of its own to run — the codefly CLI,
+// which on SIGTERM stops its services in order and takes back what they left,
+// containers included. Kill gives every member the same few seconds, which
+// ends a process and cuts such a teardown short; and it signals the members
+// the leader is in the middle of stopping. Here only the leader is asked, once
+// (askToStop), and the rest of the group is signalled after it has exited or
+// spent the budget.
+func (mp *managedProcess) stopInOrder(budget time.Duration) error {
+	select {
+	case <-mp.done:
+	default:
+		mp.askToStop()
+		timer := time.NewTimer(budget)
+		select {
+		case <-mp.done:
+		case <-timer.C:
+		}
+		timer.Stop()
+	}
+	return mp.Kill()
+}
+
+// askToStop sends the leader one SIGTERM, however many callers ask: the CLI
+// reads a signal repeated after a pause as a forced quit, which abandons the
+// ordered stop this is asking for.
+func (mp *managedProcess) askToStop() {
+	mp.askOnce.Do(func() {
+		if mp.cmd.Process != nil {
+			_ = mp.cmd.Process.Signal(syscall.SIGTERM)
+		}
+	})
 }
 
 func (mp *managedProcess) killWithin(termGrace time.Duration) error {

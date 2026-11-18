@@ -509,13 +509,19 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	// Tear down the spawned CLI process group (and its supervise/signal/echo
 	// goroutines) plus any open connection on every post-spawn error path.
 	// Disarmed once we return the live Dependencies to the caller.
+	//
+	// The CLI is asked to stop and given the time its ordered stop takes
+	// (stopInOrder): nobody else can run that teardown, since a failed start
+	// returns no Dependencies to call Stop or Destroy on, and whatever the CLI
+	// had started by then — containers, detached servers — is not in the
+	// process group a kill reaches.
 	var conn *grpc.ClientConn
 	defer func() {
 		if !success {
 			if conn != nil {
 				_ = conn.Close()
 			}
-			if killErr := proc.Kill(); killErr != nil {
+			if killErr := proc.stopInOrder(startFailureStopBudget); killErr != nil {
 				wool.Get(ctx).In("sdk.WithDependencies").
 					Warn("could not tear down the CLI process group", wool.Field("error", killErr))
 			}
