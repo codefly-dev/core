@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+# A root of its own, so the crate stays a single crate wherever the checkout
+# sits: without it cargo adopts any Cargo workspace in a parent directory and
+# refuses the crate as a member that workspace does not list.
+[workspace]
