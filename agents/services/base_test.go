@@ -219,3 +219,53 @@ func save(t *testing.T, target, content string) {
 	require.NoError(t, os.WriteFile(tmp, []byte(content), 0o644))
 	require.NoError(t, os.Rename(tmp, target))
 }
+
+// A healthy sibling cannot tear down the watcher while a different subtree
+// remains unreadable. The pending recovery must survive to observe its repair.
+func TestSetupWatcherDoesNotRestartWhileCoverageDegraded(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	incoming := filepath.Join(root, "incoming")
+	require.NoError(t, os.Mkdir(source, 0755))
+	require.NoError(t, os.Mkdir(incoming, 0755))
+	require.NoError(t, os.Chmod(incoming, 0300))
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(source, "incoming"), 0755); _ = os.Chmod(incoming, 0755) })
+	if _, err := os.ReadDir(incoming); err == nil {
+		t.Skip("process bypasses directory permissions")
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(source, "sibling.go"), []byte("package sibling"), 0644))
+	base := &Base{Wool: wool.Get(t.Context()), Location: root}
+	callbacks := make(chan code.Change, 8)
+	require.NoError(t, base.SetupWatcher(t.Context(), NewWatchConfiguration(builders.NewDependencies("recovery")).WithTrees(code.WatchTree{Root: source}), func(c code.Change) error { callbacks <- c; return nil }))
+	t.Cleanup(base.StopWatcher)
+	require.NoError(t, os.Rename(incoming, filepath.Join(source, "incoming")))
+	require.Eventually(t, func() bool { return base.Watcher.Err() != nil }, time.Second, 10*time.Millisecond)
+	// Observe four further real failed registrations. The next bounded backoff
+	// exceeds debounce, making the sibling callback race deterministic.
+	for attempt := 0; attempt < 4; attempt++ {
+		previous := base.Watcher.Err()
+		require.Eventually(t, func() bool { current := base.Watcher.Err(); return current != nil && current != previous }, 6*time.Second, 5*time.Millisecond)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(source, "sibling.go"), []byte("package sibling\n// changed"), 0644))
+	select {
+	case c := <-callbacks:
+		t.Fatalf("premature restart while coverage is degraded: %#v", c)
+	case <-time.After(WatchDebounce + 150*time.Millisecond):
+	}
+	require.Error(t, base.Watcher.Err())
+	require.NoError(t, os.Chmod(filepath.Join(source, "incoming"), 0755))
+	select {
+	case c := <-callbacks:
+		require.True(t, c.Rescan, "repair must rediscover the whole input set")
+	case <-time.After(7 * time.Second):
+		t.Fatal("repair did not resume callback")
+	}
+	require.NoError(t, base.Watcher.Err())
+	require.NoError(t, os.WriteFile(filepath.Join(source, "incoming", "next.go"), []byte("package next"), 0644))
+	select {
+	case c := <-callbacks:
+		require.Equal(t, filepath.Join("source", "incoming", "next.go"), c.Path)
+	case <-time.After(2 * time.Second):
+		t.Fatal("repaired subtree is not watched")
+	}
+}

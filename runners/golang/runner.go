@@ -392,6 +392,11 @@ func (r *GoRunnerEnvironment) WithWorkspace(b bool) {
 	r.withGoWorkspace = b || r.ownsGoWorkspace
 }
 
+// WorkspaceEnabled reports the graph policy selected by this runner, including
+// a source-owned go.work even when ambient workspace inheritance is disabled.
+// Discovery must use this policy with Env(), just like native compilation.
+func (r *GoRunnerEnvironment) WorkspaceEnabled() bool { return r.withGoWorkspace }
+
 func (r *GoRunnerEnvironment) Init(ctx context.Context) error {
 	w := wool.Get(ctx).In("init")
 
