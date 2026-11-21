@@ -1662,7 +1662,7 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
-	l.close(w)
+	l.close(w, err)
 	return err
 }
 
@@ -1698,7 +1698,7 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 	if err != nil {
 		w.Warn("failed to destroy flow", wool.Field("error", err))
 	}
-	l.close(w)
+	l.close(w, err)
 	return err
 }
 
@@ -1706,12 +1706,28 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 // spawned process group, and the private directory holding its control socket.
 // A group teardown that fails is reported rather than discarded — a surviving
 // agent tree is exactly what the caller needs to hear about.
-func (l *Dependencies) close(w *wool.Wool) {
+//
+// unanswered is the error of the Stop or Destroy this session asked the CLI
+// for. When the CLI answered, it has torn the flow down and its group is
+// killed. When it did not — its control server was already gone because the
+// CLI was stopping: the context the session was started under ended, which
+// asks the CLI to stop (startManaged), and the caller's cleanup arrived a
+// moment later — the teardown is still the CLI's alone to run, exactly as
+// after a failed start: its containers, their networks and its detached
+// servers are in no process group a kill reaches. So the CLI is asked to
+// stop, once, and given the time its ordered stop takes before its group is
+// killed; killing it at once cut that stop short and left every one of those
+// behind.
+func (l *Dependencies) close(w *wool.Wool, unanswered error) {
 	if l.conn != nil {
 		_ = l.conn.Close()
 	}
 	if l.proc != nil {
-		if killErr := l.proc.Kill(); killErr != nil {
+		teardown := l.proc.Kill
+		if unanswered != nil {
+			teardown = func() error { return l.proc.stopInOrder(startFailureStopBudget) }
+		}
+		if killErr := teardown(); killErr != nil {
 			w.Warn("could not tear down the CLI process group", wool.Field("error", killErr))
 		}
 	}

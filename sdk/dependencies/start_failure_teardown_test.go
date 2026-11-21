@@ -9,6 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // slowStopCLI writes a stand-in `codefly` that never becomes ready — it binds
@@ -121,4 +126,56 @@ func readOnePID(t *testing.T, path string) int {
 		t.Fatalf("the stand-in CLI never recorded its PID in %s", path)
 	}
 	return pid
+}
+
+// stoppingCLI is the control client of a CLI that is already stopping: its
+// control server is gone, so Stop and Destroy are answered by nobody.
+type stoppingCLI struct{ v0.CLIClient }
+
+func (stoppingCLI) StopFlow(context.Context, *v0.StopFlowRequest, ...grpc.CallOption) (*v0.StopFlowResponse, error) {
+	return nil, status.Error(codes.Unavailable, "error reading from server: EOF")
+}
+
+func (stoppingCLI) DestroyFlow(context.Context, *v0.DestroyFlowRequest, ...grpc.CallOption) (*v0.DestroyFlowResponse, error) {
+	return nil, status.Error(codes.Unavailable, "error reading from server: EOF")
+}
+
+// TestATeardownTheCLINoLongerAnswersLetsItFinishItsOrderedStop: a session
+// started under a context that ends before its cleanup runs (a test's
+// t.Context, cancelled just before its Cleanup functions) has a CLI that was
+// asked to stop when the context ended and is in the middle of stopping its
+// services when Destroy arrives. Destroy is answered Unavailable, and the
+// group used to be killed three seconds later, with the composition's
+// containers, their networks and its detached servers left behind. The CLI is
+// given the time its ordered stop takes instead, as after a failed start.
+func TestATeardownTheCLINoLongerAnswersLetsItFinishItsOrderedStop(t *testing.T) {
+	for name, teardown := range map[string]func(*Dependencies, context.Context) error{
+		"Destroy": (*Dependencies).Destroy,
+		"Stop":    (*Dependencies).Stop,
+	} {
+		t.Run(name, func(t *testing.T) {
+			pidFile, finished := slowStopCLI(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			mp, err := startManaged(ctx, exec.CommandContext(ctx, os.Getenv("CODEFLY_BINARY")))
+			if err != nil {
+				t.Fatalf("startManaged: %v", err)
+			}
+			reapTestGroup(t, mp)
+			leader := readOnePID(t, pidFile)
+			session := &Dependencies{proc: mp, cli: stoppingCLI{}}
+
+			// The context the session was started under ends, then its cleanup runs.
+			cancel()
+			if err := teardown(session, context.Background()); status.Code(err) != codes.Unavailable {
+				t.Fatalf("%s answered %v, want the CLI's Unavailable reported", name, err)
+			}
+			if _, statErr := os.Stat(finished); statErr != nil {
+				t.Fatalf("the CLI was killed before its ordered stop finished: %v", statErr)
+			}
+			if !waitFor(3*time.Second, func() bool { return !pidAlive(leader) }) {
+				t.Fatalf("the CLI %d outlived %s", leader, name)
+			}
+		})
+	}
 }
