@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -17,6 +18,7 @@ type goModule struct {
 	Path    string    `json:"Path"`
 	Version string    `json:"Version"`
 	Main    bool      `json:"Main"`
+	Dir     string    `json:"Dir"`
 	Replace *goModule `json:"Replace,omitempty"`
 }
 
@@ -36,11 +38,21 @@ func Golang(ctx context.Context, dir string) (*Result, error) {
 // GolangWithOptions inventories the module graph in the dependency context
 // explicitly selected by the language plugin.
 func GolangWithOptions(ctx context.Context, dir string, options GolangOptions) (*Result, error) {
+	goMod, err := runGo(ctx, dir, options, "env", "GOMOD")
+	if err != nil {
+		return nil, fmt.Errorf("go source module: %w", err)
+	}
+	sourceGoMod := strings.TrimSpace(string(goMod))
+	if sourceGoMod == "" || sourceGoMod == os.DevNull {
+		return nil, fmt.Errorf("no Go source module contains %q", dir)
+	}
 	modulesOut, err := runGo(ctx, dir, options, "list", "-mod=readonly", "-m", "-json", "all")
 	if err != nil {
 		return nil, fmt.Errorf("go module inventory: %w", err)
 	}
-	modules, root, byToken, err := parseGoModules(modulesOut)
+	// GOMOD locates the module root even when -modfile selects a different
+	// manifest. Compare directories, not the selected manifest filenames.
+	modules, root, byToken, err := parseGoModules(modulesOut, filepath.Dir(sourceGoMod))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +80,11 @@ func runGo(ctx context.Context, dir string, options GolangOptions, args ...strin
 	return stdout.Bytes(), nil
 }
 
-func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[string]string, error) {
+func parseGoModules(data []byte, sourceDir string) ([]*agentv0.Component, *agentv0.Component, map[string]string, error) {
+	source, err := os.Stat(sourceDir)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("stat Go source module: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var components []*agentv0.Component
 	var root *agentv0.Component
@@ -104,14 +120,25 @@ func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[
 			token += "@" + module.Version
 		}
 		byToken[token] = component.BomRef
+		isRoot := false
 		if module.Main {
+			info, err := os.Stat(module.Dir)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("stat main module %q: %w", module.Path, err)
+			}
+			isRoot = os.SameFile(source, info)
+		}
+		if isRoot {
+			if root != nil {
+				return nil, nil, nil, fmt.Errorf("multiple main modules match source directory %q", sourceDir)
+			}
 			root = component
 		} else {
 			components = append(components, component)
 		}
 	}
 	if root == nil {
-		return nil, nil, nil, fmt.Errorf("go list returned no main module")
+		return nil, nil, nil, fmt.Errorf("no main module matches source directory %q", sourceDir)
 	}
 	return components, root, byToken, nil
 }
@@ -125,6 +152,15 @@ func parseGoGraph(data []byte, byToken map[string]string) []*agentv0.Dependency 
 		}
 		from, fromOK := byToken[fields[0]]
 		to, toOK := byToken[fields[1]]
+		if !toOK {
+			// Requirements can name a version of a workspace main module.
+			// Only targets map to that selected module: outgoing edges of an
+			// unselected released version do not describe the local module.
+			path, _, versioned := strings.Cut(fields[1], "@")
+			if versioned {
+				to, toOK = byToken[path]
+			}
+		}
 		if fromOK && toOK {
 			edges[from] = append(edges[from], to)
 		}

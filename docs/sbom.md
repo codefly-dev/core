@@ -10,6 +10,19 @@ coverage.
 `SBOMRequest.scope` selects which one. An unset scope means source, so callers
 written before image scope existed keep working unchanged.
 
+## Go source subjects
+
+`sbom.Golang` disables ambient workspaces. `GolangWithOptions` can preserve the
+workspace selected by the caller's build; source discovery, module listing and
+the requirement graph all use that same mode. The source subject is the main
+module whose directory Go selects for the requested source, including nested
+directories and filesystem aliases. Alternate manifests selected by `-modfile`
+retain that root and supply their own graph. Missing or ambiguous subjects are errors.
+Other workspace main modules remain components. Versioned requirements on them
+resolve to their selected workspace identities, without attributing outgoing
+edges from an unselected released version to the local module. `AttachArtifact`
+retains this graph and links the executable to its actual source subject.
+
 ## Image subjects
 
 An image-scope request carries `subjects`: the images the caller requires
