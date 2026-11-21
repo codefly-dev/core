@@ -3,6 +3,9 @@ package dockerrun
 import (
 	"bytes"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,6 +36,27 @@ func TestDockerProcPIDWrapperPreservesArguments(t *testing.T) {
 	}
 	if got := command[len(command)-len(proc.cmd):]; strings.Join(got, "\x00") != strings.Join(proc.cmd, "\x00") {
 		t.Fatalf("wrapped args = %#v, want %#v", got, proc.cmd)
+	}
+}
+
+func TestDockerProcPIDWrapperKeepsPIDPrivateWithoutChangingChildUmask(t *testing.T) {
+	root := t.TempDir()
+	file, directory := filepath.Join(root, "input"), filepath.Join(root, "runtime")
+	proc := &DockerProc{cmd: []string{"/bin/sh", "-c", `printf content > "$1"; mkdir "$2"`, "child", file, directory}}
+	command := proc.prepareCommand()
+	t.Cleanup(func() { _ = os.Remove(proc.pidFile) })
+	args := append([]string{"-c", `umask 022; exec "$@"`, "test"}, command...)
+	if output, err := exec.Command("/bin/sh", args...).CombinedOutput(); err != nil {
+		t.Fatalf("wrapper failed: %v: %s", err, output)
+	}
+	for path, want := range map[string]os.FileMode{proc.pidFile: 0o600, file: 0o644, directory: 0o755} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s permissions = %o, want %o", filepath.Base(path), got, want)
+		}
 	}
 }
 
