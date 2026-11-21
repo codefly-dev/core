@@ -55,6 +55,7 @@ func WithSharedControlChannel() OptionFunc      { return dependencies.WithShared
 func WithDirectory(dir string) OptionFunc       { return dependencies.WithDirectory(dir) }
 func WithService(unique string) OptionFunc      { return dependencies.WithService(unique) }
 func WithCommandScopedEnvironment() OptionFunc  { return dependencies.WithCommandScopedEnvironment() }
+func WithCoRoots(uniques ...string) OptionFunc  { return dependencies.WithCoRoots(uniques...) }
 func Connection(service, name string) string    { return dependencies.Connection(service, name) }
 func Service() (*resources.Service, error)      { return dependencies.Service() }
 func Module() (*resources.Module, error)        { return dependencies.Module() }

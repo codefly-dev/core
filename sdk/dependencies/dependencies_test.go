@@ -646,3 +646,33 @@ func TestNamedPortsLeaveTemporaryPortsOut(t *testing.T) {
 		t.Fatal("a stack on named ports still asks for temporary ones")
 	}
 }
+
+// A session that names co-roots names its own service first: the CLI reads the
+// first service named as the origin, the one --exclude-root leaves out, and
+// the rest as roots it starts beside it.
+func TestCoRootsAreNamedAfterTheSessionsOwnService(t *testing.T) {
+	anchored := &Option{origin: "playground/scenarios"}
+	WithCoRoots("runtime/dispatcher", "runtime/worker")(anchored)
+	if args := dependencyCommandArguments(anchored, ""); !slices.Equal(args[:5], []string{"run", "service", "playground/scenarios", "runtime/dispatcher", "runtime/worker"}) || !slices.Contains(args, "--exclude-root") {
+		t.Fatalf("a directory-anchored session with co-roots runs %v", args)
+	}
+	named := &Option{}
+	WithService("playground/scenarios")(named)
+	WithCoRoots("runtime/worker")(named)
+	if args := dependencyCommandArguments(named, ""); !slices.Equal(args[:4], []string{"run", "service", "playground/scenarios", "runtime/worker"}) {
+		t.Fatalf("a named session with a co-root runs %v", args)
+	}
+	if args := dependencyCommandArguments(&Option{}, ""); args[2] != "--temporary-ports" {
+		t.Fatalf("a session with no co-root names a service: %v", args)
+	}
+}
+
+// A co-root is named the way the CLI names a service, module included, and is
+// refused before anything is started otherwise.
+func TestACoRootNamesItsModule(t *testing.T) {
+	option := &Option{}
+	WithCoRoots("worker")(option)
+	if err := nameOrigin(t.Context(), option, t.TempDir()); err == nil || !strings.Contains(err.Error(), "must name its module") {
+		t.Fatalf("a co-root with no module: %v", err)
+	}
+}

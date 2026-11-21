@@ -112,6 +112,13 @@ type Option struct {
 	Directory                string
 	Service                  string
 	CommandScopedEnvironment bool
+	// CoRoots are services the run starts as roots beside the session's
+	// service, as "<module>/<service>" (WithCoRoots).
+	CoRoots []string
+	// origin is the session's own service as the CLI names it, resolved when
+	// the session names co-roots: the CLI reads the first service named as the
+	// origin and the rest as its co-roots.
+	origin string
 }
 
 type OptionFunc func(*Option)
@@ -323,6 +330,22 @@ func WithService(unique string) OptionFunc {
 	}
 }
 
+// WithCoRoots names services the run starts as roots beside the session's own
+// service, each as "<module>/<service>". A session starts what its service
+// depends on, transitively; a service the journey needs that is in nobody's
+// closure — a worker that polls a store, a dispatcher nothing calls — is a
+// root the run names, exactly as `codefly run service <a> <b> <c>` names it on
+// a command line. The session's service is still the one left out of the run
+// (it stands where the caller is) and the one whose environment the session
+// resolves; a co-root is started with its own closure and hands the session
+// no address: naming it grants no endpoint access, so a co-root's endpoint
+// stays as private as its module declares it.
+func WithCoRoots(uniques ...string) OptionFunc {
+	return func(o *Option) {
+		o.CoRoots = append(o.CoRoots, uniques...)
+	}
+}
+
 // WithCommandScopedEnvironment keeps the session out of os.Environ. The
 // resolved values are reachable through Dependencies.Environ, which produces a
 // child-process environment, and through Dependencies.Connection. This is the
@@ -378,6 +401,9 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	}
 	dir, identity, err := sessionAnchor(ctx, opt)
 	if err != nil {
+		return nil, err
+	}
+	if err = nameOrigin(ctx, opt, dir); err != nil {
 		return nil, err
 	}
 	channel, err := newControlChannel(ctx, dir, opt)
@@ -658,6 +684,33 @@ func sessionDirectory(ctx context.Context, opt *Option) (string, error) {
 // sessionAnchor keeps a named service in the composition that resolved it.
 // The source checkout can be outside that workspace (and can own another one),
 // so neither CLI startup nor environment resolution may rediscover it there.
+// nameOrigin resolves the name of a directory-anchored session's own service
+// when the session names co-roots, and refuses a co-root that is not
+// "<module>/<service>" before anything is started.
+func nameOrigin(ctx context.Context, opt *Option, dir string) error {
+	if len(opt.CoRoots) == 0 {
+		return nil
+	}
+	for _, unique := range opt.CoRoots {
+		reference, err := resources.ParseServiceWithOptionalModule(unique)
+		if err != nil {
+			return fmt.Errorf("co-root %q: %w", unique, err)
+		}
+		if reference.Module == "" {
+			return fmt.Errorf("co-root %q must name its module, as <module>/<service>", unique)
+		}
+	}
+	if opt.Service != "" {
+		return nil
+	}
+	identity, err := resolveSessionIdentity(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("a session that names co-roots names its own service first: %w", err)
+	}
+	opt.origin = resources.WithUnique(identity.service).Unique()
+	return nil
+}
+
 func sessionAnchor(ctx context.Context, opt *Option) (string, *resolvedIdentity, error) {
 	if opt.Service == "" {
 		dir, err := sessionDirectory(ctx, opt)
@@ -767,9 +820,15 @@ func hasInvocationConfigurationOverrides(opt *Option) bool {
 
 func dependencyCommandArguments(opt *Option, scope string) []string {
 	args := []string{"run", "service"}
-	if opt.Service != "" {
+	switch {
+	case opt.Service != "":
 		args = append(args, opt.Service)
+	case len(opt.CoRoots) > 0:
+		// The CLI reads the first service named as the origin: a session
+		// anchored to a directory names its own service before its co-roots.
+		args = append(args, opt.origin)
 	}
+	args = append(args, opt.CoRoots...)
 	if opt.Debug {
 		args = append(args, "-d")
 	}
