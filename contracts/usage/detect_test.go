@@ -2,6 +2,7 @@ package usage
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -183,5 +184,54 @@ func TestDetectReadsNothingItWasNotGiven(t *testing.T) {
 	judgement := &Contract{Schema: SchemaV1, Summary: "s", Rules: []Rule{*contract.Rule("STORE-MAINT-001")}}
 	if findings := judgement.Detect(indexOf(source{path: "a.go", language: "go", imports: []string{"database/sql"}, calls: []string{"sql.Open"}})); findings != nil {
 		t.Fatalf("a rule with no detect clause finds nothing: %+v", findings)
+	}
+}
+
+// A call outside every function is on its file, and is found like any other.
+func TestDetectReadsCallsOutsideFunctions(t *testing.T) {
+	contract := full(t)
+	index := &basev0.SemanticIndex{
+		FileCallsProjected: true,
+		Files: []*basev0.SemanticFile{{
+			Path: "app/db.py", Language: "python", Imports: []string{"psycopg"},
+			Calls: []*basev0.SemanticUse{{Name: "psycopg.connect", Location: &basev0.SemanticLocation{Path: "app/db.py", StartLine: 3, StartColumn: 14}}},
+		}},
+	}
+	want := []Finding{{RuleID: "STORE-CONN-001", Severity: SeverityError, Language: "python", Kind: FindingCall, Symbol: "psycopg.connect", Path: "app/db.py", Line: 3, Column: 14}}
+	if findings := contract.Detect(index); !reflect.DeepEqual(findings, want) {
+		t.Fatalf("got  %+v\nwant %+v", findings, want)
+	}
+	if unread := contract.Unread(index); len(unread) != 0 {
+		t.Fatalf("an index that projected file calls leaves nothing unread: %v", unread)
+	}
+}
+
+// An index whose analyzer did not project calls outside functions leaves
+// those places unread, and says so only to a contract that could have
+// matched something there.
+func TestUnreadSaysWhenInitializersWereNotProjected(t *testing.T) {
+	contract := full(t)
+	old := func(language string) *basev0.SemanticIndex {
+		return &basev0.SemanticIndex{Files: []*basev0.SemanticFile{{Path: "a", Language: language}}}
+	}
+	if unread := contract.Unread(old("go")); len(unread) != 1 || !strings.Contains(unread[0], "calls outside functions and methods") {
+		t.Fatalf("a go clause forbids a call and go initializers went unread: %v", unread)
+	}
+	// The full contract has no clause for rust, so nothing it could match
+	// was missed in a rust-only service.
+	if unread := contract.Unread(old("rust")); len(unread) != 0 {
+		t.Fatalf("no clause for the language, nothing unread: %v", unread)
+	}
+	// A contract that forbids only imports reads no call at all.
+	importsOnly := &Contract{Schema: SchemaV1, Summary: "s", Rules: []Rule{{
+		ID: "X-Y-1", Title: "t", Severity: SeverityError, Since: "1.0.0", Rationale: "r", Do: "d",
+		Detect: []Detect{{Language: "go", ForbidImport: []string{"github.com/lib/pq"}}},
+	}}}
+	if unread := importsOnly.Unread(old("go")); len(unread) != 0 {
+		t.Fatalf("imports are always read: %v", unread)
+	}
+	var none *Contract
+	if none.Unread(old("go")) != nil || contract.Unread(nil) != nil {
+		t.Fatal("nothing given, nothing unread")
 	}
 }

@@ -149,6 +149,17 @@ reading findings. An owner that needs a module kept out entirely says so with
 `forbid-import`, which has neither gap. Closing the gap properly means the
 index carrying import bindings.
 
+A call is found wherever it sits: inside a function or method, or outside
+every one of them — a module's top-level statements, a package-level
+initializer, a class body. The second kind is on the index only when its
+analyzer projected it (`SemanticIndex.file_calls_projected`). When it did not,
+`contract.Unread(index)` says so, so that finding nothing is never mistaken
+for there being nothing:
+
+```go
+for _, gap := range contract.Unread(index) { /* report it; do not call the check clean */ }
+```
+
 A file matching one of the rule's `except-paths` is skipped for that rule.
 In a glob, `**` crosses directories and `*` and `?` do not; nothing else is
 special.

@@ -90,6 +90,34 @@ from asyncpg import pool
 def connect(dsn):
     return psycopg.connect(dsn)
 `,
+		// A call outside every function: a module's top-level statement and
+		// a class body in Python, a package-level initializer in Go.
+		"app/module_level.py": `import psycopg
+
+connection = psycopg.connect("dsn")
+
+
+class Holder:
+    shared = psycopg.connect("dsn")
+
+    def reconnect(self):
+        return psycopg.connect("dsn")
+`,
+		"store/package_level.go": `package store
+
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var pool, poolErr = pgxpool.New(context.Background(), "dsn")
+
+var lazily = func() error {
+	_, err := pgxpool.New(context.Background(), "dsn")
+	return err
+}
+`,
 		"app/clean.py": `import os
 
 
@@ -124,11 +152,41 @@ def connect(dsn):
 	want := []found{
 		{"STORE-CONN-001", usagecontract.FindingImport, "asyncpg", "app/db.py", 0},
 		{"STORE-CONN-001", usagecontract.FindingCall, "psycopg.connect", "app/db.py", 6},
+		{"STORE-CONN-001", usagecontract.FindingCall, "psycopg.connect", "app/module_level.py", 3},
+		{"STORE-CONN-001", usagecontract.FindingCall, "psycopg.connect", "app/module_level.py", 7},
+		{"STORE-CONN-001", usagecontract.FindingCall, "psycopg.connect", "app/module_level.py", 10},
 		{"STORE-CONN-001", usagecontract.FindingImport, "github.com/lib/pq", "store/driver.go", 0},
 		{"STORE-CONN-001", usagecontract.FindingCall, "database/sql.Open", "store/open.go", 11},
 		{"STORE-CONN-001", usagecontract.FindingCall, "github.com/jackc/pgx/v5/pgxpool.New", "store/open.go", 14},
+		{"STORE-CONN-001", usagecontract.FindingCall, "github.com/jackc/pgx/v5/pgxpool.New", "store/package_level.go", 9},
+		{"STORE-CONN-001", usagecontract.FindingCall, "github.com/jackc/pgx/v5/pgxpool.New", "store/package_level.go", 12},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+	// This analyzer reads every call site, and says so; an index that does
+	// not say so is one a contract reports as partly unread.
+	if !index.GetFileCallsProjected() {
+		t.Fatal("the analyzer projects calls outside functions and does not say so")
+	}
+	if unread := contract.Unread(index); len(unread) != 0 {
+		t.Fatalf("nothing is unread in this index: %v", unread)
+	}
+	// A call is projected once: on its function, or on its file.
+	seen := map[string]int{}
+	for _, file := range index.GetFiles() {
+		for _, call := range file.GetCalls() {
+			seen[call.GetLocation().String()+call.GetName()]++
+		}
+	}
+	for _, symbol := range index.GetSymbols() {
+		for _, call := range symbol.GetCalls() {
+			seen[call.GetLocation().String()+call.GetName()]++
+		}
+	}
+	for at, times := range seen {
+		if times != 1 {
+			t.Errorf("a call site is projected %d times: %s", times, at)
+		}
 	}
 }

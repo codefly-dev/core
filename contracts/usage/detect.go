@@ -64,12 +64,20 @@ type Finding struct {
 // people to stop reading findings. An owner that needs the module kept out
 // entirely says so with forbid-import, which has neither gap.
 //
+// A call is found wherever it sits: inside a function or method, or outside
+// every one of them, in a module's top-level statements or a package-level
+// initializer. The second kind is only there to find when the index's
+// analyzer projected it; Unread says when it did not.
+//
 // A file matching one of the rule's except-paths is skipped for that rule.
 // Findings are sorted by path, position, rule and symbol.
 func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 	if contract == nil || index == nil {
 		return nil
 	}
+	// A call is on the function or method it sits in, or, outside every one
+	// of them, on its file: a module's top-level statements and a
+	// package-level initializer are read like any other code.
 	calls := map[string][]*basev0.SemanticUse{}
 	for _, symbol := range index.GetSymbols() {
 		for _, call := range symbol.GetCalls() {
@@ -77,6 +85,9 @@ func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 				calls[path] = append(calls[path], call)
 			}
 		}
+	}
+	for _, file := range index.GetFiles() {
+		calls[file.GetPath()] = append(calls[file.GetPath()], file.GetCalls()...)
 	}
 	var findings []Finding
 	for _, rule := range contract.Rules {
@@ -149,6 +160,33 @@ func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 		return a.Symbol < b.Symbol
 	})
 	return findings
+}
+
+// Unread reports the places Detect could not look in this index for this
+// contract, one sentence each, so that finding nothing is never mistaken for
+// there being nothing. It is empty when every call site the contract's
+// clauses could match was projected.
+//
+// An index whose analyzer did not project the calls outside functions and
+// methods (SemanticIndex.file_calls_projected) leaves module and package
+// initializers unread. That matters only to a contract with a forbid-call
+// clause for a language the index holds, and is reported only then.
+func (contract *Contract) Unread(index *basev0.SemanticIndex) []string {
+	if contract == nil || index == nil || index.GetFileCallsProjected() {
+		return nil
+	}
+	languages := map[string]bool{}
+	for _, file := range index.GetFiles() {
+		languages[file.GetLanguage()] = true
+	}
+	for i := range contract.Rules {
+		for _, clause := range contract.Rules[i].Detect {
+			if len(clause.ForbidCall) > 0 && languages[clause.Language] {
+				return []string{"calls outside functions and methods (module top-level statements, package-level initializers, class bodies) were not read: the plugin's analyzer does not project them"}
+			}
+		}
+	}
+	return nil
 }
 
 // separators are what joins the parts of a package or module path, in the
