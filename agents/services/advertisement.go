@@ -49,6 +49,13 @@ type Advertisement struct {
 	Validation *agentv0.ValidationCapabilities
 	// EffectiveInputsVersions advertises implemented discovery schemas.
 	EffectiveInputsVersions []uint32
+	// UsageContract is the agent's usage.codefly.yaml, verbatim (usually
+	// embedded beside agent.codefly.yaml): what the agent tells the code that
+	// consumes the services it manages. It is carried unparsed, so the reader
+	// refuses a malformed one with the contract's own rules; an agent holds its
+	// file to them in its own suite with contracts/usage's Parse. Leave empty
+	// for an agent that states no usage rules.
+	UsageContract string
 }
 
 // Build assembles the AgentInformation, applying the common defaults.
@@ -80,6 +87,7 @@ func (a Advertisement) Build() *agentv0.AgentInformation {
 		Protocols:               []*agentv0.Protocol{},
 		Validation:              a.Validation,
 		EffectiveInputsVersions: a.EffectiveInputsVersions,
+		UsageContract:           a.UsageContract,
 	}
 	if a.BackendsComplete {
 		info.Contract = contract.Current()

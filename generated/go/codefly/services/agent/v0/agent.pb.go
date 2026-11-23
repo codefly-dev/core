@@ -1469,7 +1469,13 @@ type AgentInformation struct {
 	// conservative service selection and no persistent result reuse.
 	EffectiveInputsVersions []uint32 `protobuf:"varint,11,rep,packed,name=effective_inputs_versions,json=effectiveInputsVersions,proto3" json:"effective_inputs_versions,omitempty"`
 	// contract declares wire compatibility, not the agent's linked Core version.
-	Contract      *AgentContract `protobuf:"bytes,12,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract *AgentContract `protobuf:"bytes,12,opt,name=contract,proto3" json:"contract,omitempty"`
+	// usage_contract is the agent's usage.codefly.yaml (codefly/usage/v1),
+	// verbatim: what the agent tells the code that consumes the services it
+	// manages. Empty means the agent states no usage rules. A reader parses it
+	// with core's contracts/usage and nothing else, so the file has one
+	// implementation and a later schema needs no change to this message.
+	UsageContract string `protobuf:"bytes,13,opt,name=usage_contract,json=usageContract,proto3" json:"usage_contract,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1587,6 +1593,13 @@ func (x *AgentInformation) GetContract() *AgentContract {
 		return x.Contract
 	}
 	return nil
+}
+
+func (x *AgentInformation) GetUsageContract() string {
+	if x != nil {
+		return x.UsageContract
+	}
+	return ""
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.
@@ -2060,7 +2073,7 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\rAgentContract\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x128\n" +
-	"\x18startup_protocol_version\x18\x03 \x01(\rR\x16startupProtocolVersion\"\xfa\x06\n" +
+	"\x18startup_protocol_version\x18\x03 \x01(\rR\x16startupProtocolVersion\"\xa1\a\n" +
 	"\x10AgentInformation\x12Y\n" +
 	"\x14runtime_requirements\x18\x01 \x03(\v2\".codefly.services.agent.v0.RuntimeB\x02\x18\x01R\x13runtimeRequirements\x12I\n" +
 	"\fcapabilities\x18\x02 \x03(\v2%.codefly.services.agent.v0.CapabilityR\fcapabilities\x12A\n" +
@@ -2080,7 +2093,8 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	" \x01(\v21.codefly.services.agent.v0.ValidationCapabilitiesR\n" +
 	"validation\x12:\n" +
 	"\x19effective_inputs_versions\x18\v \x03(\rR\x17effectiveInputsVersions\x12D\n" +
-	"\bcontract\x18\f \x01(\v2(.codefly.services.agent.v0.AgentContractR\bcontract\"\x19\n" +
+	"\bcontract\x18\f \x01(\v2(.codefly.services.agent.v0.AgentContractR\bcontract\x12%\n" +
+	"\x0eusage_contract\x18\r \x01(\tR\rusageContract\"\x19\n" +
 	"\x17AgentInformationRequest\"\xec\x01\n" +
 	"\x11CommandDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +

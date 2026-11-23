@@ -1,0 +1,25 @@
+# A usage contract as an owner publishes it beside its manifest.
+schema: codefly/usage/v1
+summary: Reach the store only through its library, which owns roles and tenant isolation.
+rules:
+  - id: STORE-CONN-001
+    title: Open the store only through the library
+    severity: error
+    since: 1.4.0
+    rationale: A raw connection bypasses the non-privileged role and the tenant checks.
+    do: Request a scoped reader or writer from the library and run inside its transaction.
+    dont: Open a connection or a pool yourself.
+    docs: docs/usage.md
+    detect:
+      - language: go
+        forbid-call: [database/sql.Open]
+        forbid-import: [github.com/example/rawdriver]
+      - language: python
+        forbid-call: [connect]
+    except-paths: ["**/migrationtest/**"]
+  - id: STORE-MAINT-001
+    title: Keep maintenance out of request handlers
+    severity: warn
+    since: 1.5.0
+    rationale: Maintenance clears the tenant, so a handler holding it serves one tenant with another's reach.
+    do: Hand request handlers the authenticated factory only.

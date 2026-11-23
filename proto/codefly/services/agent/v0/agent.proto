@@ -326,6 +326,12 @@ message AgentInformation {
   repeated uint32 effective_inputs_versions = 11;
   // contract declares wire compatibility, not the agent's linked Core version.
   AgentContract contract = 12;
+  // usage_contract is the agent's usage.codefly.yaml (codefly/usage/v1),
+  // verbatim: what the agent tells the code that consumes the services it
+  // manages. Empty means the agent states no usage rules. A reader parses it
+  // with core's contracts/usage and nothing else, so the file has one
+  // implementation and a later schema needs no change to this message.
+  string usage_contract = 13;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.
