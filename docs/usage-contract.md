@@ -16,14 +16,16 @@ outside the package parses or validates a usage contract.
 
 ## What core does, and what it does not do yet
 
-Core reads and validates a contract, and carries an agent's contract to
-whoever asks the agent about itself. Two things the design builds on that are
+Core reads and validates a contract, carries an agent's contract to whoever
+asks the agent about itself, and matches a contract's detect clauses against a
+semantic index. Two things the design builds on that are
 **not built anywhere yet**, and nothing below should be read as saying they
 are:
 
 - Nothing resolves which contracts apply to a service from its dependencies.
-- Nothing runs a `detect` clause. The clauses are declarations a linter will
-  read; no linter reads them today.
+- No command reports a finding. `Detect` (below) matches a contract against a
+  semantic index; nothing yet fetches the index from a service's agent and
+  prints what it found.
 
 ## How an agent serves one
 
@@ -107,6 +109,37 @@ new language needs no release of core.
 Known limits of v1: a method on a receiver type (Go's `(*pgx.Conn).Exec`) and
 a `::`-qualified path cannot be spelled, and there is no clause that requires
 a call rather than forbidding one.
+
+## Detecting violations
+
+```go
+findings := contract.Detect(index) // index: the consumer's basev0.SemanticIndex
+```
+
+`Detect` reads a consumer's source through its semantic index — the body-free
+projection a language agent already produces (`Code.GetSemanticIndex`) — so it
+parses no language and reads no file. A `Finding` names the rule, the
+forbidden symbol, the file and, for a call, the line.
+
+It reports what it can be sure of and nothing else:
+
+| Clause | Matches when |
+| --- | --- |
+| `forbid-import` | A file imports the package or module, or anything beneath it (`github.com/lib/pq/oid`, `psycopg.rows`, `sqlx::postgres`). |
+| `forbid-call` | The file imports what owns the function **and** calls it the way that import is ordinarily named: `pgxpool.New`, `pgx.Connect` for `…/pgx/v5`, `psycopg.connect`. |
+
+The index records calls as written and does not say what a name is bound to.
+So two things are **missed, never guessed**: a call through an import alias
+(`import pg "…/pgxpool"`, `import psycopg as pg`), and a call of a name
+imported on its own (`from psycopg import connect`, `import { connect }`). A
+finding that might be the consumer's own function would teach people to stop
+reading findings. An owner that needs a module kept out entirely says so with
+`forbid-import`, which has neither gap. Closing the gap properly means the
+index carrying import bindings.
+
+A file matching one of the rule's `except-paths` is skipped for that rule.
+In a glob, `**` crosses directories and `*` and `?` do not; nothing else is
+special.
 
 ## Why it is bounded
 
