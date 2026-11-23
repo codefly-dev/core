@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/contract"
+	usagecontract "github.com/codefly-dev/core/contracts/usage"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 )
 
@@ -70,5 +71,38 @@ func TestAdvertisementOwnsItsBackendDeclarationOnlyWhenAsked(t *testing.T) {
 	}
 	if slices.Contains(contract.Current().GetCapabilities(), contract.RuntimeBackendDeclaration) {
 		t.Fatal("the shared contract promised a complete backend declaration for every plugin built on this Core")
+	}
+}
+
+// An agent's usage contract crosses the advertisement byte for byte, and what
+// arrives is what the one reader accepts: the advertisement neither parses nor
+// rewrites it.
+func TestAdvertisementCarriesTheUsageContractVerbatim(t *testing.T) {
+	fixtures, err := usagecontract.Fixtures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document string
+	for _, fixture := range fixtures {
+		if fixture.Outcome == usagecontract.OutcomeAccepted {
+			document = string(fixture.Document)
+			break
+		}
+	}
+	if document == "" {
+		t.Fatal("the usage contract kit ships no accepted document")
+	}
+	carried := (Advertisement{UsageContract: document}).Build().GetUsageContract()
+	if carried != document {
+		t.Fatalf("the usage contract changed in the advertisement:\n%s", carried)
+	}
+	if _, err := usagecontract.Parse([]byte(carried)); err != nil {
+		t.Fatalf("the carried usage contract does not parse: %v", err)
+	}
+}
+
+func TestAdvertisementStatesNoUsageRulesByDefault(t *testing.T) {
+	if carried := (Advertisement{}).Build().GetUsageContract(); carried != "" {
+		t.Fatalf("an agent that declares no usage contract advertises %q", carried)
 	}
 }
