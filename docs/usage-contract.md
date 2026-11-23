@@ -11,19 +11,21 @@ database agent, the solution that consumes a module.
 
 **`contracts/usage`** — Go package `usage`, imported as `usagecontract` — is
 the one implementation of `codefly/usage/v1`: the model, a strict decoder,
-35 named rules and the fixtures every reader is driven through. Nothing
+37 named rules and the fixtures every reader is driven through. Nothing
 outside the package parses or validates a usage contract.
 
 ## What core does, and what it does not do yet
 
-Core reads and validates a contract, and carries an agent's contract to
-whoever asks the agent about itself. Two things the design builds on that are
+Core reads and validates a contract, carries an agent's contract to whoever
+asks the agent about itself, and matches a contract's detect clauses against a
+semantic index. Two things the design builds on that are
 **not built anywhere yet**, and nothing below should be read as saying they
 are:
 
 - Nothing resolves which contracts apply to a service from its dependencies.
-- Nothing runs a `detect` clause. The clauses are declarations a linter will
-  read; no linter reads them today.
+- No command reports a finding. `Detect` (below) matches a contract against a
+  semantic index; nothing yet fetches the index from a service's agent and
+  prints what it found.
 
 ## How an agent serves one
 
@@ -96,6 +98,16 @@ Detection is a closed vocabulary, so reading a contract runs nothing:
 | `forbid-call` | Calling a function or method, named literally and qualified by what owns it: `database/sql.Open`, `psycopg.connect`. |
 | `forbid-import` | Importing a package or module, named literally. |
 
+A package whose path does not end in its name declares the name, because the
+owner is the one party that knows it and a consumer's source does not say:
+
+```yaml
+- language: go
+  forbid-call: [example.com/store/libs/go.NewFactory]
+  names:
+    example.com/store/libs/go: store   # written store.NewFactory
+```
+
 A bare name (`Open`) is refused because it would match every function so
 named in a consumer. A pattern (`database/sql.*`) is refused because v1 has
 none.
@@ -107,6 +119,50 @@ new language needs no release of core.
 Known limits of v1: a method on a receiver type (Go's `(*pgx.Conn).Exec`) and
 a `::`-qualified path cannot be spelled, and there is no clause that requires
 a call rather than forbidding one.
+
+## Detecting violations
+
+```go
+findings := contract.Detect(index) // index: the consumer's basev0.SemanticIndex
+```
+
+`Detect` reads a consumer's source through its semantic index — the body-free
+projection a language agent already produces (`Code.GetSemanticIndex`) — so it
+parses no language and reads no file. A `Finding` names the rule, the
+forbidden symbol, the file and, for a call, the line.
+
+It reports what it can be sure of and nothing else:
+
+| Clause | Matches when |
+| --- | --- |
+| `forbid-import` | A file imports the package or module, or anything beneath it (`github.com/lib/pq/oid`, `psycopg.rows`, `sqlx::postgres`). |
+| `forbid-call` | The file imports what owns the function **and** calls it the way that import is ordinarily named: `pgxpool.New`, `pgx.Connect` for `…/pgx/v5`, `psycopg.connect`. |
+
+The index records calls as written and does not say what a name is bound to.
+So three things are **missed, never guessed**: a call through an import alias
+(`import pg "…/pgxpool"`, `import psycopg as pg`); a call of a name imported on
+its own (`from psycopg import connect`, `import { connect }`); and a call whose
+qualifier another import of the same file is also ordinarily written as — a
+consumer's own package named `postgres` beside the owner's. A
+finding that might be the consumer's own function would teach people to stop
+reading findings. An owner that needs a module kept out entirely says so with
+`forbid-import`, which has neither gap. Closing the gap properly means the
+index carrying import bindings.
+
+A call is found wherever it sits: inside a function or method, or outside
+every one of them — a module's top-level statements, a package-level
+initializer, a class body. The second kind is on the index only when its
+analyzer projected it (`SemanticIndex.file_calls_projected`). When it did not,
+`contract.Unread(index)` says so, so that finding nothing is never mistaken
+for there being nothing:
+
+```go
+for _, gap := range contract.Unread(index) { /* report it; do not call the check clean */ }
+```
+
+A file matching one of the rule's `except-paths` is skipped for that rule.
+In a glob, `**` crosses directories and `*` and `?` do not; nothing else is
+special.
 
 ## Why it is bounded
 
@@ -164,6 +220,8 @@ refused for one reason whichever reader refused it.
 | `detect-call-shape` | A forbidden call is a literal, qualified name; never a bare name or a pattern. |
 | `detect-import-shape` | A forbidden import is a literal package or module name; never a pattern. |
 | `detect-symbols-unique` | No symbol twice in a list. |
+| `detect-names-own-a-call` | A `names` entry is keyed by the owner of a forbidden call in the same clause. |
+| `detect-names-are-names` | A `names` value is one identifier. |
 | `except-paths-need-detect` | `except-paths` only beside `detect`. |
 | `except-paths-bounded` | At most 32 excepted paths. |
 | `except-paths-relative` | An excepted path is a glob relative to the consuming service that stays inside it. |
@@ -171,7 +229,7 @@ refused for one reason whichever reader refused it.
 
 ## The kit
 
-`usagecontract.Fixtures()` (41 documents) is every accepted and refused
+`usagecontract.Fixtures()` (44 documents) is every accepted and refused
 document with the verdict a reader must reach, and `usagecontract.Run` drives
 a reader's own entrypoint through them. The package's self-check deletes each
 rule in turn and proves a fixture notices; a rule that could be dropped

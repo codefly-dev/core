@@ -401,7 +401,13 @@ type SemanticFile struct {
 	// imports are the file's declared imports as written, unresolved.
 	Imports []string `protobuf:"bytes,4,rep,name=imports,proto3" json:"imports,omitempty"`
 	// language is the ecosystem the analyzer read the file as.
-	Language      string `protobuf:"bytes,5,opt,name=language,proto3" json:"language,omitempty"`
+	Language string `protobuf:"bytes,5,opt,name=language,proto3" json:"language,omitempty"`
+	// calls are the unresolved call sites that sit outside every function and
+	// method of the file: a module's top-level statements, a package-level
+	// variable's initializer, a class body. Calls inside a function or method
+	// are on that declaration's SemanticSymbol and are not repeated here.
+	// Meaningful only when the index sets file_calls_projected.
+	Calls         []*SemanticUse `protobuf:"bytes,6,rep,name=calls,proto3" json:"calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -469,6 +475,13 @@ func (x *SemanticFile) GetLanguage() string {
 		return x.Language
 	}
 	return ""
+}
+
+func (x *SemanticFile) GetCalls() []*SemanticUse {
+	if x != nil {
+		return x.Calls
+	}
+	return nil
 }
 
 // SemanticSymbol is a declaration projected by the owning Codefly analyzer.
@@ -710,9 +723,16 @@ type SemanticIndex struct {
 	// symbols are the declarations projected from those files.
 	Symbols []*SemanticSymbol `protobuf:"bytes,6,rep,name=symbols,proto3" json:"symbols,omitempty"`
 	// issues are the per-file analyzer failures behind a DEGRADED state.
-	Issues        []*SemanticIssue `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Issues []*SemanticIssue `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
+	// file_calls_projected reports that this analyzer projected the calls
+	// outside functions and methods into each file's calls. It separates "this
+	// source has no such call" from "this analyzer did not look", which an
+	// empty list alone cannot express: an index built before the field existed
+	// leaves it false, and a consumer that needs every call site knows those
+	// locations went unread.
+	FileCallsProjected bool `protobuf:"varint,8,opt,name=file_calls_projected,json=fileCallsProjected,proto3" json:"file_calls_projected,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SemanticIndex) Reset() {
@@ -794,6 +814,13 @@ func (x *SemanticIndex) GetIssues() []*SemanticIssue {
 	return nil
 }
 
+func (x *SemanticIndex) GetFileCallsProjected() bool {
+	if x != nil {
+		return x.FileCallsProjected
+	}
+	return false
+}
+
 var File_codefly_base_v0_semantic_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_semantic_proto_rawDesc = "" +
@@ -809,13 +836,14 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	"end_column\x18\x05 \x01(\x05R\tendColumn\"`\n" +
 	"\vSemanticUse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12=\n" +
-	"\blocation\x18\x02 \x01(\v2!.codefly.base.v0.SemanticLocationR\blocation\"\x9c\x01\n" +
+	"\blocation\x18\x02 \x01(\v2!.codefly.base.v0.SemanticLocationR\blocation\"\xd0\x01\n" +
 	"\fSemanticFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12%\n" +
 	"\x0econtent_sha256\x18\x02 \x01(\tR\rcontentSha256\x12\x1b\n" +
 	"\tbyte_size\x18\x03 \x01(\x03R\bbyteSize\x12\x18\n" +
 	"\aimports\x18\x04 \x03(\tR\aimports\x12\x1a\n" +
-	"\blanguage\x18\x05 \x01(\tR\blanguage\"\x9c\x04\n" +
+	"\blanguage\x18\x05 \x01(\tR\blanguage\x122\n" +
+	"\x05calls\x18\x06 \x03(\v2\x1c.codefly.base.v0.SemanticUseR\x05calls\"\x9c\x04\n" +
 	"\x0eSemanticSymbol\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\x0equalified_name\x18\x02 \x01(\tR\rqualifiedName\x127\n" +
@@ -836,7 +864,7 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	"\rSemanticIssue\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x12\n" +
-	"\x04path\x18\x03 \x01(\tR\x04path\"\xd7\x02\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"\x89\x03\n" +
 	"\rSemanticIndex\x129\n" +
 	"\x05state\x18\x01 \x01(\x0e2#.codefly.base.v0.SemanticIndexStateR\x05state\x12\x1a\n" +
 	"\banalyzer\x18\x02 \x01(\tR\banalyzer\x12)\n" +
@@ -844,7 +872,8 @@ const file_codefly_base_v0_semantic_proto_rawDesc = "" +
 	"\tlanguages\x18\x04 \x03(\tR\tlanguages\x123\n" +
 	"\x05files\x18\x05 \x03(\v2\x1d.codefly.base.v0.SemanticFileR\x05files\x129\n" +
 	"\asymbols\x18\x06 \x03(\v2\x1f.codefly.base.v0.SemanticSymbolR\asymbols\x126\n" +
-	"\x06issues\x18\a \x03(\v2\x1e.codefly.base.v0.SemanticIssueR\x06issues*\xa8\x01\n" +
+	"\x06issues\x18\a \x03(\v2\x1e.codefly.base.v0.SemanticIssueR\x06issues\x120\n" +
+	"\x14file_calls_projected\x18\b \x01(\bR\x12fileCallsProjected*\xa8\x01\n" +
 	"\x12SemanticIndexState\x12$\n" +
 	" SEMANTIC_INDEX_STATE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dSEMANTIC_INDEX_STATE_COMPLETE\x10\x01\x12!\n" +
@@ -900,20 +929,21 @@ var file_codefly_base_v0_semantic_proto_goTypes = []any{
 	(*SemanticIndex)(nil),         // 8: codefly.base.v0.SemanticIndex
 }
 var file_codefly_base_v0_semantic_proto_depIdxs = []int32{
-	3, // 0: codefly.base.v0.SemanticUse.location:type_name -> codefly.base.v0.SemanticLocation
-	1, // 1: codefly.base.v0.SemanticSymbol.kind:type_name -> codefly.base.v0.SemanticSymbolKind
-	3, // 2: codefly.base.v0.SemanticSymbol.location:type_name -> codefly.base.v0.SemanticLocation
-	4, // 3: codefly.base.v0.SemanticSymbol.calls:type_name -> codefly.base.v0.SemanticUse
-	4, // 4: codefly.base.v0.SemanticSymbol.references:type_name -> codefly.base.v0.SemanticUse
-	0, // 5: codefly.base.v0.SemanticIndex.state:type_name -> codefly.base.v0.SemanticIndexState
-	5, // 6: codefly.base.v0.SemanticIndex.files:type_name -> codefly.base.v0.SemanticFile
-	6, // 7: codefly.base.v0.SemanticIndex.symbols:type_name -> codefly.base.v0.SemanticSymbol
-	7, // 8: codefly.base.v0.SemanticIndex.issues:type_name -> codefly.base.v0.SemanticIssue
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	3,  // 0: codefly.base.v0.SemanticUse.location:type_name -> codefly.base.v0.SemanticLocation
+	4,  // 1: codefly.base.v0.SemanticFile.calls:type_name -> codefly.base.v0.SemanticUse
+	1,  // 2: codefly.base.v0.SemanticSymbol.kind:type_name -> codefly.base.v0.SemanticSymbolKind
+	3,  // 3: codefly.base.v0.SemanticSymbol.location:type_name -> codefly.base.v0.SemanticLocation
+	4,  // 4: codefly.base.v0.SemanticSymbol.calls:type_name -> codefly.base.v0.SemanticUse
+	4,  // 5: codefly.base.v0.SemanticSymbol.references:type_name -> codefly.base.v0.SemanticUse
+	0,  // 6: codefly.base.v0.SemanticIndex.state:type_name -> codefly.base.v0.SemanticIndexState
+	5,  // 7: codefly.base.v0.SemanticIndex.files:type_name -> codefly.base.v0.SemanticFile
+	6,  // 8: codefly.base.v0.SemanticIndex.symbols:type_name -> codefly.base.v0.SemanticSymbol
+	7,  // 9: codefly.base.v0.SemanticIndex.issues:type_name -> codefly.base.v0.SemanticIssue
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_semantic_proto_init() }

@@ -109,6 +109,12 @@ message SemanticFile {
   repeated string imports = 4;
   // language is the ecosystem the analyzer read the file as.
   string language = 5;
+  // calls are the unresolved call sites that sit outside every function and
+  // method of the file: a module's top-level statements, a package-level
+  // variable's initializer, a class body. Calls inside a function or method
+  // are on that declaration's SemanticSymbol and are not repeated here.
+  // Meaningful only when the index sets file_calls_projected.
+  repeated SemanticUse calls = 6;
 }
 
 // SemanticSymbol is a declaration projected by the owning Codefly analyzer.
@@ -179,4 +185,11 @@ message SemanticIndex {
   repeated SemanticSymbol symbols = 6;
   // issues are the per-file analyzer failures behind a DEGRADED state.
   repeated SemanticIssue issues = 7;
+  // file_calls_projected reports that this analyzer projected the calls
+  // outside functions and methods into each file's calls. It separates "this
+  // source has no such call" from "this analyzer did not look", which an
+  // empty list alone cannot express: an index built before the field existed
+  // leaves it false, and a consumer that needs every call site knows those
+  // locations went unread.
+  bool file_calls_projected = 8;
 }
