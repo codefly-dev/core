@@ -60,6 +60,7 @@ func Fixtures() ([]Fixture, error) {
 	}{
 		{name: fullFixture, outcome: OutcomeAccepted},
 		{name: "judgement-only", outcome: OutcomeAccepted},
+		{name: "package-named", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleWellFormed, message: "is not a YAML document"},
 		{name: "another-schema", outcome: OutcomeRefused, sentinel: ErrSchema, rule: ruleSchema, message: `"codefly/usage/v2"`},
@@ -91,6 +92,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "call-a-pattern", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleCallShape, message: `forbids the go call "database/sql.*"`},
 		{name: "import-a-pattern", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleImportShape, message: `forbids the go import "github.com/example/*"`},
 		{name: "call-listed-twice", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleSymbolsUnique, message: `lists "psycopg.connect" twice`},
+		{name: "name-owns-no-call", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleNamesOwnACall, message: `names "example.com/other"`},
+		{name: "name-not-an-identifier", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleNamesAreNames, message: `is written "store.v2"`},
 		{name: "except-paths-without-detect", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleExceptNeedsDetect, message: "has except-paths and no detect clause"},
 		{name: "except-path-absolute", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleExceptRelative, message: `excepts the path "/etc/**"`},
 		{name: "except-path-leaves-the-service", outcome: OutcomeRefused, sentinel: ErrInvalid, rule: ruleExceptRelative, message: `excepts the path "../sibling/**"`},

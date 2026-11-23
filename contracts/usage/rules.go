@@ -60,6 +60,8 @@ const (
 	ruleCallShape         = "detect-call-shape"
 	ruleImportShape       = "detect-import-shape"
 	ruleSymbolsUnique     = "detect-symbols-unique"
+	ruleNamesOwnACall     = "detect-names-own-a-call"
+	ruleNamesAreNames     = "detect-names-are-names"
 	ruleExceptNeedsDetect = "except-paths-need-detect"
 	ruleExceptBounded     = "except-paths-bounded"
 	ruleExceptRelative    = "except-paths-relative"
@@ -101,6 +103,8 @@ func rules() []rule {
 		{name: ruleCallShape, check: checkCallShape},
 		{name: ruleImportShape, check: checkImportShape},
 		{name: ruleSymbolsUnique, check: checkSymbolsUnique},
+		{name: ruleNamesOwnACall, check: checkNamesOwnACall},
+		{name: ruleNamesAreNames, check: checkNamesAreNames},
 		{name: ruleExceptNeedsDetect, check: checkExceptNeedsDetect},
 		{name: ruleExceptBounded, check: checkExceptBounded},
 		{name: ruleExceptRelative, check: checkExceptRelative},
@@ -428,6 +432,52 @@ func checkSymbolsUnique(contract *Contract) error {
 			for _, list := range [][]string{clause.ForbidCall, clause.ForbidImport} {
 				if symbol, twice := firstDuplicate(list); twice {
 					return refuse("%s lists %q twice in its detect clause for %s", label(i, r), symbol, clause.Language)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// sortedNames is a clause's names in key order, so a refusal names the same
+// entry on every run.
+func sortedNames(clause Detect) []string {
+	keys := make([]string, 0, len(clause.Names))
+	for key := range clause.Names {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func checkNamesOwnACall(contract *Contract) error {
+	for i, r := range contract.Rules {
+		for _, clause := range r.Detect {
+			owners := map[string]bool{}
+			for _, symbol := range clause.ForbidCall {
+				if callName.MatchString(symbol) {
+					owner, _ := splitCall(symbol)
+					owners[owner] = true
+				}
+			}
+			for _, owner := range sortedNames(clause) {
+				if !owners[owner] {
+					return refuse("%s names %q in its detect clause for %s, which owns no forbidden call there; a name says how the owner of a forbidden call is written", label(i, r), owner, clause.Language)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+var localName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func checkNamesAreNames(contract *Contract) error {
+	for i, r := range contract.Rules {
+		for _, clause := range r.Detect {
+			for _, owner := range sortedNames(clause) {
+				if !localName.MatchString(clause.Names[owner]) {
+					return refuse("%s says %s is written %q in %s; a name is one identifier", label(i, r), owner, clause.Names[owner], clause.Language)
 				}
 			}
 		}

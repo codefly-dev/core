@@ -11,7 +11,7 @@ database agent, the solution that consumes a module.
 
 **`contracts/usage`** — Go package `usage`, imported as `usagecontract` — is
 the one implementation of `codefly/usage/v1`: the model, a strict decoder,
-35 named rules and the fixtures every reader is driven through. Nothing
+37 named rules and the fixtures every reader is driven through. Nothing
 outside the package parses or validates a usage contract.
 
 ## What core does, and what it does not do yet
@@ -97,6 +97,16 @@ Detection is a closed vocabulary, so reading a contract runs nothing:
 | --- | --- |
 | `forbid-call` | Calling a function or method, named literally and qualified by what owns it: `database/sql.Open`, `psycopg.connect`. |
 | `forbid-import` | Importing a package or module, named literally. |
+
+A package whose path does not end in its name declares the name, because the
+owner is the one party that knows it and a consumer's source does not say:
+
+```yaml
+- language: go
+  forbid-call: [example.com/store/libs/go.NewFactory]
+  names:
+    example.com/store/libs/go: store   # written store.NewFactory
+```
 
 A bare name (`Open`) is refused because it would match every function so
 named in a consumer. A pattern (`database/sql.*`) is refused because v1 has
@@ -197,6 +207,8 @@ refused for one reason whichever reader refused it.
 | `detect-call-shape` | A forbidden call is a literal, qualified name; never a bare name or a pattern. |
 | `detect-import-shape` | A forbidden import is a literal package or module name; never a pattern. |
 | `detect-symbols-unique` | No symbol twice in a list. |
+| `detect-names-own-a-call` | A `names` entry is keyed by the owner of a forbidden call in the same clause. |
+| `detect-names-are-names` | A `names` value is one identifier. |
 | `except-paths-need-detect` | `except-paths` only beside `detect`. |
 | `except-paths-bounded` | At most 32 excepted paths. |
 | `except-paths-relative` | An excepted path is a glob relative to the consuming service that stays inside it. |
@@ -204,7 +216,7 @@ refused for one reason whichever reader refused it.
 
 ## The kit
 
-`usagecontract.Fixtures()` (41 documents) is every accepted and refused
+`usagecontract.Fixtures()` (44 documents) is every accepted and refused
 document with the verdict a reader must reach, and `usagecontract.Run` drives
 a reader's own entrypoint through them. The package's self-check deletes each
 rule in turn and proves a fixture notices; a rule that could be dropped

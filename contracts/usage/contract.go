@@ -150,6 +150,12 @@ type Detect struct {
 	ForbidCall []string `yaml:"forbid-call,omitempty" json:"forbid_call,omitempty"`
 	// ForbidImport lists packages or modules that must not be imported.
 	ForbidImport []string `yaml:"forbid-import,omitempty" json:"forbid_import,omitempty"`
+	// Names says what a package is called in a call when its path does not
+	// end in its name, keyed by the owner of a forbidden call: a Go package
+	// imported as example.com/store/libs/go and written postgres.Open. The
+	// owner of a package is the one party that knows this; a reader has only
+	// the consumer's source, which does not say.
+	Names map[string]string `yaml:"names,omitempty" json:"names,omitempty"`
 }
 
 // Detects returns the rule's clause for a language, or nil when the rule has

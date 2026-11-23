@@ -101,6 +101,31 @@ func TestWhatACallMatches(t *testing.T) {
 	}
 }
 
+// A package whose path does not end in its name is matched by the name its
+// owner declares, and then only by that name.
+func TestAPackageIsMatchedByTheNameItsOwnerDeclares(t *testing.T) {
+	data, err := fixtures.ReadFile("testdata/package-named.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const library = "example.com/store/libs/go"
+	for written, found := range map[string]bool{"store.NewFactory": true, "go.NewFactory": false, "store.Open": false} {
+		findings := contract.Detect(indexOf(source{path: "a.go", language: "go", imports: []string{library}, calls: []string{written}}))
+		if got := len(findings) == 1 && findings[0].Symbol == library+".NewFactory"; got != found {
+			t.Errorf("%s: found %v, want %v (%+v)", written, got, found, findings)
+		}
+	}
+	// The name is the owner's package, not a licence to match the name
+	// anywhere: without the import there is nothing to find.
+	if findings := contract.Detect(indexOf(source{path: "a.go", language: "go", imports: []string{"example.com/own/store"}, calls: []string{"store.NewFactory"}})); len(findings) != 0 {
+		t.Errorf("found without the import: %+v", findings)
+	}
+}
+
 func TestWhatAnImportMatches(t *testing.T) {
 	for name, c := range map[string]struct {
 		forbidden, imported string

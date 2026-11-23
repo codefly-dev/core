@@ -51,6 +51,9 @@ type Finding struct {
 //     github.com/jackc/pgx/v5/pgxpool.New, psycopg.connect for
 //     psycopg.connect.
 //
+// A package whose path does not end in its name is matched by the name its
+// owner declares for it (Detect.Names).
+//
 // What that leaves out, because the index records calls as written and does
 // not say what a name is bound to: a call through an import alias (import pg
 // "…/pgxpool"; import psycopg as pg) and a call of a name imported on its own
@@ -98,6 +101,11 @@ func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 					continue
 				}
 				written := spellings(owner, function)
+				if name := clause.Names[owner]; name != "" {
+					// The owner said what its package is called: that is the
+					// spelling, and the path's last element is not.
+					written = map[string]bool{name + "." + function: true}
+				}
 				seen := map[[2]int32]bool{}
 				for _, call := range calls[file.GetPath()] {
 					at := [2]int32{call.GetLocation().GetStartLine(), call.GetLocation().GetStartColumn()}
