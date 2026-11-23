@@ -178,6 +178,11 @@ func Count(tree fs.FS, options Options) (*Stats, error) {
 		if bytes.IndexByte(head, 0) >= 0 {
 			return nil
 		}
+		// The head is the reader's own buffer and is only valid until the
+		// next read, so the file is classified here, before its lines are
+		// counted: read afterwards, a long file's head is whatever the
+		// reader last held.
+		generated := generatedName(name) || generatedHead(head) || (options.Generated != nil && options.Generated(name))
 		lines, err := codeLines(reader, spoken)
 		if err != nil {
 			return fmt.Errorf("source statistics: %s: %w", name, err)
@@ -191,7 +196,7 @@ func Count(tree fs.FS, options Options) (*Stats, error) {
 			counts[spoken.name] = count
 		}
 		switch {
-		case generatedName(name) || generatedHead(head) || (options.Generated != nil && options.Generated(name)):
+		case generated:
 			count.Generated += lines
 		case testFile(name):
 			count.Tests += lines
