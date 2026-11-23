@@ -56,8 +56,10 @@ type Finding struct {
 //
 // What that leaves out, because the index records calls as written and does
 // not say what a name is bound to: a call through an import alias (import pg
-// "…/pgxpool"; import psycopg as pg) and a call of a name imported on its own
-// (from psycopg import connect; import { connect }). Both are missed, never
+// "…/pgxpool"; import psycopg as pg), a call of a name imported on its own
+// (from psycopg import connect; import { connect }), and a call whose
+// qualifier another import of the same file is also ordinarily written as (a
+// consumer's own package named like the owner's). All are missed, never
 // guessed: a finding that might be the consumer's own function would teach
 // people to stop reading findings. An owner that needs the module kept out
 // entirely says so with forbid-import, which has neither gap.
@@ -105,6 +107,18 @@ func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 					// The owner said what its package is called: that is the
 					// spelling, and the path's last element is not.
 					written = map[string]bool{name + "." + function: true}
+				}
+				// Another import of the file that is ordinarily written the
+				// same way makes the call ambiguous: postgres.NewStore may be
+				// the consumer's own package named postgres. Ambiguous is
+				// missed, like an alias, never reported.
+				for _, imported := range file.GetImports() {
+					if imported == owner {
+						continue
+					}
+					for spelling := range spellings(imported, function) {
+						delete(written, spelling)
+					}
 				}
 				seen := map[[2]int32]bool{}
 				for _, call := range calls[file.GetPath()] {

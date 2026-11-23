@@ -75,6 +75,7 @@ func TestWhatACallMatches(t *testing.T) {
 		"a submodule by its own name":       {"asyncpg.pool.create_pool", source{language: "python", imports: []string{"asyncpg.pool"}, calls: []string{"pool.create_pool"}}, true},
 		"another function of the owner":     {"database/sql.Open", source{language: "go", imports: []string{"database/sql"}, calls: []string{"sql.OpenDB"}}, false},
 		"the same name, owner not imported": {"database/sql.Open", source{language: "go", imports: []string{"example.com/own/sql"}, calls: []string{"sql.Open"}}, false},
+		"a same-named import beside it":     {"database/sql.Open", source{language: "go", imports: []string{"database/sql", "example.com/own/sql"}, calls: []string{"sql.Open"}}, false},
 		"an import alias is missed":         {"database/sql.Open", source{language: "go", imports: []string{"database/sql"}, calls: []string{"stdsql.Open"}}, false},
 		"a bare imported name is missed":    {"psycopg.connect", source{language: "python", imports: []string{"psycopg"}, calls: []string{"connect"}}, false},
 		"a method on a value is not a call": {"database/sql.Open", source{language: "go", imports: []string{"database/sql"}, calls: []string{"s.sql.Open"}}, false},
@@ -118,6 +119,13 @@ func TestAPackageIsMatchedByTheNameItsOwnerDeclares(t *testing.T) {
 		if got := len(findings) == 1 && findings[0].Symbol == library+".NewFactory"; got != found {
 			t.Errorf("%s: found %v, want %v (%+v)", written, got, found, findings)
 		}
+	}
+	// A consumer's own package of the same name, imported beside the library
+	// (which it then has to alias), makes postgres.NewFactory its own call as
+	// likely as the library's. Found on a real consumer; it is missed, not
+	// reported.
+	if findings := contract.Detect(indexOf(source{path: "a.go", language: "go", imports: []string{library, "example.com/consumer/pkg/store"}, calls: []string{"store.NewFactory"}})); len(findings) != 0 {
+		t.Errorf("an ambiguous qualifier was reported: %+v", findings)
 	}
 	// The name is the owner's package, not a licence to match the name
 	// anywhere: without the import there is nothing to find.

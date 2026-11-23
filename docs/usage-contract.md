@@ -139,9 +139,11 @@ It reports what it can be sure of and nothing else:
 | `forbid-call` | The file imports what owns the function **and** calls it the way that import is ordinarily named: `pgxpool.New`, `pgx.Connect` for `…/pgx/v5`, `psycopg.connect`. |
 
 The index records calls as written and does not say what a name is bound to.
-So two things are **missed, never guessed**: a call through an import alias
-(`import pg "…/pgxpool"`, `import psycopg as pg`), and a call of a name
-imported on its own (`from psycopg import connect`, `import { connect }`). A
+So three things are **missed, never guessed**: a call through an import alias
+(`import pg "…/pgxpool"`, `import psycopg as pg`); a call of a name imported on
+its own (`from psycopg import connect`, `import { connect }`); and a call whose
+qualifier another import of the same file is also ordinarily written as — a
+consumer's own package named `postgres` beside the owner's. A
 finding that might be the consumer's own function would teach people to stop
 reading findings. An owner that needs a module kept out entirely says so with
 `forbid-import`, which has neither gap. Closing the gap properly means the
