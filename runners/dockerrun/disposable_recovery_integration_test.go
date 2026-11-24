@@ -6,9 +6,11 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -19,6 +21,7 @@ import (
 func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing.T) {
 	backend := newBackend(t)
 	home, workspace := t.TempDir(), t.TempDir()
+	t.Setenv(resources.CodeflyHomeEnv, home)
 	old, err := NewContainerRecoveryScope(home, workspace, "old-disposable")
 	require.NoError(t, err)
 	next, err := NewContainerRecoveryScope(home, workspace, "new-disposable")
@@ -43,12 +46,14 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 		name                                     string
 		scope                                    ContainerRecoveryScope
 		ephemeral, ledgered, live, running, keep bool
+		disposableStorage, exact                 bool
 	}{
-		{name: "orphan", scope: old, ephemeral: true, running: true},
+		{name: "orphan", scope: old, ephemeral: true, running: true, disposableStorage: true},
+		{name: "exact scope orphan", scope: old, ephemeral: true, disposableStorage: true, exact: true},
 		{name: "stopped orphan", scope: old, ephemeral: true},
 		{name: "stateful", scope: old, keep: true},
-		{name: "ledger", scope: old, ephemeral: true, ledgered: true, keep: true},
-		{name: "live agent", scope: old, ephemeral: true, live: true, keep: true},
+		{name: "ledger", scope: old, ephemeral: true, ledgered: true, keep: true, disposableStorage: true},
+		{name: "live agent", scope: old, ephemeral: true, live: true, keep: true, disposableStorage: true},
 		{name: "foreign host", scope: foreignHost, ephemeral: true, keep: true},
 		{name: "foreign home", scope: foreignHome, ephemeral: true, keep: true},
 		{name: "foreign workspace", scope: foreignWorkspace, ephemeral: true, keep: true},
@@ -66,22 +71,59 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 			if tc.live {
 				labels[LabelCodeflySession] = strconv.Itoa(os.Getpid())
 			}
-			created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Config: &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, HostConfig: &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol.Volume.Name, Target: "/data"}}}, Name: uniqueName(t)})
+			name := uniqueName(t)
+			labels[LabelCodeflyName] = name
+			if tc.disposableStorage {
+				labels[labelDisposableStorage] = labelTrue
+			}
+			data := filepath.Join(home, runtimeCacheDir, name, "postgres-data")
+			require.NoError(t, os.MkdirAll(data, 0700))
+			created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{
+				Config: &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels},
+				HostConfig: &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{
+					{Type: mount.TypeVolume, Source: vol.Volume.Name, Target: "/data"},
+					{Type: mount.TypeVolume, Target: "/anonymous"},
+					{Type: mount.TypeBind, Source: data, Target: "/cache"},
+				}}, Name: name})
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				_, _ = backend.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
+				_, _ = backend.client.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 			})
 			if tc.running {
-				_, err := backend.client.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{})
+				_, err = backend.client.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{})
 				require.NoError(t, err)
 			}
+			inspect, err := inspectContainer(t.Context(), backend.client, created.ID)
+			require.NoError(t, err)
+			var anonymous string
+			for _, m := range inspect.Mounts {
+				if m.Destination == "/anonymous" {
+					anonymous = m.Name
+				}
+			}
+			require.NotEmpty(t, anonymous)
+			t.Cleanup(func() {
+				_, _ = backend.client.VolumeRemove(context.Background(), anonymous, client.VolumeRemoveOptions{Force: true})
+			})
 			// Cancellation must leave ownership and resources available for retry.
 			cancelled, cancel := context.WithCancel(t.Context())
 			cancel()
 			require.Error(t, ReapDisposableContainers(cancelled, next))
 			_, err = inspectContainer(t.Context(), backend.client, created.ID)
 			require.NoError(t, err)
-			require.NoError(t, ReapDisposableContainers(t.Context(), next))
+			if tc.exact {
+				require.NoError(t, ReapStaleContainers(t.Context(), old))
+			} else {
+				require.NoError(t, ReapDisposableContainers(t.Context(), next))
+			}
+			_, volErr := backend.client.VolumeInspect(t.Context(), anonymous, client.VolumeInspectOptions{})
+			if tc.disposableStorage && !tc.keep {
+				require.NoDirExists(t, data)
+				require.True(t, errdefs.IsNotFound(volErr))
+			} else {
+				require.DirExists(t, data)
+				require.NoError(t, volErr)
+			}
 			_, err = inspectContainer(t.Context(), backend.client, created.ID)
 			if tc.keep {
 				require.NoError(t, err)
@@ -89,7 +131,7 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 				require.True(t, errdefs.IsNotFound(err), "%v", err)
 			}
 			_, err = backend.client.VolumeInspect(t.Context(), vol.Volume.Name, client.VolumeInspectOptions{})
-			require.NoError(t, err, "recovery must never delete volumes")
+			require.NoError(t, err, "named volumes survive recovery")
 		})
 	}
 }

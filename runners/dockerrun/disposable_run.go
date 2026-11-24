@@ -90,28 +90,49 @@ func RemoveDisposableRun(ctx context.Context, scope ContainerRecoveryScope, run 
 		if !containerOfDisposableRun(c, scope) {
 			continue
 		}
-		name := strings.TrimPrefix(firstContainerName(c), "/")
-		removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := cli.ContainerRemove(removeCtx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		removeCancel()
-		if err != nil && !errdefs.IsNotFound(err) {
-			failures = append(failures, fmt.Errorf("remove container %s of the disposable run: %w", name, err))
-			continue
-		}
-		removal.Containers = append(removal.Containers, name)
-		// Only once the container is gone: nothing writes there any more.
-		for _, dir := range containerDataDirectories(c) {
-			if slices.Contains(removal.DataDirectories, dir) {
-				continue
-			}
-			if err := os.RemoveAll(dir); err != nil {
-				failures = append(failures, fmt.Errorf("remove data directory %s of container %s: %w", dir, name, err))
-				continue
-			}
-			removal.DataDirectories = append(removal.DataDirectories, dir)
+		if err := removeDisposableContainer(ctx, cli, c, &removal); err != nil {
+			failures = append(failures, err)
 		}
 	}
 	return removal, errors.Join(append(failures, ctx.Err())...)
+}
+
+const labelDisposableStorage = "codefly.disposable-storage"
+
+func removeDisposableContainer(ctx context.Context, cli client.APIClient, c container.Summary, removal *DisposableRunRemoval) error {
+	name := strings.TrimPrefix(firstContainerName(c), "/")
+	removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
+	_, err := cli.ContainerRemove(removeCtx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	removeCancel()
+	if errdefs.IsNotFound(err) {
+		// A concurrent remover may already have released the name for reuse. Only
+		// the caller that removed this generation may remove its host directory.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("remove container %s of the disposable run: %w", name, err)
+	}
+	removal.Containers = append(removal.Containers, name)
+	// Only once the container is gone: nothing writes there any more.
+	for _, dir := range containerDataDirectories(c) {
+		if slices.Contains(removal.DataDirectories, dir) {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove data directory %s of container %s: %w", dir, name, err)
+		}
+		removal.DataDirectories = append(removal.DataDirectories, dir)
+	}
+	return nil
+}
+
+// Recovery of a container alone does not establish that its data is disposable.
+func removeRecoveredContainer(ctx context.Context, cli client.APIClient, c container.Summary) error {
+	if c.Labels[labelDisposableStorage] == labelTrue {
+		return removeDisposableContainer(ctx, cli, c, &DisposableRunRemoval{})
+	}
+	_, err := cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true})
+	return err
 }
 
 // containerOfDisposableRun reports whether c is a container the run of scope

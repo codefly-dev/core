@@ -102,7 +102,7 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 		// Short bounded context per remove — one unresponsive container
 		// shouldn't stall the whole sweep.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if _, rmErr := cli.ContainerRemove(rmCtx, c.ID, client.ContainerRemoveOptions{Force: true}); rmErr != nil {
+		if rmErr := removeRecoveredContainer(rmCtx, cli, c); rmErr != nil {
 			w.Warn("cannot remove stale container",
 				wool.Field("container", c.ID[:12]), wool.ErrField(rmErr))
 		} else {

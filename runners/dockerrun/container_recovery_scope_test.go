@@ -139,6 +139,7 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	// runners/recoveryscope. What only this boundary can show is that a refused
 	// marker stops container configuration outright instead of quietly
 	// labelling a container with ownership no sweep will match.
+	t.Setenv(disposableStorageScopeEnv, os.Getenv(recoveryscope.EnvironmentVariable))
 	for _, tc := range []struct {
 		name, marker, want, namespace string
 		wantError                     bool
@@ -162,6 +163,7 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			require.NoError(t, err)
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
+			require.Equal(t, tc.name == "direct child", labels[labelDisposableStorage] == labelTrue)
 			require.Equal(t, tc.want, labels[LabelCodeflyRecoveryScope])
 			require.Equal(t, tc.namespace, labels[LabelCodeflyRecoveryNamespace])
 		})
