@@ -38,7 +38,7 @@ func TestManifestRejectsUnknownFieldAndMultipleDocuments(t *testing.T) {
 	_, err := manifest.Load([]byte(validManifest + "\nunknown_field: true\n"))
 	require.ErrorContains(t, err, "field unknown_field not found")
 
-	_, err = manifest.Load([]byte(validManifest + "\n---\nschema_version: codefly.solution-manifest/v0\n"))
+	_, err = manifest.Load([]byte(validManifest + "\n---\nschema_version: codefly.solution-manifest/v1\n"))
 	require.ErrorContains(t, err, "multiple YAML documents")
 }
 
@@ -49,10 +49,10 @@ func TestManifestRejectsBadIdentity(t *testing.T) {
 		message string
 	}{
 		{"schema version", func(s string) string {
-			return strings.Replace(s, "schema_version: codefly.solution-manifest/v0", "schema_version: codefly.solution-manifest/v9", 1)
+			return strings.Replace(s, "schema_version: codefly.solution-manifest/v1", "schema_version: codefly.solution-manifest/v9", 1)
 		}, "unsupported solution manifest schema version"},
 		{"protocol version", func(s string) string {
-			return strings.Replace(s, "protocol_version: codefly.solution/v0", "protocol_version: codefly.solution/v9", 1)
+			return strings.Replace(s, "protocol_version: codefly.solution/v1", "protocol_version: codefly.solution/v9", 1)
 		}, "unsupported solution protocol version"},
 		{"agent kind", func(s string) string {
 			return strings.Replace(s, "kind: codefly:solution", "kind: codefly:provider", 1)
@@ -245,8 +245,8 @@ func TestAdmitInformationBindsCapabilitiesToPackagedManifest(t *testing.T) {
 }
 
 const validManifest = `
-schema_version: codefly.solution-manifest/v0
-protocol_version: codefly.solution/v0
+schema_version: codefly.solution-manifest/v1
+protocol_version: codefly.solution/v1
 agent:
   kind: codefly:solution
   publisher: codefly.dev

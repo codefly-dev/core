@@ -337,7 +337,7 @@ func methodDescriptor(fullMethod string) protoreflect.MethodDescriptor {
 	if protoreflect.FullName(trimmed[:slash]) != solutionServiceName {
 		return nil
 	}
-	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v1_solution_proto.Services().ByName("Solution")
 	if service == nil {
 		return nil
 	}

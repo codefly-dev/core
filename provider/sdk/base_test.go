@@ -180,7 +180,7 @@ func TestValidateUpgradeRequiresOneExactOfflineStep(t *testing.T) {
 		StateSchemaVersion: 1, Generation: 1,
 		Binding:    &providerv1.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: "binding"},
 		ProviderId: "codefly.dev/fixture", ProviderVersion: "1.2.3",
-		ManifestSchemaVersion: "codefly.provider-manifest/v0", ManifestDigest: digest, ArtifactDigest: digest,
+		ManifestSchemaVersion: "codefly.provider-manifest/v1", ManifestDigest: digest, ArtifactDigest: digest,
 		Ownership: providerv1.Ownership_OWNERSHIP_OBSERVED,
 	}
 	response := &providerv1.UpgradeStateResponse{

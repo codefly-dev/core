@@ -183,7 +183,7 @@ func validState(bindingID string) *providerv1.ProviderStateV1 {
 		Binding:               &providerv1.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: bindingID},
 		ProviderId:            "codefly.dev/fixture",
 		ProviderVersion:       "1.2.3",
-		ManifestSchemaVersion: "codefly.provider-manifest/v0",
+		ManifestSchemaVersion: "codefly.provider-manifest/v1",
 		ManifestDigest:        digest,
 		ArtifactDigest:        digest,
 		RemoteIdentity: &providerv1.RemoteIdentity{

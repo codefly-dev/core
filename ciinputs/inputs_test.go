@@ -403,7 +403,7 @@ func TestRequiredCoversEveryCapability(t *testing.T) {
 }
 
 func TestPreviousAdvertisementSchema(t *testing.T) {
-	descriptor := protodesc.ToFileDescriptorProto(agent.File_codefly_services_agent_v0_agent_proto)
+	descriptor := protodesc.ToFileDescriptorProto(agent.File_codefly_services_agent_v1_agent_proto)
 	for _, message := range descriptor.MessageType {
 		if message.GetName() == "AgentInformation" {
 			for i, field := range message.Field {

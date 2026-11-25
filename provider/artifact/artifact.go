@@ -21,7 +21,7 @@ import (
 
 const (
 	DescriptorFileName        = "provider.artifact.json"
-	DescriptorSchemaV0        = "codefly.provider-artifact/v0"
+	DescriptorSchemaV1        = "codefly.provider-artifact/v1"
 	InstalledManifestSuffix   = ".provider.codefly.yaml"
 	InstalledDescriptorSuffix = ".provider.artifact.json"
 )
@@ -83,7 +83,7 @@ func BuildDescriptor(binaryName string, binary, manifestBytes []byte) (*Descript
 		return nil, err
 	}
 	descriptor := &Descriptor{
-		SchemaVersion:         DescriptorSchemaV0,
+		SchemaVersion:         DescriptorSchemaV1,
 		ProtocolVersion:       providerManifest.ProtocolVersion,
 		ManifestSchemaVersion: providerManifest.SchemaVersion,
 		Publisher:             providerManifest.Agent.Publisher,
@@ -301,10 +301,10 @@ func validateDescriptor(descriptor *Descriptor, requireDigest bool) error {
 	if descriptor == nil {
 		return fmt.Errorf("provider artifact descriptor is required")
 	}
-	if descriptor.SchemaVersion != DescriptorSchemaV0 {
+	if descriptor.SchemaVersion != DescriptorSchemaV1 {
 		return fmt.Errorf("unsupported provider artifact schema version %q", descriptor.SchemaVersion)
 	}
-	if descriptor.ProtocolVersion != manifest.ProtocolVersionV0 || descriptor.ManifestSchemaVersion != manifest.SchemaVersionV0 {
+	if descriptor.ProtocolVersion != manifest.ProtocolVersionV1 || descriptor.ManifestSchemaVersion != manifest.SchemaVersionV1 {
 		return fmt.Errorf("provider artifact protocol or manifest schema version is unsupported")
 	}
 	if descriptor.Publisher == "" || descriptor.Name == "" || descriptor.Version == "" || descriptor.Version == "latest" {

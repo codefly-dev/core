@@ -140,8 +140,8 @@ state:
 // forwards both the non-streaming content text and the streamed text deltas, so a
 // single descriptor serves both paths.
 const anthropicHead = `
-schema_version: codefly.provider-manifest/v0
-protocol_version: codefly.provider/v0
+schema_version: codefly.provider-manifest/v1
+protocol_version: codefly.provider/v1
 state_schema_versions: [1]
 agent:
   kind: codefly:provider
@@ -202,8 +202,8 @@ diagnostic_namespace: provider.anthropic.
 // output_dimension) and rerank over /v1/rerank. Both response schemas forward
 // $.data[*] element fields and the total-token usage Voyage reports.
 const voyageHead = `
-schema_version: codefly.provider-manifest/v0
-protocol_version: codefly.provider/v0
+schema_version: codefly.provider-manifest/v1
+protocol_version: codefly.provider/v1
 state_schema_versions: [1]
 agent:
   kind: codefly:provider
@@ -282,8 +282,8 @@ diagnostic_namespace: provider.voyage.
 // non-streaming message content and the streamed content deltas; the embedding
 // schema forwards the prompt- and total-token usage OpenAI reports.
 const openaiHead = `
-schema_version: codefly.provider-manifest/v0
-protocol_version: codefly.provider/v0
+schema_version: codefly.provider-manifest/v1
+protocol_version: codefly.provider/v1
 state_schema_versions: [1]
 agent:
   kind: codefly:provider

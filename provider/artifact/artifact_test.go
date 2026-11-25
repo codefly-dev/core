@@ -103,8 +103,8 @@ func providerAgent(version string) *resources.Agent {
 }
 
 const artifactManifest = `
-schema_version: codefly.provider-manifest/v0
-protocol_version: codefly.provider/v0
+schema_version: codefly.provider-manifest/v1
+protocol_version: codefly.provider/v1
 state_schema_versions: [1]
 agent:
   kind: codefly:provider

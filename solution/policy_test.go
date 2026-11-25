@@ -27,7 +27,7 @@ func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 		"Render":                 {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
 	}
 
-	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v1_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	require.Equal(t, len(expected), service.Methods().Len())
 	for i := 0; i < service.Methods().Len(); i++ {
@@ -45,7 +45,7 @@ func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 // relies on: the gate is unary-only, so a streaming Solution RPC would dispatch
 // unchecked. Adding one must fail here until a stream gate exists.
 func TestSolutionContractIsUnaryOnly(t *testing.T) {
-	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v1_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	for i := 0; i < service.Methods().Len(); i++ {
 		method := service.Methods().Get(i)
@@ -62,7 +62,7 @@ func TestSolutionContractIsUnaryOnly(t *testing.T) {
 // {network: OFFLINE, effect: REGISTRY_WRITE} that the ordered ceiling checks
 // would otherwise silently accept.
 func TestSolutionMethodPolicyAxesAreCoherent(t *testing.T) {
-	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v1_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	for i := 0; i < service.Methods().Len(); i++ {
 		method := service.Methods().Get(i)

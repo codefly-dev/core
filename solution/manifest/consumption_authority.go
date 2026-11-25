@@ -133,9 +133,6 @@ func LoadConsumption(data []byte) (*Manifest, error) {
 	if err := validateConsumedAPIs("api.consumes", declarations); err != nil {
 		return nil, err
 	}
-	if err := validateConsumptionVersion(document.SchemaVersion, declarations); err != nil {
-		return nil, err
-	}
 	if err := validateConsumption(declarations); err != nil {
 		return nil, err
 	}

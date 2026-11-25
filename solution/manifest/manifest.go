@@ -34,15 +34,9 @@ import (
 )
 
 const (
-	FileName        = "solution.codefly.yaml"
-	SchemaVersionV0 = "codefly.solution-manifest/v0"
-	// SchemaVersionV1 adds what a solution asks for at the modules it
-	// consumes: an api.consumes entry's audience, revision and scopes. A v0
-	// manifest is still read, and carries none of them; a manifest using them
-	// declares v1, so a reader that predates them refuses the version by name
-	// rather than reading the manifest as one that asks for nothing.
+	FileName          = "solution.codefly.yaml"
 	SchemaVersionV1   = "codefly.solution-manifest/v1"
-	ProtocolVersionV0 = "codefly.solution/v0"
+	ProtocolVersionV1 = "codefly.solution/v1"
 )
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
@@ -195,7 +189,7 @@ func (m *Manifest) Validate() error {
 	if err := validateSchemaVersion(m.SchemaVersion); err != nil {
 		return err
 	}
-	if m.ProtocolVersion != ProtocolVersionV0 {
+	if m.ProtocolVersion != ProtocolVersionV1 {
 		return fmt.Errorf("unsupported solution protocol version %q", m.ProtocolVersion)
 	}
 	if m.Agent.Kind != resources.SolutionAgent {
@@ -223,9 +217,6 @@ func (m *Manifest) Validate() error {
 		return err
 	}
 	if err := validateConsumedAPIs("api.consumes", m.API.Consumes); err != nil {
-		return err
-	}
-	if err := validateConsumptionVersion(m.SchemaVersion, m.API.Consumes); err != nil {
 		return err
 	}
 	if err := validateConsumption(m.API.Consumes); err != nil {
@@ -404,25 +395,10 @@ func validateConsumedScopes(name string, i int, declaration APIDeclaration) erro
 	return nil
 }
 
-// validateSchemaVersion admits the two versions this package reads.
+// validateSchemaVersion requires the current solution manifest.
 func validateSchemaVersion(version string) error {
-	if version != SchemaVersionV0 && version != SchemaVersionV1 {
+	if version != SchemaVersionV1 {
 		return fmt.Errorf("unsupported solution manifest schema version %q", version)
-	}
-	return nil
-}
-
-// validateConsumptionVersion refuses a request in a manifest that declares the
-// version before requests existed: a reader of v0 would read it as asking for
-// nothing.
-func validateConsumptionVersion(version string, declarations []APIDeclaration) error {
-	if version != SchemaVersionV0 {
-		return nil
-	}
-	for i, declaration := range declarations {
-		if declaration.Scopes != nil || declaration.Audience != nil || declaration.Revision != 0 {
-			return fmt.Errorf("api.consumes[%d] asks for authority, which %s cannot express; declare schema_version: %s", i, SchemaVersionV0, SchemaVersionV1)
-		}
 	}
 	return nil
 }

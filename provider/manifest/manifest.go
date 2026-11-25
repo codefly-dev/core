@@ -25,8 +25,8 @@ import (
 
 const (
 	FileName              = "provider.codefly.yaml"
-	SchemaVersionV0       = "codefly.provider-manifest/v0"
-	ProtocolVersionV0     = "codefly.provider/v0"
+	SchemaVersionV1       = "codefly.provider-manifest/v1"
+	ProtocolVersionV1     = "codefly.provider/v1"
 	StateSchemaVersionV1  = uint32(1)
 	DefaultDeletionRetain = "retain"
 	SelectorVersionV1     = "v1"
@@ -197,10 +197,10 @@ func (m *Manifest) Validate() error {
 	if m == nil {
 		return fmt.Errorf("provider manifest is required")
 	}
-	if m.SchemaVersion != SchemaVersionV0 {
+	if m.SchemaVersion != SchemaVersionV1 {
 		return fmt.Errorf("unsupported provider manifest schema version %q", m.SchemaVersion)
 	}
-	if m.ProtocolVersion != ProtocolVersionV0 {
+	if m.ProtocolVersion != ProtocolVersionV1 {
 		return fmt.Errorf("unsupported provider protocol version %q", m.ProtocolVersion)
 	}
 	if !slices.Equal(m.StateSchemaVersions, []uint32{StateSchemaVersionV1}) {

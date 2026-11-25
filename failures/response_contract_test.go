@@ -37,7 +37,7 @@ func TestCodeUsesOneCanonicalFailureEnvelope(t *testing.T) {
 		}
 	}
 
-	service := codev1.File_codefly_services_code_v0_code_proto.Services().ByName("Code")
+	service := codev1.File_codefly_services_code_v1_code_proto.Services().ByName("Code")
 	if service.Methods().Len() != 1 || service.Methods().Get(0).Name() != "Execute" {
 		t.Fatalf("Code RPC surface = %v, want only Execute", methodNames(service.Methods()))
 	}

@@ -51,7 +51,7 @@ func bannedDeliveryTerm(name string) string {
 // identifier is deleted, its number and name reserved, never kept beside its
 // successor. The two this contract once carried are pinned below as deletions.
 func TestKubernetesPluginContractHasNoDeliverySystemTerms(t *testing.T) {
-	file := builderv1.File_codefly_services_builder_v0_deployment_proto
+	file := builderv1.File_codefly_services_builder_v1_deployment_proto
 
 	enums := file.Enums()
 	for i := 0; i < enums.Len(); i++ {

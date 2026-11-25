@@ -125,8 +125,8 @@ func TestRuntimeCatalogMustBeManifestSubsetAndDescriptorBound(t *testing.T) {
 	requestDigest, err := manifest.RequestDescriptorDigest(providerManifest.Requests[0])
 	require.NoError(t, err)
 	catalog := &manifest.Catalog{
-		SchemaVersion:       manifest.SchemaVersionV0,
-		ProtocolVersion:     manifest.ProtocolVersionV0,
+		SchemaVersion:       manifest.SchemaVersionV1,
+		ProtocolVersion:     manifest.ProtocolVersionV1,
 		StateSchemaVersions: []uint32{1},
 		Requests:            []manifest.CatalogRequest{{ID: providerManifest.Requests[0].ID, Digest: requestDigest}},
 		ResourceTypes:       []manifest.CatalogResource{{ID: "account", Actions: []string{"observe"}}},
@@ -137,7 +137,7 @@ func TestRuntimeCatalogMustBeManifestSubsetAndDescriptorBound(t *testing.T) {
 	catalogDigest, err := catalog.Digest()
 	require.NoError(t, err)
 	runtime := &providerv1.RuntimeCatalog{
-		ProtocolVersion: manifest.ProtocolVersionV0, ManifestSchemaVersion: manifest.SchemaVersionV0,
+		ProtocolVersion: manifest.ProtocolVersionV1, ManifestSchemaVersion: manifest.SchemaVersionV1,
 		StateSchemaVersions: []uint32{1},
 		Requests: []*providerv1.RuntimeCatalogRequest{{
 			Id: providerManifest.Requests[0].ID, Digest: requestDigest,
@@ -188,8 +188,8 @@ func TestSelectorV1AcceptsOnlyBoundedObjectIndexAndArrayWildcard(t *testing.T) {
 }
 
 const validManifest = `
-schema_version: codefly.provider-manifest/v0
-protocol_version: codefly.provider/v0
+schema_version: codefly.provider-manifest/v1
+protocol_version: codefly.provider/v1
 state_schema_versions: [1]
 agent:
   kind: codefly:provider

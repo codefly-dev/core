@@ -31,7 +31,7 @@ func TestEveryProviderProtocolMessageRoundTrips(t *testing.T) {
 			roundTrip(descriptor.Messages())
 		}
 	}
-	roundTrip(providerv1.File_codefly_services_provider_v0_provider_proto.Messages())
+	roundTrip(providerv1.File_codefly_services_provider_v1_provider_proto.Messages())
 }
 
 func TestProviderProtocolRetainsUnknownFieldsForWireCompatibility(t *testing.T) {
@@ -77,7 +77,7 @@ func TestProviderRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 
 func assertMethodPolicies(t *testing.T, serviceName protoreflect.Name, expected map[string]*providerv1.ProviderMethodPolicy) {
 	t.Helper()
-	service := providerv1.File_codefly_services_provider_v0_provider_proto.Services().ByName(serviceName)
+	service := providerv1.File_codefly_services_provider_v1_provider_proto.Services().ByName(serviceName)
 	require.NotNil(t, service)
 	require.Equal(t, len(expected), service.Methods().Len())
 	for i := 0; i < service.Methods().Len(); i++ {
@@ -98,7 +98,7 @@ func TestOfflineRPCRequestsCannotExpressBrokerAccess(t *testing.T) {
 		"PlanRequest",
 		"UpgradeStateRequest",
 	} {
-		descriptor := providerv1.File_codefly_services_provider_v0_provider_proto.Messages().ByName(name)
+		descriptor := providerv1.File_codefly_services_provider_v1_provider_proto.Messages().ByName(name)
 		require.NotNil(t, descriptor)
 		for _, forbidden := range []protoreflect.FullName{
 			"codefly.services.provider.v1.ProviderContext",
@@ -113,7 +113,7 @@ func TestOfflineRPCRequestsCannotExpressBrokerAccess(t *testing.T) {
 }
 
 func TestProviderProtocolHasNoRawCredentialOrEscapeHatchPayload(t *testing.T) {
-	walkMessages(providerv1.File_codefly_services_provider_v0_provider_proto.Messages(), func(descriptor protoreflect.MessageDescriptor) {
+	walkMessages(providerv1.File_codefly_services_provider_v1_provider_proto.Messages(), func(descriptor protoreflect.MessageDescriptor) {
 		for i := 0; i < descriptor.Fields().Len(); i++ {
 			field := descriptor.Fields().Get(i)
 			name := strings.ToLower(string(field.Name()))

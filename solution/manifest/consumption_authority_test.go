@@ -18,7 +18,7 @@ import (
 // person's behalf, and a chat module it does not.
 const consumingManifest = `
 schema_version: codefly.solution-manifest/v1
-protocol_version: codefly.solution/v0
+protocol_version: codefly.solution/v1
 agent:
   kind: codefly:solution
   publisher: codefly.dev
@@ -239,9 +239,9 @@ func TestManifestRejectsMalformedConsumption(t *testing.T) {
 		{"scopes on an unbound consumption", func(s string) string {
 			return strings.Replace(s, "      module: documents\n      service: documents\n      endpoint: rest\n      as: documents\n", "", 1)
 		}, "asks for authority at no module"},
-		{"a request in a v0 manifest", func(s string) string {
-			return strings.Replace(s, "codefly.solution-manifest/v1", "codefly.solution-manifest/v0", 1)
-		}, "declare schema_version: codefly.solution-manifest/v1"},
+		{"a request in an unsupported manifest", func(s string) string {
+			return strings.Replace(s, "codefly.solution-manifest/v1", "codefly.solution-manifest/unknown", 1)
+		}, "unsupported solution manifest schema version"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mutated := tc.mutate(consumingManifest)
