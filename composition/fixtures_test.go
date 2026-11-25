@@ -18,7 +18,7 @@ func fixtureManifest(id string, fixtures ...ProvidedFixture) *PackageManifest {
 	return &PackageManifest{
 		Kind: PackageKind, Schema: PackageSchema, ID: id, Version: "0.1.0",
 		MinimumCodeflyVersion: ">=0.3.32", ArtifactRoots: []string{"services"},
-		Contracts: map[string]string{ContractComposition: ">=2.0 <3.0", ContractFixtures: ">=1.0 <2.0"},
+		Contracts: map[string]string{ContractComposition: ">=1.0 <2.0", ContractFixtures: ">=1.0 <2.0"},
 		Fixtures:  fixtures,
 	}
 }

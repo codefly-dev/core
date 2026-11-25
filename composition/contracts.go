@@ -9,7 +9,7 @@ import (
 )
 
 var DefaultSupportedContracts = map[string][]string{
-	ContractComposition:    {"2.0"},
+	ContractComposition:    {"1.0"},
 	ContractFrontendPlugin: {"1.0"},
 	ContractSettings:       {"1.0"},
 	ContractPermissions:    {"1.0"},

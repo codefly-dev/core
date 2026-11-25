@@ -241,7 +241,7 @@ func TestMovedTagIsRejected(t *testing.T) {
 	second := newReleaseFixture(t, "0.1.0", strings.Repeat("b", 40), func(root string) {
 		writeFile(t, filepath.Join(root, "services", "new.txt"), "new")
 	})
-	current := lockForRelease(&Descriptor{Name: "saas"}, first.verified, map[string]string{ContractComposition: "2.0"}, "sha256:"+strings.Repeat("0", 64))
+	current := lockForRelease(&Descriptor{Name: "saas"}, first.verified, map[string]string{ContractComposition: "1.0"}, "sha256:"+strings.Repeat("0", 64))
 	require.ErrorIs(t, rejectMovedTag(current, second.verified), ErrMovedTag)
 	_, err := VerifyLockedRelease(second.release, current, second.trust)
 	require.ErrorIs(t, err, ErrMovedTag)
@@ -288,7 +288,7 @@ func TestMaterializationIsConcurrentReadOnlyAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, info.Mode().Perm()&0o222)
 	require.NoError(t, os.Chmod(filepath.Join(expected, "services", "frontend.txt"), 0o644))
-	_, err = materializer.Cached(lockForRelease(&Descriptor{Name: "saas"}, fixture.verified, map[string]string{ContractComposition: "2.0"}, "sha256:"+strings.Repeat("0", 64)))
+	_, err = materializer.Cached(lockForRelease(&Descriptor{Name: "saas"}, fixture.verified, map[string]string{ContractComposition: "1.0"}, "sha256:"+strings.Repeat("0", 64)))
 	require.ErrorIs(t, err, ErrCacheVerification)
 	_, err = materializer.Materialize(context.Background(), fixture.verified)
 	require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestMaterializationIsConcurrentReadOnlyAndRecovers(t *testing.T) {
 	require.NoError(t, os.Chmod(filepath.Join(expected, "services"), 0o755))
 	require.NoError(t, os.Chmod(filepath.Join(expected, "services", "frontend.txt"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(expected, "services", "frontend.txt"), []byte("corrupt"), 0o644))
-	_, err = materializer.Cached(lockForRelease(&Descriptor{Name: "saas"}, fixture.verified, map[string]string{ContractComposition: "2.0"}, "sha256:"+strings.Repeat("0", 64)))
+	_, err = materializer.Cached(lockForRelease(&Descriptor{Name: "saas"}, fixture.verified, map[string]string{ContractComposition: "1.0"}, "sha256:"+strings.Repeat("0", 64)))
 	require.ErrorIs(t, err, ErrCacheVerification)
 	recovered, err := materializer.Materialize(context.Background(), fixture.verified)
 	require.NoError(t, err)
@@ -325,12 +325,23 @@ func TestDescriptorStrictnessAndContractNegotiation(t *testing.T) {
 		_, err = LoadDescriptor(dir)
 		require.ErrorContains(t, err, "unsafe")
 	})
+	t.Run("host requires the v1 composition contract", func(t *testing.T) {
+		descriptor := mustDescriptor(t, writeDescriptor(t, t.TempDir(), "^0.1"))
+		manifest := mustManifest(t, newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil).root)
+		negotiated, err := NegotiateContracts(descriptor, manifest, "0.3.32", DefaultSupportedContracts)
+		require.NoError(t, err)
+		require.Equal(t, "1.0", negotiated[ContractComposition])
+
+		manifest.Contracts[ContractComposition] = "^2.0.0"
+		_, err = NegotiateContracts(descriptor, manifest, "0.3.32", DefaultSupportedContracts)
+		require.ErrorIs(t, err, ErrContract)
+	})
 	t.Run("unsupported contract", func(t *testing.T) {
 		dir := writeDescriptor(t, t.TempDir(), "^0.1")
 		descriptor := mustDescriptor(t, dir)
 		manifest := mustManifest(t, newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil).root)
-		_, err := NegotiateContracts(descriptor, manifest, "0.2.0", map[string][]string{
-			ContractComposition: {"2.0"}, ContractFrontendPlugin: {"2.0"},
+		_, err := NegotiateContracts(descriptor, manifest, "0.3.32", map[string][]string{
+			ContractComposition: {"1.0"}, ContractFrontendPlugin: {"2.0"},
 		})
 		require.ErrorIs(t, err, ErrContract)
 	})
@@ -417,7 +428,7 @@ func TestRendererRequiresCompleteCatalogEvidence(t *testing.T) {
 	render := func(catalog Catalog, manifest *PackageManifest) error {
 		_, _, err := (Renderer{Runner: staticCatalogRunner{catalog: catalog}}).Render(
 			context.Background(), cache, moduleDir, filepath.Join(t.TempDir(), "projection"), namespace,
-			descriptor, manifest, map[string]string{ContractComposition: "2.0", ContractFrontendPlugin: "1.0"}, inputs,
+			descriptor, manifest, map[string]string{ContractComposition: "1.0", ContractFrontendPlugin: "1.0"}, inputs,
 		)
 		return err
 	}
@@ -668,7 +679,7 @@ func TestRendererRunsPackageAndConsumerSuites(t *testing.T) {
 	require.NoError(t, err)
 	namespace, err := ResolveNamespace(t.TempDir(), descriptorDir, "test", "", validLock())
 	require.NoError(t, err)
-	_, validations, err := (Renderer{Runner: runner}).Render(context.Background(), cache, descriptorDir, filepath.Join(t.TempDir(), "projection"), namespace, descriptor, manifest, map[string]string{ContractComposition: "2.0", ContractFrontendPlugin: "1.0"}, inputs)
+	_, validations, err := (Renderer{Runner: runner}).Render(context.Background(), cache, descriptorDir, filepath.Join(t.TempDir(), "projection"), namespace, descriptor, manifest, map[string]string{ContractComposition: "1.0", ContractFrontendPlugin: "1.0"}, inputs)
 	require.NoError(t, err)
 	require.Equal(t, []string{"generate", "conformance", "contributions/tests/integration"}, runner.names)
 	require.Len(t, validations, 4)
@@ -944,7 +955,7 @@ fixtures:
         role: super_admin
         token: dev-admin-provider-id
 contracts:
-  composition: ">=2.0 <3.0"
+  composition: ">=1.0 <2.0"
   frontendPlugin: ">=1.0 <2.0"
   settings: ">=1.0 <2.0"
   permissions: ">=1.0 <2.0"
@@ -1018,7 +1029,7 @@ func validLock() *Lock {
 		Schema: LockSchema, Module: "saas", Package: testPackage, Version: "0.1.0",
 		Source:    SourceLock{Repository: testRepository, Ref: "v0.1.0", Commit: strings.Repeat("a", 40)},
 		Artifact:  ArtifactLock{MediaType: ArtifactMediaType, Digest: "sha256:" + strings.Repeat("b", 64), Signature: testSigner},
-		Contracts: map[string]string{ContractComposition: "2.0"}, CompositionDigest: "sha256:" + strings.Repeat("c", 64),
+		Contracts: map[string]string{ContractComposition: "1.0"}, CompositionDigest: "sha256:" + strings.Repeat("c", 64),
 	}
 }
 

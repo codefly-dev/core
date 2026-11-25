@@ -313,7 +313,7 @@ services:
         path: contracts/api/accounts/connect/descriptor.binpb
         digest: ` + digest + `
 contracts:
-  composition: ">=2.0 <3.0"
+  composition: ">=1.0 <2.0"
 `
 	}
 	root := t.TempDir()

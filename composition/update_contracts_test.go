@@ -310,7 +310,7 @@ func writeUpdateSources(t *testing.T, root, version string, watch bool) {
 	require.NoError(t, err)
 	manifest := &PackageManifest{
 		Kind: PackageKind, Schema: PackageSchema, ID: testPackage, Version: version,
-		MinimumCodeflyVersion: ">=0.3.32", ArtifactRoots: []string{"contracts"}, Contracts: map[string]string{ContractComposition: ">=2.0 <3.0"},
+		MinimumCodeflyVersion: ">=0.3.32", ArtifactRoots: []string{"contracts"}, Contracts: map[string]string{ContractComposition: ">=1.0 <2.0"},
 		Services: []ProvidedService{{Name: "accounts", Endpoints: []string{"rest"}, APIContracts: []ProvidedAPIContract{{Endpoint: "rest", Kind: APIContractKindOpenAPI, Package: "accounts", Path: "contracts/api/openapi.json", Digest: APIContractDigest(data)}}}},
 	}
 	manifestData, err := yaml.Marshal(manifest)

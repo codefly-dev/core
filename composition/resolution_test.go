@@ -59,7 +59,6 @@ func TestCompositionRequiresActualHostVersionInsteadOfLinkedCore(t *testing.T) {
 	registry := newSelectionRegistry(t)
 	t.Cleanup(func() { require.NoError(t, removeCacheTree(registry.engine.ProjectRoot)) })
 	manifest := selectionManifest("example/independent", "1.0.0")
-	manifest.Contracts[ContractComposition] = "2.0"
 	manifest.MinimumCodeflyVersion = ">=0.3.0"
 	selection := registry.publish(t, manifest)
 	dir := t.TempDir()
@@ -76,7 +75,6 @@ func TestConcurrentUpdatesRejectStaleQualifiedBaseline(t *testing.T) {
 	barrier := t.TempDir()
 	entered, release := filepath.Join(barrier, "entered"), filepath.Join(barrier, "release")
 	manifest := selectionManifest("example/concurrent", "1.0.0")
-	manifest.Contracts[ContractComposition] = "2.0"
 	manifest.Generators = []PackageCommand{{Name: "wait", Command: []string{"sh", "-c", fmt.Sprintf("touch %q; while [ ! -f %q ]; do sleep 0.01; done", entered, release)}}}
 	first := r.publish(t, manifest)
 	manifest.Version = "1.1.0"
@@ -103,7 +101,6 @@ func TestCompositionToolRequirementUsesHostVersionIndependentlyOfCore(t *testing
 	registry := newSelectionRegistry(t)
 	t.Cleanup(func() { require.NoError(t, removeCacheTree(registry.engine.ProjectRoot)) })
 	manifest := selectionManifest("example/independent", "1.0.0")
-	manifest.Contracts[ContractComposition] = "2.0"
 	manifest.MinimumCodeflyVersion = ">=900.0.0"
 	selection := registry.publish(t, manifest)
 	dir := t.TempDir()
