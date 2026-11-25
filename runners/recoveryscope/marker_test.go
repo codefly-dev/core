@@ -18,6 +18,7 @@ func TestInheritedMarkerLayout(t *testing.T) {
 	for _, tc := range []struct {
 		name, marker, want, namespace string
 		wantError                     bool
+		wantMessage                   string
 	}{
 		{name: "absent"},
 		{name: "scope and namespace", marker: tagged(id, namespace), want: id, namespace: namespace},
@@ -38,12 +39,19 @@ func TestInheritedMarkerLayout(t *testing.T) {
 		// could ever match, leaking it permanently — refuse instead of guessing.
 		{name: "untagged trailing field", marker: pid + ":" + id + ":" + strings.Repeat("d", 64), wantError: true},
 		{name: "untagged malformed scope", marker: pid + ":bad", wantError: true},
+		// An untagged marker is what it carries: the layout it is followed by
+		// does not make its trailing field a namespace.
+		{name: "untagged scope followed by the layout", marker: pid + ":" + id + ":" + markerVersion + ":" + namespace, wantError: true, wantMessage: "untagged container recovery marker carries ambiguous fields"},
+		// The current layout stating another tag is refused by name.
+		{name: "another layout", marker: pid + ":later:" + id + ":" + namespace, wantError: true, wantMessage: `states layout "later", which is unknown`},
+		{name: "the tag the layout used to state", marker: pid + ":v" + "2:" + id + ":" + namespace, wantError: true, wantMessage: "must state the layout as v1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(EnvironmentVariable, tc.marker)
 			gotID, gotNamespace, err := Inherited()
 			if tc.wantError {
 				require.Error(t, err)
+				require.ErrorContains(t, err, tc.wantMessage)
 				require.Empty(t, gotID)
 				require.Empty(t, gotNamespace)
 				require.Empty(t, Acknowledgement())

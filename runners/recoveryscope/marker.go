@@ -24,13 +24,19 @@ const EnvironmentVariable = "CODEFLY_CONTAINER_RECOVERY_SCOPE"
 // agents omit it and cannot promise scoped recovery.
 const Header = "codefly-container-recovery-scope"
 
-// markerVersion tags the marker's field layout. Two Core revisions gave the
-// field after the exact scope different meanings — a recovery group in one, the
-// durable namespace in the other — and a reader that guesses wrong stamps a
-// container with ownership no sweep can ever match, leaking exactly what this
-// recovery exists to collect. An untagged marker is therefore honored only for
-// the one field every revision agreed on.
-const markerVersion = "v2"
+// markerVersion tags the marker's field layout. There is one layout, v1: the
+// exact scope, then the durable namespace. A marker stating any other is
+// refused by name.
+//
+// The markers written before the layout was tagged are recognised by what they
+// carry, never by a label: their first field is the exact scope itself, a
+// sha256 digest, which no tag is. Two Core revisions gave the field after it
+// different meanings — a recovery group in one, the durable namespace in the
+// other — and a reader that guesses wrong stamps a container with ownership no
+// sweep can ever match, leaking exactly what this recovery exists to collect.
+// An untagged marker is therefore honored only for the one field every
+// revision agreed on.
+const markerVersion = "v1"
 
 // Capture the launching parent before serving any requests. A parent dying
 // during a request must not revoke the child's already inherited ownership.
@@ -63,7 +69,9 @@ func Inherited() (id string, namespace string, err error) {
 		return "", "", fmt.Errorf("container recovery marker does not belong to this process or its launching parent")
 	}
 	fields := strings.Split(identity, ":")
-	if fields[0] != markerVersion {
+	// The untagged layout first, by what it carries and whatever follows: its
+	// first field is the exact scope, where a tagged marker states its layout.
+	if len(fields) == 1 || validDigest(fields[0]) == nil {
 		// A marker written before the layout was tagged. Only the exact scope
 		// had a single agreed meaning across those revisions, so refuse anything
 		// trailing it rather than guess whether it is a group or a namespace.
@@ -74,6 +82,9 @@ func Inherited() (id string, namespace string, err error) {
 			return "", "", fmt.Errorf("invalid container recovery identity")
 		}
 		return fields[0], "", nil
+	}
+	if fields[0] != markerVersion {
+		return "", "", fmt.Errorf("container recovery marker states layout %q, which is unknown; this Core reads %s and no other: the host that projects the marker must state the layout as %s", fields[0], markerVersion, markerVersion)
 	}
 	digests := fields[1:]
 	if len(digests) != 2 {
