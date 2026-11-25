@@ -75,7 +75,7 @@ func TestCurrentIsIndependent(t *testing.T) {
 }
 
 func TestPythonContractWire(t *testing.T) {
-	wire, err := hex.DecodeString("62210801121b636f6e7461696e65722d7265636f766572792d73636f70652f76311802")
+	wire, err := hex.DecodeString("62210801121b636f6e7461696e65722d7265636f766572792d73636f70652f76311801")
 	require.NoError(t, err)
 	var info agentv0.AgentInformation
 	require.NoError(t, proto.Unmarshal(wire, &info))
