@@ -2586,7 +2586,7 @@ are complete.
 Eight issues are the minimum that preserves independent review and genuine
 parallel work:
 
-1. **F1 — Provider kind, protocol v0, manifest/artifact format, and generic
+1. **F1 — Provider kind, protocol v1, manifest/artifact format, and generic
    contract registry** (`codefly-dev/core`, with a linked CLI routing
    checklist).
 2. **F2 — Host HTTP broker, credential handles, response filtering/capture,
@@ -2620,7 +2620,7 @@ repositories, vendor accounts, and acceptance suites. Their operational
 account/credential/domain prerequisites are checklists inside S1-S3, not
 additional GitHub issues.
 
-The protocol v0 baseline opens for parallel provider work after S1, but it is
+The protocol v1 baseline opens for parallel provider work after S1, but it is
 not declared stable until S1-S3 all pass the cross-provider matrix. H1 research
 may overlap provider work; production mutation cannot complete before real
 provider behavior has qualified its state, sink, rotation, and recovery

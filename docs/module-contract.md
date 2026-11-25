@@ -609,8 +609,7 @@ contract is: the audience a module verifies is the composition's to say and is
 not always the name it is composed under, and a solution cannot spell a kind or
 an action a contract would refuse. The principal is the name the solution is
 composed under. An entry without scopes asks for nothing; `scopes: []` is
-refused, not read as absent; a v0 manifest cannot carry a request, so an older
-reader refuses the version rather than reading a request as nothing.
+refused. Both the manifest loader and the renderer require schema v1.
 
 `LoadConsumption` reads the schema version and `api.consumes` strictly and
 nothing else, for a renderer that derives authority from the consumption alone:
