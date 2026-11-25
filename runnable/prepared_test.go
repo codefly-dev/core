@@ -78,7 +78,7 @@ func TestAPreparedBindingRoundTripsAndCarriesNoDescriptors(t *testing.T) {
 
 	decoded, err := runnable.DecodePrepared(value)
 	require.NoError(t, err)
-	require.Equal(t, runnable.PreparedSchemaV3, decoded.GetSchema())
+	require.Equal(t, runnable.PreparedSchema, decoded.GetSchema())
 	require.Equal(t, connectSpelling, decoded.GetCall().GetConnect().GetProcedure())
 	require.Equal(t, "http://items-connect.owner:8081", decoded.GetCall().GetAddress())
 	require.True(t, proto.Equal(preparedContract(), decoded.GetContract()))
@@ -258,10 +258,11 @@ func TestADeliveredValueIsHeldToItsContractDigest(t *testing.T) {
 	require.Contains(t, err.Error(), "derives")
 
 	otherSchemaStated := connectBinding()
-	otherSchemaStated.Schema = "codefly.runnable-prepared/v2"
+	otherSchemaStated.Schema = "codefly.runnable-prepared/later"
 	_, err = runnable.EncodePrepared(otherSchemaStated)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
-	require.Contains(t, err.Error(), runnable.PreparedSchemaV3)
+	require.Contains(t, err.Error(), `"codefly.runnable-prepared/later", which is unknown`)
+	require.Contains(t, err.Error(), "state the schema as "+runnable.PreparedSchema)
 
 	// An owner that republishes a changed contract derives another digest, and
 	// the value delivered for the contract it used to publish is refused
@@ -299,11 +300,13 @@ func TestAPreparedValueIsReadStrictly(t *testing.T) {
 	for key, raw := range fields {
 		otherSchema[key] = raw
 	}
-	otherSchema["schema"] = json.RawMessage(`"codefly.runnable-prepared/v2"`)
+	otherSchema["schema"] = json.RawMessage(`"codefly.runnable-prepared/later"`)
 	withOtherSchema, err := json.Marshal(otherSchema)
 	require.NoError(t, err)
 	_, err = runnable.DecodePrepared(withOtherSchema)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), `"codefly.runnable-prepared/later", which is unknown`)
+	require.Contains(t, err.Error(), "state the schema as "+runnable.PreparedSchema)
 
 	_, err = runnable.DecodePrepared(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
@@ -345,4 +348,55 @@ func TestAWorkerReceivingTwentyFourOperationsStaysUnderLinuxLimits(t *testing.T)
 	}
 	require.Less(t, total, resources.MaxEnvironmentStringBytes)
 	t.Logf("24 operations: %d environment bytes, no file carrier", total)
+}
+
+// There is one prepared-binding schema, and it names the current form. The
+// number the form was called while it had predecessors is a schema this reader
+// does not know, refused by name like any other.
+func TestAPreparedValueStatingAnotherSchemaIsRefusedByName(t *testing.T) {
+	value := encoded(t, connectBinding())
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(value, &fields))
+	for _, stated := range []string{
+		"codefly.runnable-prepared/later",
+		"codefly.runnable-prepared/v3", // version-guard:allow the label the current form used to state, refused by name
+		"",
+	} {
+		fields["schema"], _ = json.Marshal(stated)
+		relabelled, err := json.Marshal(fields)
+		require.NoError(t, err)
+		_, err = runnable.DecodePrepared(relabelled)
+		require.ErrorIs(t, err, runnable.ErrInvalid, stated)
+		require.Contains(t, err.Error(), "which is unknown", stated)
+		require.Contains(t, err.Error(), "state the schema as "+runnable.PreparedSchema, stated)
+	}
+}
+
+// The earlier forms delivered the owner's canonical package and binding, with
+// its descriptors embedded or referenced by digest. One of them stating the
+// current schema is refused for what it carries, never read as a call.
+func TestAnEarlierPreparedFormStatingTheCurrentSchemaIsRefusedByContent(t *testing.T) {
+	for name, earlier := range map[string]string{
+		"descriptor set by digest": `{"schema":"` + runnable.PreparedSchema + `","package":{},"binding":{},"operation":{},"descriptor_set":{"digest":"sha256:` + strings.Repeat("0", 64) + `","contract":"sha256:` + strings.Repeat("1", 64) + `"}}`,
+		"embedded descriptors":     `{"schema":"` + runnable.PreparedSchema + `","package":{},"binding":{},"operation":{},"descriptors":"AAAA"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := runnable.DecodePrepared([]byte(earlier))
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.Contains(t, err.Error(), "the earlier form")
+			require.Contains(t, err.Error(), "whatever schema it states")
+			require.NotContains(t, err.Error(), "which is unknown")
+		})
+	}
+
+	// A current value that also carries an earlier field is the earlier form.
+	value := encoded(t, connectBinding())
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(value, &fields))
+	fields["binding"] = json.RawMessage(`{}`)
+	mixed, err := json.Marshal(fields)
+	require.NoError(t, err)
+	_, err = runnable.DecodePrepared(mixed)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "the earlier form")
 }

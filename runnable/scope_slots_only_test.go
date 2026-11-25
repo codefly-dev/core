@@ -47,7 +47,7 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			// Both delivery surfaces refuse the unresolved declaration, even when
 			// its only authority is the slot. Supplying digests cannot bypass it.
 			pending := bindingFor(spec)
-			pending.Schema = runnable.PreparedSchemaV3
+			pending.Schema = runnable.PreparedSchema
 			pending.ContractDigest, err = runnable.ContractDigest(pending.Contract)
 			require.NoError(t, err)
 			require.ErrorIs(t, runnable.VerifyPrepared(pending), runnable.ErrUnresolvedScopeSlots)

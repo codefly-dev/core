@@ -26,7 +26,7 @@ operation is installed are the prepared value; identity and input belong to one
 call and are no part of an installation fact.
 
 The value is a `codefly.runnable.v0.PreparedBinding`, schema
-`codefly.runnable-prepared/v3`, delivered as its canonical proto3 JSON
+`codefly.runnable-prepared/v1`, delivered as its canonical proto3 JSON
 (`runnable.EncodePrepared`):
 
 | Field | What it is |
@@ -187,8 +187,10 @@ the value whichever carrier delivered it.
   compares the whole file, so a value prepared against a contract the owner no
   longer publishes is drift at generation time, before any caller reads it.
 - **One schema, no transition window.** A reader accepts exactly
-  `codefly.runnable-prepared/v3`. A value of an earlier schema, or carrying a
-  field this schema does not declare, is refused rather than partly read — and a
+  `codefly.runnable-prepared/v1`. A value stating another schema is refused by
+  name, a value in an earlier form is refused for what it carries whatever
+  schema it states, and one carrying a field this schema does not declare is
+  refused rather than partly read — and a
   field a caller must not proceed without therefore arrives as a new schema,
   never as one an older reader tolerates by ignoring it. Regenerating the group
   is what moves a workspace forward, and a caller that refuses at installation

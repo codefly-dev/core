@@ -218,7 +218,7 @@ func TestARecomputedOperationCarriesNoReceipt(t *testing.T) {
 func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev0.PreparedBinding {
 	t.Helper()
 	binding := bindingFor(spec)
-	binding.Schema = runnable.PreparedSchemaV3
+	binding.Schema = runnable.PreparedSchema
 	encoded, err := runnable.EncodePrepared(binding)
 	require.NoError(t, err)
 	delivered, err := runnable.DecodePrepared(encoded)

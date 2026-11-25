@@ -324,10 +324,11 @@ func (*PreparedCall_Rest) isPreparedCall_Route() {}
 // directly, in a few hundred bytes to a few kilobytes.
 type PreparedBinding struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// schema is the prepared-binding schema, "codefly.runnable-prepared/v3".
-	// A reader accepts exactly this one: the fields a caller must not proceed
-	// without arrive as a new schema, never as a field an older reader tolerates
-	// by ignoring it.
+	// schema is the prepared-binding schema, "codefly.runnable-prepared/v1".
+	// There is one, and a reader accepts exactly it: a value stating any other
+	// is refused by name, and a value in the earlier form, which carried the
+	// canonical package, binding and descriptors, is refused for what it
+	// carries whatever schema it states.
 	Schema string `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
 	// operation names the operation this installs.
 	Operation *PreparedOperation `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
@@ -535,7 +536,7 @@ const file_codefly_runnable_v0_prepared_proto_rawDesc = "" +
 	"\x05route\x12\x05\xbaH\x02\b\x01\"\xa9\x03\n" +
 	"\x0fPreparedBinding\x12;\n" +
 	"\x06schema\x18\x01 \x01(\tB#\xbaH r\x1e\n" +
-	"\x1ccodefly.runnable-prepared/v3R\x06schema\x12L\n" +
+	"\x1ccodefly.runnable-prepared/v1R\x06schema\x12L\n" +
 	"\toperation\x18\x02 \x01(\v2&.codefly.runnable.v0.PreparedOperationB\x06\xbaH\x03\xc8\x01\x01R\toperation\x12=\n" +
 	"\x04call\x18\x03 \x01(\v2!.codefly.runnable.v0.PreparedCallB\x06\xbaH\x03\xc8\x01\x01R\x04call\x12E\n" +
 	"\bcontract\x18\x04 \x01(\v2!.codefly.base.v0.RunnableContractB\x06\xbaH\x03\xc8\x01\x01R\bcontract\x12E\n" +

@@ -3,6 +3,7 @@ package runnable
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,10 +15,41 @@ import (
 	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 )
 
-// PreparedSchemaV3 is the schema of a prepared binding: one derived operation
+// PreparedSchema is the schema of a prepared binding: one derived operation
 // installed for one environment, carrying what a call needs and nothing a call
-// does not. See docs/runnable-binding-delivery.md.
-const PreparedSchemaV3 = "codefly.runnable-prepared/v3"
+// does not. There is one schema and it names the current format; a value
+// stating any other is refused by name. See docs/runnable-binding-delivery.md.
+const PreparedSchema = "codefly.runnable-prepared/v1"
+
+// earlierPreparedFields are the top-level fields of the forms a prepared
+// binding had before this one: the canonical package and binding with a
+// descriptor set shared by digest, and before that the descriptors embedded
+// per operation. No field of the current form has any of these names, so a
+// value carrying one is the earlier form whatever schema it states.
+var earlierPreparedFields = []string{"package", "binding", "descriptor_set", "descriptorSet", "descriptors"}
+
+// refuseEarlierPrepared refuses a value in an earlier form by what it carries,
+// before its schema is read: an earlier value relabelled with the current
+// schema is still not a call a caller can make.
+func refuseEarlierPrepared(value []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil {
+		return nil // not a JSON object: the strict reader says so
+	}
+	for _, name := range earlierPreparedFields {
+		if _, carried := fields[name]; carried {
+			return fmt.Errorf("%w: prepared binding carries %q, a field of the earlier form that delivered the owner's package, binding and descriptors; that form is not read whatever schema it states: regenerate the runnable-bindings group with `codefly generate runnable-bindings`",
+				ErrInvalid, name)
+		}
+	}
+	return nil
+}
+
+// unknownPreparedSchema is the refusal a value stating another schema receives.
+func unknownPreparedSchema(stated string) error {
+	return fmt.Errorf("%w: prepared binding schema is %q, which is unknown; this core reads %s and no other: state the schema as %s",
+		ErrInvalid, stated, PreparedSchema, PreparedSchema)
+}
 
 // ContractDigestFormatV1 is mixed into a contract digest so a change in how the
 // digest is computed changes every digest instead of colliding with the
@@ -59,11 +91,10 @@ func EncodePrepared(binding *runnablev0.PreparedBinding) ([]byte, error) {
 		return nil, fmt.Errorf("%w: prepared binding is required", ErrInvalid)
 	}
 	prepared := proto.CloneOf(binding)
-	if prepared.GetSchema() != "" && prepared.GetSchema() != PreparedSchemaV3 {
-		return nil, fmt.Errorf("%w: prepared binding states schema %q, and this core writes %s",
-			ErrInvalid, prepared.GetSchema(), PreparedSchemaV3)
+	if prepared.GetSchema() != "" && prepared.GetSchema() != PreparedSchema {
+		return nil, unknownPreparedSchema(prepared.GetSchema())
 	}
-	prepared.Schema = PreparedSchemaV3
+	prepared.Schema = PreparedSchema
 	digest, err := ContractDigest(prepared.GetContract())
 	if err != nil {
 		return nil, err
@@ -87,9 +118,12 @@ func DecodePrepared(value []byte) (*runnablev0.PreparedBinding, error) {
 	if len(value) == 0 || len(value) > MaxPreparedBytes {
 		return nil, fmt.Errorf("%w: prepared binding of %d bytes is outside (0, %d]", ErrInvalid, len(value), MaxPreparedBytes)
 	}
+	if err := refuseEarlierPrepared(value); err != nil {
+		return nil, err
+	}
 	binding := &runnablev0.PreparedBinding{}
 	if err := protojson.Unmarshal(value, binding); err != nil {
-		return nil, fmt.Errorf("%w: prepared binding is not a %s document: %v", ErrInvalid, PreparedSchemaV3, err)
+		return nil, fmt.Errorf("%w: prepared binding is not a %s document: %v", ErrInvalid, PreparedSchema, err)
 	}
 	if err := VerifyPrepared(binding); err != nil {
 		return nil, err
@@ -104,6 +138,9 @@ func DecodePrepared(value []byte) (*runnablev0.PreparedBinding, error) {
 func VerifyPrepared(binding *runnablev0.PreparedBinding) error {
 	if binding == nil {
 		return fmt.Errorf("%w: prepared binding is required", ErrInvalid)
+	}
+	if binding.GetSchema() != PreparedSchema {
+		return unknownPreparedSchema(binding.GetSchema())
 	}
 	if err := validator.Validate(binding); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)

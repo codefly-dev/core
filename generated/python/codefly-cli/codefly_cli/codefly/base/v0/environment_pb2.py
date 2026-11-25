@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!codefly/base/v0/environment.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\"\x80\x01\n\x0b\x45nvironment\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12!\n\x0cnaming_scope\x18\x03 \x01(\tR\x0bnamingScope\x12\x18\n\x07\x66ixture\x18\x04 \x01(\tR\x07\x66ixture\"8\n\x12ManagedEnvironment\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02idb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!codefly/base/v0/environment.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\"\xa0\x01\n\x0b\x45nvironment\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12!\n\x0cnaming_scope\x18\x03 \x01(\tR\x0bnamingScope\x12\x18\n\x07\x66ixture\x18\x04 \x01(\tR\x07\x66ixture\x12\x1e\n\ndisposable\x18\x05 \x01(\x08R\ndisposable\"8\n\x12ManagedEnvironment\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02idb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,7 +35,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_MANAGEDENVIRONMENT'].fields_by_name['id']._loaded_options = None
   _globals['_MANAGEDENVIRONMENT'].fields_by_name['id']._serialized_options = b'\272H\017r\r2\013^[a-z]{10}$'
   _globals['_ENVIRONMENT']._serialized_start=84
-  _globals['_ENVIRONMENT']._serialized_end=212
-  _globals['_MANAGEDENVIRONMENT']._serialized_start=214
-  _globals['_MANAGEDENVIRONMENT']._serialized_end=270
+  _globals['_ENVIRONMENT']._serialized_end=244
+  _globals['_MANAGEDENVIRONMENT']._serialized_start=246
+  _globals['_MANAGEDENVIRONMENT']._serialized_end=302
 # @@protoc_insertion_point(module_scope)

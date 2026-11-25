@@ -94,11 +94,12 @@ message PreparedCall {
 // closure per operation; what a caller does with those is what this states
 // directly, in a few hundred bytes to a few kilobytes.
 message PreparedBinding {
-  // schema is the prepared-binding schema, "codefly.runnable-prepared/v3".
-  // A reader accepts exactly this one: the fields a caller must not proceed
-  // without arrive as a new schema, never as a field an older reader tolerates
-  // by ignoring it.
-  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-prepared/v3"];
+  // schema is the prepared-binding schema, "codefly.runnable-prepared/v1".
+  // There is one, and a reader accepts exactly it: a value stating any other
+  // is refused by name, and a value in the earlier form, which carried the
+  // canonical package, binding and descriptors, is refused for what it
+  // carries whatever schema it states.
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-prepared/v1"];
   // operation names the operation this installs.
   PreparedOperation operation = 2 [(buf.validate.field).required = true];
   // call is where one call is sent.
