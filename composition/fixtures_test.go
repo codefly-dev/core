@@ -2,22 +2,18 @@ package composition
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/require"
-
-	coreversion "github.com/codefly-dev/core/version"
 )
 
 func fixtureManifest(id string, fixtures ...ProvidedFixture) *PackageManifest {
 	return &PackageManifest{
 		Kind: PackageKind, Schema: PackageSchema, ID: id, Version: "0.1.0",
-		MinimumCodeflyVersion: ">=0.3.32", ArtifactRoots: []string{"services"},
+		MinimumCodeflyVersion: ">=0.1.150", ArtifactRoots: []string{"services"},
 		Contracts: map[string]string{ContractComposition: ">=1.0 <2.0", ContractFixtures: ">=1.0 <2.0"},
 		Fixtures:  fixtures,
 	}
@@ -154,18 +150,18 @@ func TestFixturesAreLockedByEveryConsumerOfThePackage(t *testing.T) {
 	require.Empty(t, descriptor.Contributions.Fixtures)
 	manifest := fixtureManifest(testPackage, devAdminFixture())
 
-	negotiated, err := NegotiateContracts(descriptor, manifest, "0.3.32", DefaultSupportedContracts)
+	negotiated, err := NegotiateContracts(descriptor, manifest, "0.1.150", DefaultSupportedContracts)
 	require.NoError(t, err)
 	require.Equal(t, "1.0", negotiated[ContractFixtures])
 
 	lock := validLock()
 	require.NotContains(t, lock.Contracts, ContractFixtures)
-	err = ValidateLockedContracts(descriptor, manifest, lock, "0.3.32", DefaultSupportedContracts)
+	err = ValidateLockedContracts(descriptor, manifest, lock, "0.1.150", DefaultSupportedContracts)
 	require.ErrorIs(t, err, ErrContract)
 	require.ErrorContains(t, err, `lock is missing required contract "fixtures"`)
 
 	lock.Contracts[ContractFixtures] = negotiated[ContractFixtures]
-	require.NoError(t, ValidateLockedContracts(descriptor, manifest, lock, "0.3.32", DefaultSupportedContracts))
+	require.NoError(t, ValidateLockedContracts(descriptor, manifest, lock, "0.1.150", DefaultSupportedContracts))
 }
 
 func TestResolvedFixtureIsDecoupledFromTheManifest(t *testing.T) {
@@ -178,16 +174,14 @@ func TestResolvedFixtureIsDecoupledFromTheManifest(t *testing.T) {
 	require.Equal(t, "dev-admin-provider-id", manifest.Fixtures[0].Principals[0].Token)
 }
 
-// The gate only holds while the constant names a version that has actually been
-// released; a constant ahead of the build would reject every honest package.
-func TestFixtureGateIsNotAheadOfTheShippedVersion(t *testing.T) {
-	shipped, err := coreversion.Version(context.Background())
-	require.NoError(t, err)
-	gate, err := semver.NewVersion(LastCodeflyVersionWithoutFixtures)
-	require.NoError(t, err)
-	current, err := semver.NewVersion(shipped)
-	require.NoError(t, err)
-	require.False(t, current.LessThan(gate), "shipped version %s is older than the fixtures gate %s", shipped, gate)
+func TestFixtureGateUsesTheCLIReleaseThatFirstShippedFixtures(t *testing.T) {
+	manifest := fixtureManifest(testPackage, devAdminFixture())
+	manifest.MinimumCodeflyVersion = ">=0.1.149"
+	require.ErrorContains(t, manifest.Validate(), "requires Codefly newer than 0.1.149")
+	manifest.MinimumCodeflyVersion = ">=0.1.150"
+	require.NoError(t, manifest.Validate())
+	manifest.MinimumCodeflyVersion = ">=0.1.261-0 <1.0.0"
+	require.NoError(t, manifest.Validate())
 }
 
 func TestSemanticReportShowsFixtureChanges(t *testing.T) {
