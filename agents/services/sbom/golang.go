@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 type goModule struct {
@@ -68,10 +68,10 @@ func runGo(ctx context.Context, dir string, options GolangOptions, args ...strin
 	return stdout.Bytes(), nil
 }
 
-func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[string]string, error) {
+func parseGoModules(data []byte) ([]*agentv1.Component, *agentv1.Component, map[string]string, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	var components []*agentv0.Component
-	var root *agentv0.Component
+	var components []*agentv1.Component
+	var root *agentv1.Component
 	byToken := map[string]string{}
 	for decoder.More() {
 		var module goModule
@@ -82,16 +82,16 @@ func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[
 		if module.Replace != nil && module.Replace.Version != "" {
 			resolvedVersion = module.Replace.Version
 		}
-		componentType := agentv0.ComponentType_LIBRARY
+		componentType := agentv1.ComponentType_LIBRARY
 		if module.Main {
-			componentType = agentv0.ComponentType_MODULE
+			componentType = agentv1.ComponentType_MODULE
 		}
 		group, name := splitName(module.Path)
 		purl := "pkg:golang/" + module.Path
 		if resolvedVersion != "" {
 			purl += "@" + resolvedVersion
 		}
-		component := &agentv0.Component{
+		component := &agentv1.Component{
 			Name:    name,
 			Group:   group,
 			Version: resolvedVersion,
@@ -116,7 +116,7 @@ func parseGoModules(data []byte) ([]*agentv0.Component, *agentv0.Component, map[
 	return components, root, byToken, nil
 }
 
-func parseGoGraph(data []byte, byToken map[string]string) []*agentv0.Dependency {
+func parseGoGraph(data []byte, byToken map[string]string) []*agentv1.Dependency {
 	edges := map[string][]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -138,9 +138,9 @@ func parseGoGraph(data []byte, byToken map[string]string) []*agentv0.Dependency 
 		}
 	}
 	sort.Strings(refs)
-	dependencies := make([]*agentv0.Dependency, 0, len(refs))
+	dependencies := make([]*agentv1.Dependency, 0, len(refs))
 	for _, ref := range refs {
-		dependencies = append(dependencies, &agentv0.Dependency{Ref: ref, DependsOn: edges[ref]})
+		dependencies = append(dependencies, &agentv1.Dependency{Ref: ref, DependsOn: edges[ref]})
 	}
 	return dependencies
 }

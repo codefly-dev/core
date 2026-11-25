@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 const PipAuditVersion = "2.10.1"
@@ -97,7 +97,7 @@ type pipAuditOutput struct {
 	} `json:"dependencies"`
 }
 
-func parsePipAudit(out []byte) ([]*builderv0.AuditFinding, error) {
+func parsePipAudit(out []byte) ([]*builderv1.AuditFinding, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
@@ -105,18 +105,18 @@ func parsePipAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 	if err := json.Unmarshal(out, &p); err != nil {
 		return nil, err
 	}
-	var findings []*builderv0.AuditFinding
+	var findings []*builderv1.AuditFinding
 	for _, d := range p.Dependencies {
 		for _, v := range d.Vulns {
 			fixed := ""
 			if len(v.FixVersions) > 0 {
 				fixed = v.FixVersions[0]
 			}
-			findings = append(findings, &builderv0.AuditFinding{
+			findings = append(findings, &builderv1.AuditFinding{
 				// pip-audit doesn't classify severity; treat all as HIGH so they
 				// surface in fail_on_vuln. Severity refinement is a follow-up
 				// (would require a second OSV API call per finding).
-				Severity:       builderv0.AuditFinding_HIGH,
+				Severity:       builderv1.AuditFinding_HIGH,
 				Id:             v.ID,
 				Package:        d.Name,
 				CurrentVersion: d.Version,
@@ -133,10 +133,10 @@ var uvOutdatedPattern = regexp.MustCompile(`(?m)^[\s\p{So}\p{Pd}│├└─]*([
 
 // parseUVTreeOutdated consumes uv's stable human-readable annotation:
 // "package v1.2.3 (latest: v1.4.0)". uv currently has no JSON tree output.
-func parseUVTreeOutdated(out []byte) []*builderv0.OutdatedDep {
-	var deps []*builderv0.OutdatedDep
+func parseUVTreeOutdated(out []byte) []*builderv1.OutdatedDep {
+	var deps []*builderv1.OutdatedDep
 	for _, match := range uvOutdatedPattern.FindAllSubmatch(out, -1) {
-		deps = append(deps, &builderv0.OutdatedDep{
+		deps = append(deps, &builderv1.OutdatedDep{
 			Package:     string(match[1]),
 			Current:     string(match[2]),
 			LatestMajor: string(match[3]),

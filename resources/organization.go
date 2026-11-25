@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"buf.build/go/protovalidate"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 type Organization struct {
@@ -16,8 +16,8 @@ type Organization struct {
 	Name string `yaml:"name"`
 }
 
-func (organization *Organization) Proto() *basev0.Organization {
-	return &basev0.Organization{
+func (organization *Organization) Proto() *basev1.Organization {
+	return &basev1.Organization{
 		Name: organization.Name,
 	}
 }
@@ -32,7 +32,7 @@ func ToOrganizationName(svc string) string {
 	return strings.TrimPrefix(svc, "github.com/")
 }
 
-func ValidOrganization(org *basev0.Organization) error {
+func ValidOrganization(org *basev1.Organization) error {
 	v, err := protovalidate.New()
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func ValidOrganization(org *basev0.Organization) error {
 	return nil
 }
 
-func OrganizationFromProto(_ context.Context, m *basev0.Organization) (*Organization, error) {
+func OrganizationFromProto(_ context.Context, m *basev1.Organization) (*Organization, error) {
 	return &Organization{
 		Name: m.Name,
 	}, nil

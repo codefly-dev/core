@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
-func goModuleRecipe() *builderv0.DockerBuildRecipe {
-	return &builderv0.DockerBuildRecipe{
+func goModuleRecipe() *builderv1.DockerBuildRecipe {
+	return &builderv1.DockerBuildRecipe{
 		Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "example/app:v1",
-		GoModuleDownloads: []*builderv0.GoModuleDownload{{ModuleRoot: "code", ProxyContext: "gomodproxy"}},
+		GoModuleDownloads: []*builderv1.GoModuleDownload{{ModuleRoot: "code", ProxyContext: "gomodproxy"}},
 	}
 }
 
@@ -21,7 +21,7 @@ func TestRecipeGoModuleDownloadsVersionAndIntegrity(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644))
 
 	recipe := goModuleRecipe()
-	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
+	plan, err := BuildDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
 	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
@@ -51,20 +51,20 @@ func TestRecipeGoModuleDownloadsKeepAnExplicitContextRoot(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644))
 	recipe := goModuleRecipe()
-	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT
-	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
+	recipe.ContextRoot = builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT
+	plan, err := BuildDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
 	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 
 	// The context root is digested beside the downloads.
-	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE
+	recipe.ContextRoot = builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 }
 
 func TestRecipeGoModuleDownloadsAreValidated(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644))
-	for name, download := range map[string]*builderv0.GoModuleDownload{
+	for name, download := range map[string]*builderv1.GoModuleDownload{
 		"empty root":          {ModuleRoot: "", ProxyContext: "gomodproxy"},
 		"absolute root":       {ModuleRoot: "/code", ProxyContext: "gomodproxy"},
 		"escaping root":       {ModuleRoot: "../code", ProxyContext: "gomodproxy"},
@@ -74,15 +74,15 @@ func TestRecipeGoModuleDownloadsAreValidated(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			recipe := goModuleRecipe()
-			recipe.GoModuleDownloads = []*builderv0.GoModuleDownload{download}
-			_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
+			recipe.GoModuleDownloads = []*builderv1.GoModuleDownload{download}
+			_, err := BuildDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe})
 			require.Error(t, err)
 		})
 	}
 
 	recipe := goModuleRecipe()
-	recipe.GoModuleDownloads = append(recipe.GoModuleDownloads, &builderv0.GoModuleDownload{ModuleRoot: "tools", ProxyContext: "gomodproxy"})
-	_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
+	recipe.GoModuleDownloads = append(recipe.GoModuleDownloads, &builderv1.GoModuleDownload{ModuleRoot: "tools", ProxyContext: "gomodproxy"})
+	_, err := BuildDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe})
 	require.ErrorContains(t, err, "twice")
 }
 
@@ -90,7 +90,7 @@ func TestSingleImageBuildPlanDeclaresGoModuleDownloads(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644))
 	plan, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"},
-		WithGoModuleDownloads(&builderv0.GoModuleDownload{ModuleRoot: "code", ProxyContext: "gomodproxy"}))
+		WithGoModuleDownloads(&builderv1.GoModuleDownload{ModuleRoot: "code", ProxyContext: "gomodproxy"}))
 	require.NoError(t, err)
 	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.Equal(t, "code", plan.GetRecipes()[0].GetGoModuleDownloads()[0].GetModuleRoot())

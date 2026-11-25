@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 )
 
 // RerankRequest is a typed rerank request: score each document against the query
@@ -20,12 +20,12 @@ type RerankRequest struct {
 // body renders the request as descriptor-allowed body fields. PlannedRerank
 // screens content and validates the fields against the target descriptor; this
 // method does neither.
-func (r RerankRequest) body() map[string]*providerv0.PublicValue {
-	documents := make([]*providerv0.PublicValue, 0, len(r.Documents))
+func (r RerankRequest) body() map[string]*providerv1.PublicValue {
+	documents := make([]*providerv1.PublicValue, 0, len(r.Documents))
 	for _, document := range r.Documents {
 		documents = append(documents, stringValue(document))
 	}
-	body := map[string]*providerv0.PublicValue{
+	body := map[string]*providerv1.PublicValue{
 		"model":     stringValue(r.Model),
 		"query":     stringValue(r.Query),
 		"documents": listValue(documents),
@@ -57,7 +57,7 @@ type RerankResponse struct {
 
 // DecodeRerank decodes the filtered forwarded fields into scored results ordered
 // by the returned data array position.
-func DecodeRerank(response *providerv0.ExecuteRequestResponse) (*RerankResponse, error) {
+func DecodeRerank(response *providerv1.ExecuteRequestResponse) (*RerankResponse, error) {
 	result := &RerankResponse{}
 	results := map[int]RerankResult{}
 	for _, field := range response.GetForwarded() {

@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"google.golang.org/grpc"
 )
 
@@ -13,7 +13,7 @@ func TestRuntimeLoadTrackerIgnoresBuilderOnlyRPCs(t *testing.T) {
 	var loaded atomic.Bool
 	interceptor := runtimeLoadTracker(&loaded)
 	handler := func(context.Context, any) (any, error) { return nil, nil }
-	if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/codefly.services.builder.v0.Builder/Load"}, handler); err != nil {
+	if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/codefly.services.builder.v1.Builder/Load"}, handler); err != nil {
 		t.Fatal(err)
 	}
 	if loaded.Load() {
@@ -30,7 +30,7 @@ func TestRuntimeLoadTrackerMarksRuntimeBeforeHandler(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: runtimev0.Runtime_Load_FullMethodName}, handler); err != nil {
+	if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: runtimev1.Runtime_Load_FullMethodName}, handler); err != nil {
 		t.Fatal(err)
 	}
 }

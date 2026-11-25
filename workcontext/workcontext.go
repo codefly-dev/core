@@ -1,5 +1,5 @@
 // Package workcontext mints and verifies the signed Work Context capability
-// that codefly.base.v0.WorkContextV1 describes. It is the canonical identity
+// that codefly.base.v1.WorkContextV1 describes. It is the canonical identity
 // and authority carrier: every other identity shape in core is derived from a
 // verified capability rather than assembled beside one.
 //
@@ -37,7 +37,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Typ and Algorithm are the fixed header values of a v1 capability. The
@@ -164,7 +164,7 @@ var ErrRevoked = errors.New("work context: authorization revision superseded")
 // caller outside this package cannot assemble a value that claims to have
 // passed signature, window, audience, attenuation, grant and replay checks.
 type Verified struct {
-	context *basev0.WorkContextV1
+	context *basev1.WorkContextV1
 	encoded string
 	sha256  string
 	// There is deliberately NO recorded key here. One was added so Recheck
@@ -194,7 +194,7 @@ type Verified struct {
 // A copy per call is the cost. It is the right one: the alternative is every
 // reader remembering not to write, which is the kind of rule that holds until
 // somebody normalises a field.
-func (v *Verified) Context() *basev0.WorkContextV1 {
+func (v *Verified) Context() *basev1.WorkContextV1 {
 	// A zero value answers nil rather than panicking. An outside-constructed
 	// &Verified{} or &Authenticated{} cannot be a capability — nothing here
 	// will treat it as one — but reaching for its claims crashed the caller
@@ -208,7 +208,7 @@ func (v *Verified) Context() *basev0.WorkContextV1 {
 
 // claims is the internal, un-copied view, for this package's own checks. It
 // never leaves the package.
-func (v *Verified) claims() *basev0.WorkContextV1 {
+func (v *Verified) claims() *basev1.WorkContextV1 {
 	if v == nil {
 		return nil
 	}
@@ -241,12 +241,12 @@ func Fingerprint(encoded string) string {
 
 // Actor is the current actor's hop as a DEEP COPY, or nil when the owner acts
 // directly. See Context for why it copies.
-func (v *Verified) Actor() *basev0.WorkActorV1 {
+func (v *Verified) Actor() *basev1.WorkActorV1 {
 	actor := v.actor()
 	if actor == nil {
 		return nil
 	}
-	cloned, ok := proto.Clone(actor).(*basev0.WorkActorV1)
+	cloned, ok := proto.Clone(actor).(*basev1.WorkActorV1)
 	if !ok {
 		return nil
 	}
@@ -254,7 +254,7 @@ func (v *Verified) Actor() *basev0.WorkActorV1 {
 }
 
 // actor is the internal, un-copied view.
-func (v *Verified) actor() *basev0.WorkActorV1 {
+func (v *Verified) actor() *basev1.WorkActorV1 {
 	if v == nil || v.context == nil {
 		return nil
 	}
@@ -267,7 +267,7 @@ func (v *Verified) actor() *basev0.WorkActorV1 {
 
 // EffectiveScopes are the scopes the current actor holds, as DEEP COPIES: the
 // last hop's, or the owner's delegated authority when no hop has narrowed it.
-func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
+func (v *Verified) EffectiveScopes() []*basev1.WorkScopeV1 {
 	if v == nil || v.context == nil {
 		return nil
 	}

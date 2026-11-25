@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -29,7 +29,7 @@ type ConsumerUsageAuthority struct {
 	Signers  map[string]ed25519.PublicKey
 }
 
-func VerifyConsumerUsage(signed SignedConsumerUsage, authority ConsumerUsageAuthority, instance, compositionDigest string, now time.Time) (*updatev0.ConsumerPin, error) {
+func VerifyConsumerUsage(signed SignedConsumerUsage, authority ConsumerUsageAuthority, instance, compositionDigest string, now time.Time) (*updatev1.ConsumerPin, error) {
 	var statement ConsumerUsageStatement
 	if err := decodeStrictJSON(signed.Statement, &statement); err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func VerifyConsumerUsage(signed SignedConsumerUsage, authority ConsumerUsageAuth
 		now.IsZero() || !statement.ExpiresAt.After(now) {
 		return nil, errors.New("consumer usage is expired or belongs to different composition inputs or instance")
 	}
-	pin := new(updatev0.ConsumerPin)
+	pin := new(updatev1.ConsumerPin)
 	if err := protojson.Unmarshal(statement.Pin, pin); err != nil {
 		return nil, err
 	}

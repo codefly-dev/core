@@ -15,15 +15,15 @@ import (
 	"os/exec"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Result is the language-agnostic shape returned by every Scan*
 // function. Tool identifies what produced it ("govulncheck+go-list-u",
 // "npm-audit+outdated", "uv-export+pip-audit", "osv-scanner", or "trivy").
 type Result struct {
-	Findings []*builderv0.AuditFinding
-	Outdated []*builderv0.OutdatedDep
+	Findings []*builderv1.AuditFinding
+	Outdated []*builderv1.OutdatedDep
 	Tool     string
 	Language string
 }

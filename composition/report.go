@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -56,7 +56,7 @@ type SemanticReport struct {
 	Validations           []ValidationResult              `json:"validations"`
 	BlockedReasons        []string                        `json:"blockedReasons,omitempty"`
 	LockDiff              string                          `json:"lockDiff"`
-	ConsumerCompatibility *updatev0.UpdateResult          `json:"consumerCompatibility,omitempty"`
+	ConsumerCompatibility *updatev1.UpdateResult          `json:"consumerCompatibility,omitempty"`
 }
 
 func (report *SemanticReport) JSON() ([]byte, error) {
@@ -79,7 +79,7 @@ func (report *SemanticReport) String() string {
 	}
 	if report.ConsumerCompatibility != nil {
 		fmt.Fprintf(&output, "  consumer usage           %s\n", report.ConsumerCompatibility.Verdict)
-		for _, items := range [][]*updatev0.AffectedItem{report.ConsumerCompatibility.Breaking, report.ConsumerCompatibility.Undetermined} {
+		for _, items := range [][]*updatev1.AffectedItem{report.ConsumerCompatibility.Breaking, report.ConsumerCompatibility.Undetermined} {
 			for _, item := range items {
 				fmt.Fprintf(&output, "    %s: %s\n", item.Item, item.Reason)
 			}

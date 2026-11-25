@@ -9,13 +9,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 )
 
 // NewToolboxFromTooling adapts an existing Tooling server into a
-// Toolbox server. The result implements toolboxv0.ToolboxServer; its
+// Toolbox server. The result implements toolboxv1.ToolboxServer; its
 // Identity / ListTools / CallTool route to the underlying Tooling
 // RPCs via the conventional names in names.go.
 //
@@ -32,7 +32,7 @@ import (
 // Mind sees the same typed responses whether it calls Tooling
 // directly or goes through the Toolbox via ToolingFromToolbox —
 // the bridge round-trips the typed proto messages intact.
-func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+func NewToolboxFromTooling(name, version string, t toolingv1.ToolingServer) *ToolboxFromTooling {
 	return newToolboxFromTooling(name, version, t, toolSpecs)
 }
 
@@ -40,13 +40,13 @@ func NewToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *Too
 // implemented by code.SourceTooling. This keeps ListTools honest for small
 // language plugins that format and edit source but do not own dependency or
 // validation behavior yet.
-func NewSourceToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+func NewSourceToolboxFromTooling(name, version string, t toolingv1.ToolingServer) *ToolboxFromTooling {
 	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex, ToolGetInstructionIndex))
 }
 
 // NewValidationToolboxFromTooling exposes source authoring plus build, test,
 // and lint for language plugins that do not implement dependency mutation.
-func NewValidationToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+func NewValidationToolboxFromTooling(name, version string, t toolingv1.ToolingServer) *ToolboxFromTooling {
 	return newToolboxFromTooling(name, version, t, selectToolSpecs(
 		ToolFix, ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex, ToolGetInstructionIndex, ToolBuild, ToolTest, ToolLint,
 	))
@@ -54,11 +54,11 @@ func NewValidationToolboxFromTooling(name, version string, t toolingv0.ToolingSe
 
 // NewEditToolboxFromTooling is the language-neutral subset for a plugin that
 // supports structured editing and metadata but has no language-aware fixer.
-func NewEditToolboxFromTooling(name, version string, t toolingv0.ToolingServer) *ToolboxFromTooling {
+func NewEditToolboxFromTooling(name, version string, t toolingv1.ToolingServer) *ToolboxFromTooling {
 	return newToolboxFromTooling(name, version, t, selectToolSpecs(ToolApplyEdit, ToolGetProjectInfo, ToolGetSemanticIndex, ToolGetInstructionIndex))
 }
 
-func newToolboxFromTooling(name, version string, t toolingv0.ToolingServer, specs []toolSpec) *ToolboxFromTooling {
+func newToolboxFromTooling(name, version string, t toolingv1.ToolingServer, specs []toolSpec) *ToolboxFromTooling {
 	b := &ToolboxFromTooling{inner: t, specs: specs, allowed: make(map[string]struct{}, len(specs))}
 	for _, spec := range specs {
 		b.allowed[spec.name] = struct{}{}
@@ -72,7 +72,7 @@ func newToolboxFromTooling(name, version string, t toolingv0.ToolingServer, spec
 	return b
 }
 
-// ToolboxFromTooling implements toolboxv0.ToolboxServer over a
+// ToolboxFromTooling implements toolboxv1.ToolboxServer over a
 // Tooling impl. Exported so callers can compose it into a
 // PluginRegistration directly.
 //
@@ -84,7 +84,7 @@ func newToolboxFromTooling(name, version string, t toolingv0.ToolingServer, spec
 // anyway.
 type ToolboxFromTooling struct {
 	*registry.Base
-	inner   toolingv0.ToolingServer
+	inner   toolingv1.ToolingServer
 	specs   []toolSpec
 	allowed map[string]struct{}
 }
@@ -207,7 +207,7 @@ func (b *ToolboxFromTooling) Tools() []*registry.ToolDefinition {
 			Destructive:        spec.destructive,
 			Tags:               toolTags(spec),
 			Idempotency:        idem,
-			ErrorModes:         "Mirrors the underlying typed Tooling RPC's error semantics. See proto/codefly/services/tooling/v0/tooling.proto for canonical errors per RPC.",
+			ErrorModes:         "Mirrors the underlying typed Tooling RPC's error semantics. See proto/codefly/services/tooling/v1/tooling.proto for canonical errors per RPC.",
 		})
 	}
 	return defs
@@ -227,35 +227,35 @@ func toolTags(spec toolSpec) []string {
 // CallTool dispatches by conventional name. The argument Struct is
 // converted to the typed proto request via protojson; the response
 // is converted back to a Struct and wrapped in a Content block.
-func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (b *ToolboxFromTooling) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	if _, ok := b.allowed[req.GetName()]; !ok {
-		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("unknown lang tool %q (call ListTools to enumerate)", req.GetName())}, nil
+		return &toolboxv1.CallToolResponse{Error: fmt.Sprintf("unknown lang tool %q (call ListTools to enumerate)", req.GetName())}, nil
 	}
 	switch req.Name {
 	case ToolFix:
-		return bridgeCall[toolingv0.FixRequest, toolingv0.FixResponse](ctx, req, b.inner.Fix)
+		return bridgeCall[toolingv1.FixRequest, toolingv1.FixResponse](ctx, req, b.inner.Fix)
 	case ToolApplyEdit:
-		return bridgeCall[toolingv0.ApplyEditRequest, toolingv0.ApplyEditResponse](ctx, req, b.inner.ApplyEdit)
+		return bridgeCall[toolingv1.ApplyEditRequest, toolingv1.ApplyEditResponse](ctx, req, b.inner.ApplyEdit)
 	case ToolListDependencies:
-		return bridgeCall[toolingv0.ListDependenciesRequest, toolingv0.ListDependenciesResponse](ctx, req, b.inner.ListDependencies)
+		return bridgeCall[toolingv1.ListDependenciesRequest, toolingv1.ListDependenciesResponse](ctx, req, b.inner.ListDependencies)
 	case ToolAddDependency:
-		return bridgeCall[toolingv0.AddDependencyRequest, toolingv0.AddDependencyResponse](ctx, req, b.inner.AddDependency)
+		return bridgeCall[toolingv1.AddDependencyRequest, toolingv1.AddDependencyResponse](ctx, req, b.inner.AddDependency)
 	case ToolRemoveDependency:
-		return bridgeCall[toolingv0.RemoveDependencyRequest, toolingv0.RemoveDependencyResponse](ctx, req, b.inner.RemoveDependency)
+		return bridgeCall[toolingv1.RemoveDependencyRequest, toolingv1.RemoveDependencyResponse](ctx, req, b.inner.RemoveDependency)
 	case ToolGetProjectInfo:
-		return bridgeCall[toolingv0.GetProjectInfoRequest, toolingv0.GetProjectInfoResponse](ctx, req, b.inner.GetProjectInfo)
+		return bridgeCall[toolingv1.GetProjectInfoRequest, toolingv1.GetProjectInfoResponse](ctx, req, b.inner.GetProjectInfo)
 	case ToolGetSemanticIndex:
-		return bridgeCall[toolingv0.GetSemanticIndexRequest, toolingv0.GetSemanticIndexResponse](ctx, req, b.inner.GetSemanticIndex)
+		return bridgeCall[toolingv1.GetSemanticIndexRequest, toolingv1.GetSemanticIndexResponse](ctx, req, b.inner.GetSemanticIndex)
 	case ToolGetInstructionIndex:
-		return bridgeCall[toolingv0.GetInstructionIndexRequest, toolingv0.GetInstructionIndexResponse](ctx, req, b.inner.GetInstructionIndex)
+		return bridgeCall[toolingv1.GetInstructionIndexRequest, toolingv1.GetInstructionIndexResponse](ctx, req, b.inner.GetInstructionIndex)
 	case ToolBuild:
-		return bridgeCall[toolingv0.BuildRequest, toolingv0.BuildResponse](ctx, req, b.inner.Build)
+		return bridgeCall[toolingv1.BuildRequest, toolingv1.BuildResponse](ctx, req, b.inner.Build)
 	case ToolTest:
-		return bridgeCall[toolingv0.TestRequest, toolingv0.TestResponse](ctx, req, b.inner.Test)
+		return bridgeCall[toolingv1.TestRequest, toolingv1.TestResponse](ctx, req, b.inner.Test)
 	case ToolLint:
-		return bridgeCall[toolingv0.LintRequest, toolingv0.LintResponse](ctx, req, b.inner.Lint)
+		return bridgeCall[toolingv1.LintRequest, toolingv1.LintResponse](ctx, req, b.inner.Lint)
 	default:
-		return &toolboxv0.CallToolResponse{
+		return &toolboxv1.CallToolResponse{
 			Error: fmt.Sprintf("unknown lang tool %q (call ListTools to enumerate)", req.Name),
 		}, nil
 	}
@@ -278,9 +278,9 @@ func bridgeCall[Req any, Resp any, ReqP interface {
 	proto.Message
 }](
 	ctx context.Context,
-	call *toolboxv0.CallToolRequest,
+	call *toolboxv1.CallToolRequest,
 	handler func(context.Context, ReqP) (RespP, error),
-) (*toolboxv0.CallToolResponse, error) {
+) (*toolboxv1.CallToolResponse, error) {
 	// Decode Toolbox arguments → typed proto request.
 	var reqVal Req
 	reqPtr := ReqP(&reqVal)
@@ -304,9 +304,9 @@ func bridgeCall[Req any, Resp any, ReqP interface {
 	if err != nil {
 		return errResp("bridge encode response: %v", err), nil
 	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Structured{Structured: out}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Structured{Structured: out}},
 		},
 	}, nil
 }
@@ -330,8 +330,8 @@ func protoToStruct(m proto.Message) (*structpb.Struct, error) {
 	return &s, nil
 }
 
-func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{Error: fmt.Sprintf(format, args...)}
+func errResp(format string, args ...any) *toolboxv1.CallToolResponse {
+	return &toolboxv1.CallToolResponse{Error: fmt.Sprintf(format, args...)}
 }
 
 // --- typed Mind wrapper -----------------------------------------
@@ -341,23 +341,23 @@ func errResp(format string, args ...any) *toolboxv0.CallToolResponse {
 // working: client.Test(ctx, req) routes to CallTool("lang.test", req)
 // under the hood.
 //
-// Returns toolingv0.ToolingClient so Mind can drop this in as a
+// Returns toolingv1.ToolingClient so Mind can drop this in as a
 // type-compatible replacement for a real ToolingClient over the
 // Tooling RPC. When Phase α deletes the Tooling proto, this wrapper
 // stays — Mind keeps its typed interface; the underlying contract
 // just stops being a separate proto.
-func ToolingFromToolbox(c toolboxv0.ToolboxClient) toolingv0.ToolingClient {
+func ToolingFromToolbox(c toolboxv1.ToolboxClient) toolingv1.ToolingClient {
 	return &toolingFromToolbox{c: c}
 }
 
 type toolingFromToolbox struct {
-	c toolboxv0.ToolboxClient
+	c toolboxv1.ToolboxClient
 }
 
 // callBridge sends a typed proto request through CallTool and
 // decodes the typed proto response. Inverse of bridgeCall.
 func callBridge[Req proto.Message, Resp proto.Message](
-	ctx context.Context, c toolboxv0.ToolboxClient,
+	ctx context.Context, c toolboxv1.ToolboxClient,
 	tool string, req Req, resp Resp,
 ) (Resp, error) {
 	args, err := protoToStruct(req)
@@ -365,7 +365,7 @@ func callBridge[Req proto.Message, Resp proto.Message](
 		var zero Resp
 		return zero, fmt.Errorf("encode %s: %w", tool, err)
 	}
-	out, err := c.CallTool(ctx, &toolboxv0.CallToolRequest{
+	out, err := c.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name:      tool,
 		Arguments: args,
 	})
@@ -401,38 +401,38 @@ func callBridge[Req proto.Message, Resp proto.Message](
 // All ToolingClient methods follow the same shape: hand off to callBridge
 // with the right tool name and response type.
 
-func (t *toolingFromToolbox) Fix(ctx context.Context, in *toolingv0.FixRequest, _ ...grpc.CallOption) (*toolingv0.FixResponse, error) {
-	return callBridge(ctx, t.c, ToolFix, in, &toolingv0.FixResponse{})
+func (t *toolingFromToolbox) Fix(ctx context.Context, in *toolingv1.FixRequest, _ ...grpc.CallOption) (*toolingv1.FixResponse, error) {
+	return callBridge(ctx, t.c, ToolFix, in, &toolingv1.FixResponse{})
 }
-func (t *toolingFromToolbox) ApplyEdit(ctx context.Context, in *toolingv0.ApplyEditRequest, _ ...grpc.CallOption) (*toolingv0.ApplyEditResponse, error) {
-	return callBridge(ctx, t.c, ToolApplyEdit, in, &toolingv0.ApplyEditResponse{})
+func (t *toolingFromToolbox) ApplyEdit(ctx context.Context, in *toolingv1.ApplyEditRequest, _ ...grpc.CallOption) (*toolingv1.ApplyEditResponse, error) {
+	return callBridge(ctx, t.c, ToolApplyEdit, in, &toolingv1.ApplyEditResponse{})
 }
-func (t *toolingFromToolbox) ListDependencies(ctx context.Context, in *toolingv0.ListDependenciesRequest, _ ...grpc.CallOption) (*toolingv0.ListDependenciesResponse, error) {
-	return callBridge(ctx, t.c, ToolListDependencies, in, &toolingv0.ListDependenciesResponse{})
+func (t *toolingFromToolbox) ListDependencies(ctx context.Context, in *toolingv1.ListDependenciesRequest, _ ...grpc.CallOption) (*toolingv1.ListDependenciesResponse, error) {
+	return callBridge(ctx, t.c, ToolListDependencies, in, &toolingv1.ListDependenciesResponse{})
 }
-func (t *toolingFromToolbox) AddDependency(ctx context.Context, in *toolingv0.AddDependencyRequest, _ ...grpc.CallOption) (*toolingv0.AddDependencyResponse, error) {
-	return callBridge(ctx, t.c, ToolAddDependency, in, &toolingv0.AddDependencyResponse{})
+func (t *toolingFromToolbox) AddDependency(ctx context.Context, in *toolingv1.AddDependencyRequest, _ ...grpc.CallOption) (*toolingv1.AddDependencyResponse, error) {
+	return callBridge(ctx, t.c, ToolAddDependency, in, &toolingv1.AddDependencyResponse{})
 }
-func (t *toolingFromToolbox) RemoveDependency(ctx context.Context, in *toolingv0.RemoveDependencyRequest, _ ...grpc.CallOption) (*toolingv0.RemoveDependencyResponse, error) {
-	return callBridge(ctx, t.c, ToolRemoveDependency, in, &toolingv0.RemoveDependencyResponse{})
+func (t *toolingFromToolbox) RemoveDependency(ctx context.Context, in *toolingv1.RemoveDependencyRequest, _ ...grpc.CallOption) (*toolingv1.RemoveDependencyResponse, error) {
+	return callBridge(ctx, t.c, ToolRemoveDependency, in, &toolingv1.RemoveDependencyResponse{})
 }
-func (t *toolingFromToolbox) GetProjectInfo(ctx context.Context, in *toolingv0.GetProjectInfoRequest, _ ...grpc.CallOption) (*toolingv0.GetProjectInfoResponse, error) {
-	return callBridge(ctx, t.c, ToolGetProjectInfo, in, &toolingv0.GetProjectInfoResponse{})
+func (t *toolingFromToolbox) GetProjectInfo(ctx context.Context, in *toolingv1.GetProjectInfoRequest, _ ...grpc.CallOption) (*toolingv1.GetProjectInfoResponse, error) {
+	return callBridge(ctx, t.c, ToolGetProjectInfo, in, &toolingv1.GetProjectInfoResponse{})
 }
-func (t *toolingFromToolbox) GetSemanticIndex(ctx context.Context, in *toolingv0.GetSemanticIndexRequest, _ ...grpc.CallOption) (*toolingv0.GetSemanticIndexResponse, error) {
-	return callBridge(ctx, t.c, ToolGetSemanticIndex, in, &toolingv0.GetSemanticIndexResponse{})
+func (t *toolingFromToolbox) GetSemanticIndex(ctx context.Context, in *toolingv1.GetSemanticIndexRequest, _ ...grpc.CallOption) (*toolingv1.GetSemanticIndexResponse, error) {
+	return callBridge(ctx, t.c, ToolGetSemanticIndex, in, &toolingv1.GetSemanticIndexResponse{})
 }
-func (t *toolingFromToolbox) GetInstructionIndex(ctx context.Context, in *toolingv0.GetInstructionIndexRequest, _ ...grpc.CallOption) (*toolingv0.GetInstructionIndexResponse, error) {
-	return callBridge(ctx, t.c, ToolGetInstructionIndex, in, &toolingv0.GetInstructionIndexResponse{})
+func (t *toolingFromToolbox) GetInstructionIndex(ctx context.Context, in *toolingv1.GetInstructionIndexRequest, _ ...grpc.CallOption) (*toolingv1.GetInstructionIndexResponse, error) {
+	return callBridge(ctx, t.c, ToolGetInstructionIndex, in, &toolingv1.GetInstructionIndexResponse{})
 }
-func (t *toolingFromToolbox) Build(ctx context.Context, in *toolingv0.BuildRequest, _ ...grpc.CallOption) (*toolingv0.BuildResponse, error) {
-	return callBridge(ctx, t.c, ToolBuild, in, &toolingv0.BuildResponse{})
+func (t *toolingFromToolbox) Build(ctx context.Context, in *toolingv1.BuildRequest, _ ...grpc.CallOption) (*toolingv1.BuildResponse, error) {
+	return callBridge(ctx, t.c, ToolBuild, in, &toolingv1.BuildResponse{})
 }
-func (t *toolingFromToolbox) Test(ctx context.Context, in *toolingv0.TestRequest, _ ...grpc.CallOption) (*toolingv0.TestResponse, error) {
-	return callBridge(ctx, t.c, ToolTest, in, &toolingv0.TestResponse{})
+func (t *toolingFromToolbox) Test(ctx context.Context, in *toolingv1.TestRequest, _ ...grpc.CallOption) (*toolingv1.TestResponse, error) {
+	return callBridge(ctx, t.c, ToolTest, in, &toolingv1.TestResponse{})
 }
-func (t *toolingFromToolbox) Lint(ctx context.Context, in *toolingv0.LintRequest, _ ...grpc.CallOption) (*toolingv0.LintResponse, error) {
-	return callBridge(ctx, t.c, ToolLint, in, &toolingv0.LintResponse{})
+func (t *toolingFromToolbox) Lint(ctx context.Context, in *toolingv1.LintRequest, _ ...grpc.CallOption) (*toolingv1.LintResponse, error) {
+	return callBridge(ctx, t.c, ToolLint, in, &toolingv1.LintResponse{})
 }
 
 // --- helpers ----------------------------------------------------

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestInspectGoSourceImportsUsesStdlibParser(t *testing.T) {
@@ -46,8 +46,8 @@ func TestNonGoProjectInfoWithoutAnalyzerOmitsSourceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := NewPythonCodeServer(dir, nil)
-	resp, err := srv.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	resp, err := srv.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +76,8 @@ func TestGoProjectInfoNeverOmitsSourceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := NewGoCodeServer(dir, nil)
-	resp, err := srv.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	resp, err := srv.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)

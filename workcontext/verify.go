@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Verifier turns a presented token back into claims for one audience. Every
@@ -117,7 +117,7 @@ func (v *Verifier) skew() time.Duration {
 // implementation is worthless while there are two bodies: this package has now
 // grown a second copy of a check three times, and each time the copy was the
 // one with the hole.
-func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []byte) error {
+func (v *Verifier) authenticate(wc *basev1.WorkContextV1, claims, signature []byte) error {
 	key, err := v.resolveKey(wc.GetKeyId())
 	if err != nil {
 		return err
@@ -149,7 +149,7 @@ func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []by
 // issued-at that one of the rules below also refuses — core's minter sets
 // not_before and issued_at to the same instant — so whichever check runs first
 // is the one an operator reads.
-func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) (time.Time, error) {
+func (v *Verifier) checkWindow(wc *basev1.WorkContextV1) (time.Time, error) {
 	now, skew := v.now(), v.skew()
 	notBefore, expires := time.Unix(wc.GetNotBeforeUnix(), 0), time.Unix(wc.GetExpiresAtUnix(), 0)
 	if now.Add(skew).Before(notBefore) {
@@ -202,7 +202,7 @@ func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) (time.Time, error) {
 //     are read, by any verifier — while this one depends on this verifier's
 //     clock. An operator told "issued in the future" about a token that says
 //     it was minted after it expired goes hunting NTP.
-func checkIssuedAt(wc *basev0.WorkContextV1, notBefore, expires, now time.Time, skew time.Duration) error {
+func checkIssuedAt(wc *basev1.WorkContextV1, notBefore, expires, now time.Time, skew time.Duration) error {
 	if wc.GetIssuedAtUnix() == 0 {
 		return fmt.Errorf("%w: no issued-at; a capability states the instant its issuer minted it", ErrInvalid)
 	}
@@ -259,7 +259,7 @@ func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {
 // It RETURNS the clock it used, for the same reason checkWindow does: the
 // grant window and the replay entry's expiry downstream must read the instant
 // the window was judged at, not a second sample.
-func (v *Verifier) inspect(encoded string) (*basev0.WorkContextV1, time.Time, error) {
+func (v *Verifier) inspect(encoded string) (*basev1.WorkContextV1, time.Time, error) {
 	wc, claims, sig, err := decodeClaims(encoded)
 	if err != nil {
 		return nil, time.Time{}, err
@@ -303,7 +303,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 // the single-use consumption. One body, because a second copy of these checks
 // is where this package has grown a hole every time; the only thing the two
 // entrypoints may differ in is whether the capability is spent.
-func (v *Verifier) check(ctx context.Context, encoded string, consume bool) (*basev0.WorkContextV1, error) {
+func (v *Verifier) check(ctx context.Context, encoded string, consume bool) (*basev1.WorkContextV1, error) {
 	wc, now, err := v.inspect(encoded)
 	if err != nil {
 		return nil, err
@@ -412,7 +412,7 @@ func CheckEncoding(claims []byte) error {
 // checkGrant holds the capability's grant hop against the issuer's own record
 // of the approval. Without this a signed capability could claim any approval,
 // and revoking a grant would stop nothing.
-func (v *Verifier) checkGrant(ctx context.Context, wc *basev0.WorkContextV1, hop *basev0.WorkGrantHopV1, now time.Time) error {
+func (v *Verifier) checkGrant(ctx context.Context, wc *basev1.WorkContextV1, hop *basev1.WorkGrantHopV1, now time.Time) error {
 	grant, err := v.Grants.Grant(ctx, hop.GetGrantId())
 	if err != nil {
 		return fmt.Errorf("work context: grant %q: %w", hop.GetGrantId(), err)
@@ -450,7 +450,7 @@ func (v *Verifier) checkGrant(ctx context.Context, wc *basev0.WorkContextV1, hop
 // checkStructure enforces the properties the schema cannot state: the chain
 // attenuates, and a grant hop is the audited exception rather than a way to
 // skip the rule.
-func checkStructure(wc *basev0.WorkContextV1) error {
+func checkStructure(wc *basev1.WorkContextV1) error {
 	grant := wc.GetGrantHop()
 	chain := wc.GetActorChain()
 	effective := wc.GetAuthorityScopes()
@@ -508,7 +508,7 @@ type actorIdentity struct {
 
 // identityOf resolves a hop's identity, including the organization it
 // inherits from the task when it does not name its own.
-func identityOf(wc *basev0.WorkContextV1, hop *basev0.WorkActorV1) actorIdentity {
+func identityOf(wc *basev1.WorkContextV1, hop *basev1.WorkActorV1) actorIdentity {
 	organization := hop.GetOrganizationId()
 	if organization == "" {
 		organization = wc.GetOrganizationId()
@@ -521,7 +521,7 @@ func identityOf(wc *basev0.WorkContextV1, hop *basev0.WorkActorV1) actorIdentity
 	}
 }
 
-func ownerIdentity(wc *basev0.WorkContextV1) actorIdentity {
+func ownerIdentity(wc *basev1.WorkContextV1) actorIdentity {
 	return actorIdentity{
 		principalID:  wc.GetOwnerPrincipalId(),
 		kind:         wc.GetOwnerPrincipalKind(),
@@ -539,7 +539,7 @@ func approverKeys(approvers []Approver) []string {
 	return keys
 }
 
-func claimedApproverKeys(approvers []*basev0.WorkApproverV1) []string {
+func claimedApproverKeys(approvers []*basev1.WorkApproverV1) []string {
 	keys := make([]string, 0, len(approvers))
 	for _, approver := range approvers {
 		keys = append(keys, approver.GetPrincipalId()+"\x00"+approver.GetPrincipalKind())

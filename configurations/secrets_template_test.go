@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
@@ -30,14 +30,14 @@ func TestSecretResolutionIgnoresATemplatedValue(t *testing.T) {
 		cache:     map[string]string{},
 		warned:    map[string]bool{},
 	}
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: "mod/store",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "postgres",
-			ConfigurationValues: []*basev0.ConfigurationValue{
-				{Key: "CONNECTION", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-					Segments: []*basev0.ConfigurationValueTemplateSegment{
-						{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "postgresql://x"}},
+			ConfigurationValues: []*basev1.ConfigurationValue{
+				{Key: "CONNECTION", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+					Segments: []*basev1.ConfigurationValueTemplateSegment{
+						{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "postgresql://x"}},
 					},
 				}},
 			},
@@ -53,11 +53,11 @@ func TestSecretResolutionIgnoresATemplatedValue(t *testing.T) {
 
 	// The warning still fires for a value that really is plaintext, which the
 	// suppressed flag would have hidden.
-	plain := &basev0.Configuration{
+	plain := &basev1.Configuration{
 		Origin: "mod/store",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name:                "postgres",
-			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "POSTGRES_PASSWORD", Value: "hunter2", Secret: true}},
+			ConfigurationValues: []*basev1.ConfigurationValue{{Key: "POSTGRES_PASSWORD", Value: "hunter2", Secret: true}},
 		}},
 	}
 	require.NoError(t, resolution.resolveConfiguration(ctx, plain, &resources.Environment{Name: "production"}))

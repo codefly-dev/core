@@ -7,22 +7,22 @@ import (
 	"testing"
 
 	agentservices "github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
 
 type recordingBuilderClient struct {
-	builderv0.BuilderClient
-	request *builderv0.DeploymentRequest
+	builderv1.BuilderClient
+	request *builderv1.DeploymentRequest
 }
 
-func (client *recordingBuilderClient) Deploy(_ context.Context, request *builderv0.DeploymentRequest, _ ...grpc.CallOption) (*builderv0.DeploymentResponse, error) {
+func (client *recordingBuilderClient) Deploy(_ context.Context, request *builderv1.DeploymentRequest, _ ...grpc.CallOption) (*builderv1.DeploymentResponse, error) {
 	client.request = request
-	return &builderv0.DeploymentResponse{State: &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_SUCCESS}}, nil
+	return &builderv1.DeploymentResponse{State: &builderv1.DeploymentStatus{State: builderv1.DeploymentStatus_SUCCESS}}, nil
 }
 
 func accountsConsumer(endpoints ...string) *resources.Service {
@@ -50,8 +50,8 @@ func TestBuilderDeployRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 		Instance: &Instance{Workspace: twoModules(), Module: &resources.Module{Name: "platform"}, Service: accountsConsumer("usage")},
 		Builder:  &agentservices.BuilderAgent{BuilderClient: client},
 	}
-	request := &builderv0.DeploymentRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPrivate}},
+	request := &builderv1.DeploymentRequest{DependenciesNetworkMappings: []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPrivate}},
 	}}
 	_, err := instance.Deploy(context.Background(), request)
 	require.ErrorContains(t, err, `private to module "saas"`)
@@ -60,9 +60,9 @@ func TestBuilderDeployRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 
 	// The permitted sibling is handed over, and only what the dependency
 	// names.
-	request = &builderv0.DeploymentRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
+	request = &builderv1.DeploymentRequest{DependenciesNetworkMappings: []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
 	}}
 	_, err = instance.Deploy(context.Background(), request)
 	require.NoError(t, err)
@@ -97,35 +97,35 @@ func composedProduct(t *testing.T) *resources.Workspace {
 func TestInstanceHandoutsJudgeWithTheComposition(t *testing.T) {
 	ctx := context.Background()
 	product := composedProduct(t)
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
 	}
 	notes := &Instance{Workspace: product, Module: &resources.Module{Name: "notes"}, Service: accountsConsumer("usage")}
 
 	runtime := &recordingRuntimeClient{}
-	_, err := (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
+	_, err := (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev1.StartRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost, "the run hand-out refuses a solution's route")
 	require.Nil(t, runtime.request)
-	_, err = (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev0.InitRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&RuntimeInstance{Instance: notes, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev1.InitRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost)
 
 	builder := &recordingBuilderClient{}
-	_, err = (&BuilderInstance{Instance: notes, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&BuilderInstance{Instance: notes, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv1.DeploymentRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrSolutionReachesThroughHost, "the deploy hand-out refuses a solution's route")
 	require.Nil(t, builder.request)
 
 	// The same edge from a module of the host is handed over.
 	saas := &Instance{Workspace: product, Module: &resources.Module{Name: "saas"}, Service: accountsConsumer("usage")}
-	_, err = (&BuilderInstance{Instance: saas, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&BuilderInstance{Instance: saas, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv1.DeploymentRequest{DependenciesNetworkMappings: mappings})
 	require.NoError(t, err)
 	require.Len(t, builder.request.GetDependenciesNetworkMappings(), 1)
 
 	// No composition at all: refused, never answered as if the module were a
 	// module of something.
 	unjudged := &Instance{Module: &resources.Module{Name: "notes"}, Service: accountsConsumer("usage")}
-	_, err = (&RuntimeInstance{Instance: unjudged, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&RuntimeInstance{Instance: unjudged, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev1.StartRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrUnjudgedProvenance)
-	_, err = (&BuilderInstance{Instance: unjudged, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+	_, err = (&BuilderInstance{Instance: unjudged, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv1.DeploymentRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrUnjudgedProvenance)
 }
 
@@ -134,8 +134,8 @@ func TestInstanceHandoutsJudgeWithTheComposition(t *testing.T) {
 // assumption that nothing needed judging.
 func TestInstanceHandoutsRefuseAddressesTheyCannotJudge(t *testing.T) {
 	ctx := context.Background()
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
 	}
 	for name, instance := range map[string]*Instance{
 		"no module":  {Workspace: twoModules(), Service: accountsConsumer("usage")},
@@ -144,13 +144,13 @@ func TestInstanceHandoutsRefuseAddressesTheyCannotJudge(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			runtime := &recordingRuntimeClient{}
-			_, err := (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
+			_, err := (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev1.StartRequest{DependenciesNetworkMappings: mappings})
 			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "start")
 			require.Nil(t, runtime.request)
-			_, err = (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev0.InitRequest{DependenciesNetworkMappings: mappings})
+			_, err = (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev1.InitRequest{DependenciesNetworkMappings: mappings})
 			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "init")
 			builder := &recordingBuilderClient{}
-			_, err = (&BuilderInstance{Instance: instance, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+			_, err = (&BuilderInstance{Instance: instance, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv1.DeploymentRequest{DependenciesNetworkMappings: mappings})
 			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "deploy")
 			require.Nil(t, builder.request)
 		})
@@ -158,7 +158,7 @@ func TestInstanceHandoutsRefuseAddressesTheyCannotJudge(t *testing.T) {
 	// With no addresses there is nothing to judge, and the request goes
 	// through as it is.
 	builder := &recordingBuilderClient{}
-	_, err := (&BuilderInstance{Instance: &Instance{}, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{})
+	_, err := (&BuilderInstance{Instance: &Instance{}, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv1.DeploymentRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, builder.request)
 }

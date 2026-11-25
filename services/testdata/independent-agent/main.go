@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -18,11 +18,11 @@ import (
 )
 
 type server struct {
-	agentv0.UnimplementedAgentServer
+	agentv1.UnimplementedAgentServer
 }
 
-func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
-	declaration := &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}
+func (server) GetAgentInformation(context.Context, *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
+	declaration := &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}
 	switch os.Getenv("TEST_AGENT_CONTRACT") {
 	case "unimplemented":
 		return nil, status.Error(codes.Unimplemented, "agent information is unavailable")
@@ -35,7 +35,7 @@ func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequ
 	case "future-startup":
 		declaration.StartupProtocolVersion = 3
 	}
-	return &agentv0.AgentInformation{Contract: declaration}, nil
+	return &agentv1.AgentInformation{Contract: declaration}, nil
 }
 
 func main() {
@@ -58,7 +58,7 @@ func main() {
 		}
 		return handler(ctx, req)
 	}))
-	agentv0.RegisterAgentServer(rpc, server{})
+	agentv1.RegisterAgentServer(rpc, server{})
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(rpc, healthServer)

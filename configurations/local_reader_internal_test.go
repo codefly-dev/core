@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -14,7 +14,7 @@ import (
 // never consulted, so building (and ambiguity-checking) it would let an unused
 // feature fail an otherwise valid configuration load.
 func TestApplyServiceConfigurationOverridesIgnoresOriginCollisionWhenUnused(t *testing.T) {
-	confs := map[string]*basev0.Configuration{}
+	confs := map[string]*basev1.Configuration{}
 	origins := []string{"team/a-b", "team/a_b"} // both normalize to TEAM__A_B
 
 	got, err := applyServiceConfigurationOverrides(confs, origins, "")
@@ -37,7 +37,7 @@ func TestApplyServiceConfigurationOverridesRejectsOriginCollisionWhenTargeted(t 
 	}
 	origins := []string{"team/a-b", "team/a_b"} // both normalize to TEAM__A_B
 
-	_, err = applyServiceConfigurationOverrides(map[string]*basev0.Configuration{}, origins, encoded)
+	_, err = applyServiceConfigurationOverrides(map[string]*basev1.Configuration{}, origins, encoded)
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("a targeted override with colliding origins must be rejected, got %v", err)
 	}
@@ -50,17 +50,17 @@ func TestApplyServiceConfigurationOverridesRejectsOriginCollisionWhenTargeted(t 
 // whose only justification is "nothing can get here" is the guard that silently
 // stops holding when a second caller appears.
 func TestOverlayWorkspaceConfigurationOverrideRefusesADuplicateKeyOnEitherSide(t *testing.T) {
-	group := func(values ...*basev0.ConfigurationValue) *basev0.ConfigurationInformation {
-		return &basev0.ConfigurationInformation{Name: "app-config", ConfigurationValues: values}
+	group := func(values ...*basev1.ConfigurationValue) *basev1.ConfigurationInformation {
+		return &basev1.ConfigurationInformation{Name: "app-config", ConfigurationValues: values}
 	}
-	value := func(key, v string) *basev0.ConfigurationValue {
-		return &basev0.ConfigurationValue{Key: key, Value: v}
+	value := func(key, v string) *basev1.ConfigurationValue {
+		return &basev1.ConfigurationValue{Key: key, Value: v}
 	}
 
 	for _, test := range []struct {
 		name     string
-		base     *basev0.ConfigurationInformation
-		override *basev0.ConfigurationInformation
+		base     *basev1.ConfigurationInformation
+		override *basev1.ConfigurationInformation
 		expect   string
 	}{
 		{

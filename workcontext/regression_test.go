@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -31,7 +31,7 @@ func TestChild_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           30 * time.Minute,
 	})
@@ -63,21 +63,21 @@ func TestChild_DoesNotAliasTheParentsVerifiedClaims(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
-	before := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
+	before := proto.Clone(agent.Context()).(*basev1.WorkContextV1)
 
 	_, child, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
 		PrincipalID:   "a-sub",
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",
 		DelegationID:  "d-2",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 		Audience:      audience,
 		TTL:           time.Minute,
 	})
 	require.NoError(t, err)
 
 	require.NotSame(t, agent.Context().GetActorChain()[0], child.GetActorChain()[0])
-	child.GetActorChain()[0].GrantedScopes = []*basev0.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)}
+	child.GetActorChain()[0].GrantedScopes = []*basev1.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)}
 	child.GetAuthorityScopes()[0].Actions = []string{"admin"}
 
 	require.True(t, proto.Equal(before, agent.Context()),
@@ -88,7 +88,7 @@ func TestChild_DoesNotAliasTheParentsVerifiedClaims(t *testing.T) {
 // its scope buffer would otherwise rewrite the minted capability's claims.
 func TestStart_DoesNotCaptureTheCallersScopes(t *testing.T) {
 	h := newHarness(t)
-	scopes := []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})}
+	scopes := []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})}
 
 	_, wc, err := h.authority.Start(context.Background(), workcontext.StartInput{
 		InstallationID: installation,
@@ -130,7 +130,7 @@ func TestChild_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           time.Minute,
 	})
@@ -163,7 +163,7 @@ func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           time.Minute,
 	})
@@ -177,16 +177,16 @@ func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing
 // else the derived identity reads — kind, agent identity, organization —
 // hands the approved scope to a different principal.
 func TestVerify_RejectsAGrantHopThatKeepsTheIdAndChangesTheIdentity(t *testing.T) {
-	forgeries := map[string]func(*basev0.WorkActorV1){
-		"another kind":         func(hop *basev0.WorkActorV1) { hop.PrincipalKind = "human" },
-		"another agent":        func(hop *basev0.WorkActorV1) { hop.AgentId = proto.String("fixture.test/other:9.9.9") },
-		"another organization": func(hop *basev0.WorkActorV1) { hop.OrganizationId = proto.String("org-elsewhere") },
+	forgeries := map[string]func(*basev1.WorkActorV1){
+		"another kind":         func(hop *basev1.WorkActorV1) { hop.PrincipalKind = "human" },
+		"another agent":        func(hop *basev1.WorkActorV1) { hop.AgentId = proto.String("fixture.test/other:9.9.9") },
+		"another organization": func(hop *basev1.WorkActorV1) { hop.OrganizationId = proto.String("org-elsewhere") },
 	}
 	for name, forge := range forgeries {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			_, token, _ := h.elevated(t)
-			forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
+			forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev1.WorkContextV1)
 			forged.Nonce = "forged-" + name
 			forge(forged.ActorChain[len(forged.ActorChain)-1])
 
@@ -232,7 +232,7 @@ func TestVerify_AcceptsACapabilityMintedBeforeOwnerPrincipalKindExisted(t *testi
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	archived := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	archived := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	archived.OwnerPrincipalKind = nil
 	archived.Nonce = "archived"
 

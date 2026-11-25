@@ -3,7 +3,7 @@ package python
 import (
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // Real django/unittest TextTestRunner verbose output (verbosity=2): single-line
@@ -47,12 +47,12 @@ func caseByFullName(run *StructuredTestRun, full string) *StructuredCase {
 func TestParseUnittestText_States(t *testing.T) {
 	run := ParseUnittestText(djangoVerboseOutput)
 
-	want := map[string]runtimev0.TestCaseState{
-		"model_fields.test_charfield.TestCharField.test_charfield":  runtimev0.TestCaseState_TEST_CASE_STATE_PASSED,
-		"model_fields.test_charfield.TestCharField.test_max_length": runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
-		"model_fields.test_charfield.TestCharField.test_setup":      runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED,
-		"model_fields.test_charfield.TestCharField.test_skips":      runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED,
-		"auth_tests.test_views.LoginTest.test_doc":                  runtimev0.TestCaseState_TEST_CASE_STATE_PASSED,
+	want := map[string]runtimev1.TestCaseState{
+		"model_fields.test_charfield.TestCharField.test_charfield":  runtimev1.TestCaseState_TEST_CASE_STATE_PASSED,
+		"model_fields.test_charfield.TestCharField.test_max_length": runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
+		"model_fields.test_charfield.TestCharField.test_setup":      runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED,
+		"model_fields.test_charfield.TestCharField.test_skips":      runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED,
+		"auth_tests.test_views.LoginTest.test_doc":                  runtimev1.TestCaseState_TEST_CASE_STATE_PASSED,
 	}
 	for full, st := range want {
 		c := caseByFullName(run, full)
@@ -71,7 +71,7 @@ func TestParseUnittestText_States(t *testing.T) {
 		resp.Counts.Errored != 1 || resp.Counts.Skipped != 1 {
 		t.Fatalf("counts = %+v, want total5 pass2 fail1 err1 skip1", resp.Counts)
 	}
-	if resp.Result.State != runtimev0.TestRunResult_ERRORED { // errored dominates
+	if resp.Result.State != runtimev1.TestRunResult_ERRORED { // errored dominates
 		t.Errorf("run result = %v, want ERRORED", resp.Result.State)
 	}
 }
@@ -106,7 +106,7 @@ func TestCompleteSelectedUnittestCasesFromUnambiguousAggregate(t *testing.T) {
 	})
 	for _, full := range []string{"sample.Cases.test_first", "sample.Cases.test_second"} {
 		got := caseByFullName(run, full)
-		if got == nil || got.State != runtimev0.TestCaseState_TEST_CASE_STATE_PASSED {
+		if got == nil || got.State != runtimev1.TestCaseState_TEST_CASE_STATE_PASSED {
 			t.Fatalf("selected case %q = %+v, want typed pass", full, got)
 		}
 	}

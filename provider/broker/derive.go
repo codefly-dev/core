@@ -4,39 +4,39 @@ import (
 	"fmt"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/provider/responsepolicy"
 )
 
 // purposeEnum maps a manifest credential-purpose consumer to the proto enum.
-func purposeEnum(consumer string) (providerv0.CredentialPurpose, error) {
+func purposeEnum(consumer string) (providerv1.CredentialPurpose, error) {
 	switch consumer {
 	case "management":
-		return providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT, nil
+		return providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT, nil
 	case "runtime":
-		return providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, nil
+		return providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, nil
 	case "build":
-		return providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD, nil
+		return providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD, nil
 	case "webhook-verification":
-		return providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION, nil
+		return providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION, nil
 	default:
-		return providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_UNSPECIFIED, fmt.Errorf("unknown credential purpose consumer %q", consumer)
+		return providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_UNSPECIFIED, fmt.Errorf("unknown credential purpose consumer %q", consumer)
 	}
 }
 
 // classEnum maps a manifest private-network-class token to the proto enum.
-func classEnum(class urlguard.NetworkClass) providerv0.PrivateNetworkClass {
+func classEnum(class urlguard.NetworkClass) providerv1.PrivateNetworkClass {
 	switch class {
 	case urlguard.ClassLoopback:
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK
 	case urlguard.ClassLinkLocal:
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LINK_LOCAL
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LINK_LOCAL
 	case urlguard.ClassPrivate:
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PRIVATE
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PRIVATE
 	default:
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC
 	}
 }
 
@@ -120,9 +120,9 @@ func (s *Session) streamPolicyFor(descriptor manifest.RequestDescriptor) (respon
 // plannedRemoteID returns the exact remote identity the action authorizes. Path
 // parameters and ownership body fields must equal this value; a valid template
 // carrying any other id is rejected.
-func plannedRemoteID(action *providerv0.PlanAction) (string, error) {
+func plannedRemoteID(action *providerv1.PlanAction) (string, error) {
 	switch action.GetType() {
-	case providerv0.ActionType_ACTION_TYPE_CREATE, providerv0.ActionType_ACTION_TYPE_REPLACE:
+	case providerv1.ActionType_ACTION_TYPE_CREATE, providerv1.ActionType_ACTION_TYPE_REPLACE:
 		if id := action.GetProspectiveRemoteId(); id != "" {
 			return id, nil
 		}

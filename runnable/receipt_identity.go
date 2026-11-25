@@ -6,9 +6,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	receiptsv0 "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	receiptsv1 "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -27,23 +27,23 @@ var ErrReceiptConflict = errors.New("effect id holds a receipt recorded for anot
 
 // ReceiptIdentityOf is the identity a receipt records: the Work Context's
 // owner and its whole actor chain, each hop by principal and agent.
-func ReceiptIdentityOf(context *basev0.WorkContextV1) (*receiptsv0.ReceiptIdentity, error) {
+func ReceiptIdentityOf(context *basev1.WorkContextV1) (*receiptsv1.ReceiptIdentity, error) {
 	if context.GetOwnerPrincipalId() == "" {
 		return nil, fmt.Errorf("%w: a receipt is recorded under a verified Work Context, and this one names no owner", ErrInvalid)
 	}
-	identity := &receiptsv0.ReceiptIdentity{OwnerPrincipalId: context.GetOwnerPrincipalId(), OwnerAgentId: context.GetOwnerAgentId()}
+	identity := &receiptsv1.ReceiptIdentity{OwnerPrincipalId: context.GetOwnerPrincipalId(), OwnerAgentId: context.GetOwnerAgentId()}
 	for _, actor := range context.GetActorChain() {
 		if actor.GetPrincipalId() == "" {
 			return nil, fmt.Errorf("%w: an actor of the Work Context names no principal", ErrInvalid)
 		}
-		identity.Actors = append(identity.Actors, &receiptsv0.ReceiptActor{PrincipalId: actor.GetPrincipalId(), AgentId: actor.GetAgentId()})
+		identity.Actors = append(identity.Actors, &receiptsv1.ReceiptActor{PrincipalId: actor.GetPrincipalId(), AgentId: actor.GetAgentId()})
 	}
 	return identity, nil
 }
 
 // sameIdentity reports the presented context to be exactly the identity a
 // receipt recorded. A receipt recording no owner matches nobody.
-func sameIdentity(recorded *receiptsv0.ReceiptIdentity, presented *basev0.WorkContextV1) (bool, error) {
+func sameIdentity(recorded *receiptsv1.ReceiptIdentity, presented *basev1.WorkContextV1) (bool, error) {
 	if recorded.GetOwnerPrincipalId() == "" {
 		return false, nil
 	}
@@ -66,8 +66,8 @@ func sameIdentity(recorded *receiptsv0.ReceiptIdentity, presented *basev0.WorkCo
 //     effect, never more.
 //
 // Every refusal wraps ErrReceiptNotAdmitted.
-func AdmitReceiptLookup(policy *runnablev0.Operation, recorded *receiptsv0.ReceiptIdentity, presented *basev0.WorkContextV1, effective []*basev0.WorkScopeV1) error {
-	if policy.GetRecovery() == basev0.RunnableExecution_RECOVERY_RECOMPUTE {
+func AdmitReceiptLookup(policy *runnablev1.Operation, recorded *receiptsv1.ReceiptIdentity, presented *basev1.WorkContextV1, effective []*basev1.WorkScopeV1) error {
+	if policy.GetRecovery() == basev1.RunnableExecution_RECOVERY_RECOMPUTE {
 		return fmt.Errorf("%w: the operation is recomputed and keeps no receipt", ErrReceiptNotAdmitted)
 	}
 	same, err := sameIdentity(recorded, presented)
@@ -97,7 +97,7 @@ func AdmitReceiptLookup(policy *runnablev0.Operation, recorded *receiptsv0.Recei
 // may be replayed only to the identity it was recorded for. Any other caller
 // is refused with ErrReceiptConflict, which carries no content — its effect
 // does not run, and it is never answered with another caller's response.
-func AdmitReceiptReplay(recorded *receiptsv0.ReceiptIdentity, presented *basev0.WorkContextV1) error {
+func AdmitReceiptReplay(recorded *receiptsv1.ReceiptIdentity, presented *basev1.WorkContextV1) error {
 	same, err := sameIdentity(recorded, presented)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrReceiptConflict, err)

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/codefly-dev/core/agents"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 )
 
 // server implements a single Solution RPC returning a sentinel so the
@@ -12,12 +12,12 @@ import (
 // to this handler" from gRPC's Unimplemented (which the embedded
 // UnimplementedSolutionServer would also return for an unregistered service).
 type server struct {
-	solutionv0.UnimplementedSolutionServer
+	solutionv1.UnimplementedSolutionServer
 }
 
-func (server) GetSolutionInformation(context.Context, *solutionv0.GetSolutionInformationRequest) (*solutionv0.GetSolutionInformationResponse, error) {
-	return &solutionv0.GetSolutionInformationResponse{
-		Artifact: &solutionv0.SolutionArtifact{Name: "solution-fixture"},
+func (server) GetSolutionInformation(context.Context, *solutionv1.GetSolutionInformationRequest) (*solutionv1.GetSolutionInformationResponse, error) {
+	return &solutionv1.GetSolutionInformationResponse{
+		Artifact: &solutionv1.SolutionArtifact{Name: "solution-fixture"},
 	}, nil
 }
 

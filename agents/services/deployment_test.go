@@ -11,8 +11,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
@@ -29,7 +29,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	require.NoError(t, err)
 
 	manager := resources.NewEnvironmentVariableManager()
-	manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+	manager.SetIdentity(&basev1.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
 	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
 	base := &Base{
 		Wool:                 wool.Get(ctx),
@@ -49,20 +49,20 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	base.Builder = builder
 
 	destination := t.TempDir()
-	req := &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	req := &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test", Fixture: "dev-admin"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 		Configuration: configuration("module/service", "application", "PLAIN", "value", false),
-		DependenciesConfigurations: []*basev0.Configuration{
+		DependenciesConfigurations: []*basev1.Configuration{
 			configuration("module/database", "database", "PASSWORD", "dependency-secret", true),
 		},
-		DependenciesNetworkMappings: []*basev0.NetworkMapping{
+		DependenciesNetworkMappings: []*basev1.NetworkMapping{
 			dependencyMapping("saas", "accounts", "grpc", "grpc", 9090, resources.VisibilityPrivate),
 			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityPublic),
 		},
@@ -88,11 +88,11 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	require.Equal(t, "module/service", response.GetConfiguration().GetOrigin())
-	require.Equal(t, builderv0.KubernetesDeploymentOutput_KUSTOMIZE, response.GetDeployment().GetKubernetes().GetKind())
+	require.Equal(t, builderv1.KubernetesDeploymentOutput_KUSTOMIZE, response.GetDeployment().GetKubernetes().GetKind())
 	require.Equal(t, KubernetesManifestContractVersion, response.GetDeployment().GetKubernetes().GetContractVersion())
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, response.GetDeployment().GetKubernetes().GetValidation().GetStaticValidation())
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_PASSED, response.GetDeployment().GetKubernetes().GetValidation().GetStaticValidation())
 	require.False(t, response.GetDeployment().GetKubernetes().GetValidation().GetRestricted())
 
 	configMapManifest, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml"))
@@ -130,12 +130,12 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	require.Contains(t, string(deploymentManifest), `codefly.dev/test-parameter: "prepared"`)
 }
 
-func dependencyMapping(module, service, name, api string, port uint16, visibility resources.Visibility) *basev0.NetworkMapping {
+func dependencyMapping(module, service, name, api string, port uint16, visibility resources.Visibility) *basev1.NetworkMapping {
 	instance := resources.NewNetworkInstance(service, port)
 	instance.Access = resources.NewContainerNetworkAccess()
-	return &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api, Visibility: visibility, Exposure: exposureFor(visibility)},
-		Instances: []*basev0.NetworkInstance{instance},
+	return &basev1.NetworkMapping{
+		Endpoint:  &basev1.Endpoint{Module: module, Service: service, Name: name, Api: api, Visibility: visibility, Exposure: exposureFor(visibility)},
+		Instances: []*basev1.NetworkInstance{instance},
 	}
 }
 
@@ -160,13 +160,13 @@ func TestDeployKustomizeRejectsSecretBytesForRestricted(t *testing.T) {
 	base.Builder = builder
 	destination := t.TempDir()
 
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 		Configuration: configuration("module/service", "application", "TOKEN", "must-not-render", true),
@@ -176,19 +176,19 @@ func TestDeployKustomizeRejectsSecretBytesForRestricted(t *testing.T) {
 		Inputs:               DeploymentInputs{OwnConfiguration: true},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret value")
 	entries, err := os.ReadDir(destination)
 	require.NoError(t, err)
 	require.Empty(t, entries)
 
-	response, err = builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err = builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -200,7 +200,7 @@ func TestDeployKustomizeRejectsSecretBytesForRestricted(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret values")
 }
 
@@ -226,20 +226,20 @@ func TestDeployKustomizeRejectsSecretConfigurationDataForRestricted(t *testing.T
 	destination := t.TempDir()
 	prepareCalled := false
 
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
-		Configuration: &basev0.Configuration{
+		Configuration: &basev1.Configuration{
 			Origin: "module/service",
-			Infos: []*basev0.ConfigurationInformation{{
+			Infos: []*basev1.ConfigurationInformation{{
 				Name: "credentials",
-				Data: &basev0.ConfigurationData{
+				Data: &basev1.ConfigurationData{
 					Kind:    "yaml",
 					Content: []byte("password: must-not-render"),
 					Secret:  true,
@@ -256,7 +256,7 @@ func TestDeployKustomizeRejectsSecretConfigurationDataForRestricted(t *testing.T
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "cannot receive secret data")
 	require.False(t, prepareCalled)
 	entries, err := os.ReadDir(destination)
@@ -285,14 +285,14 @@ func TestDeployKustomizeRendersRestrictedSecretFreeTreeWithoutClusterAccess(t *t
 	base.Builder = builder
 	destination := t.TempDir()
 
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{
 					"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"},
 				},
 			},
@@ -308,11 +308,11 @@ func TestDeployKustomizeRendersRestrictedSecretFreeTreeWithoutClusterAccess(t *t
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	output := response.GetDeployment().GetKubernetes()
-	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_NOT_RUN, output.GetValidation().GetServerSideValidation())
+	require.Equal(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_NOT_RUN, output.GetValidation().GetServerSideValidation())
 	require.True(t, output.GetValidation().GetRestricted())
 	_, err = os.Stat(filepath.Join(destination, "base", "secret.yaml"))
 	require.True(t, os.IsNotExist(err), "restricted render must omit the empty secret manifest, not leave an empty stub")
@@ -389,7 +389,7 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 	manager := resources.NewEnvironmentVariableManager()
-	manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+	manager.SetIdentity(&basev1.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
 	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
 	base := &Base{
 		Wool:                 wool.Get(ctx),
@@ -405,13 +405,13 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 	builder := &BuilderWrapper{Base: base}
 	base.Builder = builder
 
-	ephemeralResponse, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	ephemeralResponse, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 		Configuration: configuration("module/service", "application", "TOKEN", "ephemeral-only", true),
@@ -422,17 +422,17 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 		Parameters:           struct{ Name string }{Name: "ephemeral"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, ephemeralResponse.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, ephemeralResponse.GetState().GetState())
 
 	gitOpsDestination := t.TempDir()
-	gitOpsResponse, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	gitOpsResponse, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: gitOpsDestination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{
 					"TOKEN": {Name: "service-secrets", Key: "token"},
 				},
 			},
@@ -443,7 +443,7 @@ func TestDeployKustomizeDoesNotRetainSecretsBetweenRequests(t *testing.T) {
 		Parameters:           struct{ Name string }{Name: "gitops"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, gitOpsResponse.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, gitOpsResponse.GetState().GetState())
 	require.NotContains(t, gitOpsResponse.GetState().GetMessage(), "cannot receive secret values")
 	_, err = os.Stat(filepath.Join(gitOpsDestination, "base", "secret.yaml"))
 	require.True(t, os.IsNotExist(err), "restricted render must omit the empty secret manifest, not leave an empty stub")
@@ -467,7 +467,7 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 	base.Builder = builder
 
 	type deploymentResult struct {
-		response *builderv0.DeploymentResponse
+		response *builderv1.DeploymentResponse
 		err      error
 	}
 	ephemeralEntered := make(chan struct{})
@@ -480,13 +480,13 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 	gitOpsDestination := t.TempDir()
 
 	go func() {
-		response, deployErr := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-			Environment: &basev0.Environment{Name: "test"},
-			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-				Kubernetes: &builderv0.KubernetesDeployment{
+		response, deployErr := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+			Environment: &basev1.Environment{Name: "test"},
+			Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+				Kubernetes: &builderv1.KubernetesDeployment{
 					Namespace:   "codefly",
 					Destination: ephemeralDestination,
-					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+					Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 				},
 			}},
 		}, KustomizeDeployment{
@@ -504,14 +504,14 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 	<-ephemeralEntered
 
 	go func() {
-		response, deployErr := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-			Environment: &basev0.Environment{Name: "test"},
-			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-				Kubernetes: &builderv0.KubernetesDeployment{
+		response, deployErr := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+			Environment: &basev1.Environment{Name: "test"},
+			Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+				Kubernetes: &builderv1.KubernetesDeployment{
 					Namespace:   "codefly",
 					Destination: gitOpsDestination,
-					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-					BuildContext: &builderv0.DockerBuildContext{
+					Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+					BuildContext: &builderv1.DockerBuildContext{
 						ImageDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					},
 				},
@@ -537,12 +537,12 @@ func TestDeployKustomizeKeepsConcurrentOutputsRequestScoped(t *testing.T) {
 
 	require.NoError(t, ephemeral.err)
 	require.Equal(t,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 		ephemeral.response.GetDeployment().GetKubernetes().GetProfile(),
 	)
 	require.NoError(t, gitOps.err)
 	require.Equal(t,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 		gitOps.response.GetDeployment().GetKubernetes().GetProfile(),
 	)
 }
@@ -554,13 +554,13 @@ func TestDeployKustomizeRequiresExplicitOutputProfile(t *testing.T) {
 	manager := resources.NewEnvironmentVariableManager()
 	builder := &BuilderWrapper{Base: &Base{Wool: wool.Get(ctx), loaded: true}}
 
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{Destination: t.TempDir()},
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{Destination: t.TempDir()},
 		}},
 	}, KustomizeDeployment{EnvironmentVariables: manager, Templates: templates})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "output profile is required")
 }
 
@@ -576,31 +576,31 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 	require.NoError(t, err)
 
 	// The number survives the wire decoder.
-	encoded, err := proto.Marshal(&builderv0.KubernetesDeployment{
-		Namespace: "codefly", Profile: builderv0.KubernetesOutputProfile(2),
+	encoded, err := proto.Marshal(&builderv1.KubernetesDeployment{
+		Namespace: "codefly", Profile: builderv1.KubernetesOutputProfile(2),
 	})
 	require.NoError(t, err)
-	var decoded builderv0.KubernetesDeployment
+	var decoded builderv1.KubernetesDeployment
 	require.NoError(t, proto.Unmarshal(encoded, &decoded))
-	require.Equal(t, builderv0.KubernetesOutputProfile(2), decoded.GetProfile())
+	require.Equal(t, builderv1.KubernetesOutputProfile(2), decoded.GetProfile())
 
 	// It survives the JSON decoder too, where only the deleted NAME is refused.
-	var fromJSON builderv0.KubernetesDeployment
+	var fromJSON builderv1.KubernetesDeployment
 	require.NoError(t, protojson.Unmarshal([]byte(`{"namespace":"codefly","profile":2}`), &fromJSON))
-	require.Equal(t, builderv0.KubernetesOutputProfile(2), fromJSON.GetProfile())
-	require.Error(t, protojson.Unmarshal([]byte(`{"profile":"KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1"}`), &builderv0.KubernetesDeployment{}))
+	require.Equal(t, builderv1.KubernetesOutputProfile(2), fromJSON.GetProfile())
+	require.Error(t, protojson.Unmarshal([]byte(`{"profile":"KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1"}`), &builderv1.KubernetesDeployment{}))
 
 	builder, manager := restrictedDeployBuilder(ctx, t)
 	secrets := DeploymentParameters{
 		ConfigMap: EnvironmentMap{"PLAIN": "value"},
 		SecretMap: EnvironmentMap{"TOKEN": "c2VjcmV0"},
 	}
-	for _, profile := range []builderv0.KubernetesOutputProfile{2, 7} {
+	for _, profile := range []builderv1.KubernetesOutputProfile{2, 7} {
 		// The direct renderer: refused by the judgement, nothing written.
 		destination := t.TempDir()
 		decoded.Destination = destination
 		decoded.Profile = profile
-		err = builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &decoded, templates, secrets)
+		err = builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, &decoded, templates, secrets)
 		require.ErrorIs(t, err, ErrOutputProfileUnknown, "profile %d", profile)
 		entries, readErr := os.ReadDir(destination)
 		require.NoError(t, readErr)
@@ -608,7 +608,7 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 
 		// The write itself, handed a base that claims an unrestricted render:
 		// refused before the destination is emptied.
-		base, baseErr := builder.CreateKubernetesBase(ctx, &basev0.Environment{Name: "test"}, "codefly", nil)
+		base, baseErr := builder.CreateKubernetesBase(ctx, &basev1.Environment{Name: "test"}, "codefly", nil)
 		require.NoError(t, baseErr)
 		base.Profile, base.Restricted = profile, false
 		marker := filepath.Join(destination, "untouched")
@@ -621,10 +621,10 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 		// The request pre-flight a plugin's own Deploy runs: refused by the
 		// same judgement, before any input is collected.
 		destination = t.TempDir()
-		request := &builderv0.DeploymentRequest{
-			Environment: &basev0.Environment{Name: "test"},
-			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-				Kubernetes: &builderv0.KubernetesDeployment{Namespace: "codefly", Destination: destination, Profile: profile},
+		request := &builderv1.DeploymentRequest{
+			Environment: &basev1.Environment{Name: "test"},
+			Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+				Kubernetes: &builderv1.KubernetesDeployment{Namespace: "codefly", Destination: destination, Profile: profile},
 			}},
 		}
 		_, err = builder.KubernetesDeploymentRequest(ctx, request)
@@ -634,7 +634,7 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 		response, deployErr := builder.DeployKustomize(ctx, request,
 			KustomizeDeployment{EnvironmentVariables: manager, Templates: templates, Parameters: struct{ Name string }{Name: "deleted"}})
 		require.NoError(t, deployErr)
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), "output profile")
 		require.Contains(t, response.GetState().GetMessage(), "not one this contract defines")
 		entries, readErr = os.ReadDir(destination)
@@ -644,21 +644,21 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 
 	// The judgement of a rendered tree and its bundle refuse the number too,
 	// rather than describing the tree as an unrestricted render.
-	validation := ValidateKubernetesManifestTree(ctx, t.TempDir(), "test", "codefly", builderv0.KubernetesOutputProfile(2), false, "", "")
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_FAILED, validation.GetStaticValidation())
+	validation := ValidateKubernetesManifestTree(ctx, t.TempDir(), "test", "codefly", builderv1.KubernetesOutputProfile(2), false, "", "")
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_FAILED, validation.GetStaticValidation())
 	require.False(t, validation.GetRestricted())
 	require.Len(t, validation.GetViolations(), 1)
 	require.Contains(t, validation.GetViolations()[0], "unsupported Kubernetes output profile")
 	require.Contains(t, validation.GetViolations()[0], "number 2 names a value the schema deleted")
-	_, err = BuildKubernetesManifestBundle(t.TempDir(), "test", builderv0.KubernetesOutputProfile(2), validation, nil)
+	_, err = BuildKubernetesManifestBundle(t.TempDir(), "test", builderv1.KubernetesOutputProfile(2), validation, nil)
 	require.ErrorIs(t, err, ErrOutputProfileUnknown)
 
 	// A base that disagrees with a VALID request's profile is refused the same
 	// way: the write holds the judgement, not the caller's assembly.
 	destination := t.TempDir()
-	valid := &builderv0.KubernetesDeployment{Namespace: "codefly", Destination: destination,
-		Profile: builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1}
-	base, err := builder.CreateKubernetesBase(ctx, &basev0.Environment{Name: "test"}, "codefly", nil)
+	valid := &builderv1.KubernetesDeployment{Namespace: "codefly", Destination: destination,
+		Profile: builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1}
+	base, err := builder.CreateKubernetesBase(ctx, &basev1.Environment{Name: "test"}, "codefly", nil)
 	require.NoError(t, err)
 	base.Profile, base.Restricted = valid.GetProfile(), false
 	err = builder.GenerateGenericKustomize(ctx, templates, valid, base, secrets)
@@ -688,18 +688,18 @@ func TestKustomizeDeployJudgesTheProfileBeforeBuildingTheBase(t *testing.T) {
 		return "sha256:" + strings.Repeat("b", 64), nil
 	}
 
-	err = builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &builderv0.KubernetesDeployment{
-		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv0.KubernetesOutputProfile(2),
+	err = builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, &builderv1.KubernetesDeployment{
+		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv1.KubernetesOutputProfile(2),
 	}, templates, DeploymentParameters{ConfigMap: EnvironmentMap{"PLAIN": "value"}, Parameters: struct{ Name string }{Name: "judged"}})
 	require.ErrorIs(t, err, ErrOutputProfileUnknown)
 	require.Equal(t, 0, resolved, "a refused profile must stop the render before the base is built")
 
 	// The same hook is on the path of a render that is judged fit.
-	require.NoError(t, builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &builderv0.KubernetesDeployment{
-		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}},
+	require.NoError(t, builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, &builderv1.KubernetesDeployment{
+		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}},
 	}, templates, DeploymentParameters{ConfigMap: EnvironmentMap{"PLAIN": "value"}, Parameters: struct{ Name string }{Name: "judged"},
-		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}}}))
+		SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}}}))
 	require.Equal(t, 1, resolved)
 }
 
@@ -731,22 +731,22 @@ func TestDeployKustomizeReturnsValidationEvidenceOnFailure(t *testing.T) {
 		},
 	}
 
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			},
 		}},
 	}, KustomizeDeployment{EnvironmentVariables: manager, Templates: templates})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	output := response.GetDeployment().GetKubernetes()
 	require.Equal(t, KubernetesManifestContractVersion, output.GetContractVersion())
-	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_FAILED, output.GetValidation().GetStaticValidation())
+	require.Equal(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, output.GetProfile())
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_FAILED, output.GetValidation().GetStaticValidation())
 	require.Contains(t, strings.Join(output.GetValidation().GetViolations(), "\n"), "emits a Secret resource")
 	require.Contains(t, response.GetState().GetMessage(), "emits a Secret resource")
 	require.Nil(t, output.GetBundle(), "a failed deployment must not emit a deliverable manifest bundle")
@@ -756,7 +756,7 @@ func TestDeployKustomizeRejectsMissingDependencies(t *testing.T) {
 	builder := &BuilderWrapper{}
 	response, err := builder.DeployKustomize(context.Background(), nil, KustomizeDeployment{})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "environment variable manager")
 }
 
@@ -777,13 +777,13 @@ func TestDeployKustomizeDoesNotReuseOutputOnEarlyError(t *testing.T) {
 	builder := &BuilderWrapper{Base: base}
 	base.Builder = builder
 
-	success, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	success, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -792,12 +792,12 @@ func TestDeployKustomizeDoesNotReuseOutputOnEarlyError(t *testing.T) {
 		Parameters:           struct{ Name string }{Name: "ephemeral"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, success.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, success.GetState().GetState())
 	require.NotNil(t, success.GetDeployment())
 
 	failure, err := builder.DeployKustomize(ctx, nil, KustomizeDeployment{EnvironmentVariables: manager})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, failure.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, failure.GetState().GetState())
 	require.Contains(t, failure.GetState().GetMessage(), "requires templates")
 	require.Nil(t, failure.GetDeployment())
 }
@@ -830,19 +830,19 @@ func restrictedDeployBuilder(ctx context.Context, t *testing.T) (*BuilderWrapper
 	return builder, manager
 }
 
-func renderRestricted(ctx context.Context, t *testing.T, profile builderv0.KubernetesOutputProfile) *builderv0.KubernetesDeploymentOutput {
+func renderRestricted(ctx context.Context, t *testing.T, profile builderv1.KubernetesOutputProfile) *builderv1.KubernetesDeploymentOutput {
 	t.Helper()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 	builder, manager := restrictedDeployBuilder(ctx, t)
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
 				Profile:     profile,
-				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+				SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{
 					"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"},
 				},
 			},
@@ -853,17 +853,17 @@ func renderRestricted(ctx context.Context, t *testing.T, profile builderv0.Kuber
 		Parameters:           struct{ Name string }{Name: "restricted"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	return response.GetDeployment().GetKubernetes()
 }
 
 func TestDeployKustomizeEmitsDeterministicManifestBundle(t *testing.T) {
 	ctx := context.Background()
-	output := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	output := renderRestricted(ctx, t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
 	bundle := output.GetBundle()
 	require.NotNil(t, bundle)
-	require.Equal(t, builderv0.KubernetesDeploymentOutput_KUSTOMIZE, bundle.GetFormat())
-	require.Equal(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, bundle.GetProfile())
+	require.Equal(t, builderv1.KubernetesDeploymentOutput_KUSTOMIZE, bundle.GetFormat())
+	require.Equal(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, bundle.GetProfile())
 	require.Equal(t, KubernetesManifestContractVersion, bundle.GetContractVersion())
 	require.Equal(t, []string{"overlays/test"}, bundle.GetEntryPoints())
 	require.NotEmpty(t, bundle.GetFiles())
@@ -883,16 +883,16 @@ func TestDeployKustomizeEmitsDeterministicManifestBundle(t *testing.T) {
 	// The same inputs rendered into a different destination yield an identical
 	// bundle digest: the bundle is a deterministic function of the inputs, not
 	// of the caller-supplied destination path.
-	again := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	again := renderRestricted(ctx, t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
 	require.Equal(t, bundle.GetDigest(), again.GetBundle().GetDigest())
 }
 
-func configuration(origin, name, key, value string, secret bool) *basev0.Configuration {
-	return &basev0.Configuration{
+func configuration(origin, name, key, value string, secret bool) *basev1.Configuration {
+	return &basev1.Configuration{
 		Origin: origin,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: name,
-			ConfigurationValues: []*basev0.ConfigurationValue{{
+			ConfigurationValues: []*basev1.ConfigurationValue{{
 				Key: key, Value: value, Secret: secret,
 			}},
 		}},
@@ -906,10 +906,10 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 
-	deploy := func(t *testing.T, location string, provenance *builderv0.CompositionProvenance, mappings ...*basev0.NetworkMapping) (*builderv0.DeploymentResponse, string) {
+	deploy := func(t *testing.T, location string, provenance *builderv1.CompositionProvenance, mappings ...*basev1.NetworkMapping) (*builderv1.DeploymentResponse, string) {
 		t.Helper()
 		manager := resources.NewEnvironmentVariableManager()
-		manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+		manager.SetIdentity(&basev1.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
 		identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
 		base := &Base{
 			Wool:                 wool.Get(ctx),
@@ -929,13 +929,13 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 		builder := &BuilderWrapper{Base: base}
 		base.Builder = builder
 		destination := t.TempDir()
-		req := &builderv0.DeploymentRequest{
-			Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
-			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-				Kubernetes: &builderv0.KubernetesDeployment{
+		req := &builderv1.DeploymentRequest{
+			Environment: &basev1.Environment{Name: "test", Fixture: "dev-admin"},
+			Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+				Kubernetes: &builderv1.KubernetesDeployment{
 					Namespace:   "codefly",
 					Destination: destination,
-					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+					Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 				},
 			}},
 			DependenciesNetworkMappings: mappings,
@@ -944,7 +944,7 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 		// Exercise the real wire representation, including present-empty provenance.
 		wire, err := proto.Marshal(req)
 		require.NoError(t, err)
-		req = &builderv0.DeploymentRequest{}
+		req = &builderv1.DeploymentRequest{}
 		require.NoError(t, proto.Unmarshal(wire, req))
 		response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
 			EnvironmentVariables: manager,
@@ -959,37 +959,37 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 		}
 		return response, manifest
 	}
-	usage := func(visibility string) *basev0.NetworkMapping {
+	usage := func(visibility string) *basev1.NetworkMapping {
 		return dependencyMapping("saas", "accounts", "usage", "grpc", 19090, visibility)
 	}
 
 	t.Run("a private endpoint of another module is refused", func(t *testing.T) {
 		response, _ := deploy(t, agentWorkspace(t, "module", "saas"), nil, usage(resources.VisibilityPrivate))
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), `private to module "saas"`)
 	})
 	t.Run("a permitted endpoint is wired, and only what the dependency names", func(t *testing.T) {
 		response, manifest := deploy(t, agentWorkspace(t, "module", "saas"), nil,
 			usage(resources.VisibilityInternal),
 			dependencyMapping("saas", "accounts", "admin", "grpc", 19091, resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 		require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`)
 		require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__ADMIN__GRPC")
 	})
 	t.Run("a solution's route to a module is refused", func(t *testing.T) {
 		response, _ := deploy(t, solutionWorkspace(t), nil, usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
 	})
 	t.Run("an agent loaded outside any workspace refuses the addresses as unjudged", func(t *testing.T) {
 		response, _ := deploy(t, t.TempDir(), nil, usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
 	})
-	provenance := func() *builderv0.CompositionProvenance {
-		return &builderv0.CompositionProvenance{Members: []*builderv0.CompositionMember{
-			{Name: "module", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "product"},
-			{Name: "saas", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "platform-base"},
+	provenance := func() *builderv1.CompositionProvenance {
+		return &builderv1.CompositionProvenance{Members: []*builderv1.CompositionMember{
+			{Name: "module", Role: builderv1.CompositionMember_ROLE_MODULE, Workspace: "product"},
+			{Name: "saas", Role: builderv1.CompositionMember_ROLE_MODULE, Workspace: "platform-base"},
 		}}
 	}
 	t.Run("request composed name passes where repo-local name refuses", func(t *testing.T) {
@@ -1003,50 +1003,50 @@ func TestDeployKustomizeJudgesComposition(t *testing.T) {
 		require.False(t, composed)
 
 		response, _ := deploy(t, location, nil, usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
 
 		response, manifest := deploy(t, location, provenance(), usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 		require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`)
 	})
 	t.Run("request needs no workspace above the service", func(t *testing.T) {
 		response, _ := deploy(t, t.TempDir(), provenance(), usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	})
 	t.Run("request solution role refuses what the dev workspace admits", func(t *testing.T) {
 		location := agentWorkspace(t, "module", "saas")
 		response, _ := deploy(t, location, nil, usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 		supplied := provenance()
-		supplied.Members[0].Role = builderv0.CompositionMember_ROLE_SOLUTION
+		supplied.Members[0].Role = builderv1.CompositionMember_ROLE_SOLUTION
 		response, _ = deploy(t, location, supplied, usage(resources.VisibilityInternal))
-		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
 		require.Contains(t, response.GetState().GetMessage(), `solution "module" (of workspace "product")`)
 		require.Contains(t, response.GetState().GetMessage(), `module "saas" (of workspace "platform-base")`)
 	})
 	for _, tc := range []struct {
 		name   string
-		change func(*builderv0.CompositionProvenance)
+		change func(*builderv1.CompositionProvenance)
 	}{
-		{"empty", func(p *builderv0.CompositionProvenance) { p.Members = nil }},
-		{"missing producer", func(p *builderv0.CompositionProvenance) { p.Members = p.Members[:1] }},
-		{"missing consumer", func(p *builderv0.CompositionProvenance) { p.Members = p.Members[1:] }},
-		{"duplicate", func(p *builderv0.CompositionProvenance) { p.Members = append(p.Members, p.Members[0]) }},
-		{"empty name", func(p *builderv0.CompositionProvenance) { p.Members[0].Name = "" }},
-		{"empty owner", func(p *builderv0.CompositionProvenance) { p.Members[0].Workspace = "" }},
-		{"unspecified role", func(p *builderv0.CompositionProvenance) {
-			p.Members[0].Role = builderv0.CompositionMember_ROLE_UNSPECIFIED
+		{"empty", func(p *builderv1.CompositionProvenance) { p.Members = nil }},
+		{"missing producer", func(p *builderv1.CompositionProvenance) { p.Members = p.Members[:1] }},
+		{"missing consumer", func(p *builderv1.CompositionProvenance) { p.Members = p.Members[1:] }},
+		{"duplicate", func(p *builderv1.CompositionProvenance) { p.Members = append(p.Members, p.Members[0]) }},
+		{"empty name", func(p *builderv1.CompositionProvenance) { p.Members[0].Name = "" }},
+		{"empty owner", func(p *builderv1.CompositionProvenance) { p.Members[0].Workspace = "" }},
+		{"unspecified role", func(p *builderv1.CompositionProvenance) {
+			p.Members[0].Role = builderv1.CompositionMember_ROLE_UNSPECIFIED
 		}},
-		{"unknown role", func(p *builderv0.CompositionProvenance) { p.Members[0].Role = builderv0.CompositionMember_Role(99) }},
-		{"nil member", func(p *builderv0.CompositionProvenance) { p.Members = append(p.Members, nil) }},
+		{"unknown role", func(p *builderv1.CompositionProvenance) { p.Members[0].Role = builderv1.CompositionMember_Role(99) }},
+		{"nil member", func(p *builderv1.CompositionProvenance) { p.Members = append(p.Members, nil) }},
 	} {
 		t.Run("request never falls back/"+tc.name, func(t *testing.T) {
 			supplied := provenance()
 			tc.change(supplied)
 			response, _ := deploy(t, agentWorkspace(t, "module", "saas"), supplied, usage(resources.VisibilityInternal))
-			require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+			require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 			require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
 		})
 	}

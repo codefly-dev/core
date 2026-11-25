@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Environment is the runtime configuration context shared with agents.
@@ -57,13 +57,13 @@ type EnvironmentSecretProvider struct {
 	Account string `yaml:"account,omitempty"`
 }
 
-func (env *Environment) Proto() (*basev0.Environment, error) {
+func (env *Environment) Proto() (*basev1.Environment, error) {
 	if env.ConfigurationProfile != "" || len(env.ConfigurationProfiles) > 0 {
 		if _, err := env.ConfigurationProfileNames(); err != nil {
 			return nil, err
 		}
 	}
-	proto := &basev0.Environment{
+	proto := &basev1.Environment{
 		Name:        env.Name,
 		Description: env.Description,
 		NamingScope: env.NamingScope,
@@ -134,7 +134,7 @@ func (env *Environment) Local() bool {
 	return strings.HasPrefix(env.Name, "local")
 }
 
-func EnvironmentFromProto(env *basev0.Environment) *Environment {
+func EnvironmentFromProto(env *basev1.Environment) *Environment {
 	return &Environment{
 		Name:        env.Name,
 		Description: env.Description,

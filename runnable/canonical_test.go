@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -33,41 +33,41 @@ const (
 // The image reference and one command argument carry `&`, `<` and `>` so the
 // golden pins how they are emitted. Go's encoding/json would escape them to
 // \uXXXX, which nothing outside Go reproduces.
-func canonicalFixture() *basev0.RunnablePackage {
-	return &basev0.RunnablePackage{
+func canonicalFixture() *basev1.RunnablePackage {
+	return &basev1.RunnablePackage{
 		Schema:   runnable.PackageSchemaV1,
-		Identity: &basev0.RunnableIdentity{Name: "word-count", Module: "with-runnables", Workspace: "qualification", Version: "0.1.0"},
-		Agent:    &basev0.Agent{Kind: basev0.Agent_RUNNABLE, Name: "python", Publisher: "codefly.dev", Version: "0.0.1"},
-		Contract: &basev0.RunnableContract{
+		Identity: &basev1.RunnableIdentity{Name: "word-count", Module: "with-runnables", Workspace: "qualification", Version: "0.1.0"},
+		Agent:    &basev1.Agent{Kind: basev1.Agent_RUNNABLE, Name: "python", Publisher: "codefly.dev", Version: "0.0.1"},
+		Contract: &basev1.RunnableContract{
 			Protocol: runnable.ServedProtocolV1,
-			Input: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "text", Type: basev0.RunnableField_STRING},
-				{Name: "options", Type: basev0.RunnableField_OBJECT, Optional: true, Fields: []*basev0.RunnableField{
-					{Name: "case_sensitive", Type: basev0.RunnableField_BOOLEAN},
-					{Name: "stop_words", Type: basev0.RunnableField_ARRAY, Nullable: true, Items: &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
+			Input: &basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+				{Name: "text", Type: basev1.RunnableField_STRING},
+				{Name: "options", Type: basev1.RunnableField_OBJECT, Optional: true, Fields: []*basev1.RunnableField{
+					{Name: "case_sensitive", Type: basev1.RunnableField_BOOLEAN},
+					{Name: "stop_words", Type: basev1.RunnableField_ARRAY, Nullable: true, Items: &basev1.RunnableField{Type: basev1.RunnableField_STRING}},
 				}},
 			}},
-			Output: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "count", Type: basev0.RunnableField_INTEGER},
-				{Name: "longest", Type: basev0.RunnableField_STRING, Nullable: true},
+			Output: &basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+				{Name: "count", Type: basev1.RunnableField_INTEGER},
+				{Name: "longest", Type: basev1.RunnableField_STRING, Nullable: true},
 			}},
 		},
-		Execution: &basev0.RunnableExecution{
-			Facilities: []*basev0.RunnableFacility{
-				{Kind: basev0.RunnableFacility_KUBERNETES},
-				{Kind: basev0.RunnableFacility_GENERATED_SERVICE},
+		Execution: &basev1.RunnableExecution{
+			Facilities: []*basev1.RunnableFacility{
+				{Kind: basev1.RunnableFacility_KUBERNETES},
+				{Kind: basev1.RunnableFacility_GENERATED_SERVICE},
 			},
 			Timeout:        durationpb.New(2 * time.Minute),
-			Cancellation:   basev0.RunnableExecution_CANCELLATION_SIGNAL,
-			Recovery:       basev0.RunnableExecution_RECOVERY_RECOMPUTE,
-			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+			Cancellation:   basev1.RunnableExecution_CANCELLATION_SIGNAL,
+			Recovery:       basev1.RunnableExecution_RECOVERY_RECOMPUTE,
+			Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 			MaxInputBytes:  65536,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 			MaxLogBytes:    resources.DefaultRunnableLogBytes,
 		},
-		Build: &basev0.RunnableBuild{
-			Handler: &basev0.RunnableInputDigest{Path: "handler.py", Digest: fixtureDigestA},
-			Inputs: []*basev0.RunnableInputDigest{
+		Build: &basev1.RunnableBuild{
+			Handler: &basev1.RunnableInputDigest{Path: "handler.py", Digest: fixtureDigestA},
+			Inputs: []*basev1.RunnableInputDigest{
 				{Path: "uv.lock", Digest: fixtureDigestB},
 				{Path: "pyproject.toml", Digest: fixtureDigestC},
 			},
@@ -75,27 +75,27 @@ func canonicalFixture() *basev0.RunnablePackage {
 			Toolchain:           "python-3.12.4",
 			ConfigurationDigest: fixtureDigestB,
 		},
-		Artifacts: []*basev0.RunnableArtifact{
+		Artifacts: []*basev1.RunnableArtifact{
 			{
-				Kind:      basev0.RunnableArtifact_IMAGE,
+				Kind:      basev1.RunnableArtifact_IMAGE,
 				Platform:  "linux/amd64",
 				Reference: "ghcr.io/example/word-count:0.1.0?tag=a&arch=<amd64>@" + fixtureDigestB,
 				Digest:    fixtureDigestB,
 			},
 			{
-				Kind:      basev0.RunnableArtifact_ARCHIVE,
+				Kind:      basev1.RunnableArtifact_ARCHIVE,
 				Platform:  "darwin/arm64",
 				Reference: "word-count-0.1.0-darwin-arm64.tar.gz",
 				Digest:    fixtureDigestA,
 				Command:   []string{"sh", "-c", "prepare && exec python -m codefly_runnable.serve"},
 			},
 		},
-		ServiceDependencies:                []*basev0.RunnableDependency{{Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"}}},
+		ServiceDependencies:                []*basev1.RunnableDependency{{Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"}}},
 		WorkspaceConfigurationDependencies: []string{"openai", "artifact-store"},
 	}
 }
 
-func preparedCanonicalFixture(t *testing.T) *basev0.RunnablePackage {
+func preparedCanonicalFixture(t *testing.T) *basev1.RunnablePackage {
 	t.Helper()
 	prepared, err := runnable.PreparePackage(canonicalFixture())
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestCanonicalJSONIsPinned(t *testing.T) {
 	// The bytes a consumer writes are the bytes core hashes: the digest the
 	// pinned form carries is sha256 over the format identifier, a separator and
 	// the same canonical form of the descriptor without it.
-	undigested := proto.Clone(prepared).(*basev0.RunnablePackage)
+	undigested := proto.Clone(prepared).(*basev1.RunnablePackage)
 	undigested.Digest = ""
 	hashed, err := runnable.CanonicalJSON(undigested)
 	require.NoError(t, err)
@@ -158,14 +158,14 @@ func TestCanonicalJSONDoesNotCanonicalizeTheMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotEqual(t, string(fromPrepared), string(fromRaw))
-	require.Equal(t, basev0.RunnableArtifact_ARCHIVE, prepared.GetArtifacts()[0].GetKind())
-	require.Equal(t, basev0.RunnableArtifact_IMAGE, raw.GetArtifacts()[0].GetKind())
+	require.Equal(t, basev1.RunnableArtifact_ARCHIVE, prepared.GetArtifacts()[0].GetKind())
+	require.Equal(t, basev1.RunnableArtifact_IMAGE, raw.GetArtifacts()[0].GetKind())
 }
 
 // A typed nil is the dangerous absent message: it canonicalizes to "{}" with no
 // error, and a consumer writing that gets a file every later check agrees with.
 func TestCanonicalJSONRejectsAbsentMessage(t *testing.T) {
-	var absent *basev0.RunnablePackage
+	var absent *basev1.RunnablePackage
 	_, err := runnable.CanonicalJSON(absent)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "message is required")
@@ -175,7 +175,7 @@ func TestCanonicalJSONRejectsAbsentMessage(t *testing.T) {
 	require.ErrorContains(t, err, "message is required")
 
 	// An empty message is not an absent one and still canonicalizes.
-	empty, err := runnable.CanonicalJSON(&basev0.RunnablePackage{})
+	empty, err := runnable.CanonicalJSON(&basev1.RunnablePackage{})
 	require.NoError(t, err)
 	require.Equal(t, "{}", string(empty))
 }

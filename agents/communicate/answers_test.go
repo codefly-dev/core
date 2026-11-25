@@ -3,18 +3,18 @@ package communicate
 import (
 	"testing"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAnswerDefaultResolvesDeclaredChoiceAndSelection(t *testing.T) {
-	options := []*agentv0.Message{
+	options := []*agentv1.Message{
 		{Name: "development"},
 		{Name: "production"},
 	}
 
 	choice, err := AnswerDefault(NewChoiceWithDefault(
-		&agentv0.Message{Name: "runtime"},
+		&agentv1.Message{Name: "runtime"},
 		"production",
 		options...,
 	))
@@ -22,7 +22,7 @@ func TestAnswerDefaultResolvesDeclaredChoiceAndSelection(t *testing.T) {
 	require.Equal(t, "production", choice.GetChoice().GetOption())
 
 	selection, err := AnswerDefault(NewSelectionWithDefault(
-		&agentv0.Message{Name: "targets"},
+		&agentv1.Message{Name: "targets"},
 		[]string{"development", "production"},
 		options...,
 	))
@@ -30,7 +30,7 @@ func TestAnswerDefaultResolvesDeclaredChoiceAndSelection(t *testing.T) {
 	require.Equal(t, []string{"development", "production"}, selection.GetSelection().GetSelected())
 
 	empty, err := AnswerDefault(NewSelectionWithDefault(
-		&agentv0.Message{Name: "targets"},
+		&agentv1.Message{Name: "targets"},
 		nil,
 		options...,
 	))
@@ -39,13 +39,13 @@ func TestAnswerDefaultResolvesDeclaredChoiceAndSelection(t *testing.T) {
 }
 
 func TestAnswerDefaultRejectsMissingOrInvalidDeclaredDecisions(t *testing.T) {
-	option := &agentv0.Message{Name: "development"}
-	tests := []*agentv0.Question{
-		NewChoice(&agentv0.Message{Name: "runtime"}, option),
-		NewChoiceWithDefault(&agentv0.Message{Name: "runtime"}, "unknown", option),
-		NewSelection(&agentv0.Message{Name: "targets"}, option),
-		NewSelectionWithDefault(&agentv0.Message{Name: "targets"}, []string{"unknown"}, option),
-		NewSelectionWithDefault(&agentv0.Message{Name: "targets"}, []string{"development", "development"}, option),
+	option := &agentv1.Message{Name: "development"}
+	tests := []*agentv1.Question{
+		NewChoice(&agentv1.Message{Name: "runtime"}, option),
+		NewChoiceWithDefault(&agentv1.Message{Name: "runtime"}, "unknown", option),
+		NewSelection(&agentv1.Message{Name: "targets"}, option),
+		NewSelectionWithDefault(&agentv1.Message{Name: "targets"}, []string{"unknown"}, option),
+		NewSelectionWithDefault(&agentv1.Message{Name: "targets"}, []string{"development", "development"}, option),
 	}
 	for _, question := range tests {
 		_, err := AnswerDefault(question)

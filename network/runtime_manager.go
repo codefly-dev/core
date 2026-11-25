@@ -13,7 +13,7 @@ import (
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 const Localhost = "localhost"
@@ -40,7 +40,7 @@ type RuntimeManager struct {
 	portOverrides map[string]uint16
 }
 
-func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
+func Container(endpoint *basev1.Endpoint, port uint16) *basev1.NetworkInstance {
 	host := "host.docker.internal"
 	instance := resources.NewNetworkInstance(host, port)
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
@@ -50,9 +50,9 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	return instance
 }
 
-func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
+func Native(endpoint *basev1.Endpoint, port uint16) *basev1.NetworkInstance {
 	host := Localhost
-	var instance *basev0.NetworkInstance
+	var instance *basev1.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	} else {
@@ -75,7 +75,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 // record resolved at runtime rather than the port hash — callers must
 // special-case them with resources.IsExternalEndpoint (external is a location,
 // written as location: external beside the visibility that applies).
-func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
+func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev1.Endpoint) *basev1.NetworkInstance {
 	name := endpoint.Name
 	if namingScope != "" {
 		name = fmt.Sprintf("%s-%s", endpoint.Name, namingScope)
@@ -84,9 +84,9 @@ func NativeFor(ctx context.Context, workspace, module, service, namingScope stri
 	return Native(endpoint, port)
 }
 
-func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
+func PublicDefault(endpoint *basev1.Endpoint, port uint16) *basev1.NetworkInstance {
 	host := Localhost
-	var instance *basev0.NetworkInstance
+	var instance *basev1.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	} else {
@@ -96,8 +96,8 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	return instance
 }
 
-func DNS(_ *resources.ServiceIdentity, endpoint *basev0.Endpoint, dns *basev0.DNS) *basev0.NetworkInstance {
-	var instance *basev0.NetworkInstance
+func DNS(_ *resources.ServiceIdentity, endpoint *basev1.Endpoint, dns *basev1.DNS) *basev1.NetworkInstance {
+	var instance *basev1.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
 		instance = resources.NewHTTPNetworkInstance(dns.Host, uint16(dns.Port), dns.Secured)
 	} else {
@@ -113,7 +113,7 @@ func DNS(_ *resources.ServiceIdentity, endpoint *basev0.Endpoint, dns *basev0.DN
 // tags Access=Public) but the mapping needs a Container-accessible variant
 // so agents running inside Docker can resolve it. Mutates and returns the
 // input — callers pass a freshly-constructed instance per wrap.
-func ContainerInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+func ContainerInstance(instance *basev1.NetworkInstance) *basev1.NetworkInstance {
 	instance.Access = resources.NewContainerNetworkAccess()
 	return instance
 }
@@ -123,7 +123,7 @@ func ContainerInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance
 // Same rationale as ContainerInstance: covers the case where an instance
 // comes from DNS (Access=Public) but the agent runs natively on the host
 // and looks up by Access=Native when calling FindNetworkInstanceInNetworkMappings.
-func NativeInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+func NativeInstance(instance *basev1.NetworkInstance) *basev1.NetworkInstance {
 	instance.Access = resources.NewNativeNetworkAccess()
 	return instance
 }
@@ -133,7 +133,7 @@ func NativeInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
 // DNS instances are already Public, so this is often a no-op — but
 // keeping it explicit makes the semantics at the call-site clear and
 // defends against future changes to DNS().
-func PublicInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+func PublicInstance(instance *basev1.NetworkInstance) *basev1.NetworkInstance {
 	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
@@ -142,7 +142,7 @@ func PublicInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
 //
 // Externally-exposed endpoints are reached through their DNS entry from
 // outside the cluster, which is Public access in the network model.
-func ExternalInstance(instance *basev0.NetworkInstance) *basev0.NetworkInstance {
+func ExternalInstance(instance *basev1.NetworkInstance) *basev1.NetworkInstance {
 	instance.Access = resources.NewPublicNetworkAccess()
 	return instance
 }
@@ -152,14 +152,14 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 	env *resources.Environment,
 	workspace *resources.Workspace,
 	service *resources.ServiceIdentity,
-	endpoints []*basev0.Endpoint,
-	runtimeContext *basev0.RuntimeContext) ([]*basev0.NetworkMapping, error) {
+	endpoints []*basev1.Endpoint,
+	runtimeContext *basev1.RuntimeContext) ([]*basev1.NetworkMapping, error) {
 	if m == nil {
 		return nil, nil
 	}
 	w := wool.Get(ctx).In("network.Runtime.GenerateNetworkMappings")
 	mode := PortModeFor(runtimeContext.GetKind())
-	var out []*basev0.NetworkMapping
+	var out []*basev1.NetworkMapping
 	// Ports this call reserved. The manager outlives any single call, so a
 	// failure part-way through the endpoint list must hand back what it took —
 	// otherwise a caller that retries or moves on leaves the manager believing
@@ -183,12 +183,12 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		}
 	}
 	for _, endpoint := range endpoints {
-		nm := &basev0.NetworkMapping{
+		nm := &basev1.NetworkMapping{
 			Endpoint: endpoint,
 		}
 		// External endpoints
 		if resources.IsExternalEndpoint(endpoint) {
-			var dns *basev0.DNS
+			var dns *basev1.DNS
 			var err error
 			if m.dnsManager == nil {
 				w.Warn("no DNS manager found for external endpoint: will use the `public` version if possible")
@@ -252,7 +252,7 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 		if !heldBeforeCall {
 			reserved = append(reserved, port)
 		}
-		nm.Instances = []*basev0.NetworkInstance{
+		nm.Instances = []*basev1.NetworkInstance{
 			Container(endpoint, port),
 			Native(endpoint, port),
 		}

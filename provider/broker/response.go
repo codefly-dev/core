@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/provider/responsepolicy"
 )
@@ -17,12 +17,12 @@ import (
 // A successful body is filtered through the schema and fails closed on any
 // filtering error — but the delivery status is always preserved, never lost to
 // a bare error.
-func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *http.Response) (*providerv0.ExecuteRequestResponse, error) {
+func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *http.Response) (*providerv1.ExecuteRequestResponse, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// A non-success body is untrusted and carries no schema-declared fields;
 		// drop it entirely so an attacker-controlled, secret-looking error body
 		// never reaches a provider, log, or persisted surface.
-		return &providerv0.ExecuteRequestResponse{
+		return &providerv1.ExecuteRequestResponse{
 			StatusCode: uint32(resp.StatusCode),
 			Certainty:  certaintyForStatus(resp.StatusCode),
 		}, nil
@@ -52,9 +52,9 @@ func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *ht
 		if policy.RequiresBody() {
 			return nil, fmt.Errorf("successful response has no body but the schema requires fields")
 		}
-		return &providerv0.ExecuteRequestResponse{
+		return &providerv1.ExecuteRequestResponse{
 			StatusCode: uint32(resp.StatusCode),
-			Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+			Certainty:  providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
 		}, nil
 	}
 	result, err := policy.Filter(resp.Request.Context(), raw, resp.Header.Get("Content-Encoding"), resp.Header.Get("Content-Type"), s.sink)
@@ -62,13 +62,13 @@ func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *ht
 		return nil, fmt.Errorf("filter response: %w", err)
 	}
 
-	response := &providerv0.ExecuteRequestResponse{
+	response := &providerv1.ExecuteRequestResponse{
 		StatusCode:         uint32(resp.StatusCode),
 		Certainty:          certaintyForStatus(resp.StatusCode),
 		SuppressedPresence: result.Suppressed,
 	}
 	for _, forwarded := range result.Forwarded {
-		response.Forwarded = append(response.Forwarded, &providerv0.FilteredField{
+		response.Forwarded = append(response.Forwarded, &providerv1.FilteredField{
 			Selector: forwarded.Selector,
 			Value:    forwarded.Value,
 		})
@@ -77,7 +77,7 @@ func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *ht
 		if capture.Outcome != responsepolicy.OutcomeCaptured {
 			continue
 		}
-		response.Captures = append(response.Captures, &providerv0.CaptureResult{
+		response.Captures = append(response.Captures, &providerv1.CaptureResult{
 			CaptureId:     capture.Selector,
 			Selector:      capture.Selector,
 			SinkReference: capture.Reference,
@@ -91,13 +91,13 @@ func (s *Session) handleResponse(descriptor manifest.RequestDescriptor, resp *ht
 // remote effect. A 2xx is complete; a 4xx is a definitive client-side rejection,
 // so the remote state is likewise known; a 3xx (surfaced because redirects are
 // never followed) or 5xx leaves the remote effect genuinely unknown.
-func certaintyForStatus(status int) providerv0.OutcomeCertainty {
+func certaintyForStatus(status int) providerv1.OutcomeCertainty {
 	switch {
 	case status >= 200 && status < 300:
-		return providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
+		return providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
 	case status >= 400 && status < 500:
-		return providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
+		return providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
 	default:
-		return providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN
+		return providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN
 	}
 }

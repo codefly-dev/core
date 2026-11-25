@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 const (
@@ -111,7 +111,7 @@ type osvVulnerability struct {
 	} `json:"affected"`
 }
 
-func parseOSV(out []byte) ([]*builderv0.AuditFinding, error) {
+func parseOSV(out []byte) ([]*builderv1.AuditFinding, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
@@ -119,7 +119,7 @@ func parseOSV(out []byte) ([]*builderv0.AuditFinding, error) {
 	if err := json.Unmarshal(out, &report); err != nil {
 		return nil, err
 	}
-	var findings []*builderv0.AuditFinding
+	var findings []*builderv1.AuditFinding
 	seen := map[string]struct{}{}
 	for _, result := range report.Results {
 		for _, vulnerablePackage := range result.Packages {
@@ -164,7 +164,7 @@ func parseOSV(out []byte) ([]*builderv0.AuditFinding, error) {
 				if summary == "" {
 					summary = firstParagraph(vulnerability.Details)
 				}
-				findings = append(findings, &builderv0.AuditFinding{
+				findings = append(findings, &builderv1.AuditFinding{
 					Severity:       osvSeverity(vulnerability, group.maxSeverity),
 					Id:             id,
 					Package:        vulnerablePackage.Package.Name,
@@ -199,7 +199,7 @@ func preferredOSVID(ids []string) string {
 	return "OSV-UNKNOWN"
 }
 
-func osvSeverity(vulnerability *osvVulnerability, groupScore string) builderv0.AuditFinding_Severity {
+func osvSeverity(vulnerability *osvVulnerability, groupScore string) builderv1.AuditFinding_Severity {
 	if raw, ok := vulnerability.DatabaseSpecific["severity"].(string); ok {
 		return namedSeverity(raw)
 	}
@@ -213,38 +213,38 @@ func osvSeverity(vulnerability *osvVulnerability, groupScore string) builderv0.A
 	}
 	// A vulnerability with no normalized severity must remain release-gating;
 	// UNKNOWN would otherwise slip through HIGH-or-above policies.
-	return builderv0.AuditFinding_HIGH
+	return builderv1.AuditFinding_HIGH
 }
 
-func numericSeverity(value string) (builderv0.AuditFinding_Severity, bool) {
+func numericSeverity(value string) (builderv1.AuditFinding_Severity, bool) {
 	score, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return builderv0.AuditFinding_UNKNOWN, false
+		return builderv1.AuditFinding_UNKNOWN, false
 	}
 	switch {
 	case score >= 9:
-		return builderv0.AuditFinding_CRITICAL, true
+		return builderv1.AuditFinding_CRITICAL, true
 	case score >= 7:
-		return builderv0.AuditFinding_HIGH, true
+		return builderv1.AuditFinding_HIGH, true
 	case score >= 4:
-		return builderv0.AuditFinding_MEDIUM, true
+		return builderv1.AuditFinding_MEDIUM, true
 	default:
-		return builderv0.AuditFinding_LOW, true
+		return builderv1.AuditFinding_LOW, true
 	}
 }
 
-func namedSeverity(value string) builderv0.AuditFinding_Severity {
+func namedSeverity(value string) builderv1.AuditFinding_Severity {
 	switch strings.ToUpper(value) {
 	case "LOW":
-		return builderv0.AuditFinding_LOW
+		return builderv1.AuditFinding_LOW
 	case "MODERATE", "MEDIUM":
-		return builderv0.AuditFinding_MEDIUM
+		return builderv1.AuditFinding_MEDIUM
 	case "HIGH":
-		return builderv0.AuditFinding_HIGH
+		return builderv1.AuditFinding_HIGH
 	case "CRITICAL":
-		return builderv0.AuditFinding_CRITICAL
+		return builderv1.AuditFinding_CRITICAL
 	default:
-		return builderv0.AuditFinding_HIGH
+		return builderv1.AuditFinding_HIGH
 	}
 }
 

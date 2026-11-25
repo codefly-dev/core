@@ -22,8 +22,8 @@ import (
 	"strconv"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/sdk/session"
 	"github.com/codefly-dev/core/solution/manifest"
@@ -109,7 +109,7 @@ func run() error {
 	if err != nil || workspace == nil {
 		return fmt.Errorf("no workspace from %s: %v", dir, err)
 	}
-	v0.RegisterCLIServer(server, &cli{
+	v1.RegisterCLIServer(server, &cli{
 		workspace:  workspace.Name,
 		identity:   identity,
 		dependency: dependency,
@@ -173,7 +173,7 @@ func greet(listener net.Listener, identity string) {
 }
 
 type cli struct {
-	v0.UnimplementedCLIServer
+	v1.UnimplementedCLIServer
 	workspace  string
 	identity   string
 	dependency *resources.ServiceDependency
@@ -184,11 +184,11 @@ type cli struct {
 
 // SessionHandshake proves this server is the child the SDK started, which the
 // SDK requires before it drives an isolated session.
-func (c *cli) SessionHandshake(_ context.Context, req *v0.SessionHandshakeRequest) (*v0.SessionHandshakeResponse, error) {
+func (c *cli) SessionHandshake(_ context.Context, req *v1.SessionHandshakeRequest) (*v1.SessionHandshakeResponse, error) {
 	if c.owner == nil {
 		return nil, fmt.Errorf("this control channel carries no session identity")
 	}
-	return &v0.SessionHandshakeResponse{
+	return &v1.SessionHandshakeResponse{
 		SessionId:       c.owner.ID,
 		Proof:           c.owner.Proof(req.GetChallenge()),
 		ProtocolVersion: session.ProtocolVersion,
@@ -207,25 +207,25 @@ func (c *cli) Ping(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
 }
 
-func (c *cli) GetFlowStatus(context.Context, *emptypb.Empty) (*v0.FlowStatus, error) {
-	return &v0.FlowStatus{Ready: true}, nil
+func (c *cli) GetFlowStatus(context.Context, *emptypb.Empty) (*v1.FlowStatus, error) {
+	return &v1.FlowStatus{Ready: true}, nil
 }
 
-func (c *cli) GetDependenciesNetworkMappings(_ context.Context, _ *v0.GetNetworkMappingsRequest) (*v0.GetNetworkMappingsResponse, error) {
+func (c *cli) GetDependenciesNetworkMappings(_ context.Context, _ *v1.GetNetworkMappingsRequest) (*v1.GetNetworkMappingsResponse, error) {
 	if err := c.failed("GetDependenciesNetworkMappings"); err != nil {
 		return nil, err
 	}
-	return &v0.GetNetworkMappingsResponse{
-		NetworkMappings: []*basev0.NetworkMapping{
+	return &v1.GetNetworkMappingsResponse{
+		NetworkMappings: []*basev1.NetworkMapping{
 			{
-				Endpoint: &basev0.Endpoint{
+				Endpoint: &basev1.Endpoint{
 					Module:     c.dependency.Module,
 					Service:    c.dependency.Name,
 					Name:       "tcp",
 					Api:        "tcp",
 					Visibility: resources.VisibilityPrivate,
 				},
-				Instances: []*basev0.NetworkInstance{
+				Instances: []*basev1.NetworkInstance{
 					{Access: resources.NewNativeNetworkAccess(), Address: c.address},
 				},
 			},
@@ -233,43 +233,43 @@ func (c *cli) GetDependenciesNetworkMappings(_ context.Context, _ *v0.GetNetwork
 	}, nil
 }
 
-func (c *cli) GetConfiguration(_ context.Context, _ *v0.GetConfigurationRequest) (*v0.GetConfigurationResponse, error) {
+func (c *cli) GetConfiguration(_ context.Context, _ *v1.GetConfigurationRequest) (*v1.GetConfigurationResponse, error) {
 	if err := c.failed("GetConfiguration"); err != nil {
 		return nil, err
 	}
-	return &v0.GetConfigurationResponse{
-		Configuration: &basev0.Configuration{
+	return &v1.GetConfigurationResponse{
+		Configuration: &basev1.Configuration{
 			Origin: resources.ConfigurationWorkspace,
-			Infos: []*basev0.ConfigurationInformation{
+			Infos: []*basev1.ConfigurationInformation{
 				{
 					Name: "session",
-					ConfigurationValues: []*basev0.ConfigurationValue{
+					ConfigurationValues: []*basev1.ConfigurationValue{
 						{Key: "identity", Value: c.identity},
 						{Key: "token", Value: c.identity + "-token", Secret: true},
 					},
 				},
 			},
 		},
-		ProcessVariables: []*basev0.ConfigurationValue{
+		ProcessVariables: []*basev1.ConfigurationValue{
 			{Key: processVariableKey, Value: c.identity},
 			{Key: "CODEFLY__TESTCLI_WORKSPACE", Value: c.workspace},
 		},
 	}, nil
 }
 
-func (c *cli) GetDependenciesConfigurations(_ context.Context, _ *v0.GetConfigurationRequest) (*v0.GetConfigurationsResponse, error) {
+func (c *cli) GetDependenciesConfigurations(_ context.Context, _ *v1.GetConfigurationRequest) (*v1.GetConfigurationsResponse, error) {
 	if err := c.failed("GetDependenciesConfigurations"); err != nil {
 		return nil, err
 	}
-	return &v0.GetConfigurationsResponse{
-		Configurations: []*basev0.Configuration{
+	return &v1.GetConfigurationsResponse{
+		Configurations: []*basev1.Configuration{
 			{
 				Origin:         c.dependency.Unique(),
 				RuntimeContext: resources.NewRuntimeContextNative(),
-				Infos: []*basev0.ConfigurationInformation{
+				Infos: []*basev1.ConfigurationInformation{
 					{
 						Name: "connection",
-						ConfigurationValues: []*basev0.ConfigurationValue{
+						ConfigurationValues: []*basev1.ConfigurationValue{
 							{Key: "connection", Value: c.address},
 						},
 					},
@@ -279,10 +279,10 @@ func (c *cli) GetDependenciesConfigurations(_ context.Context, _ *v0.GetConfigur
 	}, nil
 }
 
-func (c *cli) StopFlow(context.Context, *v0.StopFlowRequest) (*v0.StopFlowResponse, error) {
-	return &v0.StopFlowResponse{}, nil
+func (c *cli) StopFlow(context.Context, *v1.StopFlowRequest) (*v1.StopFlowResponse, error) {
+	return &v1.StopFlowResponse{}, nil
 }
 
-func (c *cli) DestroyFlow(context.Context, *v0.DestroyFlowRequest) (*v0.DestroyFlowResponse, error) {
-	return &v0.DestroyFlowResponse{}, nil
+func (c *cli) DestroyFlow(context.Context, *v1.DestroyFlowRequest) (*v1.DestroyFlowResponse, error) {
+	return &v1.DestroyFlowResponse{}, nil
 }

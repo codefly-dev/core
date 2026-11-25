@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 
 	"github.com/stretchr/testify/assert"
@@ -75,7 +75,7 @@ func loadWorkspace(t *testing.T, ctx context.Context, dir string) *resources.Wor
 	return workspace
 }
 
-func groupValues(t *testing.T, infos []*basev0.ConfigurationInformation, group string) map[string]string {
+func groupValues(t *testing.T, infos []*basev1.ConfigurationInformation, group string) map[string]string {
 	t.Helper()
 	values := make(map[string]string)
 	for _, info := range infos {
@@ -111,7 +111,7 @@ func TestAWorkspaceOverrideOfAComposedGroupOverlaysPerKey(t *testing.T) {
 	}, groupValues(t, provided.Infos, "app-config"),
 		"the overridden key is the solution's, every other key is still the module's")
 
-	owed := configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev0.ConfigurationInformation {
+	owed := configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev1.ConfigurationInformation {
 		return provided.Infos
 	})
 	require.Len(t, owed, 1, "the override discharged one of the module's two requirements, and only one")
@@ -423,7 +423,7 @@ func TestAWorkspaceOverrideMatchesTheComposedGroupsKeysTheWayEveryLookupDoes(t *
 		"config-mode": "solution",
 	}, groupValues(t, provided.Infos, "app-config"),
 		"one key per declaration of the module's group, carrying the solution's value")
-	assert.Empty(t, configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev0.ConfigurationInformation {
+	assert.Empty(t, configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev1.ConfigurationInformation {
 		return provided.Infos
 	}), "the marker is discharged through the match, not left standing beside a second key")
 

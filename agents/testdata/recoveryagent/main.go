@@ -7,18 +7,18 @@ import (
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/agents/contract"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 type server struct {
-	agentv0.UnimplementedAgentServer
+	agentv1.UnimplementedAgentServer
 }
 
-var information = func() *agentv0.AgentInformation {
+var information = func() *agentv1.AgentInformation {
 	declaration := contract.Current()
 	switch os.Getenv("TEST_AGENT_CONTRACT") {
 	case "absent":
-		return &agentv0.AgentInformation{}
+		return &agentv1.AgentInformation{}
 	case "future":
 		declaration.ProtocolVersion++
 	case "future-startup":
@@ -31,19 +31,19 @@ var information = func() *agentv0.AgentInformation {
 		declaration.Capabilities = nil
 	}
 	declaration.Capabilities = append(declaration.Capabilities, "fixture-feature/v1")
-	info := &agentv0.AgentInformation{Contract: declaration}
+	info := &agentv1.AgentInformation{Contract: declaration}
 	switch os.Getenv("TEST_AGENT_CONTRACT") {
 	case "sdk-compatible":
-		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_BUILDER}, {Type: agentv0.Capability_RUNTIME}}
+		info.Capabilities = []*agentv1.Capability{{Type: agentv1.Capability_BUILDER}, {Type: agentv1.Capability_RUNTIME}}
 	case "sdk-no-builder":
-		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_RUNTIME}}
+		info.Capabilities = []*agentv1.Capability{{Type: agentv1.Capability_RUNTIME}}
 	case "sdk-no-runtime":
-		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_BUILDER}}
+		info.Capabilities = []*agentv1.Capability{{Type: agentv1.Capability_BUILDER}}
 	}
 	return info
 }()
 
-func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
+func (server) GetAgentInformation(context.Context, *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
 	return information, nil
 }
 

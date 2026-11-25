@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
@@ -188,7 +188,7 @@ func TestTypedDependencyRejectsAbsentEndpoint(t *testing.T) {
 		Kind:      resources.DependencyKindSchema,
 		Endpoints: []*resources.EndpointReference{{Name: "graphql"}},
 	}
-	endpoints := []*basev0.Endpoint{{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC}}
+	endpoints := []*basev1.Endpoint{{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC}}
 	require.ErrorContains(t, resources.ValidateServiceDependencyEndpoints(dependency, endpoints), "undeclared")
 }
 
@@ -238,7 +238,7 @@ func TestRuntimeDependencyOntoEndpointlessProducerIsRejected(t *testing.T) {
 
 	// A producer that does export endpoints is fine.
 	require.NoError(t, resources.ValidateDependencyPrerequisite(dependency,
-		[]*basev0.Endpoint{{Module: "data", Service: "migration", Name: "grpc", Api: standards.GRPC}}))
+		[]*basev1.Endpoint{{Module: "data", Service: "migration", Name: "grpc", Api: standards.GRPC}}))
 
 	// Legacy dependencies are how existing workspaces express one-shot work.
 	legacy := &resources.ServiceDependency{Name: "migration", Module: "data"}
@@ -276,8 +276,8 @@ service-dependencies:
 // the run stage may consume one. Injecting a build-only producer's connection
 // hands a consumer credentials for a service it never talks to.
 func TestNetworkMappingsSkipNonRuntimeDependencies(t *testing.T) {
-	mappings := []*basev0.NetworkMapping{{
-		Endpoint: &basev0.Endpoint{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC},
+	mappings := []*basev1.NetworkMapping{{
+		Endpoint: &basev1.Endpoint{Module: "web", Service: "api", Name: "grpc", Api: standards.GRPC},
 	}}
 
 	runtime := []*resources.ServiceDependency{{Name: "api", Module: "web", Kind: resources.DependencyKindRuntime}}
@@ -330,11 +330,11 @@ func TestDependencyKindConsumptionAndReachAreStatedForEveryKind(t *testing.T) {
 	// selects none — the consumer is handed no address and asks for none.
 	require.True(t, resources.DependencyKindCompletion.Participates(resources.StageRun))
 	completion := &resources.ServiceDependency{Module: "data", Name: "migrator", Kind: resources.DependencyKindCompletion}
-	endpoints := []*basev0.Endpoint{{Module: "data", Service: "migrator", Name: "http", Api: "http", Visibility: resources.VisibilityInternal}}
+	endpoints := []*basev1.Endpoint{{Module: "data", Service: "migrator", Name: "http", Api: "http", Visibility: resources.VisibilityInternal}}
 	consumed, err := resources.ConsumedDependencyEndpoints(composition("app", "data"), "app", completion, endpoints)
 	require.NoError(t, err)
 	require.Empty(t, consumed)
-	resolved, err := resources.ResolveDependencyNetworkMappings(composition("app", "data"), "app", []*resources.ServiceDependency{completion}, []*basev0.NetworkMapping{{Endpoint: endpoints[0]}})
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("app", "data"), "app", []*resources.ServiceDependency{completion}, []*basev1.NetworkMapping{{Endpoint: endpoints[0]}})
 	require.NoError(t, err)
 	require.Empty(t, resolved, "a completion consumer is handed no address")
 }

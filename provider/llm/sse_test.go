@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 )
 
 // reconstructSSE re-emits filtered events as a well-formed Server-Sent Events
@@ -12,7 +12,7 @@ import (
 // frame carrying the safe projection of its forwarded fields, in the fields'
 // deterministic emission order (not a re-sort, which would misorder array
 // indices ≥ 10), so record and replay reconstruct byte-identical framing.
-func reconstructSSE(events []*providerv0.FilteredEvent) []byte {
+func reconstructSSE(events []*providerv1.FilteredEvent) []byte {
 	var builder strings.Builder
 	for _, event := range events {
 		if event.GetEventType() != "" {
@@ -25,7 +25,7 @@ func reconstructSSE(events []*providerv0.FilteredEvent) []byte {
 	return []byte(builder.String())
 }
 
-func safeProjection(fields []*providerv0.FilteredField) string {
+func safeProjection(fields []*providerv1.FilteredField) string {
 	pairs := make([]string, 0, len(fields))
 	for _, field := range fields {
 		pairs = append(pairs, fmt.Sprintf("%q:%s", field.GetSelector(), scalarJSON(field.GetValue())))
@@ -33,15 +33,15 @@ func safeProjection(fields []*providerv0.FilteredField) string {
 	return "{" + strings.Join(pairs, ",") + "}"
 }
 
-func scalarJSON(value *providerv0.PublicValue) string {
+func scalarJSON(value *providerv1.PublicValue) string {
 	switch kind := value.GetKind().(type) {
-	case *providerv0.PublicValue_StringValue:
+	case *providerv1.PublicValue_StringValue:
 		return fmt.Sprintf("%q", kind.StringValue)
-	case *providerv0.PublicValue_IntegerValue:
+	case *providerv1.PublicValue_IntegerValue:
 		return fmt.Sprintf("%d", kind.IntegerValue)
-	case *providerv0.PublicValue_DecimalValue:
+	case *providerv1.PublicValue_DecimalValue:
 		return kind.DecimalValue
-	case *providerv0.PublicValue_BoolValue:
+	case *providerv1.PublicValue_BoolValue:
 		return fmt.Sprintf("%t", kind.BoolValue)
 	default:
 		return "null"

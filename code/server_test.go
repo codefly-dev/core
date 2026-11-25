@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
@@ -22,7 +22,7 @@ func TestListFilesSkipsGeneratedDependencyTrees(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	response, err := NewDefaultCodeServer(dir).Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{
+	response, err := NewDefaultCodeServer(dir).Execute(context.Background(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_ListFiles{ListFiles: &codev1.ListFilesRequest{
 		Extensions: []string{".ts", ".rs"}, Recursive: true,
 	}}})
 	if err != nil {
@@ -104,8 +104,8 @@ func TestExecute_ApplyEdit(t *testing.T) {
 			after := "line one\nline TWO\nline three\n"
 			srv.FS.WriteFile(filepath.Join(dir, "edit_me.txt"), []byte(before), 0o644)
 
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+			resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 					File: "edit_me.txt", Find: "line two", Replace: "line TWO",
 				}},
 			})
@@ -131,13 +131,13 @@ func TestExecute_Override(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, srv := tc.setupFunc(t)
 			ctx := context.Background()
-			srv.Override("fix", func(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-				return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
+			srv.Override("fix", func(_ context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
+				return &codev1.CodeResponse{Result: &codev1.CodeResponse_Fix{Fix: &codev1.FixResponse{
 					Success: true, Content: "overridden!",
 				}}}, nil
 			})
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "hello.go"}},
+			resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "hello.go"}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -154,7 +154,7 @@ func TestExecute_EmptyRequest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, srv := tc.setupFunc(t)
 			ctx := context.Background()
-			_, err := srv.Execute(ctx, &codev0.CodeRequest{})
+			_, err := srv.Execute(ctx, &codev1.CodeRequest{})
 			if err == nil {
 				t.Error("expected error for empty request")
 			}
@@ -164,18 +164,18 @@ func TestExecute_EmptyRequest(t *testing.T) {
 
 func TestOperationName(t *testing.T) {
 	tests := []struct {
-		req  *codev0.CodeRequest
+		req  *codev1.CodeRequest
 		want string
 	}{
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_Fix{}}, "fix"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplyEdit{}}, "apply_edit"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{}}, "get_project_info"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_DiscoverCodeUnits{}}, "discover_code_units"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{}}, "get_semantic_index"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetInstructionIndex{}}, "get_instruction_index"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSourceManifest{}}, "get_source_manifest"},
-		{&codev0.CodeRequest{Operation: &codev0.CodeRequest_ListDependencies{}}, "list_dependencies"},
-		{&codev0.CodeRequest{}, ""},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_Fix{}}, "fix"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_ApplyEdit{}}, "apply_edit"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_GetProjectInfo{}}, "get_project_info"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_DiscoverCodeUnits{}}, "discover_code_units"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{}}, "get_semantic_index"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_GetInstructionIndex{}}, "get_instruction_index"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSourceManifest{}}, "get_source_manifest"},
+		{&codev1.CodeRequest{Operation: &codev1.CodeRequest_ListDependencies{}}, "list_dependencies"},
+		{&codev1.CodeRequest{}, ""},
 	}
 	for _, tt := range tests {
 		if got := OperationName(tt.req); got != tt.want {
@@ -191,8 +191,8 @@ func TestExecute_FixModeNoneReturnsUnchangedContent(t *testing.T) {
 			ctx := context.Background()
 			srv.FS.WriteFile(filepath.Join(dir, "fix_me.go"), []byte("package main\n"), 0o644)
 
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "fix_me.go", Mode: basev0.FixMode_FIX_MODE_NONE}},
+			resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "fix_me.go", Mode: basev1.FixMode_FIX_MODE_NONE}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -216,8 +216,8 @@ func TestExecute_GetProjectInfo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, srv := tc.setupFunc(t)
 			ctx := context.Background()
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+			resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -238,8 +238,8 @@ func TestExecute_ListDependencies_Stub(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, srv := tc.setupFunc(t)
 			ctx := context.Background()
-			resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_ListDependencies{ListDependencies: &codev0.ListDependenciesRequest{}},
+			resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_ListDependencies{ListDependencies: &codev1.ListDependenciesRequest{}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -248,7 +248,7 @@ func TestExecute_ListDependencies_Stub(t *testing.T) {
 			if ld == nil {
 				t.Fatal("expected ListDependenciesResponse")
 			}
-			if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION {
+			if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION {
 				t.Fatalf("dependency stub failure = %v, want unsupported operation", resp.GetFailure())
 			}
 		})

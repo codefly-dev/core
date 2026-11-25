@@ -1,6 +1,6 @@
 package base
 
-import observabilityv0 "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
+import observabilityv1 "github.com/codefly-dev/core/generated/go/codefly/observability/v1"
 
 // Event represents data of a **running** service
 // Generic so most fields will be nil
@@ -12,8 +12,8 @@ type Event struct {
 	ProcessState
 
 	// CPU
-	*observabilityv0.CPU
+	*observabilityv1.CPU
 
 	// Memory
-	*observabilityv0.Memory
+	*observabilityv1.Memory
 }

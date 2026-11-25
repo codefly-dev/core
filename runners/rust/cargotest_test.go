@@ -3,7 +3,7 @@ package rust
 import (
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // sampleOutput is representative `cargo test` text: one unit-test binary with a
@@ -80,12 +80,12 @@ func TestParseCargoTestStructured(t *testing.T) {
 	if resp.GetCounts().GetSkipped() != 1 {
 		t.Errorf("Skipped = %d, want 1", resp.GetCounts().GetSkipped())
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_FAILED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_FAILED {
 		t.Errorf("run state = %v, want FAILED", resp.GetResult().GetState())
 	}
 
 	// The failing case must carry a panic-kind failure and detail.
-	var found *runtimev0.TestCase
+	var found *runtimev1.TestCase
 	for _, suite := range resp.GetSuites() {
 		for _, c := range suite.GetCases() {
 			if c.GetName() == "tests::it_fails" {
@@ -96,10 +96,10 @@ func TestParseCargoTestStructured(t *testing.T) {
 	if found == nil {
 		t.Fatal("did not find failing case tests::it_fails")
 	}
-	if found.GetState() != runtimev0.TestCaseState_TEST_CASE_STATE_FAILED {
+	if found.GetState() != runtimev1.TestCaseState_TEST_CASE_STATE_FAILED {
 		t.Errorf("case state = %v, want FAILED", found.GetState())
 	}
-	if found.GetFailure().GetKind() != runtimev0.TestFailureKind_TEST_FAILURE_KIND_PANIC {
+	if found.GetFailure().GetKind() != runtimev1.TestFailureKind_TEST_FAILURE_KIND_PANIC {
 		t.Errorf("failure kind = %v, want PANIC", found.GetFailure().GetKind())
 	}
 	if !contains(found.GetCapturedOutput(), "assertion") {

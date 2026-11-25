@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // ============================================================
@@ -615,8 +615,8 @@ func TestCodeServer_ViaOverlay_ApplyEdit(t *testing.T) {
 
 	ctx := t.Context()
 
-	resp, err := code.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+	resp, err := code.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 			File: "main.go", Find: "func hello() {}", Replace: "func Hello() string { return \"hi\" }",
 		}},
 	})

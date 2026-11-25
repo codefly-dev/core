@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -21,7 +21,7 @@ import (
 // Schema registry. Field names, optionality and nullability are exact; no
 // spelling aliases or scalar coercions are added. A compiler consuming this
 // schema must use ConfigureJSONSchemaCompiler so formats are assertions.
-func SchemaJSON(schema *basev0.RunnableSchema) (json.RawMessage, error) {
+func SchemaJSON(schema *basev1.RunnableSchema) (json.RawMessage, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("%w: schema is required", ErrInvalid)
 	}
@@ -34,7 +34,7 @@ func SchemaJSON(schema *basev0.RunnableSchema) (json.RawMessage, error) {
 	}
 	// Reuse the declaration/descriptor validator after bounding traversal, so
 	// even an in-process cyclic protobuf cannot recurse without a limit.
-	if _, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
+	if _, err := resources.RunnableContractFromProto(&basev1.RunnableContract{
 		Protocol: resources.RunnableServiceProtocolV1, Input: schema, Output: schema,
 	}); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -46,7 +46,7 @@ func SchemaJSON(schema *basev0.RunnableSchema) (json.RawMessage, error) {
 	return json.Marshal(projected)
 }
 
-func boundSchema(fields []*basev0.RunnableField, depth int, budget *int) error {
+func boundSchema(fields []*basev1.RunnableField, depth int, budget *int) error {
 	if depth > MaxProjectionDepth {
 		return fmt.Errorf("%w: schema exceeds bounded depth", ErrInvalid)
 	}
@@ -61,7 +61,7 @@ func boundSchema(fields []*basev0.RunnableField, depth int, budget *int) error {
 			}
 		}
 		if field.GetItems() != nil {
-			if err := boundSchema([]*basev0.RunnableField{field.GetItems()}, depth+1, budget); err != nil {
+			if err := boundSchema([]*basev1.RunnableField{field.GetItems()}, depth+1, budget); err != nil {
 				return err
 			}
 		}
@@ -69,7 +69,7 @@ func boundSchema(fields []*basev0.RunnableField, depth int, budget *int) error {
 	return nil
 }
 
-func schemaObject(fields []*basev0.RunnableField) map[string]any {
+func schemaObject(fields []*basev1.RunnableField) map[string]any {
 	properties := make(map[string]any, len(fields))
 	required := []string{}
 	for _, field := range fields {
@@ -81,10 +81,10 @@ func schemaObject(fields []*basev0.RunnableField) map[string]any {
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 }
 
-func schemaField(field *basev0.RunnableField) map[string]any {
+func schemaField(field *basev1.RunnableField) map[string]any {
 	value := map[string]any{}
 	switch field.GetType() {
-	case basev0.RunnableField_STRING:
+	case basev1.RunnableField_STRING:
 		value["type"] = "string"
 		if field.GetFormat() != "" {
 			value["format"] = runnableFormat(field.GetFormat())
@@ -92,17 +92,17 @@ func schemaField(field *basev0.RunnableField) map[string]any {
 		if len(field.GetValues()) != 0 {
 			value["enum"] = field.GetValues()
 		}
-	case basev0.RunnableField_INTEGER:
+	case basev1.RunnableField_INTEGER:
 		value["type"], value["minimum"], value["maximum"] = "integer", int64(math.MinInt64), int64(math.MaxInt64)
-	case basev0.RunnableField_BOOLEAN:
+	case basev1.RunnableField_BOOLEAN:
 		value["type"] = "boolean"
-	case basev0.RunnableField_OBJECT:
+	case basev1.RunnableField_OBJECT:
 		value = schemaObject(field.GetFields())
-	case basev0.RunnableField_ARRAY:
+	case basev1.RunnableField_ARRAY:
 		value["type"], value["items"] = "array", schemaField(field.GetItems())
-	case basev0.RunnableField_NUMBER:
+	case basev1.RunnableField_NUMBER:
 		value["anyOf"] = []any{map[string]any{"type": "number"}, map[string]any{"enum": []string{"NaN", "Infinity", "-Infinity"}}}
-	case basev0.RunnableField_JSON:
+	case basev1.RunnableField_JSON:
 		if field.GetFormat() != "" {
 			value["type"] = field.GetFormat() // validated: object or array
 		} else if !field.GetNullable() {

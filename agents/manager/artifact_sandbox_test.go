@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/sandbox"
 	"github.com/stretchr/testify/require"
@@ -29,7 +29,7 @@ func TestLoadArtifactSandbox(t *testing.T) {
 	conn, err := LoadArtifact(t.Context(), path, request, WithSandbox(sb), WithoutPrincipal(), WithUDS(), WithWorkDir(staging))
 	require.NoError(t, err)
 	t.Cleanup(conn.Close)
-	response, err := builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+	response, err := builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: request, OutputDirectory: staging})
 	require.NoError(t, err)
 	require.NoError(t, artifactexecution.CheckReceipt(request, response.Execution))
 	conn.Close()

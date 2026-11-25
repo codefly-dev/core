@@ -25,7 +25,7 @@ this input, this policy* — and they have two lifetimes. The four fixed when th
 operation is installed are the prepared value; identity and input belong to one
 call and are no part of an installation fact.
 
-The value is a `codefly.runnable.v0.PreparedBinding`, schema
+The value is a `codefly.runnable.v1.PreparedBinding`, schema
 `codefly.runnable-prepared/v1`, delivered as its canonical proto3 JSON
 (`runnable.EncodePrepared`):
 
@@ -35,12 +35,12 @@ The value is a `codefly.runnable.v0.PreparedBinding`, schema
 | `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path: `POST` or `PUT` with the plain JSON body, or `GET` — a read only — with the input object as its query, each member one parameter of that name) |
 | `contract` | the bounded input and output schema, carried whole |
 | `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
-| `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, the authority (audience, invoke and lookup scopes), the completion mode and, when the owner exposed the operation as a tool, that exposure — with every required scope slot already resolved to the exact ids the composition selected (`runnable.OperationSpec.ResolveScopeSlots`). A writer produces it with `runnable.OperationSpec.Policy` from the resolved spec rather than copying fields, so every field the schema declares travels; a policy still carrying a slot is refused with `runnable.ErrUnresolvedScopeSlots` |
+| `policy` | the `codefly.runnable.v1.Operation` the owner declared — the attempt budget, the authority (audience, invoke and lookup scopes), the completion mode and, when the owner exposed the operation as a tool, that exposure — with every required scope slot already resolved to the exact ids the composition selected (`runnable.OperationSpec.ResolveScopeSlots`). A writer produces it with `runnable.OperationSpec.Policy` from the resolved spec rather than copying fields, so every field the schema declares travels; a policy still carrying a slot is refused with `runnable.ErrUnresolvedScopeSlots` |
 
 A composition resolves an operation's required scope slots once
 (`runnable.OperationSpec.ResolveScopeSlots`) and that one concrete policy is what
 both halves of the installation receive: the prepared binding above, and a
-**resolved policy receipt** (`codefly.runnable.v0.ResolvedPolicy`, schema
+**resolved policy receipt** (`codefly.runnable.v1.ResolvedPolicy`, schema
 `codefly.runnable-resolved-policy/v1`, written with `runnable.EncodeResolvedPolicy`
 and read with `runnable.DecodeResolvedPolicy`) carrying the operation, the
 concrete policy and `policy_digest`, `sha256:<hex>` over the canonical policy

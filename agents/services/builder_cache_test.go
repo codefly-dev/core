@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -16,28 +16,28 @@ import (
 )
 
 type cacheBuilderClient struct {
-	builderv0.BuilderClient
+	builderv1.BuilderClient
 	version string
 	calls   int
-	plan    *builderv0.DockerBuildPlan
+	plan    *builderv1.DockerBuildPlan
 }
 
-func (c *cacheBuilderClient) Build(context.Context, *builderv0.BuildRequest, ...grpc.CallOption) (*builderv0.BuildResponse, error) {
+func (c *cacheBuilderClient) Build(context.Context, *builderv1.BuildRequest, ...grpc.CallOption) (*builderv1.BuildResponse, error) {
 	c.calls++
-	result := &builderv0.BuildResult{}
+	result := &builderv1.BuildResult{}
 	if c.plan != nil {
-		result.Kind = &builderv0.BuildResult_DockerBuildPlan{DockerBuildPlan: c.plan}
+		result.Kind = &builderv1.BuildResult_DockerBuildPlan{DockerBuildPlan: c.plan}
 	}
-	return &builderv0.BuildResponse{State: &builderv0.BuildStatus{State: builderv0.BuildStatus_SUCCESS}, CacheContractVersion: c.version, Result: result}, nil
+	return &builderv1.BuildResponse{State: &builderv1.BuildStatus{State: builderv1.BuildStatus_SUCCESS}, CacheContractVersion: c.version, Result: result}, nil
 }
 func TestBuildCacheRequiresAgentAcknowledgement(t *testing.T) {
 	client := &cacheBuilderClient{}
 	agent := &BuilderAgent{BuilderClient: client}
-	req := &builderv0.BuildRequest{}
+	req := &builderv1.BuildRequest{}
 	_, err := agent.Build(context.Background(), req)
 	require.NoError(t, err)
-	cache := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "service"}
-	req.BuildContext = &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: cache}}}
+	cache := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "service"}
+	req.BuildContext = &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{Cache: cache}}}
 	_, err = agent.Build(context.Background(), req)
 	require.ErrorContains(t, err, "upgrade the agent")
 	client.version = "registry-v1"
@@ -55,7 +55,7 @@ func TestRecipeAgentsDoNotAcknowledgeCallerOwnedCacheExecution(t *testing.T) {
 	require.NoError(t, err)
 	client := &cacheBuilderClient{plan: plan}
 	agent := &BuilderAgent{BuilderClient: client}
-	req := &builderv0.BuildRequest{OutputDirectory: directory, BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: &builderv0.BuildCacheOptions{Backend: "registry", Scope: "service", Exports: []string{"ghcr.io/org/cache"}}}}}}
+	req := &builderv1.BuildRequest{OutputDirectory: directory, BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{Cache: &builderv1.BuildCacheOptions{Backend: "registry", Scope: "service", Exports: []string{"ghcr.io/org/cache"}}}}}}
 	response, err := agent.Build(context.Background(), req)
 	require.NoError(t, err)
 	require.Empty(t, response.CacheContractVersion)
@@ -67,17 +67,17 @@ func TestRecipeAgentsDoNotAcknowledgeCallerOwnedCacheExecution(t *testing.T) {
 
 type buildxTestServer struct {
 	*DefaultBuilder
-	capabilities    *builderv0.BuildCapabilitiesResponse
+	capabilities    *builderv1.BuildCapabilitiesResponse
 	capabilityError error
 	acknowledgement string
 	buildCalls      atomic.Int32
 }
 
-func (s *buildxTestServer) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
+func (s *buildxTestServer) BuildCapabilities(context.Context, *builderv1.BuildCapabilitiesRequest) (*builderv1.BuildCapabilitiesResponse, error) {
 	return s.capabilities, s.capabilityError
 }
 
-func (s *buildxTestServer) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (s *buildxTestServer) Build(ctx context.Context, req *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	s.buildCalls.Add(1)
 	resp, err := s.DefaultBuilder.Build(ctx, req)
 	if resp != nil {
@@ -91,9 +91,9 @@ func (s *buildxTestServer) Build(ctx context.Context, req *builderv0.BuildReques
 // vendor-image agent) has nothing to acknowledge. Treating "no recipe" as
 // "built in-agent" refused every render composing a vendor-image agent.
 func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
-	for name, result := range map[string]*builderv0.BuildResult{
-		"in-agent build": {Kind: &builderv0.BuildResult_DockerBuildResult{DockerBuildResult: &builderv0.DockerBuildResult{}}},
-		"recipe":         {Kind: &builderv0.BuildResult_DockerBuildPlan{DockerBuildPlan: &builderv0.DockerBuildPlan{}}},
+	for name, result := range map[string]*builderv1.BuildResult{
+		"in-agent build": {Kind: &builderv1.BuildResult_DockerBuildResult{DockerBuildResult: &builderv1.DockerBuildResult{}}},
+		"recipe":         {Kind: &builderv1.BuildResult_DockerBuildPlan{DockerBuildPlan: &builderv1.DockerBuildPlan{}}},
 		"nothing built":  nil,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -103,9 +103,9 @@ func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 				wrapper.BuildResult = result
 			}
 			server := grpc.NewServer()
-			builderv0.RegisterBuilderServer(server, &buildxTestServer{
+			builderv1.RegisterBuilderServer(server, &buildxTestServer{
 				DefaultBuilder: NewDefaultBuilder(wrapper),
-				capabilities:   &builderv0.BuildCapabilitiesResponse{BuildxSelection: true},
+				capabilities:   &builderv1.BuildCapabilitiesResponse{BuildxSelection: true},
 			})
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
@@ -117,9 +117,9 @@ func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 			client := NewBuilderAgentClient(conn)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			_, err = client.Build(ctx, &builderv0.BuildRequest{})
+			_, err = client.Build(ctx, &builderv1.BuildRequest{})
 			require.NoError(t, err)
-			request := &builderv0.BuildRequest{BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{BuildxBuilder: "selected"}}}}
+			request := &builderv1.BuildRequest{BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{BuildxBuilder: "selected"}}}}
 			_, err = client.Build(ctx, request)
 			if recipe {
 				require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 
 func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
 	// Merely embedding the updated Core server must never advertise support.
-	_, err := NewDefaultBuilder(&BuilderWrapper{}).BuildCapabilities(t.Context(), &builderv0.BuildCapabilitiesRequest{})
+	_, err := NewDefaultBuilder(&BuilderWrapper{}).BuildCapabilities(t.Context(), &builderv1.BuildCapabilitiesRequest{})
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 	for _, tc := range []struct {
 		name       string
@@ -152,24 +152,24 @@ func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			implementation := &buildxTestServer{
-				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}, BuildResult: &builderv0.BuildResult{Kind: &builderv0.BuildResult_DockerBuildResult{DockerBuildResult: &builderv0.DockerBuildResult{}}}}), // an in-agent build: the one answer that owes an acknowledgement
-				capabilities:    &builderv0.BuildCapabilitiesResponse{BuildxSelection: tc.supported},
+				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}, BuildResult: &builderv1.BuildResult{Kind: &builderv1.BuildResult_DockerBuildResult{DockerBuildResult: &builderv1.DockerBuildResult{}}}}), // an in-agent build: the one answer that owes an acknowledgement
+				capabilities:    &builderv1.BuildCapabilitiesResponse{BuildxSelection: tc.supported},
 				capabilityError: tc.probeError,
 				acknowledgement: tc.ack,
 			}
 			server := grpc.NewServer()
 			if tc.legacy {
 				// Match an older binary's wire service: the probe RPC does not exist.
-				descriptor := builderv0.Builder_ServiceDesc
+				descriptor := builderv1.Builder_ServiceDesc
 				descriptor.Methods = nil
-				for _, method := range builderv0.Builder_ServiceDesc.Methods {
+				for _, method := range builderv1.Builder_ServiceDesc.Methods {
 					if method.MethodName != "BuildCapabilities" {
 						descriptor.Methods = append(descriptor.Methods, method)
 					}
 				}
 				server.RegisterService(&descriptor, implementation)
 			} else {
-				builderv0.RegisterBuilderServer(server, implementation)
+				builderv1.RegisterBuilderServer(server, implementation)
 			}
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
 			client := NewBuilderAgentClient(conn)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			request := &builderv0.BuildRequest{BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{BuildxBuilder: "selected"}}}}
+			request := &builderv1.BuildRequest{BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{BuildxBuilder: "selected"}}}}
 			// A recipe request is not proof that an old agent will avoid execution.
 			request.OutputDirectory = t.TempDir()
 			_, err = client.Build(ctx, request)

@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 // ErrUnsupported means the ecosystem has no authoritative lockfile or
@@ -21,13 +21,13 @@ var ErrUnsupported = errors.New("authoritative SBOM generation is unsupported")
 
 // Result is the common output returned by ecosystem-specific generators.
 type Result struct {
-	Bom      *agentv0.Bom
+	Bom      *agentv1.Bom
 	Tool     string
 	Language string
 	SHA256   string
 }
 
-func finish(root *agentv0.Component, components []*agentv0.Component, dependencies []*agentv0.Dependency, tool, language string) (*Result, error) {
+func finish(root *agentv1.Component, components []*agentv1.Component, dependencies []*agentv1.Dependency, tool, language string) (*Result, error) {
 	sort.Slice(components, func(i, j int) bool { return components[i].GetBomRef() < components[j].GetBomRef() })
 	for _, dependency := range dependencies {
 		sort.Strings(dependency.DependsOn)
@@ -43,16 +43,16 @@ func finish(root *agentv0.Component, components []*agentv0.Component, dependenci
 		seed += "\n" + dependency.GetRef() + "=" + strings.Join(dependency.GetDependsOn(), ",")
 	}
 
-	bom := &agentv0.Bom{
+	bom := &agentv1.Bom{
 		BomFormat:    "CycloneDX",
 		SpecVersion:  "1.5",
 		SerialNumber: "urn:uuid:" + uuid.NewSHA1(uuid.NameSpaceURL, []byte(seed)).String(),
 		Version:      1,
 		Components:   components,
 		Dependencies: dependencies,
-		Metadata: &agentv0.Metadata{
+		Metadata: &agentv1.Metadata{
 			Component: root,
-			Tools: []*agentv0.Tool{{
+			Tools: []*agentv1.Tool{{
 				Vendor:  "codefly.dev",
 				Name:    tool,
 				Version: "1",
@@ -87,7 +87,7 @@ func splitName(value string) (group, name string) {
 	return "", value
 }
 
-func componentRef(component *agentv0.Component) string {
+func componentRef(component *agentv1.Component) string {
 	if component.GetBomRef() != "" {
 		return component.GetBomRef()
 	}

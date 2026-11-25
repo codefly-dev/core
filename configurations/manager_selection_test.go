@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -31,25 +31,25 @@ func TestAManagerViewResolvesForTheConsumerItNames(t *testing.T) {
 		}
 		return authority, true
 	})
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: "grpc", Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{
-				{Address: "http://localhost:1111", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}},
+			Endpoint: &basev1.Endpoint{Module: "platform", Service: "authority", Name: "grpc", Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{
+				{Address: "http://localhost:1111", Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessNative}},
 			},
 		},
 		{
-			Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: "admin", Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{
-				{Address: "http://localhost:2222", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}},
+			Endpoint: &basev1.Endpoint{Module: "platform", Service: "authority", Name: "admin", Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{
+				{Address: "http://localhost:2222", Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessNative}},
 			},
 		},
 	}
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "work-context",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "authority-address", Value: "${endpoint:platform/authority/grpc}"},
 			},
 		}},
@@ -109,11 +109,11 @@ func TestAManagerViewJudgesTheConsumerItNames(t *testing.T) {
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
 		return authority, unique == "platform/authority"
 	})
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: "admin", Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{{Address: "http://localhost:2222", Access: resources.NewNativeNetworkAccess()}}},
-		{Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: "grpc", Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{{Address: "http://localhost:1111", Access: resources.NewNativeNetworkAccess()}}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "platform", Service: "authority", Name: "admin", Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{{Address: "http://localhost:2222", Access: resources.NewNativeNetworkAccess()}}},
+		{Endpoint: &basev1.Endpoint{Module: "platform", Service: "authority", Name: "grpc", Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{{Address: "http://localhost:1111", Access: resources.NewNativeNetworkAccess()}}},
 	}
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
@@ -155,15 +155,15 @@ func TestTheCompositionRootReadRefusesAFaultBehindAnOmission(t *testing.T) {
 		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public", Exposure: "none"},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) { return authority, unique == "platform/authority" })
-	mapping := func(name, address string) *basev0.NetworkMapping {
-		return &basev0.NetworkMapping{Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: name, Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}}}
+	mapping := func(name, address string) *basev1.NetworkMapping {
+		return &basev1.NetworkMapping{Endpoint: &basev1.Endpoint{Module: "platform", Service: "authority", Name: name, Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}}}
 	}
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
 	manager = manager.ForConsumerModule("payments", declared)
 	manager.WithLoader(loader).
-		WithNetworkMappings([]*basev0.NetworkMapping{mapping("hidden", "http://localhost:1"), mapping("primary", "http://localhost:2"), mapping("secondary", "http://localhost:3")}, resources.NewNativeNetworkAccess()).
+		WithNetworkMappings([]*basev1.NetworkMapping{mapping("hidden", "http://localhost:1"), mapping("primary", "http://localhost:2"), mapping("secondary", "http://localhost:3")}, resources.NewNativeNetworkAccess()).
 		WithRunProducers(func(unique string) bool { return unique == "platform/authority" })
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -152,25 +152,25 @@ func TestGrantCapability_RejectedWhenTheGrantWindowIsShortened(t *testing.T) {
 // The hop is checked against the issuer's record, so a capability cannot claim
 // a subject, a scope, a request or approvers the approval never carried.
 func TestGrantCapability_RejectedWhenTheHopDoesNotMatchTheIssuersRecord(t *testing.T) {
-	forgeries := map[string]func(*basev0.WorkGrantHopV1, *basev0.WorkContextV1){
-		"another subject": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
+	forgeries := map[string]func(*basev1.WorkGrantHopV1, *basev1.WorkContextV1){
+		"another subject": func(hop *basev1.WorkGrantHopV1, _ *basev1.WorkContextV1) {
 			hop.Subject = "pr:codefly/core#1"
 		},
-		"another request": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
+		"another request": func(hop *basev1.WorkGrantHopV1, _ *basev1.WorkContextV1) {
 			hop.RequestDigest = "sha256:000000"
 		},
-		"another approver": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
-			hop.Approvers = []*basev0.WorkApproverV1{{PrincipalId: "u-nobody", PrincipalKind: "human"}}
+		"another approver": func(hop *basev1.WorkGrantHopV1, _ *basev1.WorkContextV1) {
+			hop.Approvers = []*basev1.WorkApproverV1{{PrincipalId: "u-nobody", PrincipalKind: "human"}}
 		},
-		"the right approver with the wrong kind": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
-			hop.Approvers = []*basev0.WorkApproverV1{{PrincipalId: approver, PrincipalKind: "service"}}
+		"the right approver with the wrong kind": func(hop *basev1.WorkGrantHopV1, _ *basev1.WorkContextV1) {
+			hop.Approvers = []*basev1.WorkApproverV1{{PrincipalId: approver, PrincipalKind: "service"}}
 		},
-		"another scope": func(hop *basev0.WorkGrantHopV1, wc *basev0.WorkContextV1) {
+		"another scope": func(hop *basev1.WorkGrantHopV1, wc *basev1.WorkContextV1) {
 			widened := scope("repo", []string{"merge"}, []string{"codefly/secrets"})
 			hop.GrantedScope = widened
-			wc.ActorChain[len(wc.ActorChain)-1].GrantedScopes = []*basev0.WorkScopeV1{widened}
+			wc.ActorChain[len(wc.ActorChain)-1].GrantedScopes = []*basev1.WorkScopeV1{widened}
 		},
-		"a grant the issuer never recorded": func(hop *basev0.WorkGrantHopV1, wc *basev0.WorkContextV1) {
+		"a grant the issuer never recorded": func(hop *basev1.WorkGrantHopV1, wc *basev1.WorkContextV1) {
 			hop.GrantId = "g-invented"
 			wc.ActorChain[len(wc.ActorChain)-1].DelegationId = "g-invented"
 		},
@@ -179,7 +179,7 @@ func TestGrantCapability_RejectedWhenTheHopDoesNotMatchTheIssuersRecord(t *testi
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			_, token, _ := h.elevated(t)
-			forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
+			forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev1.WorkContextV1)
 			forged.Nonce = "forged-" + name
 			forge(forged.GrantHop, forged)
 
@@ -195,7 +195,7 @@ func TestVerify_RejectsAGrantHopThatSwapsTheActor(t *testing.T) {
 	h := newHarness(t)
 	_, token, _ := h.elevated(t)
 
-	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
+	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev1.WorkContextV1)
 	forged.Nonce = "forged-actor"
 	forged.ActorChain[len(forged.ActorChain)-1].PrincipalId = "a-someone-else"
 
@@ -208,7 +208,7 @@ func TestVerify_RejectsAReplayableGrant(t *testing.T) {
 	h := newHarness(t)
 	_, token, _ := h.elevated(t)
 
-	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
+	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev1.WorkContextV1)
 	forged.Nonce = "forged-replay"
 	forged.ReplayPolicy = workcontext.ReplayIdempotent
 
@@ -264,7 +264,7 @@ func TestGrant_LeavesTheParentSessionAloneAndDelegatesNothing(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",
 		DelegationID:  "d-9",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"merge"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"merge"}, []string{"codefly/core"})},
 		Audience:      mergeTool,
 		TTL:           time.Minute,
 	})

@@ -8,12 +8,12 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // OpenAPIOperationMarker is the vendor extension an OpenAPI operation object
 // carries to declare itself a Runnable operation. Its value is the proto3 JSON
-// form of codefly.runnable.v0.Operation — the same field names, durations as
+// form of codefly.runnable.v1.Operation — the same field names, durations as
 // strings such as "30s", scopes as WorkScopeV1 — so the marker and the method
 // option are one schema read two ways rather than two schemas that drift.
 const OpenAPIOperationMarker = "x-codefly-operation"
@@ -27,16 +27,16 @@ func OperationFromOpenAPIMarker(marker json.RawMessage, operation string) (*Oper
 	if len(marker) == 0 {
 		return nil, fmt.Errorf("%w: %s", ErrNotAnOperation, operation)
 	}
-	declared := &runnablev0.Operation{}
+	declared := &runnablev1.Operation{}
 	// protojson rejects a field the message does not declare, so a misspelled
 	// policy field is an error rather than a policy silently left at zero.
 	if err := protojson.Unmarshal(marker, declared); err != nil {
-		return nil, fmt.Errorf("%w: %s %s is not a codefly.runnable.v0.Operation: %v", ErrInvalid, operation, OpenAPIOperationMarker, err)
+		return nil, fmt.Errorf("%w: %s %s is not a codefly.runnable.v1.Operation: %v", ErrInvalid, operation, OpenAPIOperationMarker, err)
 	}
 	// The marker's presence is the marking, but every policy field is required:
 	// an attempt budget and an authority nobody chose are not defaults core may
 	// invent on an owner's behalf.
-	if proto.Equal(declared, &runnablev0.Operation{}) {
+	if proto.Equal(declared, &runnablev1.Operation{}) {
 		return nil, fmt.Errorf("%w: %s carries %s but declares no execution policy; the marker marks the operation and its fields state how it runs", ErrInvalid, operation, OpenAPIOperationMarker)
 	}
 	// A receipt lookup paired on the same service is a gRPC spelling: it names

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,16 +127,16 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 // list through Proto().
 func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
 	ctx := context.Background()
-	require.Error(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{
+	require.Error(t, Validate(&basev1.Module{Name: "billing", Interface: &basev1.ModuleInterface{Endpoints: []*basev1.InterfaceEndpoint{
 		{Service: "api", Endpoint: "grpc", Visibility: VisibilityPrivate},
 	}}}), "a private export is refused by the schema")
-	for _, entry := range []*basev0.InterfaceEndpoint{
+	for _, entry := range []*basev1.InterfaceEndpoint{
 		{Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic},
 		{Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal},
 	} {
-		require.NoError(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}))
+		require.NoError(t, Validate(&basev1.Module{Name: "billing", Interface: &basev1.ModuleInterface{Endpoints: []*basev1.InterfaceEndpoint{entry}}}))
 	}
-	descriptor := (&basev0.InterfaceEndpoint{}).ProtoReflect().Descriptor()
+	descriptor := (&basev1.InterfaceEndpoint{}).ProtoReflect().Descriptor()
 	require.Nil(t, descriptor.Fields().ByName("allow_modules"), "the wire model carries no allow-list")
 	require.True(t, descriptor.ReservedNames().Has("allow_modules"), "the name is reserved")
 	require.True(t, descriptor.ReservedRanges().Has(4), "the number is reserved")

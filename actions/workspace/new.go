@@ -10,10 +10,10 @@ import (
 	"buf.build/go/protovalidate"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 )
 
-type NewWorkspace = actionsv0.NewWorkspace
+type NewWorkspace = actionsv1.NewWorkspace
 type NewWorkspaceAction struct {
 	*NewWorkspace
 }

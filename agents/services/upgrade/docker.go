@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Docker reports a tag bump for a stock image (e.g. postgres:16 → 16.4)
@@ -43,10 +43,10 @@ func Docker(ctx context.Context, image string, opts Options) (*Result, error) {
 	if target == "" || target == current {
 		return &Result{}, nil
 	}
-	change := &builderv0.UpgradeChange{
+	change := &builderv1.UpgradeChange{
 		Package: repo, From: current, To: target,
 	}
-	return &Result{Changes: []*builderv0.UpgradeChange{change}}, nil
+	return &Result{Changes: []*builderv1.UpgradeChange{change}}, nil
 }
 
 // splitImage splits "postgres:16" → ("library/postgres", "16").

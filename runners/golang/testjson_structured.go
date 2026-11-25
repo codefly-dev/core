@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // MaxCapturedOutputBytesPerCase caps the per-case captured_output
@@ -20,7 +20,7 @@ const MaxCapturedOutputBytesPerCase = 32 * 1024 // 32 KiB
 
 // StructuredTestRun is the SOTA representation built by walking
 // `go test -json` events. Holds the full hierarchy + per-case
-// captured output. Convertible to runtimev0.TestResponse via
+// captured output. Convertible to runtimev1.TestResponse via
 // ToProtoResponse, OR to the legacy flat *TestSummary via Legacy
 // for callers that haven't migrated yet.
 //
@@ -70,7 +70,7 @@ type structuredSuite struct {
 // output up to the cap.
 type structuredCase struct {
 	Name      string
-	state     runtimev0.TestCaseState
+	state     runtimev1.TestCaseState
 	startedAt time.Time
 	elapsed   time.Duration
 	output    strings.Builder
@@ -119,7 +119,7 @@ func ParseTestJSONStructured(raw string) *StructuredTestRun {
 			c := suite.caseFor(ev.Test)
 			c.startedAt = time.Now()
 		case "pass":
-			r.applyTerminal(suite, ev, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED)
+			r.applyTerminal(suite, ev, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED)
 		case "fail":
 			if ev.Test == "" {
 				// Package-level fail event. `go test -json` emits one
@@ -144,9 +144,9 @@ func ParseTestJSONStructured(raw string) *StructuredTestRun {
 				suite.elapsed = time.Duration(ev.Elapsed * float64(time.Second))
 				continue
 			}
-			r.applyTerminal(suite, ev, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED)
+			r.applyTerminal(suite, ev, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED)
 		case "skip":
-			r.applyTerminal(suite, ev, runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED)
+			r.applyTerminal(suite, ev, runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED)
 		case "build-output":
 			suite.output.WriteString(ev.Output)
 		case "build-fail":
@@ -191,7 +191,7 @@ func ParseTestJSONStructured(raw string) *StructuredTestRun {
 
 // applyTerminal sets a case's terminal state + elapsed time. Shared
 // for pass/fail/skip; the only difference is the resulting state.
-func (r *StructuredTestRun) applyTerminal(suite *structuredSuite, ev TestEvent, state runtimev0.TestCaseState) {
+func (r *StructuredTestRun) applyTerminal(suite *structuredSuite, ev TestEvent, state runtimev1.TestCaseState) {
 	if ev.Test == "" {
 		// Package-level terminal — set suite duration; case states
 		// already set by their own per-case events.
@@ -222,7 +222,7 @@ func (r *StructuredTestRun) suite(pkg string) *structuredSuite {
 // fail" (no-op) from "package-level error" (mark suite errored).
 func hasFailedCase(s *structuredSuite) bool {
 	for _, c := range s.cases {
-		if c.state == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED {
+		if c.state == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED {
 			return true
 		}
 	}
@@ -233,7 +233,7 @@ func hasFailedCase(s *structuredSuite) bool {
 func (s *structuredSuite) caseFor(name string) *structuredCase {
 	c, ok := s.cases[name]
 	if !ok {
-		c = &structuredCase{Name: name, state: runtimev0.TestCaseState_TEST_CASE_STATE_UNSPECIFIED}
+		c = &structuredCase{Name: name, state: runtimev1.TestCaseState_TEST_CASE_STATE_UNSPECIFIED}
 		s.cases[name] = c
 	}
 	return c
@@ -276,7 +276,7 @@ func unmarshalEvent(line string, ev *TestEvent) error {
 
 // --- Conversion to protobuf TestResponse ---------------------------
 
-// ToProtoResponse constructs the runtimev0.TestResponse with BOTH the
+// ToProtoResponse constructs the runtimev1.TestResponse with BOTH the
 // structured tree (preferred) AND the legacy flat fields populated
 // (for backward compat). Single source of truth: every count/value
 // in the legacy fields is computed from the structured tree.
@@ -284,9 +284,9 @@ func unmarshalEvent(line string, ev *TestEvent) error {
 // runner is the runner identifier ("go-test"); suiteName echoes
 // TestRequest.suite. duration is the wall-clock for the whole run
 // (caller measures it).
-func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev0.TestResponse {
-	suites := make([]*runtimev0.TestSuite, 0, len(r.Suites))
-	counts := &runtimev0.TestCounts{}
+func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev1.TestResponse {
+	suites := make([]*runtimev1.TestSuite, 0, len(r.Suites))
+	counts := &runtimev1.TestCounts{}
 	legacyFailures := make([]string, 0)
 	var legacyOutput strings.Builder
 
@@ -310,8 +310,8 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 
 		// Legacy compat — list of "FAIL pkg/Test" strings.
 		for _, pc := range ps.GetCases() {
-			if pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-				pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+				pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				legacyFailures = append(legacyFailures,
 					fmt.Sprintf("FAIL %s/%s\n%s", name, pc.GetName(), pc.GetCapturedOutput()))
 			}
@@ -324,28 +324,28 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	}
 
 	// Run-level result: PASSED iff zero failed AND zero errored.
-	runResult := &runtimev0.TestRunResult{
-		State:   runtimev0.TestRunResult_PASSED,
+	runResult := &runtimev1.TestRunResult{
+		State:   runtimev1.TestRunResult_PASSED,
 		Message: "all tests passed",
 	}
 	if counts.Failed > 0 {
-		runResult.State = runtimev0.TestRunResult_FAILED
+		runResult.State = runtimev1.TestRunResult_FAILED
 		runResult.Message = fmt.Sprintf("%d test(s) failed", counts.Failed)
 	}
 	if counts.Errored > 0 {
-		runResult.State = runtimev0.TestRunResult_ERRORED
+		runResult.State = runtimev1.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("%d run-level error(s)", counts.Errored)
 	}
 
 	// Legacy status: SUCCESS unless we have failures.
-	legacyState := runtimev0.TestStatus_SUCCESS
+	legacyState := runtimev1.TestStatus_SUCCESS
 	if counts.Failed > 0 || counts.Errored > 0 {
-		legacyState = runtimev0.TestStatus_ERROR
+		legacyState = runtimev1.TestStatus_ERROR
 	}
 
-	resp := &runtimev0.TestResponse{
+	resp := &runtimev1.TestResponse{
 		// Structured (preferred):
-		Run: &runtimev0.TestRun{
+		Run: &runtimev1.TestRun{
 			Runner:    runner,
 			SuiteName: suiteName,
 			Duration:  durationpb.New(duration),
@@ -353,14 +353,14 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		Result: runResult,
 		Counts: counts,
 		Suites: suites,
-		Truncation: &runtimev0.TestTruncation{
+		Truncation: &runtimev1.TestTruncation{
 			Happened:        r.truncatedCases > 0,
 			MaxPerCaseBytes: int32(MaxCapturedOutputBytesPerCase),
 			TruncatedCases:  r.truncatedCases,
 		},
 
 		// Legacy flat (deprecated; populated for transition):
-		Status:       &runtimev0.TestStatus{State: legacyState, Message: runResult.Message},
+		Status:       &runtimev1.TestStatus{State: legacyState, Message: runResult.Message},
 		Output:       legacyOutput.String(),
 		TestsRun:     counts.Total,
 		TestsPassed:  counts.Passed,
@@ -371,7 +371,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	}
 
 	if r.CoveragePct > 0 {
-		resp.Coverage = &runtimev0.TestCoverage{
+		resp.Coverage = &runtimev1.TestCoverage{
 			TotalPct:          r.CoveragePct,
 			RawArtifactFormat: "go-cover",
 		}
@@ -382,12 +382,12 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 
 // toProto converts a single suite into its protobuf form, also
 // returning the suite's counts for run-level aggregation.
-func (s *structuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts) {
-	ps := &runtimev0.TestSuite{
+func (s *structuredSuite) toProto() (*runtimev1.TestSuite, *runtimev1.TestCounts) {
+	ps := &runtimev1.TestSuite{
 		Name:     s.Name,
 		Duration: durationpb.New(s.elapsed),
 	}
-	suiteCounts := &runtimev0.TestCounts{}
+	suiteCounts := &runtimev1.TestCounts{}
 
 	// Stable ordering: alphabetical by case name.
 	names := make([]string, 0, len(s.cases))
@@ -398,7 +398,7 @@ func (s *structuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 
 	for _, name := range names {
 		c := s.cases[name]
-		pc := &runtimev0.TestCase{
+		pc := &runtimev1.TestCase{
 			Name:     c.Name,
 			FullName: s.Name + "." + c.Name,
 			State:    c.state,
@@ -409,10 +409,10 @@ func (s *structuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		// FAILED/ERRORED. PASSED + SKIPPED get empty (unless caller
 		// passes verbose — we don't model that here yet; verbose
 		// support belongs at the agent level).
-		if c.state == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-			c.state == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+		if c.state == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+			c.state == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 			pc.CapturedOutput = c.output.String()
-			pc.Failure = &runtimev0.TestFailure{
+			pc.Failure = &runtimev1.TestFailure{
 				Message: extractFailureMessage(c.output.String()),
 				Detail:  c.output.String(),
 				Kind:    extractFailureKind(c.output.String()),
@@ -422,13 +422,13 @@ func (s *structuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		ps.Cases = append(ps.Cases, pc)
 		suiteCounts.Total++
 		switch c.state {
-		case runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:
 			suiteCounts.Passed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 			suiteCounts.Failed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED:
 			suiteCounts.Skipped++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 			suiteCounts.Errored++
 		}
 	}
@@ -438,14 +438,14 @@ func (s *structuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		// errored count plus a synthetic case carrying the error.
 		suiteCounts.Errored++
 		suiteCounts.Total++
-		ps.Cases = append(ps.Cases, &runtimev0.TestCase{
+		ps.Cases = append(ps.Cases, &runtimev1.TestCase{
 			Name:     "<package>",
 			FullName: s.Name,
-			State:    runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED,
-			Failure: &runtimev0.TestFailure{
+			State:    runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED,
+			Failure: &runtimev1.TestFailure{
 				Message: "package failed to build or initialize",
 				Detail:  s.errorReason,
-				Kind:    runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR,
+				Kind:    runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR,
 			},
 			CapturedOutput: s.errorReason,
 		})
@@ -477,14 +477,14 @@ func extractFailureMessage(output string) string {
 
 // extractFailureKind classifies the failure based on output markers.
 // Conservative — when unsure, return ASSERTION (the common case).
-func extractFailureKind(output string) runtimev0.TestFailureKind {
+func extractFailureKind(output string) runtimev1.TestFailureKind {
 	if strings.Contains(output, "panic:") || strings.Contains(output, "goroutine ") {
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_PANIC
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_PANIC
 	}
 	if strings.Contains(output, "test timed out") || strings.Contains(output, "context deadline exceeded") {
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
 	}
-	return runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
+	return runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
 }
 
 // sortStrings is a tiny shim — using sort.Strings here pulls in

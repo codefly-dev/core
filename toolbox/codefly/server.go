@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
@@ -48,7 +48,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"codefly", "read-only", "filesystem"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns `workspace: ...` when the directory isn't inside a codefly workspace.",
-			Examples:    []*toolboxv0.ToolExample{{Description: "List everything in the workspace.", Arguments: mustStruct(map[string]any{}), ExpectedOutcome: "{ workspace, layout, modules: [...], services: [{module,name}] }"}},
+			Examples:    []*toolboxv1.ToolExample{{Description: "List everything in the workspace.", Arguments: mustStruct(map[string]any{}), ExpectedOutcome: "{ workspace, layout, modules: [...], services: [{module,name}] }"}},
 			Handler:     s.list,
 		},
 		{
@@ -59,13 +59,13 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:               []string{"codefly", "read-only", "filesystem"},
 			Idempotency:        "idempotent",
 			ErrorModes:         "Returns `workspace: ...` when no workspace is found.",
-			Examples:           []*toolboxv0.ToolExample{{Description: "Summarize the workspace.", Arguments: mustStruct(map[string]any{}), ExpectedOutcome: "{ name, description, layout, module_count, service_count }"}},
+			Examples:           []*toolboxv1.ToolExample{{Description: "Summarize the workspace.", Arguments: mustStruct(map[string]any{}), ExpectedOutcome: "{ name, description, layout, module_count, service_count }"}},
 			Handler:            s.info,
 		},
 	}
 }
 
-func (s *Server) list(ctx context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) list(ctx context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	ws, err := s.loadWorkspace(ctx)
 	if err != nil {
 		return respond.Error("workspace: %v", err)
@@ -86,7 +86,7 @@ func (s *Server) list(ctx context.Context, _ *toolboxv0.CallToolRequest) *toolbo
 	})
 }
 
-func (s *Server) info(ctx context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) info(ctx context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	ws, err := s.loadWorkspace(ctx)
 	if err != nil {
 		return respond.Error("workspace: %v", err)

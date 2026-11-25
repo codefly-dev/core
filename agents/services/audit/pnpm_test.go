@@ -1,7 +1,7 @@
 package audit
 
 import (
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
@@ -17,8 +17,8 @@ func TestPnpmAuditPreservesRealAdvisories(t *testing.T) {
 	require.Equal(t, "nanoid", findings[0].Package)
 	require.Equal(t, "5.1.11", findings[0].CurrentVersion)
 	require.Equal(t, ">=5.1.16", findings[0].FixedVersion)
-	require.Equal(t, builderv0.AuditFinding_HIGH, findings[0].Severity)
-	require.Equal(t, builderv0.AuditFinding_MEDIUM, findings[1].Severity)
+	require.Equal(t, builderv1.AuditFinding_HIGH, findings[0].Severity)
+	require.Equal(t, builderv1.AuditFinding_MEDIUM, findings[1].Severity)
 }
 
 func TestPnpmAuditCannotTurnErrorsIntoCleanEvidence(t *testing.T) {

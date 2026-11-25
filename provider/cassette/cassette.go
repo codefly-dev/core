@@ -19,7 +19,7 @@ import (
 	"sort"
 	"sync"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -69,12 +69,12 @@ func (c *Cassette) Mode() Mode { return c.mode }
 // fields. Method, descriptor, path, query, body, origin, and response policy
 // are bound; the idempotency key, request id, and timestamps are not.
 type Key struct {
-	planned *providerv0.PlannedRequest
-	origin  *providerv0.AdmittedOrigin
+	planned *providerv1.PlannedRequest
+	origin  *providerv1.AdmittedOrigin
 }
 
 // NewKey builds a match key from the admitted planned request and origin.
-func NewKey(planned *providerv0.PlannedRequest, origin *providerv0.AdmittedOrigin) Key {
+func NewKey(planned *providerv1.PlannedRequest, origin *providerv1.AdmittedOrigin) Key {
 	return Key{planned: planned, origin: origin}
 }
 
@@ -82,14 +82,14 @@ func (k Key) digests() (match string, policy string, method string, err error) {
 	if k.planned == nil || k.origin == nil {
 		return "", "", "", fmt.Errorf("cassette key requires a planned request and origin")
 	}
-	normalized := proto.Clone(k.planned).(*providerv0.PlannedRequest)
+	normalized := proto.Clone(k.planned).(*providerv1.PlannedRequest)
 	// Normalize host-injected volatile fields; keep action/resource/origin. The
 	// response policy is compared separately so a policy drift is a distinct,
 	// explicit mismatch rather than a silent non-match.
 	normalized.IdempotencyKey = ""
 	normalized.RequestDigest = ""
 	normalized.ResponsePolicyDigest = ""
-	origin := proto.Clone(k.origin).(*providerv0.AdmittedOrigin)
+	origin := proto.Clone(k.origin).(*providerv1.AdmittedOrigin)
 	origin.AdmissionDigest = ""
 
 	plannedBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(normalized)
@@ -107,7 +107,7 @@ func (k Key) digests() (match string, policy string, method string, err error) {
 // Record stores a live filtered response. It fails closed if any secret-shaped
 // value survived filtering, so a cassette can never become an exfiltration
 // surface.
-func (c *Cassette) Record(key Key, status uint32, safeHeaders map[string]string, response *providerv0.ExecuteRequestResponse) error {
+func (c *Cassette) Record(key Key, status uint32, safeHeaders map[string]string, response *providerv1.ExecuteRequestResponse) error {
 	if c.mode != ModeRecord {
 		return fmt.Errorf("cassette is not in record mode")
 	}
@@ -147,7 +147,7 @@ func (c *Cassette) Record(key Key, status uint32, safeHeaders map[string]string,
 
 // Replay returns the next recorded response for the key. It never falls back to
 // the network: an unknown key or a response-policy mismatch is a hard error.
-func (c *Cassette) Replay(key Key) (uint32, *providerv0.ExecuteRequestResponse, error) {
+func (c *Cassette) Replay(key Key) (uint32, *providerv1.ExecuteRequestResponse, error) {
 	if c.mode != ModeReplay {
 		return 0, nil, fmt.Errorf("cassette is not in replay mode")
 	}
@@ -206,8 +206,8 @@ func Load(data []byte, providerVersion string) (*Cassette, error) {
 	return &Cassette{mode: ModeReplay, providerVersion: providerVersion, entries: entries, replayCursor: map[string]int{}}, nil
 }
 
-func marshalResponse(response *providerv0.ExecuteRequestResponse) (json.RawMessage, error) {
-	clone := proto.Clone(response).(*providerv0.ExecuteRequestResponse)
+func marshalResponse(response *providerv1.ExecuteRequestResponse) (json.RawMessage, error) {
+	clone := proto.Clone(response).(*providerv1.ExecuteRequestResponse)
 	// Volatile host-injected fields are excluded from the stored form so a
 	// re-record is byte-identical.
 	clone.RequestId = ""
@@ -226,8 +226,8 @@ func marshalResponse(response *providerv0.ExecuteRequestResponse) (json.RawMessa
 	return json.Marshal(generic)
 }
 
-func unmarshalResponse(raw json.RawMessage) (*providerv0.ExecuteRequestResponse, error) {
-	response := &providerv0.ExecuteRequestResponse{}
+func unmarshalResponse(raw json.RawMessage) (*providerv1.ExecuteRequestResponse, error) {
+	response := &providerv1.ExecuteRequestResponse{}
 	if err := protojson.Unmarshal(raw, response); err != nil {
 		return nil, err
 	}

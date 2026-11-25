@@ -7,17 +7,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestCacheArguments(t *testing.T) {
-	policy := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app/trusted", Imports: []string{"ghcr.io/org/cache"}, Exports: []string{"ghcr.io/org/cache"}, Mode: "max"}
+	policy := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app/trusted", Imports: []string{"ghcr.io/org/cache"}, Exports: []string{"ghcr.io/org/cache"}, Mode: "max"}
 	encoded, err := proto.Marshal(policy)
 	require.NoError(t, err)
-	decoded := &builderv0.BuildCacheOptions{}
+	decoded := &builderv1.BuildCacheOptions{}
 	require.NoError(t, proto.Unmarshal(encoded, decoded))
 	args, err := CacheArguments(decoded, []string{"linux/amd64"})
 	require.NoError(t, err)
@@ -56,15 +56,15 @@ func TestCacheArguments(t *testing.T) {
 }
 
 func TestCacheRejectsUnsupportedAndInjectedOptions(t *testing.T) {
-	for _, mutate := range []func(*builderv0.BuildCacheOptions){
-		func(c *builderv0.BuildCacheOptions) { c.Backend = "gha" },
-		func(c *builderv0.BuildCacheOptions) { c.Scope = "" },
-		func(c *builderv0.BuildCacheOptions) { c.Mode = "other" },
-		func(c *builderv0.BuildCacheOptions) { c.Imports = []string{"ghcr.io/org/cache,mode=max"} },
-		func(c *builderv0.BuildCacheOptions) { c.Exports = []string{"https://user:secret@ghcr.io/org/cache"} },
-		func(c *builderv0.BuildCacheOptions) { c.Exports = []string{"ghcr.io/org/cache:latest"} },
+	for _, mutate := range []func(*builderv1.BuildCacheOptions){
+		func(c *builderv1.BuildCacheOptions) { c.Backend = "gha" },
+		func(c *builderv1.BuildCacheOptions) { c.Scope = "" },
+		func(c *builderv1.BuildCacheOptions) { c.Mode = "other" },
+		func(c *builderv1.BuildCacheOptions) { c.Imports = []string{"ghcr.io/org/cache,mode=max"} },
+		func(c *builderv1.BuildCacheOptions) { c.Exports = []string{"https://user:secret@ghcr.io/org/cache"} },
+		func(c *builderv1.BuildCacheOptions) { c.Exports = []string{"ghcr.io/org/cache:latest"} },
 	} {
-		policy := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "service"}
+		policy := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "service"}
 		mutate(policy)
 		_, err := CacheArguments(policy, []string{"linux/amd64"})
 		require.Error(t, err)
@@ -91,7 +91,7 @@ func TestBuildContextExcludesIgnoredDirectoryContents(t *testing.T) {
 }
 
 func TestCacheBuildStillVerifiesArchitecture(t *testing.T) {
-	policy := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "service", Imports: []string{"ghcr.io/org/cache"}}
+	policy := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "service", Imports: []string{"ghcr.io/org/cache"}}
 	backend := &scriptedBackend{architecture: "amd64"}
 	builder := newTestBuilder(t, BuilderConfiguration{Root: t.TempDir(), Dockerfile: "Dockerfile", Destination: resources.NewDockerImage("test/cache:v1"), Output: io.Discard, Platform: "linux/arm64", Cache: policy}, backend)
 	_, err := builder.Build(context.Background())

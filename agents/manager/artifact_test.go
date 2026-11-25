@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/solution"
 	"github.com/stretchr/testify/require"
@@ -47,15 +47,15 @@ func buildAcquiredExecutor(t *testing.T, label string) (string, string) {
 	return path, digest
 }
 
-func preparedExecutor(t *testing.T, digest, protocol string) *basev0.ArtifactExecution {
+func preparedExecutor(t *testing.T, digest, protocol string) *basev1.ArtifactExecution {
 	t.Helper()
 	identity := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("selected inputs")))
-	request, err := artifactexecution.Prepare(&basev0.ArtifactExecution{
+	request, err := artifactexecution.Prepare(&basev1.ArtifactExecution{
 		ContractVersion: artifactexecution.Contract, SelectionIdentity: identity,
 		Target: "modules/app", Service: "api", Protocol: protocol, ExecutorDigest: digest,
 		ConfigurationIdentity: "hmac-" + identity, BindingIdentity: identity,
-		Inputs:  []*basev0.ArtifactExecutionInput{{Name: "package", Artifact: "package", Uri: "https://example.test/package", MediaType: "application/json", Digest: identity}},
-		Outputs: []*basev0.ArtifactExecutionOutput{{Name: "rendered", MediaType: "application/json"}},
+		Inputs:  []*basev1.ArtifactExecutionInput{{Name: "package", Artifact: "package", Uri: "https://example.test/package", MediaType: "application/json", Digest: identity}},
+		Outputs: []*basev1.ArtifactExecutionOutput{{Name: "rendered", MediaType: "application/json"}},
 	})
 	require.NoError(t, err)
 	return request
@@ -95,21 +95,21 @@ func TestLoadArtifact(t *testing.T) {
 			defer unauthenticated.Close()
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			_, err = agentv0.NewAgentClient(unauthenticated).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+			_, err = agentv1.NewAgentClient(unauthenticated).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 			staging := t.TempDir()
-			var receipt *basev0.ArtifactExecutionReceipt
+			var receipt *basev1.ArtifactExecutionReceipt
 			switch protocol {
 			case artifactexecution.BuilderBuild:
-				response, callErr := builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+				response, callErr := builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: request, OutputDirectory: staging})
 				require.NoError(t, callErr)
 				receipt = response.Execution
 			case artifactexecution.BuilderRender:
-				response, callErr := builderv0.NewBuilderClient(conn.GRPCConn()).Deploy(t.Context(), &builderv0.DeploymentRequest{Execution: request, OutputDirectory: staging})
+				response, callErr := builderv1.NewBuilderClient(conn.GRPCConn()).Deploy(t.Context(), &builderv1.DeploymentRequest{Execution: request, OutputDirectory: staging})
 				require.NoError(t, callErr)
 				receipt = response.Execution
 			case artifactexecution.SolutionRender:
-				response, callErr := solution.NewClient(conn.GRPCConn()).Render(t.Context(), solution.CeilingRender(), &solutionv0.RenderRequest{Execution: request, Destination: staging, Context: &solutionv0.SolutionContext{Artifact: &solutionv0.SolutionArtifact{ArtifactDigest: digest}}})
+				response, callErr := solution.NewClient(conn.GRPCConn()).Render(t.Context(), solution.CeilingRender(), &solutionv1.RenderRequest{Execution: request, Destination: staging, Context: &solutionv1.SolutionContext{Artifact: &solutionv1.SolutionArtifact{ArtifactDigest: digest}}})
 				require.NoError(t, callErr)
 				receipt = response.Execution
 			}
@@ -201,11 +201,11 @@ func TestLoadArtifact(t *testing.T) {
 		request.Identity = ""
 		request, err = artifactexecution.Prepare(request)
 		require.NoError(t, err)
-		_, err = builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: t.TempDir()})
+		_, err = builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: request, OutputDirectory: t.TempDir()})
 		require.ErrorIs(t, err, ErrAgentAdmission)
-		_, err = builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{OutputDirectory: t.TempDir()})
+		_, err = builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{OutputDirectory: t.TempDir()})
 		require.ErrorIs(t, err, ErrAgentAdmission)
-		_, err = builderv0.NewBuilderClient(conn.GRPCConn()).Deploy(t.Context(), &builderv0.DeploymentRequest{Execution: preparedExecutor(t, digest, artifactexecution.BuilderRender), OutputDirectory: t.TempDir()})
+		_, err = builderv1.NewBuilderClient(conn.GRPCConn()).Deploy(t.Context(), &builderv1.DeploymentRequest{Execution: preparedExecutor(t, digest, artifactexecution.BuilderRender), OutputDirectory: t.TempDir()})
 		require.ErrorIs(t, err, ErrAgentAdmission)
 	})
 }
@@ -220,7 +220,7 @@ func TestLoadArtifactIndependentReplacements(t *testing.T) {
 	first, digestA := buildAcquiredExecutor(t, "first")
 	second, digestB := buildAcquiredExecutor(t, "second")
 	require.NotEqual(t, digestA, digestB)
-	requests := []*basev0.ArtifactExecution{preparedExecutor(t, digestA, artifactexecution.BuilderBuild), preparedExecutor(t, digestB, artifactexecution.BuilderBuild)}
+	requests := []*basev1.ArtifactExecution{preparedExecutor(t, digestA, artifactexecution.BuilderBuild), preparedExecutor(t, digestB, artifactexecution.BuilderBuild)}
 	requests[1].Target, requests[1].Identity = "modules/sibling", ""
 	requests[1], err = artifactexecution.Prepare(requests[1])
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestLoadArtifactIndependentReplacements(t *testing.T) {
 	require.NoError(t, os.WriteFile(first, content, 0600))
 	for i, conn := range conns {
 		staging := t.TempDir()
-		response, err := builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: proto.Clone(requests[i]).(*basev0.ArtifactExecution), OutputDirectory: staging})
+		response, err := builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: proto.Clone(requests[i]).(*basev1.ArtifactExecution), OutputDirectory: staging})
 		require.NoError(t, err)
 		require.NoError(t, artifactexecution.CheckReceipt(requests[i], response.Execution))
 	}
@@ -299,7 +299,7 @@ func TestArtifactShutdownStopsOutputWriters(t *testing.T) {
 				_ = conn.CloseAndWait(ctx)
 			})
 			staging := t.TempDir()
-			response, err := builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+			response, err := builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: request, OutputDirectory: staging})
 			require.NoError(t, err)
 			require.NoError(t, artifactexecution.CheckReceipt(request, response.Execution))
 			if checked {
@@ -323,7 +323,7 @@ func TestArtifactShutdownCancellationPreservesRetry(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(conn.Close)
 	staging := t.TempDir()
-	_, err = builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+	_, err = builderv1.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv1.BuildRequest{Execution: request, OutputDirectory: staging})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

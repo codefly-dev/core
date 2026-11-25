@@ -6,7 +6,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -14,7 +14,7 @@ import (
 // checks its protocol, and closes the process without invoking lifecycle RPCs.
 // The caller's selection is never mutated, and an incompatible selection is
 // never silently replaced with a different release.
-func InspectAgent(ctx context.Context, selected *resources.Agent) (*resources.Agent, *agentv0.AgentInformation, error) {
+func InspectAgent(ctx context.Context, selected *resources.Agent) (*resources.Agent, *agentv1.AgentInformation, error) {
 	if selected == nil {
 		return nil, nil, fmt.Errorf("agent is required")
 	}
@@ -27,7 +27,7 @@ func InspectAgent(ctx context.Context, selected *resources.Agent) (*resources.Ag
 		return nil, nil, err
 	}
 	defer conn.Close()
-	info, err := agentv0.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	info, err := agentv1.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("inspect agent %s: %w", &agent, err)
 	}

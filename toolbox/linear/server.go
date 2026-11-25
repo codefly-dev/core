@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
 	"github.com/codefly-dev/gortk"
@@ -92,7 +92,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"linear", "read-only", "network"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns `linear: ...` when LINEAR_API_KEY is missing/invalid or the API errors.",
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{Description: "List the 10 most recent issues.", Arguments: mustStruct(map[string]any{"limit": 10}), ExpectedOutcome: "Up to 10 compact issue lines plus a count summary."},
 			},
 			Handler: s.issues,
@@ -112,7 +112,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"linear", "read-only", "network"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns `linear: ...` on auth/API failure or when `query` is empty.",
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{Description: "Find issues mentioning 'compression'.", Arguments: mustStruct(map[string]any{"query": "compression"}), ExpectedOutcome: "Compact issue lines matching the search."},
 			},
 			Handler: s.search,
@@ -122,7 +122,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 
 // --- handlers ----------------------------------------------------------------
 
-func (s *Server) issues(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) issues(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	args := respond.Args(req)
 	q := fmt.Sprintf(`query($first:Int!){issues(first:$first, orderBy: updatedAt){%s}}`, issueFields)
 	body, err := s.graphql(ctx, q, map[string]any{"first": intArg(args, "limit", 25)})
@@ -132,7 +132,7 @@ func (s *Server) issues(ctx context.Context, req *toolboxv0.CallToolRequest) *to
 	return respond.Text(issuesFilter.Apply(gortk.Command{Stdout: body}).Text)
 }
 
-func (s *Server) search(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) search(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	args := respond.Args(req)
 	term, _ := args["query"].(string)
 	if term == "" {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // apiServerManifest renders a conformant Deployment whose pod either declares
@@ -121,7 +121,7 @@ func TestUnrecognisedAPIServerAccessDeclarationIsRefused(t *testing.T) {
 // helpers that take only a judged one.
 func restrictedOutputProfile(t *testing.T) OutputProfile {
 	t.Helper()
-	profile, err := ParseOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	profile, err := ParseOutputProfile(builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
 	if err != nil {
 		t.Fatalf("restricted profile: %v", err)
 	}

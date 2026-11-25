@@ -1,7 +1,7 @@
 // Package javascript runs and parses test output for JS/TS test
 // runners — vitest, jest, playwright. Produces the SOTA structured
-// runtimev0.TestResponse the codefly platform expects (see
-// proto/codefly/services/runtime/v0/runtime.proto).
+// runtimev1.TestResponse the codefly platform expects (see
+// proto/codefly/services/runtime/v1/runtime.proto).
 //
 // Three parsers, two schemas:
 //
@@ -24,6 +24,6 @@
 //
 // All parsers feed StructuredTestRun, the same convertible-to-proto
 // type the python and go parsers use. ToProtoResponse(runner,
-// suiteName, duration) returns runtimev0.TestResponse with both the
+// suiteName, duration) returns runtimev1.TestResponse with both the
 // structured tree and the legacy flat fields populated.
 package javascript

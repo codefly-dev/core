@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ func artifactOrigins(t *testing.T, provided *WorkspaceConfigurations) map[string
 func TestModuleArtifactOriginsIncludeNewGroupSlotAndDerivedReplacement(t *testing.T) {
 	root, ws := artifactFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "public.json"), []byte("PUBLIC-CONTENT-CANARY"), 0600))
-	resolver := func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	resolver := func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	}
 	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), resolver)
@@ -80,7 +80,7 @@ func TestModuleArtifactOriginsSurviveRetainedComposedClone(t *testing.T) {
 	write("public.json", "PUBLIC-CONTENT-CANARY")
 	ws, err := resources.LoadWorkspaceFromDir(t.Context(), filepath.Join(root, "solution"))
 	require.NoError(t, err)
-	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	})
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestModuleArtifactAcquisitionRefusalNamesFailedOfferWithoutResolverText(t *
 	root, ws := artifactFixture(t)
 	declaration := `{"schemaVersion":1,"bindings":[{"configuration":"install","key":"CONFIG","source":{"module":"documents","path":"public.json"}},{"configuration":"second","key":"CONFIG","source":{"module":"documents","path":"missing.json"}}]}`
 	require.NoError(t, os.WriteFile(filepath.Join(root, "configurations/local", moduleArtifactsFile), []byte(declaration), 0600))
-	_, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	_, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		data, readErr := os.ReadFile(filepath.Join(root, r.Path))
 		if readErr != nil {
 			return nil, fmt.Errorf("op://PRIVATE-CANARY: %w", readErr)
@@ -113,7 +113,7 @@ func TestModuleArtifactAcquisitionRefusalNamesFailedOfferWithoutResolverText(t *
 func TestModuleArtifactOriginDoesNotReattributeSameLayerOrdinaryKeys(t *testing.T) {
 	root, ws := artifactFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "configurations/local/install.env"), []byte("CONFIG=${profile}\nUNCHANGED=current-layer\n"), 0600))
-	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	})
 	require.NoError(t, err)

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/launch"
@@ -71,7 +71,7 @@ func TestE2E_OSSandbox_BlocksOutboundNetwork_LoopbackAllowsHandshake(t *testing.
 	defer plugin.Close()
 
 	// Loopback gRPC must work — the handshake itself is loopback.
-	id, err := plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	id, err := plugin.Client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err, "Identity over loopback gRPC must work under NetworkLoopback")
 	require.Equal(t, "network-victim", id.Name)
 
@@ -79,7 +79,7 @@ func TestE2E_OSSandbox_BlocksOutboundNetwork_LoopbackAllowsHandshake(t *testing.
 	// issues an HTTP GET to http://example.com — outside loopback,
 	// so the OS sandbox must block.
 	args, _ := structpb.NewStruct(map[string]any{"url": "http://example.com"})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "net.fetch", Arguments: args,
 	})
 	require.NoError(t, err, "gRPC CallTool must succeed (loopback); the FETCH inside the plugin is what fails")
@@ -112,7 +112,7 @@ func TestE2E_OSSandbox_BlocksOutboundNetwork_LoopbackAllowsHandshake(t *testing.
 	defer ts.Close()
 
 	args2, _ := structpb.NewStruct(map[string]any{"url": ts.URL})
-	resp2, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp2, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "net.fetch", Arguments: args2,
 	})
 	require.NoError(t, err)

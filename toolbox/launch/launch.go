@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/sandbox"
@@ -22,7 +22,7 @@ type Plugin struct {
 	// Client is the typed Toolbox gRPC client over the AgentConn's
 	// shared connection. Direct field rather than accessor — callers
 	// pass it around and we don't gain anything from gating access.
-	Client toolboxv0.ToolboxClient
+	Client toolboxv1.ToolboxClient
 }
 
 // Conn exposes the underlying agent connection for callers that need
@@ -168,7 +168,7 @@ func LaunchWithOptions(ctx context.Context, t *resources.Toolbox, lopts Options,
 
 	return &Plugin{
 		conn:   conn,
-		Client: toolboxv0.NewToolboxClient(conn.GRPCConn()),
+		Client: toolboxv1.NewToolboxClient(conn.GRPCConn()),
 	}, nil
 }
 

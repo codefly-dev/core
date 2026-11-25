@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // NativeGit wraps a go-git Repository for in-process git operations.
@@ -308,7 +308,7 @@ func (s *DefaultCodeServer) closeGit() {
 }
 
 // gitLogNative uses go-git when available, falls back to exec.
-func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev0.GitLogRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev1.GitLogRequest) (*codev1.CodeResponse, error) {
 	if err := validateGitRef(req.Ref); err != nil {
 		return nil, err
 	}
@@ -318,15 +318,15 @@ func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev0.GitLog
 	if ng := s.openGitRepo(); ng != nil {
 		commits, err := ng.Log(ctx, int(req.MaxCount), req.Ref, req.Path, req.Since)
 		if err == nil {
-			var protoCommits []*codev0.GitCommit
+			var protoCommits []*codev1.GitCommit
 			for _, c := range commits {
-				protoCommits = append(protoCommits, &codev0.GitCommit{
+				protoCommits = append(protoCommits, &codev1.GitCommit{
 					Hash: c.Hash, ShortHash: c.ShortHash,
 					Author: c.Author, Date: c.Date, Message: c.Message,
 					FilesChanged: c.FilesChanged,
 				})
 			}
-			return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitLog{GitLog: &codev0.GitLogResponse{Commits: protoCommits}}}, nil
+			return &codev1.CodeResponse{Result: &codev1.CodeResponse_GitLog{GitLog: &codev1.GitLogResponse{Commits: protoCommits}}}, nil
 		}
 		// Fall through to exec on error
 	}
@@ -334,7 +334,7 @@ func (s *DefaultCodeServer) gitLogNative(ctx context.Context, req *codev0.GitLog
 }
 
 // gitShowNative uses go-git when available, falls back to exec.
-func (s *DefaultCodeServer) gitShowNative(ctx context.Context, req *codev0.GitShowRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) gitShowNative(ctx context.Context, req *codev1.GitShowRequest) (*codev1.CodeResponse, error) {
 	if err := validateGitRef(req.Ref); err != nil {
 		return nil, err
 	}
@@ -344,7 +344,7 @@ func (s *DefaultCodeServer) gitShowNative(ctx context.Context, req *codev0.GitSh
 	if ng := s.openGitRepo(); ng != nil {
 		content, exists, err := ng.Show(ctx, req.Ref, req.Path)
 		if err == nil {
-			return &codev0.CodeResponse{Result: &codev0.CodeResponse_GitShow{GitShow: &codev0.GitShowResponse{
+			return &codev1.CodeResponse{Result: &codev1.CodeResponse_GitShow{GitShow: &codev1.GitShowResponse{
 				Content: content, Exists: exists,
 			}}}, nil
 		}

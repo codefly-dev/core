@@ -17,7 +17,7 @@ package example
 import (
     "context"
 
-    toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+    toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
     "github.com/codefly-dev/core/toolbox/registry"
     "github.com/codefly-dev/core/toolbox/respond"
 )
@@ -54,7 +54,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
             Tags:        []string{"read-only"},
             Idempotency: "idempotent",
             ErrorModes:  "Schema validation rejects missing or non-string text.",
-            Examples: []*toolboxv0.ToolExample{{
+            Examples: []*toolboxv1.ToolExample{{
                 Description:     "Echo a greeting.",
                 Arguments:       respond.MustStruct(map[string]any{"text": "hello"}),
                 ExpectedOutcome: "{ text: 'hello' }",
@@ -64,7 +64,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
     }
 }
 
-func (s *Server) echo(_ context.Context, request *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) echo(_ context.Context, request *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
     text, _ := respond.Args(request)["text"].(string)
     return respond.Struct(map[string]any{"text": text})
 }

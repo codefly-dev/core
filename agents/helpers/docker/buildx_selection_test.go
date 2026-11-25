@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,7 +93,7 @@ func TestBuildCarriesCacheArgumentsAlongsideBuilderSelection(t *testing.T) {
 
 	request := backendRequest()
 	request.BuildxBuilder = "codefly-provisioned"
-	request.Cache = &builderv0.BuildCacheOptions{
+	request.Cache = &builderv1.BuildCacheOptions{
 		Backend: "registry", Scope: "workspace/service/app",
 		Imports: []string{"registry.example.com/cache"},
 		Exports: []string{"registry.example.com/cache"},

@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/readiness"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -58,31 +58,31 @@ func TestGrpcHealthProbeDiscriminatesServingFromReachable(t *testing.T) {
 
 	serving := serveGRPC(t, true, healthpb.HealthCheckResponse_SERVING)
 	result := readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: serving})
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, result.Outcome)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, result.Outcome)
 
 	notServing := serveGRPC(t, true, healthpb.HealthCheckResponse_NOT_SERVING)
 	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: notServing})
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, result.Outcome)
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_NOT_SERVING, result.FailureKind)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, result.Outcome)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_NOT_SERVING, result.FailureKind)
 
 	// A reachable server with no health service is not silently promoted to
 	// ready: it is a distinct, named failure.
 	noHealth := serveGRPC(t, false, healthpb.HealthCheckResponse_SERVING)
 	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: noHealth})
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNIMPLEMENTED, result.FailureKind)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNIMPLEMENTED, result.FailureKind)
 
 	result = readiness.Check(ctx, requirement(t, standards.GRPC, standards.GRPC, probe), readiness.Target{Address: closedAddress})
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, result.FailureKind)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, result.FailureKind)
 }
 
 func TestHTTPProbeRejectsServiceUnavailable(t *testing.T) {
 	ctx := context.Background()
 	probe := &resources.Probe{Kind: resources.ProbeKindHTTP, Path: "/healthz", BodyContains: "ok"}
 
-	statuses := map[int]basev0.ProbeOutcome{
-		http.StatusOK:                 basev0.ProbeOutcome_PROBE_OUTCOME_PASSED,
-		http.StatusServiceUnavailable: basev0.ProbeOutcome_PROBE_OUTCOME_FAILED,
-		http.StatusNotFound:           basev0.ProbeOutcome_PROBE_OUTCOME_FAILED,
+	statuses := map[int]basev1.ProbeOutcome{
+		http.StatusOK:                 basev1.ProbeOutcome_PROBE_OUTCOME_PASSED,
+		http.StatusServiceUnavailable: basev1.ProbeOutcome_PROBE_OUTCOME_FAILED,
+		http.StatusNotFound:           basev1.ProbeOutcome_PROBE_OUTCOME_FAILED,
 	}
 	for code, want := range statuses {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -94,8 +94,8 @@ func TestHTTPProbeRejectsServiceUnavailable(t *testing.T) {
 		result := readiness.Check(ctx, requirement(t, standards.HTTP, standards.HTTP, probe),
 			readiness.Target{Address: strings.TrimPrefix(server.URL, "http://")})
 		require.Equal(t, want, result.Outcome, "status %d", code)
-		if want == basev0.ProbeOutcome_PROBE_OUTCOME_FAILED {
-			require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, result.FailureKind)
+		if want == basev1.ProbeOutcome_PROBE_OUTCOME_FAILED {
+			require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, result.FailureKind)
 			require.Contains(t, result.Message, fmt.Sprintf("answered %d", code))
 		}
 	}
@@ -106,7 +106,7 @@ func TestHTTPProbeRejectsServiceUnavailable(t *testing.T) {
 	t.Cleanup(degraded.Close)
 	result := readiness.Check(ctx, requirement(t, standards.HTTP, standards.HTTP, probe),
 		readiness.Target{Address: strings.TrimPrefix(degraded.URL, "http://")})
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, result.FailureKind)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, result.FailureKind)
 }
 
 // TestOpenAdminPortDoesNotMaskAClosedGrpcEndpoint is the audit case: an open
@@ -160,18 +160,18 @@ func TestEndpointlessDependenciesGateOnLifecycleAndCompletion(t *testing.T) {
 	require.NoError(t, err)
 
 	result := readiness.Check(ctx, job, readiness.Target{Started: true})
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INCOMPLETE, result.FailureKind)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, job, readiness.Target{Completed: true}).Outcome)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INCOMPLETE, result.FailureKind)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, job, readiness.Target{Completed: true}).Outcome)
 
 	// A long-running dependency that died after Start loses readiness rather
 	// than keeping the verdict its successful Start earned.
 	service := &resources.ServiceDependency{Name: "worker", Module: "saas"}
 	requirements, err := resources.PlanServiceDependencyReadiness(service, nil)
 	require.NoError(t, err)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, requirements[0], readiness.Target{Started: true}).Outcome)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, requirements[0], readiness.Target{Started: true}).Outcome)
 
 	dead := readiness.Check(ctx, requirements[0], readiness.Target{Started: false})
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_LIFECYCLE, dead.FailureKind)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_LIFECYCLE, dead.FailureKind)
 }
 
 func TestLegacyEndpointsStillCheckTransport(t *testing.T) {

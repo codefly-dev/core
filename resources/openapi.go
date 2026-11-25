@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"slices"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/go-openapi/spec"
@@ -36,7 +36,7 @@ type WrapperSwagger struct {
 	unique  string
 }
 
-func NewOpenAPICombinator(ctx context.Context, target *Endpoint, endpoints ...*basev0.Endpoint) (*OpenAPICombinator, error) {
+func NewOpenAPICombinator(ctx context.Context, target *Endpoint, endpoints ...*basev1.Endpoint) (*OpenAPICombinator, error) {
 	w := wool.Get(ctx).In("configurations.NewOpenAPICombinator")
 	c := &OpenAPICombinator{endpoint: target, only: make(map[string][]string)}
 	c.unique = ServiceUnique(target.Module, target.Service)
@@ -47,7 +47,7 @@ func NewOpenAPICombinator(ctx context.Context, target *Endpoint, endpoints ...*b
 	return c, nil
 }
 
-func (c *OpenAPICombinator) LoadEndpoints(ctx context.Context, endpoints ...*basev0.Endpoint) error {
+func (c *OpenAPICombinator) LoadEndpoints(ctx context.Context, endpoints ...*basev1.Endpoint) error {
 	w := wool.Get(ctx).In("configurations.LoadEndpoints")
 	// Get the Spec
 	var openapis []*WrapperSwagger
@@ -66,7 +66,7 @@ func (c *OpenAPICombinator) LoadEndpoints(ctx context.Context, endpoints ...*bas
 	return nil
 }
 
-func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev0.RestAPI, error) {
+func (c *OpenAPICombinator) Combine(ctx context.Context) (*basev1.RestAPI, error) {
 	w := wool.Get(ctx).In("configurations.CombineOpenAPI")
 
 	combined := &spec.Swagger{

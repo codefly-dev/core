@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -114,7 +114,7 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 
 	proto, err := r.Proto(ctx)
 	require.NoError(t, err)
-	require.Equal(t, basev0.Agent_RUNNABLE, proto.GetAgent().GetKind())
+	require.Equal(t, basev1.Agent_RUNNABLE, proto.GetAgent().GetKind())
 	require.Equal(t, "handler.py", proto.GetHandler())
 	require.Equal(t, []string{"pyproject.toml", "uv.lock"}, proto.GetBuildInputs())
 	require.Len(t, proto.GetServiceDependencies(), 1)
@@ -124,25 +124,25 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 
 	execution := proto.GetExecution()
 	require.Len(t, execution.GetFacilities(), 2)
-	require.Equal(t, basev0.RunnableFacility_GENERATED_SERVICE, execution.GetFacilities()[0].GetKind())
-	require.Equal(t, basev0.RunnableFacility_KUBERNETES, execution.GetFacilities()[1].GetKind())
+	require.Equal(t, basev1.RunnableFacility_GENERATED_SERVICE, execution.GetFacilities()[0].GetKind())
+	require.Equal(t, basev1.RunnableFacility_KUBERNETES, execution.GetFacilities()[1].GetKind())
 	require.Equal(t, 2*time.Minute, execution.GetTimeout().AsDuration())
-	require.Equal(t, basev0.RunnableExecution_CANCELLATION_SIGNAL, execution.GetCancellation())
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, execution.GetRecovery())
+	require.Equal(t, basev1.RunnableExecution_CANCELLATION_SIGNAL, execution.GetCancellation())
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, execution.GetRecovery())
 	require.Equal(t, uint64(65536), execution.GetMaxInputBytes())
 	require.Equal(t, resources.DefaultRunnablePayloadBytes, execution.GetMaxOutputBytes())
 	require.Equal(t, resources.DefaultRunnableLogBytes, execution.GetMaxLogBytes())
 
 	contract := proto.GetContract()
-	require.Equal(t, basev0.RunnableField_OBJECT, contract.GetInput().GetFields()[1].GetType())
-	require.Equal(t, basev0.RunnableField_STRING, contract.GetInput().GetFields()[1].GetFields()[1].GetItems().GetType())
+	require.Equal(t, basev1.RunnableField_OBJECT, contract.GetInput().GetFields()[1].GetType())
+	require.Equal(t, basev1.RunnableField_STRING, contract.GetInput().GetFields()[1].GetFields()[1].GetItems().GetType())
 
 	back, err := resources.RunnableContractFromProto(contract)
 	require.NoError(t, err)
 	require.Equal(t, r.Contract, back)
 
 	// A wire contract is held to the same profile as a YAML one.
-	contract.GetOutput().GetFields()[0].Type = basev0.RunnableField_UNKNOWN
+	contract.GetOutput().GetFields()[0].Type = basev1.RunnableField_UNKNOWN
 	_, err = resources.RunnableContractFromProto(contract)
 	require.ErrorContains(t, err, "outside the bounded profile")
 }
@@ -367,10 +367,10 @@ func TestModuleNewRunnableRollsBackWorkspaceSaveFailure(t *testing.T) {
 func TestRunnableWireContractRequiresExplicitSchemas(t *testing.T) {
 	for _, missing := range []string{"input", "output"} {
 		t.Run(missing, func(t *testing.T) {
-			contract := &basev0.RunnableContract{
+			contract := &basev1.RunnableContract{
 				Protocol: resources.RunnableServedProtocolV1,
-				Input:    &basev0.RunnableSchema{},
-				Output:   &basev0.RunnableSchema{},
+				Input:    &basev1.RunnableSchema{},
+				Output:   &basev1.RunnableSchema{},
 			}
 			_, err := resources.RunnableContractFromProto(contract)
 			require.NoError(t, err, "explicitly empty schemas are valid")
@@ -626,7 +626,7 @@ func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, wire.GetHandler())
 	require.Zero(t, wire.GetExecution().GetMaxLogBytes())
-	require.Equal(t, basev0.Agent_SERVICE, wire.GetAgent().GetKind())
+	require.Equal(t, basev1.Agent_SERVICE, wire.GetAgent().GetKind())
 }
 
 // TestDeclaredCompletionModeDefaultsToTheReply pins the one place the
@@ -643,11 +643,11 @@ func TestDeclaredCompletionModeDefaultsToTheReply(t *testing.T) {
 	}
 	require.NoError(t, execution.Validate())
 	require.Equal(t, resources.RunnableCompletionCall, execution.GetCompletion())
-	require.Equal(t, basev0.RunnableExecution_COMPLETION_CALL, execution.Proto().GetCompletion())
+	require.Equal(t, basev1.RunnableExecution_COMPLETION_CALL, execution.Proto().GetCompletion())
 
 	execution.Completion = resources.RunnableCompletionSubmit
 	require.NoError(t, execution.Validate())
-	require.Equal(t, basev0.RunnableExecution_COMPLETION_SUBMIT, execution.Proto().GetCompletion())
+	require.Equal(t, basev1.RunnableExecution_COMPLETION_SUBMIT, execution.Proto().GetCompletion())
 
 	// Submit with recompute recovery would resolve a lost terminal answer by
 	// running the effect a second time.

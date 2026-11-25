@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // An agent says what it started; the status carries that answer to Start and
@@ -26,7 +26,7 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 
 	// An interpreted runtime starts an interpreter and names the sources it
 	// was handed beside it.
-	submitted := &runtimev0.StartedArtifact{
+	submitted := &runtimev1.StartedArtifact{
 		Executable: "/opt/venv/bin/python",
 		Sources:    []string{"/workspace/services/model/src/main.py"},
 	}
@@ -39,7 +39,7 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 
 	// The agent keeps its own message: a later stamp must not reach into it.
 	submitted.Sources = append(submitted.Sources, "/workspace/services/model/src/late.py")
-	information, err := wrapper.InformationResponse(context.Background(), &runtimev0.InformationRequest{})
+	information, err := wrapper.InformationResponse(context.Background(), &runtimev1.InformationRequest{})
 	if err != nil {
 		t.Fatalf("InformationResponse: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 	// A start that failed takes its report with it. The agent named an
 	// artifact, the process never came up, and the retry must not have that
 	// artifact approved for the process it does bring up.
-	wrapper.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: "/opt/venv-old/bin/python"})
+	wrapper.ReportStartedArtifact(&runtimev1.StartedArtifact{Executable: "/opt/venv-old/bin/python"})
 	if _, err = wrapper.StartError(errors.New("port already in use")); err != nil {
 		t.Fatalf("StartError: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 	}
 
 	// An explicit nil withdraws a report that has not been stamped yet.
-	wrapper.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: "/opt/venv/bin/python"})
+	wrapper.ReportStartedArtifact(&runtimev1.StartedArtifact{Executable: "/opt/venv/bin/python"})
 	wrapper.ReportStartedArtifact(nil)
 	fourth, _ := wrapper.StartResponse()
 	if _, reported = StartedArtifact(fourth.GetStatus()); reported {
@@ -87,9 +87,9 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 // An artifact naming no program names nothing, however many sources it lists:
 // the consumer must land in the same refusal as an agent that reported none.
 func TestAnArtifactWithNoExecutableIsNoArtifact(t *testing.T) {
-	status := &runtimev0.StartStatus{
-		State:           runtimev0.StartStatus_STARTED,
-		StartedArtifact: &runtimev0.StartedArtifact{Sources: []string{"/workspace/services/model/src/main.py"}},
+	status := &runtimev1.StartStatus{
+		State:           runtimev1.StartStatus_STARTED,
+		StartedArtifact: &runtimev1.StartedArtifact{Sources: []string{"/workspace/services/model/src/main.py"}},
 	}
 	if _, reported := StartedArtifact(status); reported {
 		t.Fatal("an artifact naming no executable was reported as an artifact")

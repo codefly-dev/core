@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // PreparedSchema is the schema of a prepared binding: one derived operation
@@ -67,7 +67,7 @@ const MaxPreparedBytes = 256 << 10
 // canonical form, prefixed by the digest format. An owner whose published
 // contract no longer derives the digest a prepared binding carries has drifted
 // from what its callers were prepared for.
-func ContractDigest(contract *basev0.RunnableContract) (string, error) {
+func ContractDigest(contract *basev1.RunnableContract) (string, error) {
 	canonical, err := CanonicalJSON(contract)
 	if err != nil {
 		return "", fmt.Errorf("%w: contract: %v", ErrInvalid, err)
@@ -86,7 +86,7 @@ func ContractDigest(contract *basev0.RunnableContract) (string, error) {
 // rather than repaired, exactly as a supplied package digest is. A value whose
 // digest does not cover its own contract would make every later drift check
 // meaningless, and one claiming another schema was written for another reader.
-func EncodePrepared(binding *runnablev0.PreparedBinding) ([]byte, error) {
+func EncodePrepared(binding *runnablev1.PreparedBinding) ([]byte, error) {
 	if binding == nil {
 		return nil, fmt.Errorf("%w: prepared binding is required", ErrInvalid)
 	}
@@ -114,14 +114,14 @@ func EncodePrepared(binding *runnablev0.PreparedBinding) ([]byte, error) {
 // does not declare is refused rather than dropped: an unknown field in an
 // installation fact is either another schema's value or a field this reader
 // would have had to act on, and neither is something to install past.
-func DecodePrepared(value []byte) (*runnablev0.PreparedBinding, error) {
+func DecodePrepared(value []byte) (*runnablev1.PreparedBinding, error) {
 	if len(value) == 0 || len(value) > MaxPreparedBytes {
 		return nil, fmt.Errorf("%w: prepared binding of %d bytes is outside (0, %d]", ErrInvalid, len(value), MaxPreparedBytes)
 	}
 	if err := refuseEarlierPrepared(value); err != nil {
 		return nil, err
 	}
-	binding := &runnablev0.PreparedBinding{}
+	binding := &runnablev1.PreparedBinding{}
 	if err := protojson.Unmarshal(value, binding); err != nil {
 		return nil, fmt.Errorf("%w: prepared binding is not a %s document: %v", ErrInvalid, PreparedSchema, err)
 	}
@@ -135,7 +135,7 @@ func DecodePrepared(value []byte) (*runnablev0.PreparedBinding, error) {
 // contract's own bounds, a contract digest that does not cover the contract
 // delivered with it, a route that is not the operation the binding names, and a
 // policy outside the bounds an installation enforces.
-func VerifyPrepared(binding *runnablev0.PreparedBinding) error {
+func VerifyPrepared(binding *runnablev1.PreparedBinding) error {
 	if binding == nil {
 		return fmt.Errorf("%w: prepared binding is required", ErrInvalid)
 	}
@@ -193,15 +193,15 @@ func refuseUnresolvedSlots(what string, policy *OperationSpec) error {
 // REST route are different targets *and* different code vocabularies, and the
 // form that read one spelling as both refused every REST operation — "POST
 // /path" is not a method path.
-func verifyPreparedRoute(binding *runnablev0.PreparedBinding) (CodeVocabulary, error) {
+func verifyPreparedRoute(binding *runnablev1.PreparedBinding) (CodeVocabulary, error) {
 	spelling := binding.GetOperation().GetSpelling()
 	switch route := binding.GetCall().GetRoute().(type) {
-	case *runnablev0.PreparedCall_Connect:
+	case *runnablev1.PreparedCall_Connect:
 		if procedure := route.Connect.GetProcedure(); procedure != spelling {
 			return GRPCStatusNames, fmt.Errorf("%w: prepared binding calls procedure %q for operation %q", ErrInvalid, procedure, spelling)
 		}
 		return GRPCStatusNames, nil
-	case *runnablev0.PreparedCall_Rest:
+	case *runnablev1.PreparedCall_Rest:
 		if spelled := Route(route.Rest.GetVerb(), route.Rest.GetPath()); spelled != spelling {
 			return HTTPStatusCodes, fmt.Errorf("%w: prepared binding calls route %q for operation %q", ErrInvalid, spelled, spelling)
 		}
@@ -215,7 +215,7 @@ func verifyPreparedRoute(binding *runnablev0.PreparedBinding) (CodeVocabulary, e
 // a policy that installs is a policy that would have generated: the bounds live
 // in OperationSpec.Validate and are applied to what was delivered rather than
 // trusted because a generator once checked them.
-func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *OperationSpec {
+func preparedPolicy(binding *runnablev1.PreparedBinding, codes CodeVocabulary) *OperationSpec {
 	return policySpec(binding.GetOperation().GetSpelling(), binding.GetPolicy(), codes)
 }
 
@@ -223,7 +223,7 @@ func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *
 // operation spelling it was delivered for and the vocabulary its codes are
 // spelled in. It is the one reader of a delivered Operation, as Policy is the
 // one writer; TestPolicyRoundTripsEveryField holds the pair to the schema.
-func policySpec(spelling string, declared *runnablev0.Operation, codes CodeVocabulary) *OperationSpec {
+func policySpec(spelling string, declared *runnablev1.Operation, codes CodeVocabulary) *OperationSpec {
 	return &OperationSpec{
 		Method:             spelling,
 		AttemptTimeout:     declared.GetAttemptTimeout().AsDuration(),

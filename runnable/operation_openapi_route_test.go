@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -121,12 +121,12 @@ func TestPackageFromOpenAPIOperationDerivesAGetRead(t *testing.T) {
 	require.NoError(t, runnable.VerifyPackage(pkg))
 	require.Equal(t, "GET /history", spec.Method)
 
-	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-		{Name: "repo", Type: basev0.RunnableField_STRING},
-		{Name: "component", Type: basev0.RunnableField_STRING, Optional: true},
+	require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+		{Name: "repo", Type: basev1.RunnableField_STRING},
+		{Name: "component", Type: basev1.RunnableField_STRING, Optional: true},
 	}}, pkg.GetContract().GetInput()), "input %v", pkg.GetContract().GetInput())
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
-	require.True(t, proto.Equal(&basev0.RunnableServiceOperation{
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
+	require.True(t, proto.Equal(&basev1.RunnableServiceOperation{
 		Module:   "releases",
 		Name:     "backend",
 		Endpoint: "http",
@@ -134,9 +134,9 @@ func TestPackageFromOpenAPIOperationDerivesAGetRead(t *testing.T) {
 		Operation:     "GET /history",
 		InputMessage:  "Releases_Get_History",
 		OutputMessage: "History",
-		Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+		Adaptation:    basev1.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
 	}, pkg.GetServiceOperations()[0]), "service operation %v", pkg.GetServiceOperations()[0])
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
 
 	// A GET with no query takes the empty object.
 	recorded, _, err := runnable.PackageFromOpenAPIOperation(
@@ -219,18 +219,18 @@ func TestAGetIsAdmittedOnlyAsARead(t *testing.T) {
 // route's summary; written as the marker and read back, it derives the
 // operation the fixture declares by hand.
 func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
-	reads := &runnable.Authority{Requires: []*basev0.WorkScopeV1{{ResourceKind: "records.records", Actions: []string{"read"}}}}
+	reads := &runnable.Authority{Requires: []*basev1.WorkScopeV1{{ResourceKind: "records.records", Actions: []string{"read"}}}}
 	spec, err := runnable.DefaultRouteOperation("GET", "/history", reads, "releases", "Releases_Get_History",
 		"Read the recorded tags of one repository and the recorded pins of one component")
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, spec.Recovery)
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, spec.Recovery)
 	require.Equal(t, uint32(runnable.DefaultReadAttempts), spec.MaxAttempts)
 	require.Equal(t, []string{"503"}, spec.RetryableCodes)
 	require.Equal(t, 30*time.Second, spec.AttemptTimeout)
-	require.True(t, proto.Equal(&runnablev0.ToolExposure{
+	require.True(t, proto.Equal(&runnablev1.ToolExposure{
 		Name:        "Releases_Get_History",
 		Description: "Read the recorded tags of one repository and the recorded pins of one component",
-		Effect:      runnablev0.ToolExposure_EFFECT_READ_ONLY,
+		Effect:      runnablev1.ToolExposure_EFFECT_READ_ONLY,
 	}, spec.Tool))
 
 	// RouteMarker is that operation as the marker an owner writes, from the
@@ -261,12 +261,12 @@ func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
 	require.Equal(t, byHand.GetDigest(), fromDefault.GetDigest())
 
 	// Anything else is a mutation resolved by its receipt, over POST or PUT.
-	writes := &runnable.Authority{Requires: []*basev0.WorkScopeV1{{ResourceKind: "records.records", Actions: []string{"read", "write"}}}}
+	writes := &runnable.Authority{Requires: []*basev1.WorkScopeV1{{ResourceKind: "records.records", Actions: []string{"read", "write"}}}}
 	mutation, err := runnable.DefaultRouteOperation("POST", "/record", writes, "releases", "Releases_Post_Record", "")
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, mutation.Recovery)
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECEIPT, mutation.Recovery)
 	require.Equal(t, uint32(runnable.DefaultMutationAttempts), mutation.MaxAttempts)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, mutation.Tool.GetEffect())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, mutation.Tool.GetEffect())
 	require.Equal(t, "Calls POST /record.", mutation.Tool.GetDescription())
 
 	// Neither a mutation over GET nor a policy requiring nothing is derived.
@@ -300,22 +300,22 @@ func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
 func TestAPreparedGetIsHeldToBeingARead(t *testing.T) {
 	read := restBinding()
 	read.Operation.Spelling = "GET /v1/items"
-	read.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "GET", Path: "/v1/items"}}
-	read.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
-	read.Policy.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}}
+	read.Call.Route = &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: "GET", Path: "/v1/items"}}
+	read.Policy.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
+	read.Policy.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}}
 	read.Policy.LookupScopes = nil
 	_, err := runnable.DecodePrepared(encoded(t, read))
 	require.NoError(t, err)
 
 	mutation := proto.CloneOf(read)
-	mutation.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
-	mutation.Policy.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}}
+	mutation.Policy.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
+	mutation.Policy.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}}
 	_, err = runnable.EncodePrepared(mutation)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "is a GET, which is admitted only as a read")
 
 	deleted := proto.CloneOf(read)
-	deleted.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "DELETE", Path: "/v1/items"}}
+	deleted.Call.Route = &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: "DELETE", Path: "/v1/items"}}
 	deleted.Operation.Spelling = "DELETE /v1/items"
 	_, err = runnable.EncodePrepared(deleted)
 	require.ErrorIs(t, err, runnable.ErrInvalid)

@@ -3,13 +3,13 @@ package communicate
 import (
 	"fmt"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 // AnswerDefault resolves a question using only its protocol-declared default.
 // It is the shared non-interactive policy for CI, MCP, pipes, and orchestration:
 // callers must never guess a choice that the plugin did not declare.
-func AnswerDefault(question *agentv0.Question) (*agentv0.Answer, error) {
+func AnswerDefault(question *agentv1.Question) (*agentv1.Answer, error) {
 	if question == nil {
 		return nil, fmt.Errorf("cannot answer nil question")
 	}
@@ -18,40 +18,40 @@ func AnswerDefault(question *agentv0.Question) (*agentv0.Answer, error) {
 		name = question.Message.Name
 	}
 	switch value := question.Value.(type) {
-	case *agentv0.Question_Confirm:
+	case *agentv1.Question_Confirm:
 		if value.Confirm == nil {
 			return nil, fmt.Errorf("headless question %q has no confirm definition", name)
 		}
-		return &agentv0.Answer{
-			Value: &agentv0.Answer_Confirm{
-				Confirm: &agentv0.ConfirmAnswer{Confirmed: value.Confirm.GetDefault()},
+		return &agentv1.Answer{
+			Value: &agentv1.Answer_Confirm{
+				Confirm: &agentv1.ConfirmAnswer{Confirmed: value.Confirm.GetDefault()},
 			},
 		}, nil
-	case *agentv0.Question_Input:
+	case *agentv1.Question_Input:
 		if value.Input == nil || value.Input.Default == nil {
 			return nil, fmt.Errorf("headless question %q requires input but declares no default", name)
 		}
 		switch defaultValue := value.Input.Default.(type) {
-		case *agentv0.Input_StringDefault:
-			return &agentv0.Answer{
-				Value: &agentv0.Answer_Input{
-					Input: &agentv0.InputAnswer{
-						Answer: &agentv0.InputAnswer_StringValue{StringValue: defaultValue.StringDefault},
+		case *agentv1.Input_StringDefault:
+			return &agentv1.Answer{
+				Value: &agentv1.Answer_Input{
+					Input: &agentv1.InputAnswer{
+						Answer: &agentv1.InputAnswer_StringValue{StringValue: defaultValue.StringDefault},
 					},
 				},
 			}, nil
-		case *agentv0.Input_IntDefault:
-			return &agentv0.Answer{
-				Value: &agentv0.Answer_Input{
-					Input: &agentv0.InputAnswer{
-						Answer: &agentv0.InputAnswer_IntValue{IntValue: defaultValue.IntDefault},
+		case *agentv1.Input_IntDefault:
+			return &agentv1.Answer{
+				Value: &agentv1.Answer_Input{
+					Input: &agentv1.InputAnswer{
+						Answer: &agentv1.InputAnswer_IntValue{IntValue: defaultValue.IntDefault},
 					},
 				},
 			}, nil
 		default:
 			return nil, fmt.Errorf("headless question %q has an unsupported input default %T", name, defaultValue)
 		}
-	case *agentv0.Question_Choice:
+	case *agentv1.Question_Choice:
 		if value.Choice == nil || value.Choice.GetDefaultOption() == "" {
 			return nil, fmt.Errorf("headless question %q requires a choice but declares no default option", name)
 		}
@@ -59,12 +59,12 @@ func AnswerDefault(question *agentv0.Question) (*agentv0.Answer, error) {
 		if !containsOption(value.Choice.GetOptions(), defaultOption) {
 			return nil, fmt.Errorf("headless question %q declares unknown default option %q", name, defaultOption)
 		}
-		return &agentv0.Answer{
-			Value: &agentv0.Answer_Choice{
-				Choice: &agentv0.ChoiceAnswer{Option: defaultOption},
+		return &agentv1.Answer{
+			Value: &agentv1.Answer_Choice{
+				Choice: &agentv1.ChoiceAnswer{Option: defaultOption},
 			},
 		}, nil
-	case *agentv0.Question_Selection:
+	case *agentv1.Question_Selection:
 		if value.Selection == nil || value.Selection.GetDefault() == nil {
 			return nil, fmt.Errorf("headless question %q requires a selection but declares no default selection", name)
 		}
@@ -79,9 +79,9 @@ func AnswerDefault(question *agentv0.Question) (*agentv0.Answer, error) {
 			}
 			seen[option] = struct{}{}
 		}
-		return &agentv0.Answer{
-			Value: &agentv0.Answer_Selection{
-				Selection: &agentv0.SelectionAnswer{Selected: selected},
+		return &agentv1.Answer{
+			Value: &agentv1.Answer_Selection{
+				Selection: &agentv1.SelectionAnswer{Selected: selected},
 			},
 		}, nil
 	default:
@@ -89,7 +89,7 @@ func AnswerDefault(question *agentv0.Question) (*agentv0.Answer, error) {
 	}
 }
 
-func containsOption(options []*agentv0.Message, name string) bool {
+func containsOption(options []*agentv1.Message, name string) bool {
 	for _, option := range options {
 		if option != nil && option.Name == name {
 			return true
@@ -100,10 +100,10 @@ func containsOption(options []*agentv0.Message, name string) bool {
 
 // Default value extractors from question definitions.
 
-func GetDefaultConfirm(options []*agentv0.Question, name string) (bool, error) {
+func GetDefaultConfirm(options []*agentv1.Question, name string) (bool, error) {
 	for _, opt := range options {
 		if opt.Message.Name == name {
-			if confirm, ok := opt.Value.(*agentv0.Question_Confirm); ok {
+			if confirm, ok := opt.Value.(*agentv1.Question_Confirm); ok {
 				return confirm.Confirm.Default, nil
 			}
 			return false, fmt.Errorf("wrong type in %s for %T", name, opt.Value)
@@ -112,11 +112,11 @@ func GetDefaultConfirm(options []*agentv0.Question, name string) (bool, error) {
 	return false, fmt.Errorf("confirm %s not found", name)
 }
 
-func GetDefaultStringInput(options []*agentv0.Question, name string) (string, error) {
+func GetDefaultStringInput(options []*agentv1.Question, name string) (string, error) {
 	for _, opt := range options {
 		if opt.Message.Name == name {
-			if input, ok := opt.Value.(*agentv0.Question_Input); ok {
-				if s, ok := input.Input.Default.(*agentv0.Input_StringDefault); ok {
+			if input, ok := opt.Value.(*agentv1.Question_Input); ok {
+				if s, ok := input.Input.Default.(*agentv1.Input_StringDefault); ok {
 					return s.StringDefault, nil
 				}
 			}
@@ -128,7 +128,7 @@ func GetDefaultStringInput(options []*agentv0.Question, name string) (string, er
 
 // Answer extractors from a map of answers (returned by QuestionAsker.RunSequence).
 
-func Confirm(answers map[string]*agentv0.Answer, stage string) (bool, error) {
+func Confirm(answers map[string]*agentv1.Answer, stage string) (bool, error) {
 	answer, ok := answers[stage]
 	if !ok || answer == nil {
 		return false, fmt.Errorf("cannot find answer for %s", stage)
@@ -142,7 +142,7 @@ func Confirm(answers map[string]*agentv0.Answer, stage string) (bool, error) {
 	return c.Confirmed, nil
 }
 
-func Selection(answers map[string]*agentv0.Answer, stage string) (*agentv0.SelectionAnswer, error) {
+func Selection(answers map[string]*agentv1.Answer, stage string) (*agentv1.SelectionAnswer, error) {
 	answer, ok := answers[stage]
 	if !ok || answer == nil {
 		return nil, fmt.Errorf("cannot find answer for %s", stage)
@@ -150,7 +150,7 @@ func Selection(answers map[string]*agentv0.Answer, stage string) (*agentv0.Selec
 	return answer.GetSelection(), nil
 }
 
-func InputString(answers map[string]*agentv0.Answer, stage string) (string, error) {
+func InputString(answers map[string]*agentv1.Answer, stage string) (string, error) {
 	answer, ok := answers[stage]
 	if !ok || answer == nil {
 		return "", fmt.Errorf("cannot find answer for %s", stage)
@@ -158,7 +158,7 @@ func InputString(answers map[string]*agentv0.Answer, stage string) (string, erro
 	return answer.GetInput().GetStringValue(), nil
 }
 
-func InputInt(answers map[string]*agentv0.Answer, stage string) (int, error) {
+func InputInt(answers map[string]*agentv1.Answer, stage string) (int, error) {
 	answer, ok := answers[stage]
 	if !ok || answer == nil {
 		return 0, fmt.Errorf("cannot find answer for %s", stage)
@@ -166,7 +166,7 @@ func InputInt(answers map[string]*agentv0.Answer, stage string) (int, error) {
 	return int(answer.GetInput().GetIntValue()), nil
 }
 
-func Choice(answers map[string]*agentv0.Answer, stage string) (*agentv0.ChoiceAnswer, error) {
+func Choice(answers map[string]*agentv1.Answer, stage string) (*agentv1.ChoiceAnswer, error) {
 	answer, ok := answers[stage]
 	if !ok || answer == nil {
 		return nil, fmt.Errorf("cannot find answer for %s", stage)

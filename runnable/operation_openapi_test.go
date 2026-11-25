@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -50,7 +50,7 @@ func ingestRestOwner() runnable.ServiceOwner {
 	return owner
 }
 
-func derivedRestIngestion(t *testing.T) (*basev0.RunnablePackage, *runnable.OperationSpec) {
+func derivedRestIngestion(t *testing.T) (*basev1.RunnablePackage, *runnable.OperationSpec) {
 	t.Helper()
 	pkg, spec, err := runnable.PackageFromOpenAPIOperation(
 		ingestionDocument(t, nil), ingestLocation(), ingestRestOwner(), "POST", ingestPath)
@@ -73,17 +73,17 @@ func TestPackageFromOpenAPIOperationDerivesTheWholePackage(t *testing.T) {
 	pkg, spec := derivedRestIngestion(t)
 
 	require.Equal(t, runnable.PackageSchemaV1, pkg.GetSchema())
-	require.True(t, proto.Equal(&basev0.RunnableIdentity{
+	require.True(t, proto.Equal(&basev1.RunnableIdentity{
 		Workspace: "module-document-store", Module: "documents", Name: "ingest-text", Version: "0.1.0"}, pkg.GetIdentity()))
 	require.True(t, proto.Equal(ingestOwner().Agent, pkg.GetAgent()))
 	require.Equal(t, resources.RunnableServiceProtocolV1, pkg.GetContract().GetProtocol())
 
-	require.True(t, proto.Equal(&basev0.RunnableExecution{
-		Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
+	require.True(t, proto.Equal(&basev1.RunnableExecution{
+		Facilities:     []*basev1.RunnableFacility{{Kind: basev1.RunnableFacility_SERVICE}},
 		Timeout:        durationpb.New(spec.TotalTimeout),
-		Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
-		Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		Cancellation:   basev1.RunnableExecution_CANCELLATION_NONE,
+		Recovery:       basev1.RunnableExecution_RECOVERY_RECEIPT,
+		Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 		MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
 		MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 	}, pkg.GetExecution()), "execution %v", pkg.GetExecution())
@@ -91,14 +91,14 @@ func TestPackageFromOpenAPIOperationDerivesTheWholePackage(t *testing.T) {
 	// The operation is the owner's own spelling of the route, and the message
 	// identities are the components the document describes the payloads by.
 	require.Len(t, pkg.GetServiceOperations(), 1)
-	require.True(t, proto.Equal(&basev0.RunnableServiceOperation{
+	require.True(t, proto.Equal(&basev1.RunnableServiceOperation{
 		Module:        "documents",
 		Name:          "runtime-worker",
 		Endpoint:      "rest",
 		Operation:     applyTextRoute,
 		InputMessage:  "ApplyTextRequest",
 		OutputMessage: "ApplyTextResponse",
-		Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+		Adaptation:    basev1.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
 	}, pkg.GetServiceOperations()[0]), "service operation %v", pkg.GetServiceOperations()[0])
 }
 
@@ -147,7 +147,7 @@ func TestPackageFromOpenAPIOperationAnswersAnUnmarkedRoute(t *testing.T) {
 // and denying only path and query would let those pass, dropping the
 // operation's own input from the contract without a word.
 func TestPackageFromOpenAPIOperationReadsParameterLocationsAsAnAllowList(t *testing.T) {
-	carrying := func(in string) ([]*basev0.RunnablePackage, error) {
+	carrying := func(in string) ([]*basev1.RunnablePackage, error) {
 		_, _, err := runnable.PackageFromOpenAPIOperation(
 			ingestionDocument(t, func(doc map[string]any) {
 				applyTextOperation(doc)["parameters"] = []any{

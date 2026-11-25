@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 type cyclonedxJSON struct {
@@ -70,14 +70,14 @@ func parseCycloneDX(data []byte, tool, language string) (*Result, error) {
 	if err := json.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("parse CycloneDX JSON: %w", err)
 	}
-	var root *agentv0.Component
+	var root *agentv1.Component
 	if document.Metadata.Component != nil {
 		root = fromCycloneDXComponent(*document.Metadata.Component)
 	}
-	components := make([]*agentv0.Component, 0, len(document.Components))
+	components := make([]*agentv1.Component, 0, len(document.Components))
 	for _, raw := range document.Components {
 		component := fromCycloneDXComponent(raw)
-		if root == nil && component.GetType() == agentv0.ComponentType_MODULE {
+		if root == nil && component.GetType() == agentv1.ComponentType_MODULE {
 			root = component
 			continue
 		}
@@ -86,15 +86,15 @@ func parseCycloneDX(data []byte, tool, language string) (*Result, error) {
 	if root == nil {
 		return nil, fmt.Errorf("CycloneDX document has no root application component")
 	}
-	dependencies := make([]*agentv0.Dependency, 0, len(document.Dependencies))
+	dependencies := make([]*agentv1.Dependency, 0, len(document.Dependencies))
 	for _, dependency := range document.Dependencies {
-		dependencies = append(dependencies, &agentv0.Dependency{Ref: dependency.Ref, DependsOn: dependency.DependsOn})
+		dependencies = append(dependencies, &agentv1.Dependency{Ref: dependency.Ref, DependsOn: dependency.DependsOn})
 	}
 	return finish(root, components, dependencies, tool, language)
 }
 
-func fromCycloneDXComponent(raw cyclonedxComponent) *agentv0.Component {
-	component := &agentv0.Component{
+func fromCycloneDXComponent(raw cyclonedxComponent) *agentv1.Component {
+	component := &agentv1.Component{
 		Name:    raw.Name,
 		Version: raw.Version,
 		Type:    componentType(raw.Type),
@@ -103,7 +103,7 @@ func fromCycloneDXComponent(raw cyclonedxComponent) *agentv0.Component {
 		BomRef:  first(raw.BomRef, raw.Purl),
 	}
 	for _, rawHash := range raw.Hashes {
-		component.Hashes = append(component.Hashes, &agentv0.Hash{Algorithm: rawHash.Algorithm, Content: strings.ToLower(rawHash.Content)})
+		component.Hashes = append(component.Hashes, &agentv1.Hash{Algorithm: rawHash.Algorithm, Content: strings.ToLower(rawHash.Content)})
 	}
 	for _, rawLicense := range raw.Licenses {
 		license := rawLicense.Expression
@@ -117,17 +117,17 @@ func fromCycloneDXComponent(raw cyclonedxComponent) *agentv0.Component {
 	return component
 }
 
-func componentType(value string) agentv0.ComponentType {
+func componentType(value string) agentv1.ComponentType {
 	switch strings.ToLower(value) {
 	case "application", "module":
-		return agentv0.ComponentType_MODULE
+		return agentv1.ComponentType_MODULE
 	case "framework":
-		return agentv0.ComponentType_FRAMEWORK
+		return agentv1.ComponentType_FRAMEWORK
 	case "container":
-		return agentv0.ComponentType_CONTAINER
+		return agentv1.ComponentType_CONTAINER
 	case "library":
-		return agentv0.ComponentType_LIBRARY
+		return agentv1.ComponentType_LIBRARY
 	default:
-		return agentv0.ComponentType_COMPONENT_TYPE_UNSPECIFIED
+		return agentv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED
 	}
 }

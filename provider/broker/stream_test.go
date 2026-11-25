@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/cassette"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func streamServer(t *testing.T, body string) *httptest.Server {
 	return server
 }
 
-func eventTypes(response *providerv0.ExecuteRequestResponse) []string {
+func eventTypes(response *providerv1.ExecuteRequestResponse) []string {
 	types := make([]string, 0, len(response.GetEvents()))
 	for _, event := range response.GetEvents() {
 		types = append(types, event.GetEventType())
@@ -62,11 +62,11 @@ func TestExecute_StreamFiltersEachEvent(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	response, err := session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
 
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
 	require.Equal(t, []string{"message_start", "content_block_delta", "message_delta", "message_stop"}, eventTypes(response))
 
 	// Only the last event is terminal.
@@ -86,7 +86,7 @@ func TestExecute_StreamFiltersEachEvent(t *testing.T) {
 	// request against the same checkpoint is refused until a newer one
 	// acknowledges the capture.
 	require.Empty(t, response.GetCaptures())
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "capture must be checkpointed")
 }
 
@@ -104,7 +104,7 @@ func TestExecute_StreamRecordThenReplay(t *testing.T) {
 	recSession, err := broker.New(recCfg)
 	require.NoError(t, err)
 
-	recorded, err := recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rec.create))
+	recorded, err := recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rec.create))
 	require.NoError(t, err)
 
 	data, err := recordCassette.Marshal()
@@ -120,7 +120,7 @@ func TestExecute_StreamRecordThenReplay(t *testing.T) {
 	repSession, err := broker.New(repCfg)
 	require.NoError(t, err)
 
-	replayed, err := repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rep.create))
+	replayed, err := repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rep.create))
 	require.NoError(t, err)
 
 	// The replay produced no live capture (sink untouched) yet reproduced the
@@ -151,7 +151,7 @@ func TestExecute_StreamReplayMissingEntryDoesNotHitNetwork(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "does not fall back to live")
 }
 
@@ -169,7 +169,7 @@ func TestExecute_StreamExceedsByteBudget(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "stream exceeds byte budget")
 	require.Empty(t, h.sink.stored)
 }
@@ -205,7 +205,7 @@ func TestExecute_StreamDeliversEventsLive(t *testing.T) {
 		seen []string
 		once sync.Once
 	)
-	cfg.OnStreamEvent = func(event *providerv0.FilteredEvent) error {
+	cfg.OnStreamEvent = func(event *providerv1.FilteredEvent) error {
 		mu.Lock()
 		seen = append(seen, event.GetEventType())
 		mu.Unlock()
@@ -217,7 +217,7 @@ func TestExecute_StreamDeliversEventsLive(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, execErr := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+		_, execErr := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 		done <- execErr
 	}()
 
@@ -243,7 +243,7 @@ func TestExecute_StreamReplayDeliversEventsLive(t *testing.T) {
 	recCfg.Cassette = recordCassette
 	recSession, err := broker.New(recCfg)
 	require.NoError(t, err)
-	_, err = recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rec.create))
+	_, err = recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rec.create))
 	require.NoError(t, err)
 	data, err := recordCassette.Marshal()
 	require.NoError(t, err)
@@ -255,13 +255,13 @@ func TestExecute_StreamReplayDeliversEventsLive(t *testing.T) {
 	repCfg.ClientFor = dialClientFor(reservedClosedAddr(t))
 	repCfg.Cassette = replayCassette
 	var seen []string
-	repCfg.OnStreamEvent = func(event *providerv0.FilteredEvent) error {
+	repCfg.OnStreamEvent = func(event *providerv1.FilteredEvent) error {
 		seen = append(seen, event.GetEventType())
 		return nil
 	}
 	repSession, err := broker.New(repCfg)
 	require.NoError(t, err)
-	_, err = repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rep.create))
+	_, err = repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rep.create))
 	require.NoError(t, err)
 	require.Equal(t, []string{"message_start", "content_block_delta", "message_delta", "message_stop"}, seen)
 }
@@ -284,7 +284,7 @@ func TestExecute_StreamIgnoresUnknownFields(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.NoError(t, err)
 	require.Equal(t, []string{"message_start"}, eventTypes(response))
 	require.Equal(t, remoteID, response.GetEvents()[0].GetForwarded()[0].GetValue().GetStringValue())
@@ -304,7 +304,7 @@ func TestExecute_StreamDoneSentinelTerminates(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.NoError(t, err)
 	require.Len(t, response.GetEvents(), 2)
 	require.Equal(t, remoteID, response.GetEvents()[0].GetForwarded()[0].GetValue().GetStringValue())
@@ -332,7 +332,7 @@ func TestExecute_StreamReadIsBounded(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Now()
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.Error(t, err)
 	require.Less(t, time.Since(start), 3*time.Second, "read must be bounded by MaxRequestDuration")
 }

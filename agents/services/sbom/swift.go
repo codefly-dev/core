@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 type swiftDependency struct {
@@ -47,8 +47,8 @@ func parseSwiftDependencies(data []byte) (*Result, error) {
 	if graph.Name == "" && graph.Identity == "" {
 		return nil, fmt.Errorf("swift dependency graph has no root package")
 	}
-	root := swiftComponent(graph, agentv0.ComponentType_MODULE)
-	byRef := map[string]*agentv0.Component{}
+	root := swiftComponent(graph, agentv1.ComponentType_MODULE)
+	byRef := map[string]*agentv1.Component{}
 	edges := map[string][]string{}
 	var walk func(swiftDependency)
 	walk = func(node swiftDependency) {
@@ -57,7 +57,7 @@ func parseSwiftDependencies(data []byte) (*Result, error) {
 			dependencyRef := swiftPackageRef(dependency)
 			edges[ref] = append(edges[ref], dependencyRef)
 			if _, ok := byRef[dependencyRef]; !ok {
-				byRef[dependencyRef] = swiftComponent(dependency, agentv0.ComponentType_LIBRARY)
+				byRef[dependencyRef] = swiftComponent(dependency, agentv1.ComponentType_LIBRARY)
 				walk(dependency)
 			}
 		}
@@ -69,18 +69,18 @@ func parseSwiftDependencies(data []byte) (*Result, error) {
 		refs = append(refs, ref)
 	}
 	sort.Strings(refs)
-	components := make([]*agentv0.Component, 0, len(refs))
-	dependencies := make([]*agentv0.Dependency, 0, len(refs)+1)
-	dependencies = append(dependencies, &agentv0.Dependency{Ref: root.BomRef, DependsOn: edges[root.BomRef]})
+	components := make([]*agentv1.Component, 0, len(refs))
+	dependencies := make([]*agentv1.Dependency, 0, len(refs)+1)
+	dependencies = append(dependencies, &agentv1.Dependency{Ref: root.BomRef, DependsOn: edges[root.BomRef]})
 	for _, ref := range refs {
 		components = append(components, byRef[ref])
-		dependencies = append(dependencies, &agentv0.Dependency{Ref: ref, DependsOn: edges[ref]})
+		dependencies = append(dependencies, &agentv1.Dependency{Ref: ref, DependsOn: edges[ref]})
 	}
 	return finish(root, components, dependencies, "swift-package-resolved", "SWIFT")
 }
 
-func swiftComponent(pkg swiftDependency, componentType agentv0.ComponentType) *agentv0.Component {
-	return &agentv0.Component{
+func swiftComponent(pkg swiftDependency, componentType agentv1.ComponentType) *agentv1.Component {
+	return &agentv1.Component{
 		Name:    first(pkg.Identity, pkg.Name),
 		Version: normalizedSwiftVersion(pkg.Version),
 		Type:    componentType,

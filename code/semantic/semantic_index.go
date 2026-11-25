@@ -21,7 +21,7 @@ import (
 
 	"github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/code/semanticcontract"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	tskotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
@@ -52,20 +52,20 @@ var semanticLanguages = []semanticLanguage{
 }
 
 const (
-	semanticFunction  = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION
-	semanticMethod    = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
-	semanticClass     = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS
-	semanticStruct    = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT
-	semanticInterface = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE
-	semanticEnum      = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM
-	semanticField     = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD
-	semanticVariable  = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE
-	semanticConstant  = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT
-	semanticAlias     = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_TYPE_ALIAS
-	semanticModule    = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE
+	semanticFunction  = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION
+	semanticMethod    = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
+	semanticClass     = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS
+	semanticStruct    = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT
+	semanticInterface = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE
+	semanticEnum      = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM
+	semanticField     = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD
+	semanticVariable  = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE
+	semanticConstant  = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT
+	semanticAlias     = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_TYPE_ALIAS
+	semanticModule    = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE
 )
 
-var ecmaScriptDeclarationKinds = map[string]basev0.SemanticSymbolKind{
+var ecmaScriptDeclarationKinds = map[string]basev1.SemanticSymbolKind{
 	"function_declaration":       semanticFunction,
 	"method_definition":          semanticMethod,
 	"class_declaration":          semanticClass,
@@ -77,7 +77,7 @@ var ecmaScriptDeclarationKinds = map[string]basev0.SemanticSymbolKind{
 	"variable_declaration":       semanticVariable,
 }
 
-var semanticDeclarationKinds = map[string]map[string]basev0.SemanticSymbolKind{
+var semanticDeclarationKinds = map[string]map[string]basev1.SemanticSymbolKind{
 	"go":         {"function_declaration": semanticFunction, "method_declaration": semanticMethod, "type_spec": semanticAlias, "type_alias": semanticAlias, "const_spec": semanticConstant, "var_spec": semanticVariable},
 	"python":     {"function_definition": semanticFunction, "class_definition": semanticClass, "assignment": semanticVariable},
 	"rust":       {"function_item": semanticFunction, "function_signature_item": semanticFunction, "struct_item": semanticStruct, "union_item": semanticStruct, "enum_item": semanticEnum, "trait_item": semanticInterface, "type_item": semanticAlias, "associated_type": semanticAlias, "const_item": semanticConstant, "static_item": semanticVariable, "field_declaration": semanticField, "enum_variant": semanticConstant, "mod_item": semanticModule},
@@ -92,9 +92,9 @@ var semanticDeclarationKinds = map[string]map[string]basev0.SemanticSymbolKind{
 // Parse failures degrade individual files while retaining valid evidence from
 // the rest of the code unit. An unsupported unit is explicit, never an empty
 // response that a caller could mistake for complete coverage.
-func (a *Analyzer) SemanticIndex(ctx context.Context, sourceDir string, fs code.VFS) (*basev0.SemanticIndex, error) {
-	index := &basev0.SemanticIndex{
-		State:              basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED,
+func (a *Analyzer) SemanticIndex(ctx context.Context, sourceDir string, fs code.VFS) (*basev1.SemanticIndex, error) {
+	index := &basev1.SemanticIndex{
+		State:              basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED,
 		Analyzer:           "codefly-core/tree-sitter",
 		AnalyzerVersion:    semanticcontract.Version,
 		FileCallsProjected: true,
@@ -177,9 +177,9 @@ func (a *Analyzer) SemanticIndex(ctx context.Context, sourceDir string, fs code.
 	case len(index.Files) == 0 && len(index.Issues) == 0:
 		index.Issues = append(index.Issues, semanticIssue("unsupported_source", "", "no supported semantic source files were found"))
 	case len(index.Issues) > 0:
-		index.State = basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED
+		index.State = basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED
 	default:
-		index.State = basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE
+		index.State = basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE
 	}
 	return index, nil
 }
@@ -193,12 +193,12 @@ func semanticLanguageForExtension(extension string) (semanticLanguage, bool) {
 	return semanticLanguage{}, false
 }
 
-func semanticIssue(code, path, message string) *basev0.SemanticIssue {
-	return &basev0.SemanticIssue{Code: code, Path: path, Message: message}
+func semanticIssue(code, path, message string) *basev1.SemanticIssue {
+	return &basev1.SemanticIssue{Code: code, Path: path, Message: message}
 }
 
-func projectSemanticFile(ctx context.Context, definition semanticLanguage, path string, body []byte) (*basev0.SemanticFile, []*basev0.SemanticSymbol, error) {
-	file := &basev0.SemanticFile{
+func projectSemanticFile(ctx context.Context, definition semanticLanguage, path string, body []byte) (*basev1.SemanticFile, []*basev1.SemanticSymbol, error) {
+	file := &basev1.SemanticFile{
 		Path: path, ContentSha256: semanticHash(body), ByteSize: int64(len(body)), Language: definition.name,
 	}
 	tree, err := parseSyntaxTree(ctx, definition.grammar, body)
@@ -213,7 +213,7 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 	}
 	file.Calls = semanticFileCalls(definition.name, path, root, body)
 	packageName := semanticPackage(definition.name, path, root, body)
-	var symbols []*basev0.SemanticSymbol
+	var symbols []*basev1.SemanticSymbol
 	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols, nil)
 	return file, symbols, nil
 }
@@ -222,13 +222,13 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 // boundary. It joins one body-free semantic fact to the exact parser-owned
 // declaration span used by typed symbol mutation.
 type semanticSymbolProjection struct {
-	symbol         *basev0.SemanticSymbol
+	symbol         *basev1.SemanticSymbol
 	startByte      uint
 	endByte        uint
 	declarationKey string
 }
 
-func projectSemanticDeclarations(language, path, packageName, parent string, inCallable bool, node *sitter.Node, body []byte, out *[]*basev0.SemanticSymbol, projections *[]semanticSymbolProjection) {
+func projectSemanticDeclarations(language, path, packageName, parent string, inCallable bool, node *sitter.Node, body []byte, out *[]*basev1.SemanticSymbol, projections *[]semanticSymbolProjection) {
 	if node == nil {
 		return
 	}
@@ -246,7 +246,7 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 			continue
 		}
 		qualified := qualifySemanticName(packageName, parent, name)
-		if language == "go" && declaration.kind == basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD {
+		if language == "go" && declaration.kind == basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD {
 			if receiver := goReceiverName(node, body); receiver != "" {
 				qualified = qualifySemanticName(packageName, "", receiver+"."+name)
 			}
@@ -260,7 +260,7 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 			bodyBytes = nodeBytes(node, body)
 		}
 		declarationBytes := nodeBytes(node, body)
-		symbol := &basev0.SemanticSymbol{
+		symbol := &basev1.SemanticSymbol{
 			Name: name, QualifiedName: qualified, Kind: declaration.kind,
 			Location: semanticLocation(path, node), Package: packageName,
 			ParentQualifiedName: parent, Signature: boundedSignature(signatureBytes),
@@ -299,7 +299,7 @@ func projectSemanticDeclarations(language, path, packageName, parent string, inC
 
 type semanticDeclaration struct {
 	name string
-	kind basev0.SemanticSymbolKind
+	kind basev1.SemanticSymbolKind
 }
 
 func semanticDeclarations(language string, node *sitter.Node, body []byte, inCallable bool) []semanticDeclaration {
@@ -314,20 +314,20 @@ func semanticDeclarations(language string, node *sitter.Node, body []byte, inCal
 		if declaredType := node.ChildByFieldName("type"); declaredType != nil {
 			switch declaredType.Kind() {
 			case "struct_type":
-				kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT
+				kind = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT
 			case "interface_type":
-				kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE
+				kind = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE
 			}
 		}
 	}
 	if language == "python" && node.Kind() == "function_definition" && insideSemanticContainer(language, node) {
-		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
+		kind = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
 	}
 	if language == "kotlin" && node.Kind() == "function_declaration" && !insideSemanticContainer(language, node) {
-		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION
+		kind = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION
 	}
 	if language == "rust" && (node.Kind() == "function_item" || node.Kind() == "function_signature_item") && insideSemanticContainer(language, node) {
-		kind = basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
+		kind = basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
 	}
 	names := semanticDeclarationNames(node, body)
 	result := make([]semanticDeclaration, 0, len(names))
@@ -337,7 +337,7 @@ func semanticDeclarations(language string, node *sitter.Node, body []byte, inCal
 	return result
 }
 
-func semanticDeclarationKind(language, nodeType string) (basev0.SemanticSymbolKind, bool) {
+func semanticDeclarationKind(language, nodeType string) (basev1.SemanticSymbolKind, bool) {
 	kind, ok := semanticDeclarationKinds[language][nodeType]
 	return kind, ok
 }
@@ -388,7 +388,7 @@ func semanticBodyNode(node *sitter.Node) *sitter.Node {
 	return nil
 }
 
-func semanticSignatureBytes(node, bodyNode *sitter.Node, body []byte, kind basev0.SemanticSymbolKind, name string) []byte {
+func semanticSignatureBytes(node, bodyNode *sitter.Node, body []byte, kind basev1.SemanticSymbolKind, name string) []byte {
 	if semanticDataDeclaration(kind) || (semanticCallable(kind) && bodyNode == nil) {
 		return []byte(name)
 	}
@@ -423,9 +423,9 @@ func semanticHash(value []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func semanticLocation(path string, node *sitter.Node) *basev0.SemanticLocation {
+func semanticLocation(path string, node *sitter.Node) *basev1.SemanticLocation {
 	start, end := node.StartPosition(), node.EndPosition()
-	return &basev0.SemanticLocation{
+	return &basev1.SemanticLocation{
 		Path: path, StartLine: int32(start.Row + 1), StartColumn: int32(start.Column + 1),
 		EndLine: int32(end.Row + 1), EndColumn: int32(end.Column + 1),
 	}
@@ -468,28 +468,28 @@ func qualifySemanticName(packageName, parent, name string) string {
 	return name
 }
 
-func semanticCallable(kind basev0.SemanticSymbolKind) bool {
-	return kind == basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION || kind == basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
+func semanticCallable(kind basev1.SemanticSymbolKind) bool {
+	return kind == basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION || kind == basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD
 }
 
-func semanticDataDeclaration(kind basev0.SemanticSymbolKind) bool {
+func semanticDataDeclaration(kind basev1.SemanticSymbolKind) bool {
 	switch kind {
-	case basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT:
+	case basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT:
 		return true
 	default:
 		return false
 	}
 }
 
-func semanticContainer(kind basev0.SemanticSymbolKind) bool {
+func semanticContainer(kind basev1.SemanticSymbolKind) bool {
 	switch kind {
-	case basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM,
-		basev0.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE:
+	case basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM,
+		basev1.SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE:
 		return true
 	default:
 		return false
@@ -535,9 +535,9 @@ func goReceiverName(node *sitter.Node, body []byte) string {
 	return result
 }
 
-func semanticUses(language, path string, declaration *sitter.Node, body []byte, calls bool) []*basev0.SemanticUse {
+func semanticUses(language, path string, declaration *sitter.Node, body []byte, calls bool) []*basev1.SemanticUse {
 	seen := make(map[string]struct{})
-	var result []*basev0.SemanticUse
+	var result []*basev1.SemanticUse
 	var visit func(*sitter.Node, bool)
 	visit = func(node *sitter.Node, root bool) {
 		if node == nil {
@@ -563,7 +563,7 @@ func semanticUses(language, path string, declaration *sitter.Node, body []byte, 
 		key := name + "\x00" + strconv.FormatUint(uint64(node.StartByte()), 10)
 		if _, duplicate := seen[key]; !duplicate {
 			seen[key] = struct{}{}
-			result = append(result, &basev0.SemanticUse{Name: name, Location: semanticLocation(path, node)})
+			result = append(result, &basev1.SemanticUse{Name: name, Location: semanticLocation(path, node)})
 		}
 		for index := uint(0); index < node.NamedChildCount(); index++ {
 			visit(node.NamedChild(index), false)
@@ -585,8 +585,8 @@ func semanticUses(language, path string, declaration *sitter.Node, body []byte, 
 // (semanticUses), so its subtree is left alone here and no call is projected
 // twice. A function literal is no declaration, so the calls inside one
 // assigned at file level are the file's.
-func semanticFileCalls(language, path string, root *sitter.Node, body []byte) []*basev0.SemanticUse {
-	var result []*basev0.SemanticUse
+func semanticFileCalls(language, path string, root *sitter.Node, body []byte) []*basev1.SemanticUse {
+	var result []*basev1.SemanticUse
 	var visit func(*sitter.Node)
 	visit = func(node *sitter.Node) {
 		if node == nil {
@@ -596,7 +596,7 @@ func semanticFileCalls(language, path string, root *sitter.Node, body []byte) []
 			return
 		}
 		if name := semanticCallName(node, body); name != "" {
-			result = append(result, &basev0.SemanticUse{Name: name, Location: semanticLocation(path, node)})
+			result = append(result, &basev1.SemanticUse{Name: name, Location: semanticLocation(path, node)})
 		}
 		for index := uint(0); index < node.NamedChildCount(); index++ {
 			visit(node.NamedChild(index))

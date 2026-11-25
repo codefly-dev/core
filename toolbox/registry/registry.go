@@ -2,9 +2,9 @@
 // codefly toolbox uses to declare its callable surface ONCE and
 // project to whichever response shape the host requested:
 //
-//   - Legacy *toolboxv0.Tool        — heavy, returned by ListTools
-//   - *toolboxv0.ToolSummary        — light, returned by ListToolSummaries
-//   - *toolboxv0.ToolSpec           — heavy + examples, returned by DescribeTool
+//   - Legacy *toolboxv1.Tool        — heavy, returned by ListTools
+//   - *toolboxv1.ToolSummary        — light, returned by ListToolSummaries
+//   - *toolboxv1.ToolSpec           — heavy + examples, returned by DescribeTool
 //
 // Toolboxes used to keep tool definitions inline in their ListTools
 // method bodies and re-derive Tool messages on every call. With the
@@ -29,7 +29,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	coretoolbox "github.com/codefly-dev/core/toolbox"
 )
 
@@ -38,7 +38,7 @@ import (
 // the three proto envelopes.
 //
 // Field semantics mirror the proto messages — see
-// proto/codefly/services/toolbox/v0/toolbox.proto for canonical
+// proto/codefly/services/toolbox/v1/toolbox.proto for canonical
 // docs. Brief notes here on the dual-description split:
 type ToolDefinition struct {
 	// Name is the dotted tool name (e.g. "git.status").
@@ -77,7 +77,7 @@ type ToolDefinition struct {
 	// convention — LLMs structure args dramatically better with
 	// examples than with schemas alone. This is the load-bearing
 	// addition of the two-phase design.
-	Examples []*toolboxv0.ToolExample
+	Examples []*toolboxv1.ToolExample
 
 	// Idempotency: "idempotent" | "side_effecting" | "" (unknown).
 	Idempotency string
@@ -95,16 +95,16 @@ type ToolDefinition struct {
 	// The handler is responsible for argument extraction, validation,
 	// and response shaping. It must NOT panic; on internal error
 	// return a CallToolResponse with the error string set.
-	Handler func(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse
+	Handler func(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse
 }
 
 // ToTool returns the legacy heavy envelope used by ListTools.
-func (d *ToolDefinition) ToTool() *toolboxv0.Tool {
+func (d *ToolDefinition) ToTool() *toolboxv1.Tool {
 	desc := d.LongDescription
 	if desc == "" {
 		desc = d.SummaryDescription
 	}
-	return &toolboxv0.Tool{
+	return &toolboxv1.Tool{
 		Name:         d.Name,
 		Description:  desc,
 		InputSchema:  d.InputSchema,
@@ -115,8 +115,8 @@ func (d *ToolDefinition) ToTool() *toolboxv0.Tool {
 
 // ToSummary returns the lightweight catalog entry used by
 // ListToolSummaries.
-func (d *ToolDefinition) ToSummary() *toolboxv0.ToolSummary {
-	return &toolboxv0.ToolSummary{
+func (d *ToolDefinition) ToSummary() *toolboxv1.ToolSummary {
+	return &toolboxv1.ToolSummary{
 		Name:        d.Name,
 		Description: d.SummaryDescription,
 		Tags:        d.Tags,
@@ -125,12 +125,12 @@ func (d *ToolDefinition) ToSummary() *toolboxv0.ToolSummary {
 }
 
 // ToSpec returns the full spec returned by DescribeTool.
-func (d *ToolDefinition) ToSpec() *toolboxv0.ToolSpec {
+func (d *ToolDefinition) ToSpec() *toolboxv1.ToolSpec {
 	desc := d.LongDescription
 	if desc == "" {
 		desc = d.SummaryDescription
 	}
-	return &toolboxv0.ToolSpec{
+	return &toolboxv1.ToolSpec{
 		Name:         d.Name,
 		Description:  desc,
 		InputSchema:  d.InputSchema,
@@ -144,8 +144,8 @@ func (d *ToolDefinition) ToSpec() *toolboxv0.ToolSpec {
 }
 
 // AsTools projects every definition into the legacy envelope.
-func AsTools(defs []*ToolDefinition) []*toolboxv0.Tool {
-	out := make([]*toolboxv0.Tool, 0, len(defs))
+func AsTools(defs []*ToolDefinition) []*toolboxv1.Tool {
+	out := make([]*toolboxv1.Tool, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, d.ToTool())
 	}
@@ -156,8 +156,8 @@ func AsTools(defs []*ToolDefinition) []*toolboxv0.Tool {
 // catalog. Optionally pre-filters by tags — every tag in
 // tagsFilter must be present on the definition's tags (AND
 // semantics). Empty filter returns everything.
-func AsSummaries(defs []*ToolDefinition, tagsFilter []string) []*toolboxv0.ToolSummary {
-	out := make([]*toolboxv0.ToolSummary, 0, len(defs))
+func AsSummaries(defs []*ToolDefinition, tagsFilter []string) []*toolboxv1.ToolSummary {
+	out := make([]*toolboxv1.ToolSummary, 0, len(defs))
 	for _, d := range defs {
 		if !hasAllTags(d.Tags, tagsFilter) {
 			continue
@@ -169,7 +169,7 @@ func AsSummaries(defs []*ToolDefinition, tagsFilter []string) []*toolboxv0.ToolS
 
 // FindSpec returns the spec for the named tool, or nil when the name
 // doesn't exist. Caller decides whether to surface as an error.
-func FindSpec(defs []*ToolDefinition, name string) *toolboxv0.ToolSpec {
+func FindSpec(defs []*ToolDefinition, name string) *toolboxv1.ToolSpec {
 	for _, d := range defs {
 		if d.Name == name {
 			return d.ToSpec()
@@ -206,7 +206,7 @@ type Descriptor struct {
 //	    return s
 //	}
 type Base struct {
-	toolboxv0.UnimplementedToolboxServer
+	toolboxv1.UnimplementedToolboxServer
 
 	mu          sync.RWMutex
 	descriptor  Descriptor
@@ -254,10 +254,10 @@ func validateDescriptor(descriptor Descriptor) {
 }
 
 // Identity returns the descriptor supplied at construction.
-func (b *Base) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
+func (b *Base) Identity(_ context.Context, _ *toolboxv1.IdentityRequest) (*toolboxv1.IdentityResponse, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return &toolboxv0.IdentityResponse{
+	return &toolboxv1.IdentityResponse{
 		Name:           b.descriptor.Name,
 		Version:        b.descriptor.Version,
 		Description:    b.descriptor.Description,
@@ -307,14 +307,14 @@ func contains(values []string, expected string) bool {
 }
 
 // ListTools (legacy) — returns the heavy envelope for every tool.
-func (b *Base) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{Tools: AsTools(b.snapshotTools())}, nil
+func (b *Base) ListTools(_ context.Context, _ *toolboxv1.ListToolsRequest) (*toolboxv1.ListToolsResponse, error) {
+	return &toolboxv1.ListToolsResponse{Tools: AsTools(b.snapshotTools())}, nil
 }
 
 // ListToolSummaries (catalog) — lightweight, with optional tags
 // filter. AND semantics: every tag in tags_filter must be present.
-func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
-	return &toolboxv0.ListToolSummariesResponse{
+func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv1.ListToolSummariesRequest) (*toolboxv1.ListToolSummariesResponse, error) {
+	return &toolboxv1.ListToolSummariesResponse{
 		Tools: AsSummaries(b.snapshotTools(), req.GetTagsFilter()),
 	}, nil
 }
@@ -323,14 +323,14 @@ func (b *Base) ListToolSummaries(_ context.Context, req *toolboxv0.ListToolSumma
 // an error string in the response when the name is unknown. We
 // return the error in-band rather than as a gRPC error because the
 // LLM caller benefits from a human-readable hint.
-func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+func (b *Base) DescribeTool(_ context.Context, req *toolboxv1.DescribeToolRequest) (*toolboxv1.DescribeToolResponse, error) {
 	spec := FindSpec(b.snapshotTools(), req.GetName())
 	if spec == nil {
-		return &toolboxv0.DescribeToolResponse{
+		return &toolboxv1.DescribeToolResponse{
 			Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
 		}, nil
 	}
-	return &toolboxv0.DescribeToolResponse{Tool: spec}, nil
+	return &toolboxv1.DescribeToolResponse{Tool: spec}, nil
 }
 
 // CallTool dispatches by name to the matching ToolDefinition.Handler.
@@ -348,24 +348,24 @@ func (b *Base) DescribeTool(_ context.Context, req *toolboxv0.DescribeToolReques
 // can repair its call.
 //
 // A missing or malformed schema fails closed as a plugin contract bug.
-func (b *Base) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (b *Base) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	for _, d := range b.snapshotTools() {
 		if d.Name != req.GetName() {
 			continue
 		}
 		if d.Handler == nil {
-			return &toolboxv0.CallToolResponse{
+			return &toolboxv1.CallToolResponse{
 				Error: fmt.Sprintf("tool %q has no handler — toolbox plugin bug", d.Name),
 			}, nil
 		}
 		if err := coretoolbox.ValidateArguments(d.InputSchema, req.GetArguments()); err != nil {
-			return &toolboxv0.CallToolResponse{
+			return &toolboxv1.CallToolResponse{
 				Error: fmt.Sprintf("invalid arguments for %q: %s", d.Name, err),
 			}, nil
 		}
 		return d.Handler(ctx, req), nil
 	}
-	return &toolboxv0.CallToolResponse{
+	return &toolboxv1.CallToolResponse{
 		Error: fmt.Sprintf("unknown tool %q (call ListToolSummaries to enumerate)", req.GetName()),
 	}, nil
 }

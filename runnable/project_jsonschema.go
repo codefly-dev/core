@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // rejectedStringFormats carry a value no JSON string spells: binary is raw
@@ -118,7 +118,7 @@ type JSONSchema struct {
 //
 // A schema outside the profile is rejected, named by its JSON pointer, and is
 // never coerced. doc resolves a $ref; a schema carrying none needs no document.
-func ProjectJSONSchema(doc *OpenAPIDocument, schema *JSONSchema) (*basev0.RunnableSchema, error) {
+func ProjectJSONSchema(doc *OpenAPIDocument, schema *JSONSchema) (*basev1.RunnableSchema, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("%w: schema is required", ErrInvalid)
 	}
@@ -135,20 +135,20 @@ func ProjectJSONSchema(doc *OpenAPIDocument, schema *JSONSchema) (*basev0.Runnab
 	}
 	// The profile's payload is always an object, so a schema that projects to
 	// anything else describes a body no invocation could carry.
-	if payload.GetType() != basev0.RunnableField_OBJECT {
+	if payload.GetType() != basev1.RunnableField_OBJECT {
 		return nil, fmt.Errorf("%w: %s is not an object, and an invocation payload always is", ErrInvalid, at)
 	}
 	if payload.GetNullable() {
 		return nil, fmt.Errorf("%w: %s is nullable, and an invocation payload is always present", ErrInvalid, at)
 	}
-	return &basev0.RunnableSchema{Fields: payload.GetFields()}, nil
+	return &basev1.RunnableSchema{Fields: payload.GetFields()}, nil
 }
 
 // projectSchema projects one schema into an unnamed field. open is the chain of
 // $refs already being resolved, so it is the cycle check: a schema that reaches
 // itself describes an unbounded payload, not a deep one. depth counts the
 // objects already open, which no chain of inline schemas carries a name for.
-func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev0.RunnableField, error) {
+func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev1.RunnableField, error) {
 	resolved, at, open, err := resolve(doc, schema, at, open)
 	if err != nil {
 		return nil, err
@@ -168,13 +168,13 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 	if len(resolved.Enum) > 0 && named != "string" {
 		return nil, fmt.Errorf("%w: %s declares enum on a %s, and the bounded profile names values of a string only", ErrInvalid, at, named)
 	}
-	field := &basev0.RunnableField{Nullable: nullable}
+	field := &basev1.RunnableField{Nullable: nullable}
 	switch named {
 	case "string":
 		if slices.Contains(rejectedStringFormats, resolved.Format) {
 			return nil, fmt.Errorf("%w: %s is a string of format %q, which carries a value the bounded profile has no representation for", ErrInvalid, at, resolved.Format)
 		}
-		field.Type = basev0.RunnableField_STRING
+		field.Type = basev1.RunnableField_STRING
 		if slices.Contains(keptStringFormats, resolved.Format) {
 			field.Format = resolved.Format
 		}
@@ -187,32 +187,32 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 		if !slices.Contains(acceptedNumberFormats, resolved.Format) {
 			return nil, fmt.Errorf("%w: %s is a number of format %q, which the bounded profile does not cover", ErrInvalid, at, resolved.Format)
 		}
-		field.Type = basev0.RunnableField_NUMBER
+		field.Type = basev1.RunnableField_NUMBER
 	case "integer":
 		if !slices.Contains(acceptedIntegerFormats, resolved.Format) {
 			return nil, fmt.Errorf("%w: %s is an integer of format %q, whose range the signed 64-bit integer the bounded profile carries does not cover", ErrInvalid, at, resolved.Format)
 		}
-		field.Type = basev0.RunnableField_INTEGER
+		field.Type = basev1.RunnableField_INTEGER
 	case "boolean":
-		field.Type = basev0.RunnableField_BOOLEAN
+		field.Type = basev1.RunnableField_BOOLEAN
 	case "object":
 		if openObject(resolved) {
 			// An object whose members the document does not enumerate is a
 			// Struct or a map, carried as an arbitrary JSON object.
-			field.Type, field.Format = basev0.RunnableField_JSON, FormatObject
+			field.Type, field.Format = basev1.RunnableField_JSON, FormatObject
 			break
 		}
 		fields, objectErr := projectProperties(doc, resolved, at, open, depth, budget)
 		if objectErr != nil {
 			return nil, objectErr
 		}
-		field.Type, field.Fields = basev0.RunnableField_OBJECT, fields
+		field.Type, field.Fields = basev1.RunnableField_OBJECT, fields
 	case "array":
 		items, itemsErr := projectItems(doc, resolved, at, open, depth, budget)
 		if itemsErr != nil {
 			return nil, itemsErr
 		}
-		field.Type, field.Items = basev0.RunnableField_ARRAY, items
+		field.Type, field.Items = basev1.RunnableField_ARRAY, items
 	default:
 		return nil, fmt.Errorf("%w: %s is of type %q, which the bounded profile does not cover", ErrInvalid, at, named)
 	}
@@ -280,7 +280,7 @@ func boundedType(schema *JSONSchema, at string) (string, bool, error) {
 // projectProperties walks one object. An object with no properties is free-form
 // and one accepting additional properties is a map, and neither has the fixed
 // set of typed members the profile describes.
-func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) ([]*basev0.RunnableField, error) {
+func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) ([]*basev1.RunnableField, error) {
 	if schema.Properties == nil {
 		return nil, fmt.Errorf("%w: %s is an object declaring no properties, which the bounded profile does not cover", ErrInvalid, at)
 	}
@@ -299,7 +299,7 @@ func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open
 			return nil, fmt.Errorf("%w: %s requires %q, which it does not declare as a property", ErrInvalid, at, name)
 		}
 	}
-	fields := make([]*basev0.RunnableField, 0, len(*schema.Properties))
+	fields := make([]*basev1.RunnableField, 0, len(*schema.Properties))
 	for _, property := range *schema.Properties {
 		if *budget--; *budget < 0 {
 			return nil, fmt.Errorf("%w: %s projects more than %d fields; depth alone does not bound a payload whose members are themselves objects", ErrInvalid, at, MaxProjectionFields)
@@ -318,7 +318,7 @@ func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open
 // projectItems reads an array's element schema. A tuple names a different type
 // per position, which is a fixed-length record rather than the homogeneous list
 // the profile carries.
-func projectItems(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev0.RunnableField, error) {
+func projectItems(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev1.RunnableField, error) {
 	trimmed := bytes.TrimSpace(schema.Items)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("%w: %s is an array declaring no items, and the bounded profile has no untyped element", ErrInvalid, at)

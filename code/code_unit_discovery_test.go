@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestDefaultCodeServerDiscoversLanguagesWithoutSelectingAgents(t *testing.T) {
@@ -46,8 +46,8 @@ func TestDefaultCodeServerDiscoversLanguagesWithoutSelectingAgents(t *testing.T)
 		}
 	}
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev1.DiscoverCodeUnitsRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("discover code units: %v", err)
@@ -93,8 +93,8 @@ func TestDefaultCodeServerKeepsRequirementsOnlyRepositoryAsPython(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(root, "requirements.txt"), []byte("django==5.2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev1.DiscoverCodeUnitsRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -122,8 +122,8 @@ func TestDefaultCodeServerDoesNotPromoteWeakNestedPythonFixtureInsideStrongUnit(
 			t.Fatal(err)
 		}
 	}
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev1.DiscoverCodeUnitsRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -139,8 +139,8 @@ func TestDefaultCodeServerDiscoversMarkerlessRootWithoutSelectingAnAgent(t *test
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("source\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev0.DiscoverCodeUnitsRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DiscoverCodeUnits{DiscoverCodeUnits: &codev1.DiscoverCodeUnitsRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)

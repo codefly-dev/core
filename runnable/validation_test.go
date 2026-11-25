@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -14,14 +14,14 @@ import (
 func TestPreparePackageRejectsIncompleteWireContracts(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		mutate func(*basev0.RunnablePackage)
+		mutate func(*basev1.RunnablePackage)
 	}{
-		{"missing input", func(p *basev0.RunnablePackage) { p.Contract.Input = nil }},
-		{"missing output", func(p *basev0.RunnablePackage) { p.Contract.Output = nil }},
-		{"future recovery", func(p *basev0.RunnablePackage) { p.Execution.Recovery = 99 }},
-		{"negative recovery", func(p *basev0.RunnablePackage) { p.Execution.Recovery = -1 }},
-		{"future cancellation", func(p *basev0.RunnablePackage) { p.Execution.Cancellation = 99 }},
-		{"negative cancellation", func(p *basev0.RunnablePackage) { p.Execution.Cancellation = -1 }},
+		{"missing input", func(p *basev1.RunnablePackage) { p.Contract.Input = nil }},
+		{"missing output", func(p *basev1.RunnablePackage) { p.Contract.Output = nil }},
+		{"future recovery", func(p *basev1.RunnablePackage) { p.Execution.Recovery = 99 }},
+		{"negative recovery", func(p *basev1.RunnablePackage) { p.Execution.Recovery = -1 }},
+		{"future cancellation", func(p *basev1.RunnablePackage) { p.Execution.Cancellation = 99 }},
+		{"negative cancellation", func(p *basev1.RunnablePackage) { p.Execution.Cancellation = -1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := samplePackage(t)
@@ -36,21 +36,21 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 	p := preparedPackage(t)
 	for _, tc := range []struct {
 		name   string
-		mutate func(*basev0.RunnableBinding)
+		mutate func(*basev1.RunnableBinding)
 		want   string
 	}{
-		{"missing mapping", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings = nil }, "does not resolve dependency"},
-		{"nil mapping", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0] = nil }, "requires an endpoint"},
-		{"missing endpoint", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint = nil }, "requires an endpoint"},
-		{"missing instances", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Instances = nil }, "requires a network instance"},
-		{"nil instance", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Instances[0] = nil }, "nonempty instance address"},
-		{"empty instance", func(b *basev0.RunnableBinding) {
-			b.DependencyNetworkMappings[0].Instances[0] = &basev0.NetworkInstance{}
+		{"missing mapping", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings = nil }, "does not resolve dependency"},
+		{"nil mapping", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings[0] = nil }, "requires an endpoint"},
+		{"missing endpoint", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint = nil }, "requires an endpoint"},
+		{"missing instances", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings[0].Instances = nil }, "requires a network instance"},
+		{"nil instance", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings[0].Instances[0] = nil }, "nonempty instance address"},
+		{"empty instance", func(b *basev1.RunnableBinding) {
+			b.DependencyNetworkMappings[0].Instances[0] = &basev1.NetworkInstance{}
 		}, "nonempty instance address"},
-		{"blank address", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Instances[0].Address = " " }, "nonempty instance address"},
+		{"blank address", func(b *basev1.RunnableBinding) { b.DependencyNetworkMappings[0].Instances[0].Address = " " }, "nonempty instance address"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+			b := sampleBinding(p, p.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 			tc.mutate(b)
 			_, err := runnable.PrepareBinding(b, p)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
@@ -63,7 +63,7 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 		p.ServiceDependencies[0].Endpoints = []string{"tcp", "admin"}
 		pkg, err := runnable.PreparePackage(p)
 		require.NoError(t, err)
-		b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+		b := sampleBinding(pkg, pkg.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 		_, err = runnable.PrepareBinding(b, pkg)
 		require.ErrorContains(t, err, "does not resolve endpoint with-runnables/store/admin")
 	})
@@ -73,7 +73,7 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 		p.ServiceDependencies[0].Endpoints = nil
 		pkg, err := runnable.PreparePackage(p)
 		require.NoError(t, err)
-		b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+		b := sampleBinding(pkg, pkg.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 		b.DependencyNetworkMappings = nil
 		_, err = runnable.PrepareBinding(b, pkg)
 		require.ErrorContains(t, err, "does not resolve dependency")
@@ -91,7 +91,7 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 			p.ServiceDependencies[0].Endpoints = nil
 			pkg, err := runnable.PreparePackage(p)
 			require.NoError(t, err)
-			b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+			b := sampleBinding(pkg, pkg.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 			b.DependencyNetworkMappings = nil
 			_, err = runnable.PrepareBinding(b, pkg)
 			require.NoError(t, err, "endpointless prerequisites do not require network mappings")
@@ -103,7 +103,7 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 			p.ServiceDependencies[0].Kind = string(kind)
 			pkg, err := runnable.PreparePackage(p)
 			require.NoError(t, err)
-			b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+			b := sampleBinding(pkg, pkg.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 			b.DependencyNetworkMappings = nil
 			_, err = runnable.PrepareBinding(b, pkg)
 			require.ErrorContains(t, err, "does not resolve dependency")
@@ -114,8 +114,8 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 	p := preparedPackage(t)
 	t.Run("same endpoint with different instances", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
-		second := proto.Clone(b.DependencyNetworkMappings[0]).(*basev0.NetworkMapping)
+		b := sampleBinding(p, p.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
+		second := proto.Clone(b.DependencyNetworkMappings[0]).(*basev1.NetworkMapping)
 		b.DependencyNetworkMappings[0].Instances = b.DependencyNetworkMappings[0].Instances[:1]
 		second.Instances = second.Instances[1:]
 		b.DependencyNetworkMappings = append(b.DependencyNetworkMappings, second)
@@ -126,7 +126,7 @@ func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 		}
 	})
 	t.Run("same instance key with different metadata", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+		b := sampleBinding(p, p.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 		instances := b.DependencyNetworkMappings[0].Instances
 		instances[1].Address = instances[0].Address
 		for range 2 {
@@ -136,11 +136,11 @@ func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 		}
 	})
 	t.Run("same address with distinct access contexts is canonical", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
+		b := sampleBinding(p, p.Artifacts[1], basev1.RunnableFacility_KUBERNETES)
 		instances := b.DependencyNetworkMappings[0].Instances
 		instances[1].Address = instances[0].Address
-		instances[0].Access = &basev0.NetworkAccess{Kind: "native"}
-		instances[1].Access = &basev0.NetworkAccess{Kind: "container"}
+		instances[0].Access = &basev1.NetworkAccess{Kind: "native"}
+		instances[1].Access = &basev1.NetworkAccess{Kind: "container"}
 		first, err := runnable.PrepareBinding(b, p)
 		require.NoError(t, err)
 		instances[0], instances[1] = instances[1], instances[0]

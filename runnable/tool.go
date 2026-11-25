@@ -5,13 +5,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"google.golang.org/protobuf/proto"
 )
 
 // ValidateToolExposure checks an explicit exposure without inferring effects
 // from scopes, names or transports. Nil is valid for a non-tool operation.
-func ValidateToolExposure(tool *runnablev0.ToolExposure) error {
+func ValidateToolExposure(tool *runnablev1.ToolExposure) error {
 	if tool == nil {
 		return nil
 	}
@@ -19,7 +19,7 @@ func ValidateToolExposure(tool *runnablev0.ToolExposure) error {
 }
 
 // validateToolMetadata is shared by direct exposure and declared projections.
-func validateToolMetadata(name, description string, effect runnablev0.ToolExposure_Effect) error {
+func validateToolMetadata(name, description string, effect runnablev1.ToolExposure_Effect) error {
 	if len(name) == 0 || len(name) > 64 {
 		return fmt.Errorf("%w: tool name must contain 1..64 ASCII characters", ErrInvalid)
 	}
@@ -33,7 +33,7 @@ func validateToolMetadata(name, description string, effect runnablev0.ToolExposu
 		return fmt.Errorf("%w: tool description must be nonempty bounded UTF-8 text", ErrInvalid)
 	}
 	switch effect {
-	case runnablev0.ToolExposure_EFFECT_READ_ONLY, runnablev0.ToolExposure_EFFECT_MUTATION:
+	case runnablev1.ToolExposure_EFFECT_READ_ONLY, runnablev1.ToolExposure_EFFECT_MUTATION:
 	default:
 		return fmt.Errorf("%w: tool effect must explicitly declare read-only or mutation", ErrInvalid)
 	}
@@ -47,7 +47,7 @@ func validateToolMetadata(name, description string, effect runnablev0.ToolExposu
 // obtain schemas from that same binding's Contract and freeze its identity at
 // admission; they must still check installation and current caller authority.
 // This projection does not authenticate the source of a delivered binding.
-func ToolFromPrepared(binding *runnablev0.PreparedBinding) (*runnablev0.ToolExposure, error) {
+func ToolFromPrepared(binding *runnablev1.PreparedBinding) (*runnablev1.ToolExposure, error) {
 	if err := VerifyPrepared(binding); err != nil {
 		return nil, err
 	}

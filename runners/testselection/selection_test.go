@@ -3,7 +3,7 @@ package testselection
 import (
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func TestTypedSelectionHandshake(t *testing.T) {
@@ -11,7 +11,7 @@ func TestTypedSelectionHandshake(t *testing.T) {
 	if err := ValidateRequest(req); err != nil {
 		t.Fatalf("ValidateRequest: %v", err)
 	}
-	resp := &runtimev0.TestResponse{Run: &runtimev0.TestRun{Runner: "go-test"}}
+	resp := &runtimev1.TestResponse{Run: &runtimev1.TestRun{Runner: "go-test"}}
 	if err := Acknowledge(req, resp); err != nil {
 		t.Fatalf("Acknowledge: %v", err)
 	}
@@ -25,14 +25,14 @@ func TestTypedSelectionHandshake(t *testing.T) {
 
 func TestTypedSelectionHandshakeFailsClosed(t *testing.T) {
 	req := exactCaseRequest()
-	cases := map[string]*runtimev0.TestResponse{
-		"old peer omitted acknowledgement": {Run: &runtimev0.TestRun{}},
+	cases := map[string]*runtimev1.TestResponse{
+		"old peer omitted acknowledgement": {Run: &runtimev1.TestRun{}},
 		"missing run":                      {},
-		"wrong identity":                   {Run: &runtimev0.TestRun{SelectionId: "other", RequestedSelection: req.GetSelection()}},
-		"changed selection": {Run: &runtimev0.TestRun{
+		"wrong identity":                   {Run: &runtimev1.TestRun{SelectionId: "other", RequestedSelection: req.GetSelection()}},
+		"changed selection": {Run: &runtimev1.TestRun{
 			SelectionId: req.GetSelectionId(),
-			RequestedSelection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_File{
-				File: &runtimev0.TestFileSelection{Path: "pkg/other_test.go"},
+			RequestedSelection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_File{
+				File: &runtimev1.TestFileSelection{Path: "pkg/other_test.go"},
 			}},
 		}},
 	}
@@ -46,25 +46,25 @@ func TestTypedSelectionHandshakeFailsClosed(t *testing.T) {
 }
 
 func TestValidateRejectsAmbiguousOrNonCanonicalSelection(t *testing.T) {
-	cases := map[string]*runtimev0.TestRequest{
+	cases := map[string]*runtimev1.TestRequest{
 		"identity without selection":   {SelectionId: "binding"},
 		"selection without identity":   {Selection: exactCaseRequest().GetSelection()},
 		"selection with string target": {SelectionId: "binding", Selection: exactCaseRequest().GetSelection(), Target: "TestX"},
-		"selection with formula": {SelectionId: "binding", Selection: exactCaseRequest().GetSelection(), Formula: &runtimev0.TestFormula{
+		"selection with formula": {SelectionId: "binding", Selection: exactCaseRequest().GetSelection(), Formula: &runtimev1.TestFormula{
 			Command: []string{"go", "test"},
 		}},
-		"scope missing": {SelectionId: "binding", Selection: &runtimev0.TestSelection{}},
-		"case location missing": {SelectionId: "binding", Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_TestCase{
-			TestCase: &runtimev0.TestCaseSelection{QualifiedName: []string{"TestX"}},
+		"scope missing": {SelectionId: "binding", Selection: &runtimev1.TestSelection{}},
+		"case location missing": {SelectionId: "binding", Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_TestCase{
+			TestCase: &runtimev1.TestCaseSelection{QualifiedName: []string{"TestX"}},
 		}}},
-		"case name missing": {SelectionId: "binding", Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_TestCase{
-			TestCase: &runtimev0.TestCaseSelection{Package: "./pkg"},
+		"case name missing": {SelectionId: "binding", Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_TestCase{
+			TestCase: &runtimev1.TestCaseSelection{Package: "./pkg"},
 		}}},
-		"parent path": {SelectionId: "binding", Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_File{
-			File: &runtimev0.TestFileSelection{Path: "../outside_test.go"},
+		"parent path": {SelectionId: "binding", Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_File{
+			File: &runtimev1.TestFileSelection{Path: "../outside_test.go"},
 		}}},
-		"noncanonical path": {SelectionId: "binding", Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_File{
-			File: &runtimev0.TestFileSelection{Path: "pkg/../outside_test.go"},
+		"noncanonical path": {SelectionId: "binding", Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_File{
+			File: &runtimev1.TestFileSelection{Path: "pkg/../outside_test.go"},
 		}}},
 	}
 	for name, req := range cases {
@@ -76,11 +76,11 @@ func TestValidateRejectsAmbiguousOrNonCanonicalSelection(t *testing.T) {
 	}
 }
 
-func exactCaseRequest() *runtimev0.TestRequest {
-	return &runtimev0.TestRequest{
+func exactCaseRequest() *runtimev1.TestRequest {
+	return &runtimev1.TestRequest{
 		SelectionId: "binding-sha256",
-		Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_TestCase{
-			TestCase: &runtimev0.TestCaseSelection{
+		Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_TestCase{
+			TestCase: &runtimev1.TestCaseSelection{
 				Package:       "./pkg/widgets",
 				Path:          "pkg/widgets/widget_test.go",
 				QualifiedName: []string{"TestWidget", "empty input"},

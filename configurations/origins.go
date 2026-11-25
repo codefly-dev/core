@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ConfigurationOrigin is a value-free origin for a final workspace configuration
@@ -15,17 +15,17 @@ import (
 // secret URIs or content hashes are exposed.
 // This covers disk composition before invocation overrides, reference resolution
 // and injection. It is not a complete input receipt or an attestation.
-type ConfigurationOrigin = basev0.ConfigurationOrigin
+type ConfigurationOrigin = basev1.ConfigurationOrigin
 
 // ConfigurationDecision records one executed precedence rule. It is deliberately
 // narrower than a complete resolver trace: workspace/import and module-default
 // group replacement plus derived profile keys/documents are instrumented.
 // No values or equality comparisons escape.
-type ConfigurationDecision = basev0.ConfigurationDecision
+type ConfigurationDecision = basev1.ConfigurationDecision
 
 // ConfigurationProfileSelection is the resolver's location-level choice. Layers
 // are ordered base first; they are not per-file fallback candidates.
-type ConfigurationProfileSelection = basev0.ConfigurationProfileSelection
+type ConfigurationProfileSelection = basev1.ConfigurationProfileSelection
 
 type configurationOriginsKey struct{}
 
@@ -37,13 +37,13 @@ type configurationOrigins struct {
 	defaultDecisions  map[moduleGroup]int
 	profiles          []*ConfigurationProfileSelection
 	profileTargets    map[int]profileOriginTarget
-	selectedGroups    []*basev0.ConfigurationInformation
+	selectedGroups    []*basev1.ConfigurationInformation
 	decisions         []*ConfigurationDecision
-	values            map[*basev0.ConfigurationValue]string
-	valueParents      map[*basev0.ConfigurationValue]*basev0.ConfigurationValue
-	valueContributors map[*basev0.ConfigurationValue][]*basev0.ConfigurationValue
-	documentParents   map[*basev0.ConfigurationData][]*basev0.ConfigurationData
-	documents         map[*basev0.ConfigurationData]string
+	values            map[*basev1.ConfigurationValue]string
+	valueParents      map[*basev1.ConfigurationValue]*basev1.ConfigurationValue
+	valueContributors map[*basev1.ConfigurationValue][]*basev1.ConfigurationValue
+	documentParents   map[*basev1.ConfigurationData][]*basev1.ConfigurationData
+	documents         map[*basev1.ConfigurationData]string
 }
 
 type moduleGroup struct {
@@ -52,8 +52,8 @@ type moduleGroup struct {
 }
 
 type profileOriginTarget struct {
-	value    *basev0.ConfigurationValue
-	document *basev0.ConfigurationData
+	value    *basev1.ConfigurationValue
+	document *basev1.ConfigurationData
 }
 
 func newConfigurationOrigins(root string) (*configurationOrigins, error) {
@@ -64,8 +64,8 @@ func newConfigurationOrigins(root string) (*configurationOrigins, error) {
 	return &configurationOrigins{
 		root:             absolute,
 		defaultDecisions: make(map[moduleGroup]int),
-		values:           make(map[*basev0.ConfigurationValue]string),
-		documents:        make(map[*basev0.ConfigurationData]string),
+		values:           make(map[*basev1.ConfigurationValue]string),
+		documents:        make(map[*basev1.ConfigurationData]string),
 	}, nil
 }
 
@@ -107,27 +107,27 @@ func configurationOriginsFrom(ctx context.Context) *configurationOrigins {
 	return t
 }
 
-func (t *configurationOrigins) shadowedImport(workspace, imported string, candidate *basev0.ConfigurationInformation, selected []*basev0.ConfigurationInformation) {
+func (t *configurationOrigins) shadowedImport(workspace, imported string, candidate *basev1.ConfigurationInformation, selected []*basev1.ConfigurationInformation) {
 	for _, winner := range selected {
 		if winner.Name == candidate.Name {
 			t.selectedGroups = append(t.selectedGroups, winner)
 			t.decisions = append(t.decisions, &ConfigurationDecision{
 				Group: candidate.Name, Workspace: workspace, ImportedWorkspace: imported,
-				Rule:     basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP,
-				Selected: t.project([]*basev0.ConfigurationInformation{winner}),
-				Shadowed: t.project([]*basev0.ConfigurationInformation{candidate}),
+				Rule:     basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP,
+				Selected: t.project([]*basev1.ConfigurationInformation{winner}),
+				Shadowed: t.project([]*basev1.ConfigurationInformation{candidate}),
 			})
 			return
 		}
 	}
 }
 
-func (t *configurationOrigins) finalDecisions(infos []*basev0.ConfigurationInformation) []*ConfigurationDecision {
-	final := make(map[*basev0.ConfigurationInformation]bool)
-	values := make(map[*basev0.ConfigurationValue]bool)
-	documents := make(map[*basev0.ConfigurationData]bool)
-	var markValue func(*basev0.ConfigurationValue)
-	markValue = func(value *basev0.ConfigurationValue) {
+func (t *configurationOrigins) finalDecisions(infos []*basev1.ConfigurationInformation) []*ConfigurationDecision {
+	final := make(map[*basev1.ConfigurationInformation]bool)
+	values := make(map[*basev1.ConfigurationValue]bool)
+	documents := make(map[*basev1.ConfigurationData]bool)
+	var markValue func(*basev1.ConfigurationValue)
+	markValue = func(value *basev1.ConfigurationValue) {
 		if value == nil || values[value] {
 			return
 		}
@@ -137,8 +137,8 @@ func (t *configurationOrigins) finalDecisions(infos []*basev0.ConfigurationInfor
 			markValue(parent)
 		}
 	}
-	var markDocument func(*basev0.ConfigurationData)
-	markDocument = func(document *basev0.ConfigurationData) {
+	var markDocument func(*basev1.ConfigurationData)
+	markDocument = func(document *basev1.ConfigurationData) {
 		if document == nil || documents[document] {
 			return
 		}
@@ -163,11 +163,11 @@ func (t *configurationOrigins) finalDecisions(infos []*basev0.ConfigurationInfor
 	return t.decisions
 }
 
-func (t *configurationOrigins) profileReplacement(profile, group string, selected, shadowed *basev0.ConfigurationInformation) {
-	rule := basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY
+func (t *configurationOrigins) profileReplacement(profile, group string, selected, shadowed *basev1.ConfigurationInformation) {
+	rule := basev1.ConfigurationRule_CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY
 	target := profileOriginTarget{}
 	if selected.GetData() != nil {
-		rule = basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT
+		rule = basev1.ConfigurationRule_CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT
 		target.document = selected.GetData()
 	} else {
 		target.value = selected.GetConfigurationValues()[0]
@@ -178,24 +178,24 @@ func (t *configurationOrigins) profileReplacement(profile, group string, selecte
 	t.profileTargets[len(t.decisions)] = target
 	t.selectedGroups = append(t.selectedGroups, nil)
 	t.decisions = append(t.decisions, &ConfigurationDecision{Group: group, Profile: profile, Rule: rule,
-		Selected: t.project([]*basev0.ConfigurationInformation{selected}),
-		Shadowed: t.project([]*basev0.ConfigurationInformation{shadowed})})
+		Selected: t.project([]*basev1.ConfigurationInformation{selected}),
+		Shadowed: t.project([]*basev1.ConfigurationInformation{shadowed})})
 }
 
-func (t *configurationOrigins) shadowedDefault(module string, candidate *basev0.ConfigurationInformation, selected []*basev0.ConfigurationInformation) {
+func (t *configurationOrigins) shadowedDefault(module string, candidate *basev1.ConfigurationInformation, selected []*basev1.ConfigurationInformation) {
 	for _, winner := range selected {
 		if winner.Name == candidate.Name {
 			key := moduleGroup{module: module, group: candidate.Name}
 			if index, exists := t.defaultDecisions[key]; exists {
-				t.decisions[index].Shadowed = append(t.decisions[index].Shadowed, t.project([]*basev0.ConfigurationInformation{candidate})...)
+				t.decisions[index].Shadowed = append(t.decisions[index].Shadowed, t.project([]*basev1.ConfigurationInformation{candidate})...)
 				return
 			}
 			t.defaultDecisions[key] = len(t.decisions)
 			t.selectedGroups = append(t.selectedGroups, winner)
 			t.decisions = append(t.decisions, &ConfigurationDecision{
-				Group: candidate.Name, Module: module, Rule: basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT,
-				Selected: t.project([]*basev0.ConfigurationInformation{winner}),
-				Shadowed: t.project([]*basev0.ConfigurationInformation{candidate}),
+				Group: candidate.Name, Module: module, Rule: basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT,
+				Selected: t.project([]*basev1.ConfigurationInformation{winner}),
+				Shadowed: t.project([]*basev1.ConfigurationInformation{candidate}),
 			})
 			return
 		}
@@ -205,9 +205,9 @@ func (t *configurationOrigins) shadowedDefault(module string, candidate *basev0.
 // workspaceOverlay follows the successful resolver overlay, including its cloned
 // retained keys. Identity is transferred by the resolver's key mapping, never by
 // comparing values.
-func (t *configurationOrigins) workspaceOverlay(base, override, result *basev0.ConfigurationInformation, module string) {
+func (t *configurationOrigins) workspaceOverlay(base, override, result *basev1.ConfigurationInformation, module string) {
 	if t.valueParents == nil {
-		t.valueParents = make(map[*basev0.ConfigurationValue]*basev0.ConfigurationValue)
+		t.valueParents = make(map[*basev1.ConfigurationValue]*basev1.ConfigurationValue)
 	}
 	if t.profileTargets == nil {
 		t.profileTargets = make(map[int]profileOriginTarget)
@@ -215,8 +215,8 @@ func (t *configurationOrigins) workspaceOverlay(base, override, result *basev0.C
 	if result.GetData() != nil {
 		t.profileTargets[len(t.decisions)] = profileOriginTarget{document: result.GetData()}
 		t.selectedGroups = append(t.selectedGroups, nil)
-		t.decisions = append(t.decisions, &ConfigurationDecision{Group: result.Name, Module: module, Rule: basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT,
-			Selected: t.project([]*basev0.ConfigurationInformation{override}), Shadowed: t.project([]*basev0.ConfigurationInformation{base})})
+		t.decisions = append(t.decisions, &ConfigurationDecision{Group: result.Name, Module: module, Rule: basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT,
+			Selected: t.project([]*basev1.ConfigurationInformation{override}), Shadowed: t.project([]*basev1.ConfigurationInformation{base})})
 		return
 	}
 	for _, value := range result.GetConfigurationValues() {
@@ -231,13 +231,13 @@ func (t *configurationOrigins) workspaceOverlay(base, override, result *basev0.C
 		}
 		t.profileTargets[len(t.decisions)] = profileOriginTarget{value: value}
 		t.selectedGroups = append(t.selectedGroups, nil)
-		t.decisions = append(t.decisions, &ConfigurationDecision{Group: result.Name, Module: module, Rule: basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT,
-			Selected: t.project([]*basev0.ConfigurationInformation{{Name: result.Name, ConfigurationValues: []*basev0.ConfigurationValue{replacement}}}),
-			Shadowed: t.project([]*basev0.ConfigurationInformation{{Name: result.Name, ConfigurationValues: []*basev0.ConfigurationValue{previous}}})})
+		t.decisions = append(t.decisions, &ConfigurationDecision{Group: result.Name, Module: module, Rule: basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT,
+			Selected: t.project([]*basev1.ConfigurationInformation{{Name: result.Name, ConfigurationValues: []*basev1.ConfigurationValue{replacement}}}),
+			Shadowed: t.project([]*basev1.ConfigurationInformation{{Name: result.Name, ConfigurationValues: []*basev1.ConfigurationValue{previous}}})})
 	}
 }
 
-func (t *configurationOrigins) record(info *basev0.ConfigurationInformation, file string) error {
+func (t *configurationOrigins) record(info *basev1.ConfigurationInformation, file string) error {
 	file, err := t.relativePath(file)
 	if err != nil {
 		return err
@@ -251,19 +251,19 @@ func (t *configurationOrigins) record(info *basev0.ConfigurationInformation, fil
 	return nil
 }
 
-func (t *configurationOrigins) project(infos []*basev0.ConfigurationInformation) []*ConfigurationOrigin {
+func (t *configurationOrigins) project(infos []*basev1.ConfigurationInformation) []*ConfigurationOrigin {
 	out := make([]*ConfigurationOrigin, 0)
 	for _, info := range infos {
 		for _, value := range info.GetConfigurationValues() {
 			for _, parent := range t.valueContributors[value] {
-				out = append(out, t.project([]*basev0.ConfigurationInformation{{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{parent}}})...)
+				out = append(out, t.project([]*basev1.ConfigurationInformation{{Name: info.Name, ConfigurationValues: []*basev1.ConfigurationValue{parent}}})...)
 			}
 			if file, ok := t.values[value]; ok {
 				out = append(out, &ConfigurationOrigin{Group: info.GetName(), Key: value.GetKey(), File: file})
 			}
 		}
 		for _, parent := range t.documentParents[info.GetData()] {
-			out = append(out, t.project([]*basev0.ConfigurationInformation{{Name: info.Name, Data: parent}})...)
+			out = append(out, t.project([]*basev1.ConfigurationInformation{{Name: info.Name, Data: parent}})...)
 		}
 		if file, ok := t.documents[info.GetData()]; ok {
 			out = append(out, &ConfigurationOrigin{Group: info.GetName(), File: file, Document: true})

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/stretchr/testify/require"
@@ -188,9 +188,9 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, initial.Applied)
 			original := readFile(t, filepath.Join(moduleDir, LockFileName))
-			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
+			pin := &updatev1.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
 			for _, item := range before.Items {
-				pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
+				pin.Uses = append(pin.Uses, &updatev1.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
 			}
 			if scenario == "stale usage" {
 				pin.Version = "0.8.0"
@@ -229,14 +229,14 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			switch scenario {
 			case "compatible skipped release", "optional REST parameter":
 				require.True(t, result.Applied, result.Report.String())
-				require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Report.ConsumerCompatibility.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_NEW_CAPABILITY, result.Report.ConsumerCompatibility.Verdict)
 				require.Equal(t, "0.9.0", result.Lock.Version)
 			case "removed route", "required REST parameter", "transitive REST type":
 				require.False(t, result.Applied)
-				require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Report.ConsumerCompatibility.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_BREAKING, result.Report.ConsumerCompatibility.Verdict)
 			default:
 				require.False(t, result.Applied)
-				require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Report.ConsumerCompatibility.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, result.Report.ConsumerCompatibility.Verdict)
 			}
 			if !result.Applied {
 				require.NoFileExists(t, marker, "rejected usage/compatibility must not run candidate generators")
@@ -341,17 +341,17 @@ func TestUpdateEvidenceMustMatchPackagedSources(t *testing.T) {
 	data, err := moduleupdate.MarshalReleaseDiff(diff)
 	require.NoError(t, err)
 	writeFile(t, filepath.Join(afterRoot, moduleupdate.ReleaseDiffFileName), string(data))
-	pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "deployment", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
+	pin := &updatev1.ConsumerPin{SchemaVersion: 1, Consumer: "deployment", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
 	for _, item := range before.Items {
-		pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
+		pin.Uses = append(pin.Uses, &updatev1.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
 	}
-	check := func(root string) *updatev0.UpdateResult {
+	check := func(root string) *updatev1.UpdateResult {
 		release, trust := buildRelease(t, root, "0.2.0", strings.Repeat("a", 40))
 		verified, err := VerifyRelease(release, testPackage, "0.2.0", trust)
 		require.NoError(t, err)
 		return verified.EvaluateUpdate(pin)
 	}
-	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, check(afterRoot).Verdict)
+	require.Equal(t, updatev1.Verdict_VERDICT_SAFE, check(afterRoot).Verdict)
 
 	// Keep source/catalog/manifest mutually consistent while leaving update evidence stale.
 	for _, name := range []string{APIContractCatalogFileName, "contracts/api/openapi.json"} {
@@ -360,13 +360,13 @@ func TestUpdateEvidenceMustMatchPackagedSources(t *testing.T) {
 	}
 	updateAPIDigest(t, afterRoot)
 	result := check(afterRoot)
-	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, result.Verdict)
 	require.Contains(t, result.Undetermined[0].Reason, "does not match packaged contract sources")
 
 	writeUpdateSources(t, afterRoot, "0.2.0", false)
 	behaviorPath := filepath.Join(afterRoot, BehavioralContractsFileName)
 	writeFile(t, behaviorPath, strings.ReplaceAll(readFile(t, behaviorPath), `"publisher_bound":true`, `"publisher_bound":false`))
-	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, check(afterRoot).Verdict)
+	require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, check(afterRoot).Verdict)
 	writeFile(t, behaviorPath, `{"schema_version":1}`)
 	require.Contains(t, check(afterRoot).Undetermined[0].Reason, "complete coverage")
 }
@@ -418,7 +418,7 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	data, err := proto.Marshal(set)
 	require.NoError(t, err)
 	endpoint := APIContractEndpoint{Package: "accounts.v1", Services: ProtobufServices(set, "accounts.v1")}
-	var items []*updatev0.ContractItem
+	var items []*updatev1.ContractItem
 	require.NoError(t, protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil))
 	require.Len(t, items, 2)
 	require.Equal(t, "api/accounts/grpc#accounts.v1.Account", items[0].Id)
@@ -459,7 +459,7 @@ func TestProtobufContractEvidenceRefusesACatalogOmittingADescriptorMethod(t *tes
 	onlyGet := []APIContractService{{Name: "Accounts", FullName: "accounts.v1.Accounts", Procedures: []string{"/accounts.v1.Accounts/Get"}}}
 	for _, pkg := range []string{"accounts.v1", ""} {
 		endpoint := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: pkg, Services: onlyGet}
-		var items []*updatev0.ContractItem
+		var items []*updatev1.ContractItem
 		err := protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil)
 		require.ErrorContains(t, err, "catalog procedures")
 		require.ErrorContains(t, err, "/accounts.v1.Accounts/Delete is served by no listener")
@@ -482,7 +482,7 @@ func TestProtobufContractEvidenceHonoursTheEndpointPackage(t *testing.T) {
 	})
 	data, err := proto.Marshal(set)
 	require.NoError(t, err)
-	var items []*updatev0.ContractItem
+	var items []*updatev1.ContractItem
 	accountsOnly := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: "accounts.v1", Services: ProtobufServices(accountsDescriptor("Get"), "accounts.v1")}
 	require.ErrorContains(t, protobufContractItems(accountsOnly, []APIContractEndpoint{accountsOnly}, "api/accounts/grpc", data, &items, nil),
 		"/accounts.v1.Audit/Query is served by no listener")
@@ -518,7 +518,7 @@ func TestProtobufContractEvidenceUsesMultiPackageListenerInventory(t *testing.T)
 	}
 	data, err := proto.Marshal(set)
 	require.NoError(t, err)
-	var items []*updatev0.ContractItem
+	var items []*updatev1.ContractItem
 	require.NoError(t, protobufContractItems(connect, []APIContractEndpoint{connect, internal}, "api/accounts/connect", data, &items, nil))
 	var ids []string
 	for _, item := range items {
@@ -596,7 +596,7 @@ func TestProtobufCoverageExemptsOnlyAServiceDeclaredAsAnInterfaceOthersImplement
 	procedures, err := ProtobufProcedures(set, grpc)
 	require.NoError(t, err)
 	require.Equal(t, []string{"/accounts.v1.Accounts/Get"}, procedures)
-	var items []*updatev0.ContractItem
+	var items []*updatev1.ContractItem
 	require.NoError(t, protobufContractItems(grpc, declared, "api/accounts/grpc", data, &items, nil))
 	for _, item := range items {
 		require.NotContains(t, item.Id, "OwnerAuthority")

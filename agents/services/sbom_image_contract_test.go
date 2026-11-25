@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	servicesbom "github.com/codefly-dev/core/agents/services/sbom"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,11 +16,11 @@ import (
 // failure was reported as a scope problem and its cause never surfaced.
 func TestImageSBOMFailuresNameTheirCauseThroughValidateCoverage(t *testing.T) {
 	wrapper := &BuilderWrapper{}
-	subjects := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
+	subjects := []*builderv1.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
 
 	failed, err := wrapper.SBOMImageError(fmt.Errorf("syft exited 1: no space left on device"))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, failed.GetScope())
+	require.Equal(t, builderv1.SBOMScope_SBOM_SCOPE_IMAGE, failed.GetScope())
 	validation := servicesbom.ValidateCoverage("svc", subjects, failed)
 	require.ErrorContains(t, validation, "no space left on device")
 	require.NotContains(t, validation.Error(), "not image coverage")
@@ -37,13 +37,13 @@ func TestImageSBOMFailuresNameTheirCauseThroughValidateCoverage(t *testing.T) {
 func TestNoImageResponseRequiresAnExplicitReason(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 
-	invalid, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED, "")
+	invalid, err := wrapper.SBOMNoImage(builderv1.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED, "")
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMStatus_ERROR, invalid.GetState().GetState())
-	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, invalid.GetScope())
+	require.Equal(t, builderv1.SBOMStatus_ERROR, invalid.GetState().GetState())
+	require.Equal(t, builderv1.SBOMScope_SBOM_SCOPE_IMAGE, invalid.GetScope())
 	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", nil, invalid), "must declare a no-image reason")
 
-	declared, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_NO_IMAGE, "passive toolbox")
+	declared, err := wrapper.SBOMNoImage(builderv1.NoImageReason_NO_IMAGE_REASON_NO_IMAGE, "passive toolbox")
 	require.NoError(t, err)
 	require.NoError(t, servicesbom.ValidateCoverage("svc", nil, declared))
 }
@@ -53,12 +53,12 @@ func TestNoImageResponseRequiresAnExplicitReason(t *testing.T) {
 func TestExternallyManagedMustNameTheRuntime(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 
-	anonymous, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "")
+	anonymous, err := wrapper.SBOMNoImage(builderv1.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "")
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMStatus_ERROR, anonymous.GetState().GetState())
+	require.Equal(t, builderv1.SBOMStatus_ERROR, anonymous.GetState().GetState())
 	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", nil, anonymous), "must name the runtime")
 
-	named, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "runs on a provider-managed RDS instance")
+	named, err := wrapper.SBOMNoImage(builderv1.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "runs on a provider-managed RDS instance")
 	require.NoError(t, err)
 	require.NoError(t, servicesbom.ValidateCoverage("svc", nil, named))
 }
@@ -69,21 +69,21 @@ func TestSBOMImagesWithoutSubjectsIsAPreconditionFailure(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 	resp, err := wrapper.SBOMImages(context.Background(), nil)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
-	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
-	require.Equal(t, basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, resp.GetState().GetFailure().GetCode())
+	require.Equal(t, builderv1.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv1.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Equal(t, basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, resp.GetState().GetFailure().GetCode())
 }
 
 // A subject naming only a tag is refused before anything is scanned: the
 // registry may still serve an image this build never produced.
 func TestSBOMImagesRefusesAnUnpinnedSubject(t *testing.T) {
 	wrapper := &BuilderWrapper{}
-	subjects := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
+	subjects := []*builderv1.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
 
 	resp, err := wrapper.SBOMImages(context.Background(), subjects)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
-	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Equal(t, builderv1.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv1.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
 	require.Contains(t, resp.GetState().GetMessage(), "not pinned to a sha256 digest")
 }
 
@@ -91,7 +91,7 @@ func TestSBOMImagesRefusesAnUnpinnedSubject(t *testing.T) {
 // first, but a successful source response must not pass as image evidence.
 func TestSourceInventoryIsStillRejectedAsImageCoverage(t *testing.T) {
 	wrapper := &BuilderWrapper{}
-	subjects := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
+	subjects := []*builderv1.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
 
 	source, err := wrapper.SBOMResponse(nil, "go-list", "GO", "abc")
 	require.NoError(t, err)
@@ -105,26 +105,26 @@ func TestSourceInventoryIsStillRejectedAsImageCoverage(t *testing.T) {
 func TestSBOMImagesReachesEachSubjectWhereItSaysItLives(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 	digest := "sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c"
-	pushed := &builderv0.ImageSubject{
+	pushed := &builderv1.ImageSubject{
 		Reference: "localhost:1/codefly/app@" + digest,
 		Platform:  "linux/amd64",
 		Role:      "app",
 		Service:   "svc",
-		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY,
+		Source:    builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY,
 	}
-	loaded := &builderv0.ImageSubject{
+	loaded := &builderv1.ImageSubject{
 		Reference: "localhost:1/codefly/migration:1.0",
 		Digest:    digest,
 		Role:      "migration",
 		Service:   "svc",
-		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+		Source:    builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
 	}
 
-	daemonFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{loaded, pushed})
+	daemonFirst, err := wrapper.SBOMImages(context.Background(), []*builderv1.ImageSubject{loaded, pushed})
 	require.NoError(t, err)
 	require.Contains(t, daemonFirst.GetState().GetMessage(), "resolve local image localhost:1/codefly/migration:1.0")
 
-	registryFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{pushed, loaded})
+	registryFirst, err := wrapper.SBOMImages(context.Background(), []*builderv1.ImageSubject{pushed, loaded})
 	require.NoError(t, err)
 	require.Contains(t, registryFirst.GetState().GetMessage(), "registry")
 	require.NotContains(t, registryFirst.GetState().GetMessage(), "resolve local image")
@@ -135,16 +135,16 @@ func TestSBOMImagesReachesEachSubjectWhereItSaysItLives(t *testing.T) {
 // evidence to it, leaving no field holding the identity that was requested.
 func TestSBOMImagesRefusesALocalSubjectPinnedOnlyInItsReference(t *testing.T) {
 	wrapper := &BuilderWrapper{}
-	subjects := []*builderv0.ImageSubject{{
+	subjects := []*builderv1.ImageSubject{{
 		Reference: "localhost:1/codefly/app@sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c",
 		Role:      "app",
 		Service:   "svc",
-		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+		Source:    builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
 	}}
 
 	resp, err := wrapper.SBOMImages(context.Background(), subjects)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
-	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Equal(t, builderv1.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv1.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
 	require.Contains(t, resp.GetState().GetMessage(), "pins no sha256 digest field")
 }

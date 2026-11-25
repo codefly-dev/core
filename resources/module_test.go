@@ -9,7 +9,7 @@ package resources_test
 //
 //	"github.com/codefly-dev/core/actions/actions"
 //	actionmodule "github.com/codefly-dev/core/actions/module"
-//	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+//	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 //	"github.com/codefly-dev/core/resources"
 //	"github.com/codefly-dev/core/shared"
 //	"github.com/stretchr/testify/assert"
@@ -26,7 +26,7 @@ package resources_test
 //	var action actions.Action
 //	var err error
 //
-//	action, err = action.NewActionNe(ctx, &actionsv0.New{
+//	action, err = action.NewActionNe(ctx, &actionsv1.New{
 //		Name: "test-",
 //		Path: tmpDir,
 //	})
@@ -35,7 +35,7 @@ package resources_test
 //require.NoError(t, err)
 //	 := shared.Must(actions.As[resources.](out))
 //
-//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv0.NewModule{
+//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv1.NewModule{
 //		Name:        "test-module",
 //		Path: .Dir(),
 //	})
@@ -65,7 +65,7 @@ package resources_test
 //	require.Equal(t, app.Name, back.Name)
 //
 //	// Add a second module
-//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv0.NewModule{
+//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv1.NewModule{
 //		Name:        "test-module-2",
 //		Path: .Dir(),
 //	})
@@ -96,7 +96,7 @@ package resources_test
 //	}()
 //
 //	var action actions.Action
-//	action, err = action.NewActionNew(ctx, &actionsv0.New{
+//	action, err = action.NewActionNew(ctx, &actionsv1.New{
 //		Name: "test-",
 //		Path: workspace.Dir(),
 //	})
@@ -106,7 +106,7 @@ package resources_test
 //	 := shared.Must(actions.As[resources.](out))
 //
 //	// Add to workspace
-//	action, err = action.NewActionAddToWorkspace(ctx, &actionsv0.AddToWorkspace{
+//	action, err = action.NewActionAddToWorkspace(ctx, &actionsv1.AddToWorkspace{
 //		Name:      .Name,
 //		Workspace: workspace.Name,
 //		Path:      .Dir(),
@@ -119,7 +119,7 @@ package resources_test
 //
 //	require.Equal(t, "test-", workspace.Active)
 //
-//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv0.NewModule{
+//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv1.NewModule{
 //		Name:        "test-module",
 //		Path: .Dir(),
 //	})
@@ -137,7 +137,7 @@ package resources_test
 //	require.Error(t, err)
 //
 //	// Add app to workspace
-//	action, err = actionmodule.NewActionAddModuleToWorkspace(ctx, &actionsv0.AddModuleToWorkspace{
+//	action, err = actionmodule.NewActionAddModuleToWorkspace(ctx, &actionsv1.AddModuleToWorkspace{
 //		Name:      app.Name,
 //		:   .Name,
 //		Workspace: workspace.Name,
@@ -163,7 +163,7 @@ package resources_test
 //	require.Equal(t, app.Name, back.Name)
 //
 //	// Add a second module
-//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv0.NewModule{
+//	action, err = actionmodule.NewActionAddModule(ctx, &actionsv1.NewModule{
 //		Name:        "test-module-2",
 //		Path: .Name,
 //	})
@@ -180,7 +180,7 @@ package resources_test
 //	require.Equal(t, 2, len(.Modules))
 //
 //	// Add workspace
-//	action, err = actionmodule.NewActionAddModuleToWorkspace(ctx, &actionsv0.AddModuleToWorkspace{
+//	action, err = actionmodule.NewActionAddModuleToWorkspace(ctx, &actionsv1.AddModuleToWorkspace{
 //		Name:      app.Name,
 //		:   .Name,
 //		Workspace: workspace.Name,
@@ -191,7 +191,7 @@ package resources_test
 //	workspace = shared.Must(actions.As[resources.Workspace](out))
 //
 //	// Set active
-//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv0.SetModuleActive{
+//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv1.SetModuleActive{
 //		Name:      app.Name,
 //		:   .Name,
 //		Workspace: workspace.Name,
@@ -205,7 +205,7 @@ package resources_test
 //	back, err = workspace.LoadActiveModule(ctx, .Name)
 //
 //	// Make the first one active
-//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv0.SetModuleActive{
+//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv1.SetModuleActive{
 //		Name:      "test-module",
 //		:   .Name,
 //		Workspace: workspace.Name,
@@ -219,7 +219,7 @@ package resources_test
 //	active, err := workspace.LoadActiveModule(ctx, .Name)
 //	require.Equal(t, "test-module", active.Name)
 //
-//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv0.SetModuleActive{
+//	action, err = actionmodule.NewActionSetModuleActive(ctx, &actionsv1.SetModuleActive{
 //		Name:      "test-module-2",
 //		:   .Name,
 //		Workspace: workspace.Name,

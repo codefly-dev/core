@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // The projection and the package builder read descriptors, so the fixtures are
@@ -108,7 +108,7 @@ func registry(t *testing.T, file protoreflect.FileDescriptor) *protoregistry.Fil
 }
 
 // operationMethod is one unary rpc carrying the operation option.
-func operationMethod(name, input, output string, declared *runnablev0.Operation) *descriptorpb.MethodDescriptorProto {
+func operationMethod(name, input, output string, declared *runnablev1.Operation) *descriptorpb.MethodDescriptorProto {
 	method := &descriptorpb.MethodDescriptorProto{
 		Name:       proto.String(name),
 		InputType:  proto.String(input),
@@ -116,7 +116,7 @@ func operationMethod(name, input, output string, declared *runnablev0.Operation)
 	}
 	if declared != nil {
 		method.Options = &descriptorpb.MethodOptions{}
-		proto.SetExtension(method.Options, runnablev0.E_Operation, declared)
+		proto.SetExtension(method.Options, runnablev1.E_Operation, declared)
 	}
 	return method
 }

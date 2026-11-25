@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -312,11 +312,11 @@ func TestProvidedConfigurationIsCheckedAgainstTheCapability(t *testing.T) {
 	require.NoError(t, err)
 
 	conforming := connection(
-		&basev0.ConfigurationValue{Key: "url", Value: "redis://redis:6379"},
-		&basev0.ConfigurationValue{Key: "password", Value: "s3cret", Secret: true},
+		&basev1.ConfigurationValue{Key: "url", Value: "redis://redis:6379"},
+		&basev1.ConfigurationValue{Key: "password", Value: "s3cret", Secret: true},
 	)
 	require.NoError(t, platform.ValidateProvidedConfiguration(ctx, "redis", conforming))
-	require.ErrorContains(t, platform.ValidateProvidedConfiguration(ctx, "redis", connection(&basev0.ConfigurationValue{Key: "url", Value: "redis://redis:6379"})),
+	require.ErrorContains(t, platform.ValidateProvidedConfiguration(ctx, "redis", connection(&basev1.ConfigurationValue{Key: "url", Value: "redis://redis:6379"})),
 		`platform/redis: interface codefly.dev/cache@0.3.0: configuration group "connection" from "platform/redis" does not conform: required key "password" is missing`)
 	require.NoError(t, platform.ValidateProvidedConfiguration(ctx, "api", connection()), "api provides no capability")
 }
@@ -857,7 +857,7 @@ func TestHostSuppliedBindingNeedsNoWorkspace(t *testing.T) {
 	// read different manifests: refused, never ignored.
 	agent, err = resources.LoadServiceFromDir(ctx, dir)
 	require.NoError(t, err)
-	supplied.Bindings = append(supplied.Bindings, &basev0.ServiceInterfaceBinding{Interface: "example.dev/other@^1", Module: "platform", Service: "api"})
+	supplied.Bindings = append(supplied.Bindings, &basev1.ServiceInterfaceBinding{Interface: "example.dev/other@^1", Module: "platform", Service: "api"})
 	require.ErrorContains(t, resources.ApplySuppliedInterfaceBindings(agent, supplied), "declares no interface-only dependency on example.dev/other@^1")
 
 	// A module loaded on its own bound nothing, so it tells an agent nothing.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -32,7 +32,7 @@ func LocalImageID(ctx context.Context, reference string) (string, error) {
 // by the caller. A caller-supplied platform list is refused. It carries the
 // image ID instead of a pin sitting in the
 // reference (see LocalImageID).
-func ImageSubjects(ctx context.Context, image PublishedImage, local bool) ([]*builderv0.ImageSubject, error) {
+func ImageSubjects(ctx context.Context, image PublishedImage, local bool) ([]*builderv1.ImageSubject, error) {
 	if !local {
 		return ExpectedFromImageReference(image)
 	}
@@ -46,7 +46,7 @@ func ImageSubjects(ctx context.Context, image PublishedImage, local bool) ([]*bu
 	if err != nil {
 		return nil, err
 	}
-	return []*builderv0.ImageSubject{{
+	return []*builderv1.ImageSubject{{
 		Reference: image.Reference,
 		Digest:    id,
 		Platform:  platform,
@@ -81,7 +81,7 @@ type ImageEvidenceDocument struct {
 // A single failed scan fails the whole call: publishing evidence for some
 // platforms while silently omitting others is the false coverage claim this
 // evidence exists to prevent.
-func CollectImageEvidence(ctx context.Context, dir string, subjects []*builderv0.ImageSubject) ([]ImageEvidenceDocument, error) {
+func CollectImageEvidence(ctx context.Context, dir string, subjects []*builderv1.ImageSubject) ([]ImageEvidenceDocument, error) {
 	if len(subjects) == 0 {
 		return nil, fmt.Errorf("no image subjects to inventory")
 	}
@@ -156,7 +156,7 @@ func evidenceFileName(reference, platform, digest string) string {
 	return name + "-" + strings.TrimPrefix(digest, "sha256:") + ".cdx.json"
 }
 
-func describeSubject(subject *builderv0.ImageSubject) string {
+func describeSubject(subject *builderv1.ImageSubject) string {
 	if platform := subject.GetPlatform(); platform != "" {
 		return subject.GetReference() + " on " + platform
 	}

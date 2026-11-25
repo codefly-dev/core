@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // The conformance kit: every token form this package mints, every way one is
@@ -366,8 +366,8 @@ func (s fixtureGrantSource) Grant(_ context.Context, id string) (*Grant, error) 
 // which is an absent ResourceIds and not a list holding an empty string: the
 // latter is an explicit id that happens to be empty, which a child narrowing
 // the wildcard would be widening instead.
-func fixtureScope(kind, action, id string) *basev0.WorkScopeV1 {
-	scope := &basev0.WorkScopeV1{ResourceKind: kind, Actions: []string{action}}
+func fixtureScope(kind, action, id string) *basev1.WorkScopeV1 {
+	scope := &basev1.WorkScopeV1{ResourceKind: kind, Actions: []string{action}}
 	if id != "" {
 		scope.ResourceIds = []string{id}
 	}
@@ -507,7 +507,7 @@ func fixtureSessionOn(ctx context.Context, authority *Authority, installation, b
 		OrganizationID:     FixtureOrganization,
 		TaskID:             FixtureTask,
 		Audience:           FixtureAudience,
-		AuthorityScopes:    []*basev0.WorkScopeV1{fixtureScope("record", "read", "")},
+		AuthorityScopes:    []*basev1.WorkScopeV1{fixtureScope("record", "read", "")},
 		InstallationID:     installation,
 		OperationBindingID: binding,
 		TTL:                time.Hour,
@@ -528,7 +528,7 @@ func fixtureDelegated(ctx context.Context, authority *Authority, parent *Verifie
 		PrincipalKind:      "agent",
 		AgentID:            FixtureAgentID,
 		DelegationID:       "delegation-conformance",
-		GrantedScopes:      []*basev0.WorkScopeV1{fixtureScope("record", "read", "record-conformance")},
+		GrantedScopes:      []*basev1.WorkScopeV1{fixtureScope("record", "read", "record-conformance")},
 		Audience:           FixtureAudience,
 		OperationBindingID: binding,
 		TTL:                time.Hour,
@@ -884,23 +884,23 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	for _, malformed := range []struct {
 		name  string
 		rule  string
-		apply func(*basev0.WorkContextV1)
+		apply func(*basev1.WorkContextV1)
 	}{
 		{
 			name:  "zero-principal-epoch",
 			rule:  "a seal carrying epoch 0, which names no epoch and would compare equal to a source holding nothing",
-			apply: func(wc *basev0.WorkContextV1) { wc.Seal.PrincipalEpoch = 0 },
+			apply: func(wc *basev1.WorkContextV1) { wc.Seal.PrincipalEpoch = 0 },
 		},
 		{
 			name:  "zero-installation-revision",
 			rule:  "a seal carrying installation revision 0",
-			apply: func(wc *basev0.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
+			apply: func(wc *basev1.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
 		},
 		{
 			name: "partial-operation-binding",
 			rule: "an operation binding naming an id with no revision and no incarnation; half a binding is not a binding",
-			apply: func(wc *basev0.WorkContextV1) {
-				wc.OperationBinding = &basev0.WorkOperationBindingV1{BindingId: FixtureBindingID}
+			apply: func(wc *basev1.WorkContextV1) {
+				wc.OperationBinding = &basev1.WorkOperationBindingV1{BindingId: FixtureBindingID}
 			},
 		},
 	} {
@@ -956,20 +956,20 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// minter wrote them, so the refusal under test is the presence rule.
 	for _, missing := range []struct {
 		name    string
-		apply   func(*basev0.WorkContextV1)
+		apply   func(*basev1.WorkContextV1)
 		message string
 		rule    string
 	}{
 		{
 			name:    "no-not-before",
-			apply:   func(wc *basev0.WorkContextV1) { wc.NotBeforeUnix = 0 },
+			apply:   func(wc *basev1.WorkContextV1) { wc.NotBeforeUnix = 0 },
 			message: "no not-before",
 			rule: "a capability stating no instant its window opens. A verifier reading it as a timestamp treats the window as " +
 				"open since the epoch AND degenerates the post-dated issued-at rule to a no-op, since every issued-at is at or after zero",
 		},
 		{
 			name:    "no-expiry",
-			apply:   func(wc *basev0.WorkContextV1) { wc.ExpiresAtUnix = 0 },
+			apply:   func(wc *basev1.WorkContextV1) { wc.ExpiresAtUnix = 0 },
 			message: "no expiry",
 			rule: "a capability stating no instant its window closes. A verifier reading it as a timestamp does refuse this token, " +
 				"but as expired in 1970, which sends an operator after a clock that is fine; the kit asks for the refusal that names the claim",
@@ -1150,7 +1150,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 
 // fixtureResign signs rewritten claims with the fixture key, so the signature
 // is genuine and the rule a fixture tests is the one that refuses it.
-func fixtureResign(wc *basev0.WorkContextV1) (string, error) {
+func fixtureResign(wc *basev1.WorkContextV1) (string, error) {
 	_, private := FixtureKeyPair()
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
 	if err != nil {
@@ -1167,7 +1167,7 @@ func fixtureResign(wc *basev0.WorkContextV1) (string, error) {
 // second implementation that compares kind, actions and ids but not the owner
 // accepts both rewrites, and these are the fixtures that say so.
 func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture, error) {
-	owned := func(id, owner string) *basev0.WorkScopeV1 {
+	owned := func(id, owner string) *basev1.WorkScopeV1 {
 		scope := fixtureScope("record", "read", id)
 		scope.ResourceOwnerId = owner
 		return scope
@@ -1179,7 +1179,7 @@ func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture,
 		OrganizationID:     FixtureOrganization,
 		TaskID:             FixtureTask,
 		Audience:           FixtureAudience,
-		AuthorityScopes:    []*basev0.WorkScopeV1{owned("", FixtureResourceOwner)},
+		AuthorityScopes:    []*basev1.WorkScopeV1{owned("", FixtureResourceOwner)},
 		InstallationID:     FixtureInstallation,
 		TTL:                time.Hour,
 	})
@@ -1195,7 +1195,7 @@ func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture,
 		PrincipalKind: "agent",
 		AgentID:       FixtureAgentID,
 		DelegationID:  "delegation-conformance-owner",
-		GrantedScopes: []*basev0.WorkScopeV1{owned("record-conformance", FixtureResourceOwner)},
+		GrantedScopes: []*basev1.WorkScopeV1{owned("record-conformance", FixtureResourceOwner)},
 		Audience:      FixtureAudience,
 		TTL:           time.Hour,
 	})
@@ -1227,7 +1227,7 @@ func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture,
 	} {
 		altered := cloneClaims(verified.Context())
 		hop := altered.ActorChain[len(altered.ActorChain)-1]
-		hop.GrantedScopes = []*basev0.WorkScopeV1{owned("record-conformance", rewrite.owner)}
+		hop.GrantedScopes = []*basev1.WorkScopeV1{owned("record-conformance", rewrite.owner)}
 		token, err := fixtureResign(altered)
 		if err != nil {
 			return nil, err
@@ -1255,7 +1255,7 @@ func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture,
 // Changing a field and re-marshalling, while keeping the old signature,
 // cannot drift that way: the claims are always valid and the signature is
 // always wrong.
-func fixtureTamper(wc *basev0.WorkContextV1, signature string) (string, error) {
+func fixtureTamper(wc *basev1.WorkContextV1, signature string) (string, error) {
 	altered := cloneClaims(wc)
 	// One sealed value, moved to another legitimate one: exactly what a
 	// tamperer would reach for, and still schema-valid.
@@ -1275,7 +1275,7 @@ func fixtureTamper(wc *basev0.WorkContextV1, signature string) (string, error) {
 // signing with a different private key would exercise signature verification
 // — which tampered-payload already covers — and would leave the unknown-key
 // path untested.
-func fixtureForeignKey(wc *basev0.WorkContextV1) (string, error) {
+func fixtureForeignKey(wc *basev1.WorkContextV1) (string, error) {
 	material := sha256.Sum256([]byte(fixtureSeed + ": a key no verifier holds"))
 	private := ed25519.NewKeyFromSeed(material[:])
 	claims := cloneClaims(wc)
@@ -1348,8 +1348,8 @@ var fixturePublicKey = [ed25519.PublicKeySize]byte{
 // cloneClaims is proto.Clone with the assertion checked, because an unchecked
 // one is an error the linter is right about even where it cannot fail: a
 // fixture that panicked here would say nothing about which fixture.
-func cloneClaims(wc *basev0.WorkContextV1) *basev0.WorkContextV1 {
-	cloned, ok := proto.Clone(wc).(*basev0.WorkContextV1)
+func cloneClaims(wc *basev1.WorkContextV1) *basev1.WorkContextV1 {
+	cloned, ok := proto.Clone(wc).(*basev1.WorkContextV1)
 	if !ok {
 		panic("work context fixtures: cloning a WorkContextV1 did not yield one")
 	}
@@ -1357,8 +1357,8 @@ func cloneClaims(wc *basev0.WorkContextV1) *basev0.WorkContextV1 {
 }
 
 // cloneSeal is cloneClaims for a seal, for the same reason.
-func cloneSeal(seal *basev0.WorkSealV1) *basev0.WorkSealV1 {
-	cloned, ok := proto.Clone(seal).(*basev0.WorkSealV1)
+func cloneSeal(seal *basev1.WorkSealV1) *basev1.WorkSealV1 {
+	cloned, ok := proto.Clone(seal).(*basev1.WorkSealV1)
 	if !ok {
 		panic("work context fixtures: cloning a WorkSealV1 did not yield one")
 	}

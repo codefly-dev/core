@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 )
 
@@ -61,13 +61,13 @@ type Scope struct {
 	Principal      string
 	Organization   string
 	ArtifactDigest string
-	Binding        *providerv0.BindingAddress
+	Binding        *providerv1.BindingAddress
 	PlanID         string
 	ActionID       string
 	RequestDigest  string
-	Purpose        providerv0.CredentialPurpose
+	Purpose        providerv1.CredentialPurpose
 	Origin         urlguard.Origin
-	Method         providerv0.HTTPMethod
+	Method         providerv1.HTTPMethod
 	Injection      Injection
 	MaxUses        uint32
 	TTL            time.Duration
@@ -89,10 +89,10 @@ func (s Scope) validate() error {
 		return fmt.Errorf("scope requires a positive TTL")
 	}
 	switch s.Purpose {
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 	default:
 		return fmt.Errorf("scope has an unknown credential purpose")
 	}
@@ -102,12 +102,12 @@ func (s Scope) validate() error {
 // Use is the exact request context presented at resolution. It must match the
 // minted scope in every dimension or resolution fails.
 type Use struct {
-	Purpose       providerv0.CredentialPurpose
-	Binding       *providerv0.BindingAddress
+	Purpose       providerv1.CredentialPurpose
+	Binding       *providerv1.BindingAddress
 	ActionID      string
 	RequestDigest string
 	Origin        urlguard.Origin
-	Method        providerv0.HTTPMethod
+	Method        providerv1.HTTPMethod
 }
 
 type entry struct {
@@ -138,7 +138,7 @@ func (v *Vault) WithClock(now func() time.Time) *Vault {
 
 // Mint stores secret under a fresh opaque handle bound to scope. The returned
 // CredentialHandle carries only the opaque id and the purpose.
-func (v *Vault) Mint(secret string, scope Scope) (*providerv0.CredentialHandle, error) {
+func (v *Vault) Mint(secret string, scope Scope) (*providerv1.CredentialHandle, error) {
 	if secret == "" {
 		return nil, fmt.Errorf("credential secret is required")
 	}
@@ -157,7 +157,7 @@ func (v *Vault) Mint(secret string, scope Scope) (*providerv0.CredentialHandle, 
 		expiresAt: v.now().Add(scope.TTL),
 		remaining: scope.MaxUses,
 	}
-	return &providerv0.CredentialHandle{Handle: id, Purpose: scope.Purpose}, nil
+	return &providerv1.CredentialHandle{Handle: id, Purpose: scope.Purpose}, nil
 }
 
 // Inject resolves the handle against the exact use, decrements its remaining
@@ -210,7 +210,7 @@ func matchScope(scope Scope, use Use) error {
 	return nil
 }
 
-func sameBinding(a, b *providerv0.BindingAddress) bool {
+func sameBinding(a, b *providerv1.BindingAddress) bool {
 	return a.GetWorkspaceId() == b.GetWorkspaceId() &&
 		a.GetEnvironmentId() == b.GetEnvironmentId() &&
 		a.GetBindingId() == b.GetBindingId()

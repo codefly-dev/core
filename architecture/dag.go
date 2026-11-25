@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	observabilityv0 "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
+	observabilityv1 "github.com/codefly-dev/core/generated/go/codefly/observability/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -315,26 +315,26 @@ func (g *DAG) Invert() *DAG {
 	return inverted
 }
 
-func ToType(t any) observabilityv0.GraphNode_Type {
+func ToType(t any) observabilityv1.GraphNode_Type {
 	// Nodes added via AddEdge without WithType carry a nil/non-string type;
 	// an unchecked t.(string) panicked the observability graph endpoint.
 	s, ok := t.(string)
 	if !ok {
-		return observabilityv0.GraphNode_Type(0)
+		return observabilityv1.GraphNode_Type(0)
 	}
-	return observabilityv0.GraphNode_Type(observabilityv0.GraphNode_Type_value[strings.ToUpper(s)])
+	return observabilityv1.GraphNode_Type(observabilityv1.GraphNode_Type_value[strings.ToUpper(s)])
 }
 
-func ToGraphResponse(g *DAG) *observabilityv0.GraphResponse {
-	resp := &observabilityv0.GraphResponse{}
+func ToGraphResponse(g *DAG) *observabilityv1.GraphResponse {
+	resp := &observabilityv1.GraphResponse{}
 	for _, node := range g.Nodes() {
-		resp.Nodes = append(resp.Nodes, &observabilityv0.GraphNode{
+		resp.Nodes = append(resp.Nodes, &observabilityv1.GraphNode{
 			Id:   node.ID,
 			Type: ToType(node.Type),
 		})
 	}
 	for _, edge := range g.Edges() {
-		resp.Edges = append(resp.Edges, &observabilityv0.GraphEdge{
+		resp.Edges = append(resp.Edges, &observabilityv1.GraphEdge{
 			From: edge.From,
 			To:   edge.To,
 		})

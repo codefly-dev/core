@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
@@ -54,8 +54,8 @@ func TestOperationFromOpenAPIMarkerReadsTheDeclaredPolicy(t *testing.T) {
 	require.Equal(t, runnable.HTTPStatusCodes, spec.Codes)
 	require.Equal(t, "documents.ingestion", spec.Audience)
 	require.Empty(t, spec.LookupMethod)
-	require.True(t, proto.Equal(&basev0.WorkScopeV1{ResourceKind: "documents", Actions: []string{"ingest", "read"}}, spec.InvokeScopes[0]))
-	require.True(t, proto.Equal(&basev0.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}}, spec.LookupScopes[0]))
+	require.True(t, proto.Equal(&basev1.WorkScopeV1{ResourceKind: "documents", Actions: []string{"ingest", "read"}}, spec.InvokeScopes[0]))
+	require.True(t, proto.Equal(&basev1.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}}, spec.LookupScopes[0]))
 }
 
 // TestOperationFromOpenAPIMarkerReadsEitherFieldSpelling is why the marker is
@@ -110,8 +110,8 @@ func TestOperationFromOpenAPIMarkerRejectsAPolicyTheRuntimeWouldRefuse(t *testin
 		edit    func(map[string]any)
 		because string
 	}{
-		{"unreadable", func(d map[string]any) { d["attempt_timeout"] = "ten seconds" }, "is not a codefly.runnable.v0.Operation"},
-		{"unknown field", func(d map[string]any) { d["attempt_timeouts"] = "10s" }, "is not a codefly.runnable.v0.Operation"},
+		{"unreadable", func(d map[string]any) { d["attempt_timeout"] = "ten seconds" }, "is not a codefly.runnable.v1.Operation"},
+		{"unknown field", func(d map[string]any) { d["attempt_timeouts"] = "10s" }, "is not a codefly.runnable.v1.Operation"},
 		{"short attempt", func(d map[string]any) { d["attempt_timeout"] = "0.5s" }, "attempt_timeout"},
 		{"long attempt", func(d map[string]any) { d["attempt_timeout"] = "601s"; d["total_timeout"] = "601s" }, "attempt_timeout"},
 		{"total below one attempt", func(d map[string]any) { d["total_timeout"] = "5s" }, "total_timeout"},

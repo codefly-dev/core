@@ -23,7 +23,7 @@ import (
 	tstypescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	"github.com/codefly-dev/core/code"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 type sourceImportLanguage struct {
@@ -88,12 +88,12 @@ func extensionSet(values ...string) map[string]struct{} {
 // fails the inspection instead of silently certifying incomplete source
 // evidence as authoritative. The Go inventory is stdlib-based and lives in
 // core/code; this analyzer covers the tree-sitter languages.
-func (a *Analyzer) SourceImports(ctx context.Context, vfs code.VFS, root, language string) ([]*codev0.SourceFileInfo, error) {
+func (a *Analyzer) SourceImports(ctx context.Context, vfs code.VFS, root, language string) ([]*codev1.SourceFileInfo, error) {
 	definition, ok := sourceImportLanguages[language]
 	if !ok {
 		return nil, fmt.Errorf("source import inspection is unsupported for language %q", language)
 	}
-	result := make([]*codev0.SourceFileInfo, 0)
+	result := make([]*codev1.SourceFileInfo, 0)
 	err := vfs.WalkDir(root, func(filename string, entry osfs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -138,7 +138,7 @@ func (a *Analyzer) SourceImports(ctx context.Context, vfs code.VFS, root, langua
 		}
 		imports := code.CanonicalImports(definition.extract(rootNode, body))
 		tree.Close()
-		result = append(result, &codev0.SourceFileInfo{Path: relative, Imports: imports})
+		result = append(result, &codev1.SourceFileInfo{Path: relative, Imports: imports})
 		return nil
 	})
 	if err != nil {

@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // ValidateRuntimeLoadResponse converts the runtime wire status into the Go
 // error contract expected by callers that invoke plugin implementations
 // directly (not through the host-side service wrapper).
-func ValidateRuntimeLoadResponse(resp *runtimev0.LoadResponse) error {
-	if resp != nil && resp.GetStatus().GetState() == runtimev0.LoadStatus_READY {
+func ValidateRuntimeLoadResponse(resp *runtimev1.LoadResponse) error {
+	if resp != nil && resp.GetStatus().GetState() == runtimev1.LoadStatus_READY {
 		return nil
 	}
 	return runtimeResponseError("load", runtimeLoadMessage(resp))
@@ -20,8 +20,8 @@ func ValidateRuntimeLoadResponse(resp *runtimev0.LoadResponse) error {
 // ValidateRuntimeInitResponse converts an init ERROR/empty response into an
 // ordinary error. A nil gRPC transport error does not imply operation success;
 // runtime plugins report domain failures in the structured status.
-func ValidateRuntimeInitResponse(resp *runtimev0.InitResponse) error {
-	if resp != nil && resp.GetStatus().GetState() == runtimev0.InitStatus_READY {
+func ValidateRuntimeInitResponse(resp *runtimev1.InitResponse) error {
+	if resp != nil && resp.GetStatus().GetState() == runtimev1.InitStatus_READY {
 		return nil
 	}
 	return runtimeResponseError("init", runtimeInitMessage(resp))
@@ -29,8 +29,8 @@ func ValidateRuntimeInitResponse(resp *runtimev0.InitResponse) error {
 
 // ValidateRuntimeStartResponse converts the structured start status into an
 // ordinary error for direct callers and tests.
-func ValidateRuntimeStartResponse(resp *runtimev0.StartResponse) error {
-	if resp != nil && resp.GetStatus().GetState() == runtimev0.StartStatus_STARTED {
+func ValidateRuntimeStartResponse(resp *runtimev1.StartResponse) error {
+	if resp != nil && resp.GetStatus().GetState() == runtimev1.StartStatus_STARTED {
 		return nil
 	}
 	return runtimeResponseError("start", runtimeStartMessage(resp))
@@ -38,8 +38,8 @@ func ValidateRuntimeStartResponse(resp *runtimev0.StartResponse) error {
 
 // ValidateRuntimeDestroyResponse ensures cleanup failures encoded in the wire
 // status are not silently ignored by direct callers.
-func ValidateRuntimeDestroyResponse(resp *runtimev0.DestroyResponse) error {
-	if resp != nil && resp.GetStatus().GetState() == runtimev0.DestroyStatus_SUCCESS {
+func ValidateRuntimeDestroyResponse(resp *runtimev1.DestroyResponse) error {
+	if resp != nil && resp.GetStatus().GetState() == runtimev1.DestroyStatus_SUCCESS {
 		return nil
 	}
 	message := "plugin returned a nil response"
@@ -55,7 +55,7 @@ func ValidateRuntimeDestroyResponse(resp *runtimev0.DestroyResponse) error {
 // start of such an agent reports zero, and comparing zero across restarts
 // proves nothing. Callers that use generations to invalidate a stale ready
 // verdict must treat a false second return as "assume it changed".
-func StartGeneration(status *runtimev0.StartStatus) (uint64, bool) {
+func StartGeneration(status *runtimev1.StartStatus) (uint64, bool) {
 	generation := status.GetGeneration()
 	return generation, generation > 0
 }
@@ -66,7 +66,7 @@ func StartGeneration(status *runtimev0.StartStatus) (uint64, bool) {
 // program, which names nothing either. A consumer that pins the build a
 // process runs MUST refuse there, naming the agent: an unreported artifact is
 // never a path to derive from the agent's on-disk layout.
-func StartedArtifact(status *runtimev0.StartStatus) (*runtimev0.StartedArtifact, bool) {
+func StartedArtifact(status *runtimev1.StartStatus) (*runtimev1.StartedArtifact, bool) {
 	artifact := status.GetStartedArtifact()
 	if artifact.GetExecutable() == "" {
 		return nil, false
@@ -82,21 +82,21 @@ func runtimeResponseError(operation, message string) error {
 	return fmt.Errorf("runtime %s failed: %s", operation, message)
 }
 
-func runtimeLoadMessage(resp *runtimev0.LoadResponse) string {
+func runtimeLoadMessage(resp *runtimev1.LoadResponse) string {
 	if resp == nil {
 		return "plugin returned a nil response"
 	}
 	return resp.GetStatus().GetMessage()
 }
 
-func runtimeInitMessage(resp *runtimev0.InitResponse) string {
+func runtimeInitMessage(resp *runtimev1.InitResponse) string {
 	if resp == nil {
 		return "plugin returned a nil response"
 	}
 	return resp.GetStatus().GetMessage()
 }
 
-func runtimeStartMessage(resp *runtimev0.StartResponse) string {
+func runtimeStartMessage(resp *runtimev1.StartResponse) string {
 	if resp == nil {
 		return "plugin returned a nil response"
 	}

@@ -18,10 +18,10 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
@@ -39,7 +39,7 @@ type Env struct {
 type envRunningService struct {
 	name    string
 	conn    *manager.AgentConn
-	runtime runtimev0.RuntimeClient
+	runtime runtimev1.RuntimeClient
 }
 
 // New creates a new environment.
@@ -150,7 +150,7 @@ func (e *Env) Stop(ctx context.Context) error {
 func (e *Env) stopLocked(ctx context.Context) {
 	for _, rs := range e.running {
 		if rs.runtime != nil {
-			_, _ = rs.runtime.Destroy(ctx, &runtimev0.DestroyRequest{})
+			_, _ = rs.runtime.Destroy(ctx, &runtimev1.DestroyRequest{})
 		}
 		if rs.conn != nil {
 			rs.conn.Close()
@@ -186,7 +186,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 	}
 
 	grpcConn := agentConn.GRPCConn()
-	info, err := agentv0.NewAgentClient(grpcConn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	info, err := agentv1.NewAgentClient(grpcConn).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 	if err != nil {
 		agentConn.Close()
 		return fmt.Errorf("inspect agent %s: %w", agentName, err)
@@ -195,14 +195,14 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		agentConn.Close()
 		return fmt.Errorf("admit agent %s: %w", agentName, err)
 	}
-	for _, required := range []agentv0.Capability_Type{agentv0.Capability_BUILDER, agentv0.Capability_RUNTIME} {
-		if !slices.ContainsFunc(info.Capabilities, func(capability *agentv0.Capability) bool { return capability.GetType() == required }) {
+	for _, required := range []agentv1.Capability_Type{agentv1.Capability_BUILDER, agentv1.Capability_RUNTIME} {
+		if !slices.ContainsFunc(info.Capabilities, func(capability *agentv1.Capability) bool { return capability.GetType() == required }) {
 			agentConn.Close()
 			return fmt.Errorf("agent %s is missing capability %s", agentName, required)
 		}
 	}
-	builder := builderv0.NewBuilderClient(grpcConn)
-	runtime := runtimev0.NewRuntimeClient(grpcConn)
+	builder := builderv1.NewBuilderClient(grpcConn)
+	runtime := runtimev1.NewRuntimeClient(grpcConn)
 
 	workspace := &resources.Workspace{Name: "sdk"}
 	serviceName := fmt.Sprintf("%s-%d", agentName, time.Now().UnixMilli())
@@ -213,7 +213,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 	}
 	service.WithModule("mod")
 
-	identity := &basev0.ServiceIdentity{
+	identity := &basev1.ServiceIdentity{
 		Name:                serviceName,
 		Module:              "mod",
 		Workspace:           workspace.Name,
@@ -221,21 +221,21 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		RelativeToWorkspace: fmt.Sprintf("mod/%s", serviceName),
 	}
 
-	if _, err := builder.Load(ctx, &builderv0.LoadRequest{
+	if _, err := builder.Load(ctx, &builderv1.LoadRequest{
 		DisableCatch: true,
 		Identity:     identity,
-		CreationMode: &builderv0.CreationMode{Communicate: false},
+		CreationMode: &builderv1.CreationMode{Communicate: false},
 	}); err != nil {
 		agentConn.Close()
 		return fmt.Errorf("builder.Load: %w", err)
 	}
-	if _, err := builder.Create(ctx, &builderv0.CreateRequest{}); err != nil {
+	if _, err := builder.Create(ctx, &builderv1.CreateRequest{}); err != nil {
 		agentConn.Close()
 		return fmt.Errorf("builder.Create: %w", err)
 	}
 
 	env := resources.LocalEnvironment()
-	loadResp, err := runtime.Load(ctx, &runtimev0.LoadRequest{
+	loadResp, err := runtime.Load(ctx, &runtimev1.LoadRequest{
 		Identity:     identity,
 		Environment:  shared.Must(env.Proto()),
 		DisableCatch: true,
@@ -266,7 +266,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		return fmt.Errorf("network mappings: %w", err)
 	}
 
-	initResp, err := runtime.Init(ctx, &runtimev0.InitRequest{
+	initResp, err := runtime.Init(ctx, &runtimev1.InitRequest{
 		RuntimeContext:          resources.NewRuntimeContextFree(),
 		ProposedNetworkMappings: networkMappings,
 	})
@@ -275,7 +275,7 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		return fmt.Errorf("runtime.Init: %w", err)
 	}
 
-	if _, err := runtime.Start(ctx, &runtimev0.StartRequest{}); err != nil {
+	if _, err := runtime.Start(ctx, &runtimev1.StartRequest{}); err != nil {
 		agentConn.Close()
 		return fmt.Errorf("runtime.Start: %w", err)
 	}

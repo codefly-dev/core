@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,9 +59,9 @@ func TestRecipeBuildPlatformsCoversDeploymentArch(t *testing.T) {
 }
 
 func TestBuildPlanRequested(t *testing.T) {
-	require.False(t, BuildPlanRequested(&builderv0.BuildRequest{}))
-	require.False(t, BuildPlanRequested(&builderv0.BuildRequest{OutputDirectory: ""}))
-	require.True(t, BuildPlanRequested(&builderv0.BuildRequest{OutputDirectory: "/abs/out"}))
+	require.False(t, BuildPlanRequested(&builderv1.BuildRequest{}))
+	require.False(t, BuildPlanRequested(&builderv1.BuildRequest{OutputDirectory: ""}))
+	require.True(t, BuildPlanRequested(&builderv1.BuildRequest{OutputDirectory: "/abs/out"}))
 }
 
 // The shared wrapper path is what makes the recipe emission language-agnostic: any
@@ -73,9 +73,9 @@ func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
 	wrapper := &BuilderWrapper{Base: base}
 	base.Builder = wrapper // WithBuildPlan records onto s.Builder, as production wires it.
 
-	resp, err := wrapper.SingleImageBuildResponse(&builderv0.BuildRequest{OutputDirectory: dir}, "repo/app:v1", emitted)
+	resp, err := wrapper.SingleImageBuildResponse(&builderv1.BuildRequest{OutputDirectory: dir}, "repo/app:v1", emitted)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, resp.GetState().GetState())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, resp.GetState().GetState())
 
 	plan := resp.GetResult().GetDockerBuildPlan()
 	require.NotNil(t, plan)
@@ -89,11 +89,11 @@ func TestSingleImageBuildResponseLeavesCacheExecutionWithCaller(t *testing.T) {
 	base := &Base{loaded: true}
 	wrapper := &BuilderWrapper{Base: base}
 	base.Builder = wrapper
-	req := &builderv0.BuildRequest{OutputDirectory: dir}
+	req := &builderv1.BuildRequest{OutputDirectory: dir}
 	cold, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1", emitted)
 	require.NoError(t, err)
-	cache := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app", Imports: []string{"ghcr.io/org/cache"}}
-	req.BuildContext = &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: cache}}}
+	cache := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app", Imports: []string{"ghcr.io/org/cache"}}
+	req.BuildContext = &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{Cache: cache}}}
 	warm, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1", emitted)
 	require.NoError(t, err)
 	require.Empty(t, warm.CacheContractVersion)

@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
 )
@@ -71,7 +71,7 @@ func New(version string) *Server {
 // DescribeTool injects the only pre-authorization process failure in the
 // fixture. The host has selected a summary but has not yet approved a
 // descriptor or minted authority when this process exits.
-func (s *Server) DescribeTool(ctx context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+func (s *Server) DescribeTool(ctx context.Context, req *toolboxv1.DescribeToolRequest) (*toolboxv1.DescribeToolResponse, error) {
 	if s.fault == FaultBeforeAuthorization && req.GetName() == CrashTool {
 		s.crash()
 	}
@@ -108,7 +108,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"read-only", "conformance", "structured"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Schema-invalid arguments are rejected before dispatch.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Read the default fixture identity.",
 				Arguments:       respond.MustStruct(map[string]any{}),
 				ExpectedOutcome: "A structured codefly.toolbox.conformance/v1 identity document.",
@@ -123,12 +123,12 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:               []string{"read-only", "conformance", "error"},
 			Idempotency:        "idempotent",
 			ErrorModes:         "Always returns `fixture: deterministic error v1` in-band.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Exercise deterministic tool failure.",
 				Arguments:       respond.MustStruct(map[string]any{}),
 				ExpectedOutcome: DeterministicError,
 			}},
-			Handler: func(context.Context, *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+			Handler: func(context.Context, *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 				return respond.Error(DeterministicError)
 			},
 		},
@@ -142,7 +142,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"destructive", "conformance", "effect"},
 			Idempotency: "side_effecting",
 			ErrorModes:  "Policy denial must prevent dispatch; successful dispatch increments exactly once.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Increment the fixture effect counter once.",
 				Arguments:       respond.MustStruct(map[string]any{}),
 				ExpectedOutcome: "{ count: 1 } for a fresh fixture process.",
@@ -157,7 +157,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:               []string{"read-only", "conformance", "effect"},
 			Idempotency:        "idempotent",
 			ErrorModes:         "No tool-level failure modes.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Read the current count.",
 				Arguments:       respond.MustStruct(map[string]any{}),
 				ExpectedOutcome: "{ count: 0 } before any authorized effect.",
@@ -179,7 +179,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"read-only", "conformance", "timing"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns a cancellation error when the request context ends before the timer.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Wait for ten milliseconds.",
 				Arguments:       respond.MustStruct(map[string]any{"duration_ms": 10}),
 				ExpectedOutcome: "{ waited_ms: 10 } unless canceled.",
@@ -195,7 +195,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:               []string{"destructive", "conformance", "crash"},
 			Idempotency:        "side_effecting",
 			ErrorModes:         "The process exits without a tool response; the host observes transport unavailability.",
-			Examples: []*toolboxv0.ToolExample{{
+			Examples: []*toolboxv1.ToolExample{{
 				Description:     "Crash the disposable fixture process.",
 				Arguments:       respond.MustStruct(map[string]any{}),
 				ExpectedOutcome: "The RPC loses its transport and the process exits with code 86.",
@@ -205,12 +205,12 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 	}
 }
 
-func (s *Server) describeIdentity(_ context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) describeIdentity(_ context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	subject := "codefly"
 	if value, ok := respond.Args(req)["subject"].(string); ok && value != "" {
 		subject = value
 	}
-	identity, _ := s.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	identity, _ := s.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	return respond.Struct(map[string]any{
 		"contract": ContractVersion,
 		"fixture": map[string]any{
@@ -224,15 +224,15 @@ func (s *Server) describeIdentity(_ context.Context, req *toolboxv0.CallToolRequ
 	})
 }
 
-func (s *Server) incrementEffect(context.Context, *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) incrementEffect(context.Context, *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	return respond.Struct(map[string]any{"count": s.effectCount.Add(1)})
 }
 
-func (s *Server) readEffectCount(context.Context, *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) readEffectCount(context.Context, *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	return respond.Struct(map[string]any{"count": s.effectCount.Load()})
 }
 
-func (s *Server) wait(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) wait(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	if s.fault == FaultWaitForCancellation {
 		fmt.Fprintln(os.Stderr, WaitReceivedMarker)
 		<-ctx.Done()
@@ -250,7 +250,7 @@ func (s *Server) wait(ctx context.Context, req *toolboxv0.CallToolRequest) *tool
 	}
 }
 
-func (s *Server) crashProcess(context.Context, *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) crashProcess(context.Context, *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	switch s.fault {
 	case FaultDuringExecution:
 		time.Sleep(20 * time.Millisecond)

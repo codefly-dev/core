@@ -7,9 +7,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -22,12 +22,12 @@ func TestBuilderLoadServiceHandlesCreationMode(t *testing.T) {
 		"templates/factory/GETTING_STARTED.md.tmpl": {Data: []byte("# {{ .Service.Name.Title }}\n")},
 	}
 
-	response, err := base.Builder.LoadService(ctx, &builderv0.LoadRequest{
+	response, err := base.Builder.LoadService(ctx, &builderv1.LoadRequest{
 		Identity:     identity,
-		CreationMode: &builderv0.CreationMode{},
+		CreationMode: &builderv1.CreationMode{},
 	}, BuilderLoad{Settings: &struct{}{}, FactoryTemplates: factory})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.LoadStatus_READY, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.LoadStatus_READY, response.GetState().GetState(), response.GetState().GetMessage())
 	require.Equal(t, "# ExampleService\n", response.GetGettingStarted())
 }
 
@@ -35,30 +35,30 @@ func TestBuilderInitRejectsAmbiguousSameAPIDependency(t *testing.T) {
 	ctx := context.Background()
 	identity := saveLoadTestService(t, ctx)
 	base := NewServiceBase(ctx, &resources.Agent{Kind: resources.ServiceAgent, Name: "test", Version: "0.0.1"})
-	response, err := base.Builder.LoadService(ctx, &builderv0.LoadRequest{Identity: identity}, BuilderLoad{Settings: &struct{}{}})
+	response, err := base.Builder.LoadService(ctx, &builderv1.LoadRequest{Identity: identity}, BuilderLoad{Settings: &struct{}{}})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.LoadStatus_READY, response.GetState().GetState())
+	require.Equal(t, builderv1.LoadStatus_READY, response.GetState().GetState())
 
 	base.Service.ServiceDependencies = []*resources.ServiceDependency{{Module: "saas", Name: "accounts"}}
-	base.DependencyEndpoints = []*basev0.Endpoint{
+	base.DependencyEndpoints = []*basev1.Endpoint{
 		{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc"},
 		{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc"},
 	}
 	initResponse, err := base.Builder.InitResponse()
 	require.NoError(t, err)
-	require.Equal(t, builderv0.InitStatus_ERROR, initResponse.GetState().GetState())
+	require.Equal(t, builderv1.InitStatus_ERROR, initResponse.GetState().GetState())
 	require.Contains(t, initResponse.GetState().GetMessage(), "declare endpoint names")
 
 	base.Service.ServiceDependencies[0].Endpoints = []*resources.EndpointReference{{Name: "usage"}}
 	base.DependencyEndpoints = base.DependencyEndpoints[1:]
 	initResponse, err = base.Builder.InitResponse()
 	require.NoError(t, err)
-	require.Equal(t, builderv0.InitStatus_SUCCESS, initResponse.GetState().GetState())
+	require.Equal(t, builderv1.InitStatus_SUCCESS, initResponse.GetState().GetState())
 
 	base.DependencyEndpoints = nil
 	initResponse, err = base.Builder.InitResponse()
 	require.NoError(t, err)
-	require.Equal(t, builderv0.InitStatus_SUCCESS, initResponse.GetState().GetState())
+	require.Equal(t, builderv1.InitStatus_SUCCESS, initResponse.GetState().GetState())
 }
 
 func TestRuntimeLoadServiceLoadsEnvironmentAndEndpoints(t *testing.T) {
@@ -67,19 +67,19 @@ func TestRuntimeLoadServiceLoadsEnvironmentAndEndpoints(t *testing.T) {
 	base := NewServiceBase(ctx, &resources.Agent{Kind: resources.ServiceAgent, Name: "test", Version: "0.0.1"})
 	resolved := false
 
-	response, err := base.Runtime.LoadService(ctx, &runtimev0.LoadRequest{
+	response, err := base.Runtime.LoadService(ctx, &runtimev1.LoadRequest{
 		Identity:    identity,
-		Environment: &basev0.Environment{Name: "test"},
+		Environment: &basev1.Environment{Name: "test"},
 	}, RuntimeLoad{
 		Settings: &struct{}{},
-		ResolveEndpoints: func(_ context.Context, endpoints []*basev0.Endpoint) error {
+		ResolveEndpoints: func(_ context.Context, endpoints []*basev1.Endpoint) error {
 			resolved = true
 			require.Empty(t, endpoints)
 			return nil
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, runtimev0.LoadStatus_READY, response.GetStatus().GetState())
+	require.Equal(t, runtimev1.LoadStatus_READY, response.GetStatus().GetState())
 	require.True(t, resolved)
 	require.Equal(t, "test", base.Environment.GetName())
 }
@@ -89,13 +89,13 @@ func TestRuntimeLoadServiceHonorsDisableCatch(t *testing.T) {
 	identity := saveLoadTestService(t, ctx)
 	base := NewServiceBase(ctx, &resources.Agent{Kind: resources.ServiceAgent, Name: "test", Version: "0.0.1"})
 
-	response, err := base.Runtime.LoadService(ctx, &runtimev0.LoadRequest{
+	response, err := base.Runtime.LoadService(ctx, &runtimev1.LoadRequest{
 		Identity:     identity,
-		Environment:  &basev0.Environment{Name: "test"},
+		Environment:  &basev1.Environment{Name: "test"},
 		DisableCatch: true,
 	}, RuntimeLoad{Settings: &struct{}{}})
 	require.NoError(t, err)
-	require.Equal(t, runtimev0.LoadStatus_READY, response.GetStatus().GetState())
+	require.Equal(t, runtimev1.LoadStatus_READY, response.GetStatus().GetState())
 
 	sentinel := errors.New("sentinel panic")
 	var recovered any
@@ -109,13 +109,13 @@ func TestRuntimeLoadServiceHonorsDisableCatch(t *testing.T) {
 	require.ErrorIs(t, recoveredErr, sentinel)
 }
 
-func saveLoadTestService(t *testing.T, ctx context.Context) *basev0.ServiceIdentity {
+func saveLoadTestService(t *testing.T, ctx context.Context) *basev1.ServiceIdentity {
 	t.Helper()
 	workspace := t.TempDir()
 	relative := filepath.Join("module", "example-service")
 	service := &resources.Service{Name: "example-service", Version: "1.2.3"}
 	require.NoError(t, service.SaveAtDir(ctx, filepath.Join(workspace, relative)))
-	return &basev0.ServiceIdentity{
+	return &basev1.ServiceIdentity{
 		Workspace:           "workspace",
 		Module:              "module",
 		Name:                "example-service",

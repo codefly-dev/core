@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/solution/manifest"
 	"github.com/stretchr/testify/require"
 )
@@ -209,20 +209,20 @@ func TestAdmitInformationBindsCapabilitiesToPackagedManifest(t *testing.T) {
 	digest, err := packaged.Digest()
 	require.NoError(t, err)
 
-	info := func(d string, caps *solutionv0.SolutionCapabilities) *solutionv0.GetSolutionInformationResponse {
-		return &solutionv0.GetSolutionInformationResponse{
-			Artifact:     &solutionv0.SolutionArtifact{ManifestDigest: d},
+	info := func(d string, caps *solutionv1.SolutionCapabilities) *solutionv1.GetSolutionInformationResponse {
+		return &solutionv1.GetSolutionInformationResponse{
+			Artifact:     &solutionv1.SolutionArtifact{ManifestDigest: d},
 			Capabilities: caps,
 		}
 	}
-	allCaps := &solutionv0.SolutionCapabilities{
+	allCaps := &solutionv1.SolutionCapabilities{
 		SupportsCreate: true, SupportsUpdate: true, SupportsPackage: true, SupportsRender: true,
 	}
 
 	require.NoError(t, packaged.AdmitInformation(info(digest, allCaps)))
 
 	// A runtime may implement a strict subset of the declared operations.
-	require.NoError(t, packaged.AdmitInformation(info(digest, &solutionv0.SolutionCapabilities{SupportsCreate: true})))
+	require.NoError(t, packaged.AdmitInformation(info(digest, &solutionv1.SolutionCapabilities{SupportsCreate: true})))
 	// Advertising nothing is a valid subset.
 	require.NoError(t, packaged.AdmitInformation(info(digest, nil)))
 

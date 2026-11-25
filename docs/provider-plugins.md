@@ -1188,7 +1188,7 @@ Until a production sink exists:
 Add:
 
 ```text
-codefly/services/provider/v0/provider.proto
+codefly/services/provider/v1/provider.proto
 ```
 
 The provider service is a typed leaf capability, like Toolbox, rather than an
@@ -2779,9 +2779,9 @@ does not remove the Codefly provider binding and projection contract.
 
 Codefly sources reviewed:
 
-- `core/proto/codefly/base/v0/agent.proto`
-- `core/proto/codefly/base/v0/configuration.proto`
-- `core/proto/codefly/base/v0/failure.proto`
+- `core/proto/codefly/base/v1/agent.proto`
+- `core/proto/codefly/base/v1/configuration.proto`
+- `core/proto/codefly/base/v1/failure.proto`
 - `core/resources/agent.go`
 - `core/resources/environment.go`
 - `core/resources/toolbox.go`

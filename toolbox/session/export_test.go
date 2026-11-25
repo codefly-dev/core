@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"google.golang.org/grpc"
 )
 
@@ -21,11 +21,11 @@ func (s *ToolboxSession) AfterDispatch(gate func()) {
 }
 
 type dispatchGate struct {
-	toolboxv0.ToolboxClient
+	toolboxv1.ToolboxClient
 	gate func()
 }
 
-func (d *dispatchGate) CallTool(ctx context.Context, request *toolboxv0.CallToolRequest, opts ...grpc.CallOption) (*toolboxv0.CallToolResponse, error) {
+func (d *dispatchGate) CallTool(ctx context.Context, request *toolboxv1.CallToolRequest, opts ...grpc.CallOption) (*toolboxv1.CallToolResponse, error) {
 	response, err := d.ToolboxClient.CallTool(ctx, request, opts...)
 	d.gate()
 	return response, err

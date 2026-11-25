@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // A ConfigurationValueTemplate lets a producer hand out a secret it never has to
@@ -43,7 +43,7 @@ type ConfigurationValueLookup func(configuration, key string) (string, bool)
 // case insensitive, with "-" and "_" equivalent. A value that carries a
 // template of its own is not a primitive and so does not resolve — a template
 // assembles primitives, never another assembly.
-func ProducerConfigurationValueLookup(conf *basev0.Configuration) ConfigurationValueLookup {
+func ProducerConfigurationValueLookup(conf *basev1.Configuration) ConfigurationValueLookup {
 	return func(configuration, key string) (string, bool) {
 		for _, info := range conf.GetInfos() {
 			if !Match(info.GetName(), configuration) {
@@ -67,7 +67,7 @@ func ProducerConfigurationValueLookup(conf *basev0.Configuration) ConfigurationV
 // renderer can deliver: at least one segment, every segment either a literal or
 // a complete reference, and every reference stating an escape this package
 // knows.
-func ValidateConfigurationValueTemplate(template *basev0.ConfigurationValueTemplate) error {
+func ValidateConfigurationValueTemplate(template *basev1.ConfigurationValueTemplate) error {
 	if template == nil {
 		return fmt.Errorf("configuration value template is nil")
 	}
@@ -76,7 +76,7 @@ func ValidateConfigurationValueTemplate(template *basev0.ConfigurationValueTempl
 	}
 	for index, segment := range template.GetSegments() {
 		switch content := segment.GetContent().(type) {
-		case *basev0.ConfigurationValueTemplateSegment_Literal:
+		case *basev1.ConfigurationValueTemplateSegment_Literal:
 			// A literal is copied verbatim and needs nothing of it. It may carry
 			// a target engine's delimiters: escaping them is the renderer's job,
 			// where the engine is known, and the CLI's ExternalSecrets renderer
@@ -84,7 +84,7 @@ func ValidateConfigurationValueTemplate(template *basev0.ConfigurationValueTempl
 			// constant. Refusing it here rejected an input this package's own
 			// evaluator concatenates correctly and that renderer reproduces byte
 			// for byte.
-		case *basev0.ConfigurationValueTemplateSegment_Reference:
+		case *basev1.ConfigurationValueTemplateSegment_Reference:
 			reference := content.Reference
 			if reference == nil {
 				return fmt.Errorf("configuration value template segment %d references no configuration key", index)
@@ -125,12 +125,12 @@ func validateConfigurationValueReferenceName(field, name string) error {
 // inserted verbatim into a URL moves the host the assembled value points at,
 // and parsers disagree about which "@" delimits the userinfo — so a forgotten
 // field must fail, not encode.
-func validateConfigurationValueEscape(escape basev0.ConfigurationValueEscape) error {
-	if escape == basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED {
+func validateConfigurationValueEscape(escape basev1.ConfigurationValueEscape) error {
+	if escape == basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED {
 		return fmt.Errorf("reference states no escape; state %s for verbatim insertion",
-			basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE)
+			basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE)
 	}
-	if _, known := basev0.ConfigurationValueEscape_name[int32(escape)]; !known {
+	if _, known := basev1.ConfigurationValueEscape_name[int32(escape)]; !known {
 		return fmt.Errorf("reference has unknown escape %d", escape)
 	}
 	return nil
@@ -139,7 +139,7 @@ func validateConfigurationValueEscape(escape basev0.ConfigurationValueEscape) er
 // ValidateTemplatedConfigurationValue reports whether a value carrying a
 // template is well formed: a template belongs only on a secret value that
 // carries no value of its own, since a value and its assembly could disagree.
-func ValidateTemplatedConfigurationValue(value *basev0.ConfigurationValue) error {
+func ValidateTemplatedConfigurationValue(value *basev1.ConfigurationValue) error {
 	if err := ValidateModuleArtifactValue(value); err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func ValidateTemplatedConfigurationValue(value *basev0.ConfigurationValue) error
 // empty, or itself an assembly — is an error, never an empty string: a
 // connection string with an empty password still parses, and fails only when it
 // is dialed.
-func EvaluateConfigurationValueTemplate(template *basev0.ConfigurationValueTemplate, lookup ConfigurationValueLookup) (string, error) {
+func EvaluateConfigurationValueTemplate(template *basev1.ConfigurationValueTemplate, lookup ConfigurationValueLookup) (string, error) {
 	if err := ValidateConfigurationValueTemplate(template); err != nil {
 		return "", err
 	}
@@ -206,11 +206,11 @@ func EvaluateConfigurationValueTemplate(template *basev0.ConfigurationValueTempl
 // url.QueryEscape with "+" (its encoding of a space) written as "%20" — so no
 // hand-rolled table can drift from the statement a renderer reproduces with the
 // standard urlquery function and a replace.
-func EscapeConfigurationValue(escape basev0.ConfigurationValueEscape, value string) (string, error) {
+func EscapeConfigurationValue(escape basev1.ConfigurationValueEscape, value string) (string, error) {
 	switch escape {
-	case basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE:
+	case basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE:
 		return value, nil
-	case basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO:
+	case basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO:
 		return strings.ReplaceAll(url.QueryEscape(value), "+", "%20"), nil
 	default:
 		return "", validateConfigurationValueEscape(escape)
@@ -223,7 +223,7 @@ func EscapeConfigurationValue(escape basev0.ConfigurationValueEscape, value stri
 // the value a service will actually see goes through this — reading .Value
 // directly yields the empty string a templated value literally holds, which is a
 // credential that is silently absent rather than a failure anyone notices.
-func ConfigurationValueAsString(conf *basev0.Configuration, value *basev0.ConfigurationValue) (string, error) {
+func ConfigurationValueAsString(conf *basev1.Configuration, value *basev1.ConfigurationValue) (string, error) {
 	if err := ValidateTemplatedConfigurationValue(value); err != nil {
 		return "", err
 	}
@@ -240,7 +240,7 @@ func ConfigurationValueAsString(conf *basev0.Configuration, value *basev0.Config
 // orders a consumer after the producers its configuration names would then not
 // order it at all, starting the service before the address in its connection
 // string exists.
-func ConfigurationValueEndpointReferences(value *basev0.ConfigurationValue) []string {
+func ConfigurationValueEndpointReferences(value *basev1.ConfigurationValue) []string {
 	references := EndpointReferences(value.GetValue())
 	for _, segment := range value.GetTemplate().GetSegments() {
 		references = append(references, EndpointReferences(segment.GetLiteral())...)
@@ -253,14 +253,14 @@ func ConfigurationValueEndpointReferences(value *basev0.ConfigurationValue) []st
 // any well-formed reference. The reference grammar cannot see such a marker, so
 // a plan-time check asks this separately: the render refuses the value, and a
 // plan that reported nothing until then would have let the fault through.
-func ConfigurationValueHasMalformedEndpointMarker(value *basev0.ConfigurationValue) bool {
+func ConfigurationValueHasMalformedEndpointMarker(value *basev1.ConfigurationValue) bool {
 	return ConfigurationValueMalformedEndpointMarkerPart(value) != ""
 }
 
 // ConfigurationValueMalformedEndpointMarkerPart says which part of the value
 // carries a malformed marker — "the value" or "template literal N" — or "" when
 // none does. It locates the marker without carrying any of the value.
-func ConfigurationValueMalformedEndpointMarkerPart(value *basev0.ConfigurationValue) string {
+func ConfigurationValueMalformedEndpointMarkerPart(value *basev1.ConfigurationValue) string {
 	if malformedEndpointMarker(value.GetValue()) {
 		return "the value"
 	}

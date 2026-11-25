@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/conformance"
 )
 
@@ -37,13 +37,13 @@ func projectedJSON(t *testing.T, message proto.Message) any {
 func TestFixtureProtocolProjectionGolden(t *testing.T) {
 	ctx := context.Background()
 	server := conformance.New(conformance.FixtureVersion)
-	identity, err := server.Identity(ctx, &toolboxv0.IdentityRequest{})
+	identity, err := server.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
-	summaries, err := server.ListToolSummaries(ctx, &toolboxv0.ListToolSummariesRequest{})
+	summaries, err := server.ListToolSummaries(ctx, &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
-	description, err := server.DescribeTool(ctx, &toolboxv0.DescribeToolRequest{Name: conformance.IdentityTool})
+	description, err := server.DescribeTool(ctx, &toolboxv1.DescribeToolRequest{Name: conformance.IdentityTool})
 	require.NoError(t, err)
-	legacy, err := server.ListTools(ctx, &toolboxv0.ListToolsRequest{})
+	legacy, err := server.ListTools(ctx, &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(summaries.Tools))

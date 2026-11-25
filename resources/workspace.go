@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 
 	"github.com/codefly-dev/core/templates"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -109,8 +109,8 @@ func (workspace Workspace) MarshalYAML() (any, error) {
 	return resource(workspace), nil
 }
 
-func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) {
-	proto := &basev0.Workspace{
+func (workspace *Workspace) Proto(_ context.Context) (*basev1.Workspace, error) {
+	proto := &basev1.Workspace{
 		Name:        workspace.Name,
 		Description: workspace.Description,
 		Layout:      workspace.Layout,
@@ -163,7 +163,7 @@ func NewWorkspace(ctx context.Context, name string, layout string) (*Workspace, 
 }
 
 // CreateWorkspace creates a new Workspace
-func CreateWorkspace(ctx context.Context, action *actionsv0.NewWorkspace) (createdWorkspace *Workspace, result error) {
+func CreateWorkspace(ctx context.Context, action *actionsv1.NewWorkspace) (createdWorkspace *Workspace, result error) {
 	if action == nil {
 		return nil, wool.Get(ctx).In("CreateWorkspace").NewError("workspace action is nil")
 	}

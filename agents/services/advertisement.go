@@ -2,7 +2,7 @@ package services
 
 import (
 	"github.com/codefly-dev/core/agents/contract"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	base "github.com/codefly-dev/core/runners/base"
 )
 
@@ -23,7 +23,7 @@ type Advertisement struct {
 	// false while Backends is only partly declared.
 	BackendsComplete bool
 	// Toolchains the plugin needs to run in LOCAL mode.
-	Toolchains []agentv0.Toolchain_Type
+	Toolchains []agentv1.Toolchain_Type
 	// HotReload advertises HOT_RELOAD in addition to BUILDER+RUNTIME.
 	HotReload bool
 	// RuntimeOnly advertises RUNTIME only (no BUILDER) — for passthrough agents.
@@ -34,19 +34,19 @@ type Advertisement struct {
 	// ExecutionExporter advertises the product-neutral receipt exporter service.
 	ExecutionExporter bool
 	// Languages the agent can create, run, or analyze.
-	Languages []agentv0.Language_Type
+	Languages []agentv1.Language_Type
 	// Protocols the agent can expose.
-	Protocols []agentv0.Protocol_Type
+	Protocols []agentv1.Protocol_Type
 	// ReadMe is the human-facing documentation (usually a rendered template).
 	ReadMe string
 	// Config documents the service YAML fields the agent understands.
-	Config []*agentv0.ConfigurationValueDetail
+	Config []*agentv1.ConfigurationValueDetail
 	// Techniques are reusable workflows/prompts the agent can apply.
-	Techniques []*agentv0.AgentTechnique
+	Techniques []*agentv1.AgentTechnique
 	// Validation is the authoritative validation contract. Leave nil only for a
 	// legacy agent that has not migrated; an explicit empty message advertises
 	// that no validation operations are supported.
-	Validation *agentv0.ValidationCapabilities
+	Validation *agentv1.ValidationCapabilities
 	// EffectiveInputsVersions advertises implemented discovery schemas.
 	EffectiveInputsVersions []uint32
 	// UsageContract is the agent's usage.codefly.yaml, verbatim (usually
@@ -59,32 +59,32 @@ type Advertisement struct {
 }
 
 // Build assembles the AgentInformation, applying the common defaults.
-func (a Advertisement) Build() *agentv0.AgentInformation {
-	var caps []*agentv0.Capability
+func (a Advertisement) Build() *agentv1.AgentInformation {
+	var caps []*agentv1.Capability
 	if !a.CapabilityOnly {
 		if a.RuntimeOnly {
-			caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_RUNTIME})
+			caps = append(caps, &agentv1.Capability{Type: agentv1.Capability_RUNTIME})
 		} else {
 			caps = append(caps,
-				&agentv0.Capability{Type: agentv0.Capability_BUILDER},
-				&agentv0.Capability{Type: agentv0.Capability_RUNTIME},
+				&agentv1.Capability{Type: agentv1.Capability_BUILDER},
+				&agentv1.Capability{Type: agentv1.Capability_RUNTIME},
 			)
 		}
 	}
 	if a.HotReload {
-		caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_HOT_RELOAD})
+		caps = append(caps, &agentv1.Capability{Type: agentv1.Capability_HOT_RELOAD})
 	}
 	if a.ExecutionExporter {
-		caps = append(caps, &agentv0.Capability{Type: agentv0.Capability_EXECUTION_EXPORTER})
+		caps = append(caps, &agentv1.Capability{Type: agentv1.Capability_EXECUTION_EXPORTER})
 	}
 
-	info := &agentv0.AgentInformation{
+	info := &agentv1.AgentInformation{
 		SupportedBackends:       a.Backends.ResolveBackends(),
 		Capabilities:            caps,
 		ReadMe:                  a.ReadMe,
 		ConfigurationDetails:    a.Config,
 		Techniques:              a.Techniques,
-		Protocols:               []*agentv0.Protocol{},
+		Protocols:               []*agentv1.Protocol{},
 		Validation:              a.Validation,
 		EffectiveInputsVersions: a.EffectiveInputsVersions,
 		UsageContract:           a.UsageContract,
@@ -94,13 +94,13 @@ func (a Advertisement) Build() *agentv0.AgentInformation {
 		info.Contract.Capabilities = append(info.Contract.Capabilities, contract.RuntimeBackendDeclaration)
 	}
 	for _, t := range a.Toolchains {
-		info.Toolchains = append(info.Toolchains, &agentv0.Toolchain{Type: t})
+		info.Toolchains = append(info.Toolchains, &agentv1.Toolchain{Type: t})
 	}
 	for _, l := range a.Languages {
-		info.Languages = append(info.Languages, &agentv0.Language{Type: l})
+		info.Languages = append(info.Languages, &agentv1.Language{Type: l})
 	}
 	for _, p := range a.Protocols {
-		info.Protocols = append(info.Protocols, &agentv0.Protocol{Type: p})
+		info.Protocols = append(info.Protocols, &agentv1.Protocol{Type: p})
 	}
 	return info
 }

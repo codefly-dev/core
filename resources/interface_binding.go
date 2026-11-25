@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -264,16 +264,16 @@ func (s *ServiceDependency) bindTo(module, service, endpoint string) {
 // other workspaces. It is nil when no workspace bound the service — a module
 // loaded on its own — so the agent is not told that nothing is bound when
 // nothing tried.
-func (s *Service) InterfaceBindingsProto() *basev0.ServiceInterfaceBindings {
+func (s *Service) InterfaceBindingsProto() *basev1.ServiceInterfaceBindings {
 	if !s.interfacesBound {
 		return nil
 	}
-	out := &basev0.ServiceInterfaceBindings{}
+	out := &basev1.ServiceInterfaceBindings{}
 	for _, dep := range s.ServiceDependencies {
 		if dep.binding == nil {
 			continue
 		}
-		out.Bindings = append(out.Bindings, &basev0.ServiceInterfaceBinding{
+		out.Bindings = append(out.Bindings, &basev1.ServiceInterfaceBinding{
 			Interface: dep.Interface,
 			Module:    dep.Module,
 			Service:   dep.Name,
@@ -289,8 +289,8 @@ func (s *Service) InterfaceBindingsProto() *basev0.ServiceInterfaceBindings {
 // names its service was checked by the host. An entry for a requirement the
 // service does not declare is refused: the host and the agent would be reading
 // different declarations.
-func ApplySuppliedInterfaceBindings(service *Service, supplied *basev0.ServiceInterfaceBindings) error {
-	byInterface := make(map[string]*basev0.ServiceInterfaceBinding, len(supplied.GetBindings()))
+func ApplySuppliedInterfaceBindings(service *Service, supplied *basev1.ServiceInterfaceBindings) error {
+	byInterface := make(map[string]*basev1.ServiceInterfaceBinding, len(supplied.GetBindings()))
 	for _, binding := range supplied.GetBindings() {
 		if binding.GetInterface() == "" || binding.GetModule() == "" || binding.GetService() == "" {
 			return fmt.Errorf("service %s: a supplied interface binding must name the interface, module and service", service.label())

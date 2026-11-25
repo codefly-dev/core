@@ -18,8 +18,8 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	"github.com/yuin/goldmark"
 	markdownast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -44,9 +44,9 @@ type instructionHeading struct {
 // getInstructionIndex performs one deterministic scan through the server VFS.
 // A source-local failure degrades the index without erasing records extracted
 // from healthy sibling documents.
-func (s *DefaultCodeServer) getInstructionIndex(ctx context.Context, _ *codev0.GetInstructionIndexRequest) (*codev0.CodeResponse, error) {
-	index := &basev0.InstructionIndex{
-		State:           basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE,
+func (s *DefaultCodeServer) getInstructionIndex(ctx context.Context, _ *codev1.GetInstructionIndexRequest) (*codev1.CodeResponse, error) {
+	index := &basev1.InstructionIndex{
+		State:           basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE,
 		Analyzer:        "codefly-core/goldmark",
 		AnalyzerVersion: instructionAnalyzerVersion,
 	}
@@ -97,7 +97,7 @@ func (s *DefaultCodeServer) getInstructionIndex(ctx context.Context, _ *codev0.G
 		digest := sha256.Sum256(body)
 		digestHex := hex.EncodeToString(digest[:])
 		scopePath := instructionScopePath(relative)
-		index.Documents = append(index.Documents, &basev0.InstructionDocument{
+		index.Documents = append(index.Documents, &basev1.InstructionDocument{
 			Path: relative, ContentSha256: digestHex, ByteSize: int64(len(body)), ScopePath: scopePath,
 		})
 		records, issues := projectInstructionDocument(relative, scopePath, digestHex, body)
@@ -109,7 +109,7 @@ func (s *DefaultCodeServer) getInstructionIndex(ctx context.Context, _ *codev0.G
 		return nil, fmt.Errorf("instruction index: %w", err)
 	}
 	if len(index.Issues) > 0 {
-		index.State = basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED
+		index.State = basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED
 	}
 	sort.Slice(index.Documents, func(i, j int) bool { return index.Documents[i].GetPath() < index.Documents[j].GetPath() })
 	sort.Slice(index.Records, func(i, j int) bool {
@@ -129,10 +129,10 @@ func (s *DefaultCodeServer) getInstructionIndex(ctx context.Context, _ *codev0.G
 		return index.Issues[i].GetCode() < index.Issues[j].GetCode()
 	})
 	index.Fingerprint = instructionIndexFingerprint(index)
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetInstructionIndex{GetInstructionIndex: index}}, nil
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetInstructionIndex{GetInstructionIndex: index}}, nil
 }
 
-func projectInstructionDocument(sourcePath, scopePath, sourceHash string, source []byte) ([]*basev0.InstructionKnowledge, []*basev0.InstructionIssue) {
+func projectInstructionDocument(sourcePath, scopePath, sourceHash string, source []byte) ([]*basev1.InstructionKnowledge, []*basev1.InstructionIssue) {
 	document := goldmark.New().Parser().Parse(text.NewReader(source))
 	headings := instructionHeadings(document, source)
 	if len(headings) == 0 {
@@ -141,14 +141,14 @@ func projectInstructionDocument(sourcePath, scopePath, sourceHash string, source
 			return nil, nil
 		}
 		if len(guidance) > maxInstructionRecordSize {
-			return nil, []*basev0.InstructionIssue{instructionIssue("section_too_large", sourcePath, fmt.Sprintf("headingless instruction section exceeds %d-byte record limit", maxInstructionRecordSize))}
+			return nil, []*basev1.InstructionIssue{instructionIssue("section_too_large", sourcePath, fmt.Sprintf("headingless instruction section exceeds %d-byte record limit", maxInstructionRecordSize))}
 		}
-		record := instructionRecord(sourcePath, scopePath, sourceHash, path.Base(sourcePath), guidance, 1, lineNumberAt(source, len(source)), basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE)
-		return []*basev0.InstructionKnowledge{record}, nil
+		record := instructionRecord(sourcePath, scopePath, sourceHash, path.Base(sourcePath), guidance, 1, lineNumberAt(source, len(source)), basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE)
+		return []*basev1.InstructionKnowledge{record}, nil
 	}
 
-	records := make([]*basev0.InstructionKnowledge, 0, len(headings))
-	issues := make([]*basev0.InstructionIssue, 0)
+	records := make([]*basev1.InstructionKnowledge, 0, len(headings))
+	issues := make([]*basev1.InstructionIssue, 0)
 	for i, heading := range headings {
 		bodyEnd := len(source)
 		if i+1 < len(headings) {
@@ -212,35 +212,35 @@ func instructionHeadings(document markdownast.Node, source []byte) []instruction
 	return headings
 }
 
-func classifyInstructionKnowledge(lineage []string) basev0.InstructionKnowledgeKind {
+func classifyInstructionKnowledge(lineage []string) basev1.InstructionKnowledgeKind {
 	value := strings.ToLower(strings.Join(lineage, " "))
 	switch {
 	case containsInstructionTerm(value, "anti-pattern", "antipattern", "avoid", "don't", "do not", "what not to do"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN
 	case containsInstructionTerm(value, "requirement", "required", "non-negotiable", "absolute", "must", "never"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT
 	case containsInstructionTerm(value, "decision", "adr", "rationale"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_DECISION
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_DECISION
 	case containsInstructionTerm(value, "convention", "style", "pattern"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_CONVENTION
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_CONVENTION
 	case containsInstructionTerm(value, "lesson", "post-mortem", "postmortem"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_LESSON
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_LESSON
 	case containsInstructionTerm(value, "assumption"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION
 	case containsInstructionTerm(value, "rule", "cardinal"):
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_RULE
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_RULE
 	default:
-		return basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE
+		return basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE
 	}
 }
 
-func instructionRecord(sourcePath, scopePath, sourceHash, title, guidance string, startLine, endLine int32, kind basev0.InstructionKnowledgeKind) *basev0.InstructionKnowledge {
+func instructionRecord(sourcePath, scopePath, sourceHash, title, guidance string, startLine, endLine int32, kind basev1.InstructionKnowledgeKind) *basev1.InstructionKnowledge {
 	hash := sha256.New()
 	for _, value := range []string{sourcePath, sourceHash, title, guidance, scopePath, kind.String()} {
 		_, _ = hash.Write([]byte(value))
 		_, _ = hash.Write([]byte{0})
 	}
-	return &basev0.InstructionKnowledge{
+	return &basev1.InstructionKnowledge{
 		Id: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Kind: kind, Title: title, Guidance: guidance,
 		SourcePath: sourcePath, SourceSha256: sourceHash, StartLine: startLine, EndLine: endLine, ScopePath: scopePath,
 	}
@@ -330,11 +330,11 @@ func containsInstructionTerm(value string, terms ...string) bool {
 	return false
 }
 
-func instructionIssue(code, sourcePath, message string) *basev0.InstructionIssue {
-	return &basev0.InstructionIssue{Code: code, Path: sourcePath, Message: message}
+func instructionIssue(code, sourcePath, message string) *basev1.InstructionIssue {
+	return &basev1.InstructionIssue{Code: code, Path: sourcePath, Message: message}
 }
 
-func instructionIndexFingerprint(index *basev0.InstructionIndex) string {
+func instructionIndexFingerprint(index *basev1.InstructionIndex) string {
 	hash := sha256.New()
 	for _, document := range index.GetDocuments() {
 		for _, value := range []string{"document", document.GetPath(), document.GetContentSha256(), document.GetScopePath(), fmt.Sprintf("%d", document.GetByteSize())} {
@@ -361,7 +361,7 @@ func instructionIndexFingerprint(index *basev0.InstructionIndex) string {
 // canonical repository-relative scope. Repository-root guidance cascades into
 // nested code units; sibling guidance never crosses between subtrees. The
 // filtered result receives its own exact fingerprint.
-func FilterInstructionIndex(index *basev0.InstructionIndex, scopePath string) *basev0.InstructionIndex {
+func FilterInstructionIndex(index *basev1.InstructionIndex, scopePath string) *basev1.InstructionIndex {
 	if index == nil {
 		return nil
 	}
@@ -369,29 +369,29 @@ func FilterInstructionIndex(index *basev0.InstructionIndex, scopePath string) *b
 	if target == "" {
 		target = "."
 	}
-	out := proto.Clone(index).(*basev0.InstructionIndex)
+	out := proto.Clone(index).(*basev1.InstructionIndex)
 	out.Documents = out.Documents[:0]
 	for _, document := range index.GetDocuments() {
 		if instructionScopeApplies(document.GetScopePath(), target) {
-			out.Documents = append(out.Documents, proto.Clone(document).(*basev0.InstructionDocument))
+			out.Documents = append(out.Documents, proto.Clone(document).(*basev1.InstructionDocument))
 		}
 	}
 	out.Records = out.Records[:0]
 	for _, record := range index.GetRecords() {
 		if instructionScopeApplies(record.GetScopePath(), target) {
-			out.Records = append(out.Records, proto.Clone(record).(*basev0.InstructionKnowledge))
+			out.Records = append(out.Records, proto.Clone(record).(*basev1.InstructionKnowledge))
 		}
 	}
 	out.Issues = out.Issues[:0]
 	for _, issue := range index.GetIssues() {
 		if instructionScopeApplies(instructionScopePath(issue.GetPath()), target) {
-			out.Issues = append(out.Issues, proto.Clone(issue).(*basev0.InstructionIssue))
+			out.Issues = append(out.Issues, proto.Clone(issue).(*basev1.InstructionIssue))
 		}
 	}
-	if out.GetState() != basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_NOT_ATTEMPTED {
-		out.State = basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE
+	if out.GetState() != basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_NOT_ATTEMPTED {
+		out.State = basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE
 		if len(out.GetIssues()) > 0 {
-			out.State = basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED
+			out.State = basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED
 		}
 	}
 	out.Fingerprint = instructionIndexFingerprint(out)

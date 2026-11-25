@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // decodeClaims turns a presented token into its claims message and the raw
@@ -27,7 +27,7 @@ import (
 // core answers ErrInvalid, and it never read the actor epochs at all. Two
 // implementations of "is this a core token" is the same failure as two
 // implementations of the capability, one layer down.
-func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error) {
+func decodeClaims(encoded string) (*basev1.WorkContextV1, []byte, []byte, error) {
 	// The bound belongs in the ONE decode path, not in one entrypoint. It was
 	// enforced only in the structural read (Decode, then called Inspect), so a
 	// caller that reached Verify directly — the strong path, and the one a
@@ -52,7 +52,7 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if err := CheckEncoding(claims); err != nil {
 		return nil, nil, nil, err
 	}
-	wc := &basev0.WorkContextV1{}
+	wc := &basev1.WorkContextV1{}
 	if err := proto.Unmarshal(claims, wc); err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: payload is not a WorkContextV1: %v", ErrInvalid, err)
 	}
@@ -147,7 +147,7 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 // rule in this path reads it, and Decode deliberately passes an unsound
 // issued-at — it is the structural read a holder makes of its own credential,
 // and it checks no window.
-func checkWindowStated(wc *basev0.WorkContextV1) error {
+func checkWindowStated(wc *basev1.WorkContextV1) error {
 	if wc.GetNotBeforeUnix() == 0 {
 		return fmt.Errorf("%w: no not-before; a capability states the instant its window opens", ErrInvalid)
 	}
@@ -248,12 +248,12 @@ func unknownFieldIn(message protoreflect.Message) string {
 // author reaching for the wrong one would have forwarded forgeries through a
 // call that read as a check. Decode says what this does, and nothing more.
 type Decoded struct {
-	context *basev0.WorkContextV1
+	context *basev1.WorkContextV1
 }
 
 // Context is the claims as they were carried. They are DATA, not findings: no
 // signature stands behind them.
-func (d *Decoded) Context() *basev0.WorkContextV1 { return d.context }
+func (d *Decoded) Context() *basev1.WorkContextV1 { return d.context }
 
 // ExpiresAt is when the capability's window closes — the field a holder reads
 // to know when to mint afresh.
@@ -264,7 +264,7 @@ func (d *Decoded) NotBefore() time.Time { return time.Unix(d.context.GetNotBefor
 
 // Seal is the seal the capability carries, which a holder reads to know which
 // installation and execution it is bound to.
-func (d *Decoded) Seal() *basev0.WorkSealV1 { return d.context.GetSeal() }
+func (d *Decoded) Seal() *basev1.WorkSealV1 { return d.context.GetSeal() }
 
 // Decode reports whether a token is STRUCTURALLY a sealed capability of this
 // package, and returns its claims as a Decoded when it is.

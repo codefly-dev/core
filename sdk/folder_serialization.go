@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	utils "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	utils "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 )
 
 // Folder -> Request

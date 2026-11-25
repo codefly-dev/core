@@ -16,9 +16,9 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/agents"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 )
@@ -30,8 +30,8 @@ type Information struct {
 }
 
 type Base struct {
-	// Satisfies agentv0.AgentServer for all plugins that embed *Base.
-	agentv0.UnimplementedAgentServer
+	// Satisfies agentv1.AgentServer for all plugins that embed *Base.
+	agentv1.UnimplementedAgentServer
 
 	// Agent
 	Agent *resources.Agent
@@ -55,22 +55,22 @@ type Base struct {
 
 	Service *resources.Service
 
-	Environment *basev0.Environment
+	Environment *basev1.Environment
 
 	// Information convenience
 	Information *Information
 
 	// Endpoints
-	Endpoints           []*basev0.Endpoint
-	DependencyEndpoints []*basev0.Endpoint
+	Endpoints           []*basev1.Endpoint
+	DependencyEndpoints []*basev1.Endpoint
 
-	NetworkMappings []*basev0.NetworkMapping
+	NetworkMappings []*basev1.NetworkMapping
 
 	// EnvironmentVariables
 	EnvironmentVariables *resources.EnvironmentVariableManager
 
 	// Configuration
-	WorkspaceConfigurations []*basev0.Configuration
+	WorkspaceConfigurations []*basev1.Configuration
 
 	// Wrappers
 	Runtime *RuntimeWrapper
@@ -120,7 +120,7 @@ func (s *Base) UniqueWithWorkspace() string {
 	return s.Identity.UniqueWithWorkspaceAndScope(s.Identity.Workspace, s.Environment.NamingScope)
 }
 
-func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentity) error {
+func (s *Base) HeadlessLoad(ctx context.Context, identity *basev1.ServiceIdentity) error {
 	s.loadMu.Lock()
 	defer s.loadMu.Unlock()
 
@@ -148,7 +148,7 @@ func (s *Base) HeadlessLoad(ctx context.Context, identity *basev0.ServiceIdentit
 	return nil
 }
 
-func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, settings any) error {
+func (s *Base) Load(ctx context.Context, identity *basev1.ServiceIdentity, settings any) error {
 	s.loadMu.Lock()
 	defer s.loadMu.Unlock()
 
@@ -211,7 +211,7 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	return nil
 }
 
-func (s *Base) SetDefaultDockerImage(req *builderv0.DockerBuildContext) {
+func (s *Base) SetDefaultDockerImage(req *builderv1.DockerBuildContext) {
 	s.imageMu.Lock()
 	defer s.imageMu.Unlock()
 	s.image = &resources.DockerImage{
@@ -228,7 +228,7 @@ func (s *Base) SetDockerImage(image *resources.DockerImage) {
 	s.imageIsDefault = false
 }
 
-func (s *Base) DockerImage(req *builderv0.DockerBuildContext) *resources.DockerImage {
+func (s *Base) DockerImage(req *builderv1.DockerBuildContext) *resources.DockerImage {
 	s.imageMu.Lock()
 	defer s.imageMu.Unlock()
 	if s.image == nil {
@@ -380,11 +380,11 @@ func (s *Base) Infof(msg string, args ...any) {
 	_, _ = s.Wool.Forward([]byte(fmt.Sprintf(msg, args...)))
 }
 
-func (s *Base) Version() *basev0.Version {
+func (s *Base) Version() *basev1.Version {
 	if s == nil || s.Service == nil {
-		return &basev0.Version{}
+		return &basev1.Version{}
 	}
-	return &basev0.Version{Version: s.Service.Version}
+	return &basev1.Version{Version: s.Service.Version}
 }
 
 type TemplateWrapper struct {

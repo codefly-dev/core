@@ -7,12 +7,12 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 	"github.com/codefly-dev/core/toolbox/respond"
 )
 
-// Server implements the codefly.services.toolbox.v0.Toolbox contract
+// Server implements the codefly.services.toolbox.v1.Toolbox contract
 // for git operations against a single workspace directory.
 //
 // Embeds *registry.Base for identity, catalog, validation, and dispatch; the
@@ -79,7 +79,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"git", "read-only", "filesystem"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns error envelope with `open repo: ...` when the workspace isn't a git repository, or `worktree: ...` when the index is corrupted.",
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{
 					Description:     "Check if the working tree is clean before staging an edit.",
 					Arguments:       mustStruct(map[string]any{}),
@@ -119,7 +119,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"git", "read-only", "filesystem"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Returns `log: ...` when the repository has no commits, or `open repo: ...` when not a git repo.",
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{
 					Description:     "Get the last 5 commits with full message bodies.",
 					Arguments:       mustStruct(map[string]any{"limit": 5}),
@@ -156,7 +156,7 @@ func (s *Server) Tools() []*registry.ToolDefinition {
 			Tags:        []string{"git", "read-only", "filesystem", "stub"},
 			Idempotency: "idempotent",
 			ErrorModes:  "Always returns 'git.diff not yet implemented; status + log are usable today' until the body lands.",
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{
 					Description:     "Diff working tree against HEAD (no args = current changes).",
 					Arguments:       mustStruct(map[string]any{}),
@@ -181,7 +181,7 @@ func mustStruct(m map[string]any) *structpb.Struct {
 
 // --- Tool implementations ----------------------------------------
 
-func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) status(_ context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	repo, err := gogit.PlainOpen(s.workspace)
 	if err != nil {
 		return respond.Error("open repo: %v", err)
@@ -206,7 +206,7 @@ func (s *Server) status(_ context.Context, _ *toolboxv0.CallToolRequest) *toolbo
 	})
 }
 
-func (s *Server) log(_ context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) log(_ context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	args := respond.Args(req)
 	limit := 20
 	if v, ok := args["limit"].(float64); ok && v > 0 {
@@ -267,7 +267,7 @@ func indexNewline(s string) int {
 	return -1
 }
 
-func (s *Server) diff(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *Server) diff(_ context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	// Phase 1 stub: full diff between two refs needs object-tree
 	// walking (Patch, Diff). Surface a clear "not implemented" so the
 	// agent knows to fall back; tests cover the dispatch path.

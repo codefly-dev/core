@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/mcprev"
 )
 
@@ -135,7 +135,7 @@ func TestReverseTranscoder_Initialize_ReadsServerInfo(t *testing.T) {
 	rt := mcprev.New(stdin, stdout, nil)
 	require.NoError(t, rt.Initialize(context.Background()))
 
-	id, err := rt.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	id, err := rt.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "fake-mcp", id.Name)
 	require.Equal(t, "1.2.3", id.Version)
@@ -151,7 +151,7 @@ func TestReverseTranscoder_ListToolSummaries_ProjectsMCPTools(t *testing.T) {
 	rt := mcprev.New(stdin, stdout, nil)
 	require.NoError(t, rt.Initialize(context.Background()))
 
-	resp, err := rt.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	resp, err := rt.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Tools, 2)
 
@@ -174,7 +174,7 @@ func TestReverseTranscoder_DescribeTool_ReturnsLongDescription(t *testing.T) {
 	rt := mcprev.New(stdin, stdout, nil)
 	require.NoError(t, rt.Initialize(context.Background()))
 
-	resp, err := rt.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: "math.add"})
+	resp, err := rt.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: "math.add"})
 	require.NoError(t, err)
 	require.NotNil(t, resp.Tool)
 	require.Equal(t, "Add two numbers.\nReturns int.", resp.Tool.Description,
@@ -192,7 +192,7 @@ func TestReverseTranscoder_CallTool_RoutesThroughMCP(t *testing.T) {
 
 	args, err := structpb.NewStruct(map[string]any{"text": "hello world"})
 	require.NoError(t, err)
-	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := rt.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "echo",
 		Arguments: args,
 	})
@@ -218,7 +218,7 @@ func TestReverseTranscoder_CallTool_MapsIsErrorToErrorField(t *testing.T) {
 	rt := mcprev.New(stdin, stdout, nil)
 	require.NoError(t, rt.Initialize(context.Background()))
 
-	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "fail"})
+	resp, err := rt.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "fail"})
 	require.NoError(t, err)
 	require.True(t, strings.Contains(resp.Error, "tool said no"),
 		"MCP isError=true should surface as Toolbox.Error, not in Content")
@@ -247,7 +247,7 @@ func TestReverseTranscoder_Sanitize_StripsControlChars(t *testing.T) {
 	args, _ := structpb.NewStruct(map[string]any{
 		"text": "ok\nfine\t​hidden‮spoofed[31mansi",
 	})
-	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := rt.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "echo",
 		Arguments: args,
 	})
@@ -276,7 +276,7 @@ func TestReverseTranscoder_Sanitize_CapsLength(t *testing.T) {
 
 	huge := strings.Repeat("a", 200*1024) // 200 KiB > 64 KiB cap
 	args, _ := structpb.NewStruct(map[string]any{"text": huge})
-	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := rt.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "echo",
 		Arguments: args,
 	})
@@ -304,7 +304,7 @@ func TestReverseTranscoder_Sanitize_WrapsForeignContent(t *testing.T) {
 	require.NoError(t, rt.Initialize(context.Background()))
 
 	args, _ := structpb.NewStruct(map[string]any{"text": "anything"})
-	resp, err := rt.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := rt.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "echo",
 		Arguments: args,
 	})
@@ -338,7 +338,7 @@ func TestReverseTranscoder_Identity_FallbackWhenServerInfoMissing(t *testing.T) 
 	rt := mcprev.New(io.Discard, r, nil)
 	require.NoError(t, rt.Initialize(context.Background()))
 
-	id, err := rt.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	id, err := rt.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "unknown-mcp-server", id.Name)
 	require.Equal(t, "unknown", id.Version)

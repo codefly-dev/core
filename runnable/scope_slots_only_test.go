@@ -4,14 +4,14 @@ import (
 	"os"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
-func slotOnlyOperation(t *testing.T) *runnablev0.Operation {
+func slotOnlyOperation(t *testing.T) *runnablev1.Operation {
 	t.Helper()
 	value, err := os.ReadFile("testdata/scope-slots/slot-only-operation.json")
 	require.NoError(t, err)
@@ -20,11 +20,11 @@ func slotOnlyOperation(t *testing.T) *runnablev0.Operation {
 	return declared
 }
 
-func slotOnlySelection() []*runnablev0.ScopeSelection {
-	return []*runnablev0.ScopeSelection{{
+func slotOnlySelection() []*runnablev1.ScopeSelection {
+	return []*runnablev1.ScopeSelection{{
 		Slot:   "target",
-		Invoke: []*basev0.WorkScopeV1{scope("acme.item", []string{"item-a"}, "invoke", "read")},
-		Lookup: []*basev0.WorkScopeV1{scope("acme.item", []string{"item-a"}, "read")},
+		Invoke: []*basev1.WorkScopeV1{scope("acme.item", []string{"item-a"}, "invoke", "read")},
+		Lookup: []*basev1.WorkScopeV1{scope("acme.item", []string{"item-a"}, "read")},
 	}}
 }
 
@@ -92,7 +92,7 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			// its operation, and a receipt operation is a mutation.
 			tool, err := runnable.ToolFromPrepared(delivered)
 			require.NoError(t, err)
-			require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
+			require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
 
 			// No invoke authority is refused. No lookup authority is not: the
 			// receipt is then read under the invoke scopes by the identity
@@ -116,31 +116,31 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 }
 
 func TestSlotOnlyAuthorityStillRefusesIncompleteOrWidenedSelections(t *testing.T) {
-	for name, change := range map[string]func(*runnablev0.Operation, []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection{
-		"missing slot": func(_ *runnablev0.Operation, _ []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return nil },
-		"empty invoke": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+	for name, change := range map[string]func(*runnablev1.Operation, []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection{
+		"missing slot": func(_ *runnablev1.Operation, _ []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection { return nil },
+		"empty invoke": func(_ *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Invoke = nil
 			return s
 		},
-		"missing required lookup": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"missing required lookup": func(_ *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup = nil
 			return s
 		},
-		"wildcard ids": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"wildcard ids": func(_ *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Invoke[0].ResourceIds = nil
 			return s
 		},
-		"widened lookup": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"widened lookup": func(_ *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup[0].ResourceIds = []string{"item-b"}
 			return s
 		},
-		"write lookup": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"write lookup": func(_ *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup[0].Actions = []string{"invoke"}
 			return s
 		},
-		"kind already fixed": func(o *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
-			o.InvokeScopes = []*basev0.WorkScopeV1{proto.CloneOf(s[0].Invoke[0])}
-			o.LookupScopes = []*basev0.WorkScopeV1{proto.CloneOf(s[0].Lookup[0])}
+		"kind already fixed": func(o *runnablev1.Operation, s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
+			o.InvokeScopes = []*basev1.WorkScopeV1{proto.CloneOf(s[0].Invoke[0])}
+			o.LookupScopes = []*basev1.WorkScopeV1{proto.CloneOf(s[0].Lookup[0])}
 			return s
 		},
 	} {
@@ -168,8 +168,8 @@ func TestScopeAuthorityDiagnosticsDistinguishDeclarationFromSelection(t *testing
 		t.Run(map[bool]string{false: "slot-only", true: "slot-plus-fixed"}[fixed], func(t *testing.T) {
 			declared := slotOnlyOperation(t)
 			if fixed {
-				declared.InvokeScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "invoke", "read")}
-				declared.LookupScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "read")}
+				declared.InvokeScopes = []*basev1.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "invoke", "read")}
+				declared.LookupScopes = []*basev1.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "read")}
 			}
 			_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 			require.NoError(t, err)
@@ -183,16 +183,16 @@ func TestScopeAuthorityDiagnosticsDistinguishDeclarationFromSelection(t *testing
 }
 
 func TestSlotOnlyAuthorityDoesNotRelaxFixedScopes(t *testing.T) {
-	for name, change := range map[string]func(*runnablev0.Operation){
-		"no slots or scopes":     func(o *runnablev0.Operation) { o.RequiredScopeSlots = nil },
-		"malformed slot":         func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].Name = "" },
-		"malformed fixed invoke": func(o *runnablev0.Operation) { o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.fixed"}} },
-		"fixed lookup without fixed invoke": func(o *runnablev0.Operation) {
-			o.LookupScopes = []*basev0.WorkScopeV1{scope("acme.item", []string{"item-a"}, "read")}
+	for name, change := range map[string]func(*runnablev1.Operation){
+		"no slots or scopes":     func(o *runnablev1.Operation) { o.RequiredScopeSlots = nil },
+		"malformed slot":         func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].Name = "" },
+		"malformed fixed invoke": func(o *runnablev1.Operation) { o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "acme.fixed"}} },
+		"fixed lookup without fixed invoke": func(o *runnablev1.Operation) {
+			o.LookupScopes = []*basev1.WorkScopeV1{scope("acme.item", []string{"item-a"}, "read")}
 		},
-		"fixed lookup widens invoke": func(o *runnablev0.Operation) {
-			o.InvokeScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"item-a"}, "invoke", "read")}
-			o.LookupScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"item-b"}, "read")}
+		"fixed lookup widens invoke": func(o *runnablev1.Operation) {
+			o.InvokeScopes = []*basev1.WorkScopeV1{scope("acme.fixed", []string{"item-a"}, "invoke", "read")}
+			o.LookupScopes = []*basev1.WorkScopeV1{scope("acme.fixed", []string{"item-b"}, "read")}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

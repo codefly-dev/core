@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	piprequirements "github.com/scagogogo/python-requirements-parser/pkg/parser"
 )
 
@@ -41,11 +41,11 @@ func (s *PythonCodeServer) registerPythonOverrides() {
 
 // --- Handlers ---
 
-func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	srcDir := s.SourceDir
-	resp := &codev0.GetProjectInfoResponse{Language: "python"}
+	resp := &codev1.GetProjectInfoResponse{Language: "python"}
 
-	var manifestDeps []*codev0.Dependency
+	var manifestDeps []*codev1.Dependency
 	// Parse pyproject.toml for module name, Python version, and declared
 	// dependencies. Project inspection is intentionally declarative: the
 	// separate ListDependencies capability owns installed-environment state.
@@ -65,11 +65,11 @@ func (s *PythonCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.C
 
 	resp.Dependencies = manifestDeps
 	if requirementErr != nil {
-		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", requirementErr.Error()), nil
+		return codeFailure(wrapProjectInfoPython(resp), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", requirementErr.Error()), nil
 	}
 	resp.SourceFiles, resp.SourceFilesOmitted, err = s.inspectOptionalSourceImports(ctx, srcDir, "python")
 	if err != nil {
-		return codeFailure(wrapProjectInfoPython(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
+		return codeFailure(wrapProjectInfoPython(resp), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}
 
 	return wrapProjectInfoPython(resp), nil
@@ -82,7 +82,7 @@ var pythonDistributionName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]*[
 // compiled .txt file; referenced requirement files are then followed through
 // the Code server VFS so overlays and remote agent filesystems behave exactly
 // like local workspaces.
-func (s *PythonCodeServer) declaredRequirementDependencies() ([]*codev0.Dependency, error) {
+func (s *PythonCodeServer) declaredRequirementDependencies() ([]*codev1.Dependency, error) {
 	entries, err := s.FS.ReadDir(s.SourceDir)
 	if err != nil {
 		return nil, fmt.Errorf("list Python dependency declarations: %w", err)
@@ -124,7 +124,7 @@ func (s *PythonCodeServer) declaredRequirementDependencies() ([]*codev0.Dependen
 	return s.parseRequirementFile(candidates[0].name, make(map[string]bool))
 }
 
-func (s *PythonCodeServer) parseRequirementFile(relative string, active map[string]bool) ([]*codev0.Dependency, error) {
+func (s *PythonCodeServer) parseRequirementFile(relative string, active map[string]bool) ([]*codev1.Dependency, error) {
 	relative = filepath.Clean(filepath.FromSlash(strings.TrimSpace(relative)))
 	if relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("requirements include %q escapes the project root", relative)
@@ -143,7 +143,7 @@ func (s *PythonCodeServer) parseRequirementFile(relative string, active map[stri
 	if err != nil {
 		return nil, fmt.Errorf("parse requirements declaration %q: %w", filepath.ToSlash(relative), err)
 	}
-	var dependencies []*codev0.Dependency
+	var dependencies []*codev1.Dependency
 	for _, requirement := range parsed {
 		if requirement == nil || requirement.IsEmpty || requirement.IsComment || requirement.IsConstraint || len(requirement.GlobalOptions) > 0 {
 			continue
@@ -163,7 +163,7 @@ func (s *PythonCodeServer) parseRequirementFile(relative string, active map[stri
 				if !pythonDistributionName.MatchString(directName) {
 					return dependencies, fmt.Errorf("requirements declaration %q contains invalid distribution name %q", filepath.ToSlash(relative), directName)
 				}
-				dependencies = mergePythonDependencies(dependencies, []*codev0.Dependency{{Name: directName, Version: directReference, Direct: true}})
+				dependencies = mergePythonDependencies(dependencies, []*codev1.Dependency{{Name: directName, Version: directReference, Direct: true}})
 				continue
 			}
 			// Unnamed local paths and URLs are valid pip declarations but do not
@@ -188,7 +188,7 @@ func (s *PythonCodeServer) parseRequirementFile(relative string, active map[stri
 				version = strings.TrimSpace(strings.SplitN(reference, ";", 2)[0])
 			}
 		}
-		dependencies = mergePythonDependencies(dependencies, []*codev0.Dependency{{Name: name, Version: version, Direct: true}})
+		dependencies = mergePythonDependencies(dependencies, []*codev1.Dependency{{Name: name, Version: version, Direct: true}})
 	}
 	return dependencies, nil
 }
@@ -201,9 +201,9 @@ func namedPythonDirectReference(line string) (string, string, bool) {
 	return name, reference, ok && name != "" && reference != ""
 }
 
-func mergePythonDependencies(groups ...[]*codev0.Dependency) []*codev0.Dependency {
+func mergePythonDependencies(groups ...[]*codev1.Dependency) []*codev1.Dependency {
 	seen := make(map[string]bool)
-	var merged []*codev0.Dependency
+	var merged []*codev1.Dependency
 	for _, dependencies := range groups {
 		for _, dependency := range dependencies {
 			if dependency == nil || strings.TrimSpace(dependency.GetName()) == "" {
@@ -238,11 +238,11 @@ func normalizePythonDistributionName(name string) string {
 	return normalized.String()
 }
 
-func (s *PythonCodeServer) handleListDependencies(_ context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *PythonCodeServer) handleListDependencies(_ context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	srcDir := s.SourceDir
 	deps := s.listUVDependencies(srcDir)
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
-		ListDependencies: &codev0.ListDependenciesResponse{Dependencies: deps},
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_ListDependencies{
+		ListDependencies: &codev1.ListDependenciesResponse{Dependencies: deps},
 	}}, nil
 }
 
@@ -300,8 +300,8 @@ func extractTOMLValue(line string) string {
 // Line-based parsing — same philosophy as parsePyprojectTOML
 // (no TOML dependency, accepts a small accuracy hit on weird
 // formattings for the win of zero new deps).
-func parsePyprojectDependencies(content string) []*codev0.Dependency {
-	var out []*codev0.Dependency
+func parsePyprojectDependencies(content string) []*codev1.Dependency {
+	var out []*codev1.Dependency
 	seen := map[string]bool{}
 	lines := strings.Split(content, "\n")
 
@@ -360,7 +360,7 @@ func parsePyprojectDependencies(content string) []*codev0.Dependency {
 			name, version := splitPEP440Spec(depSpec)
 			if name != "" && !seen[name] {
 				seen[name] = true
-				out = append(out, &codev0.Dependency{
+				out = append(out, &codev1.Dependency{
 					Name: name, Version: version, Direct: true,
 				})
 			}
@@ -449,8 +449,8 @@ var pythonSkipDirs = map[string]bool{
 // like pkg/sub/mod.py surface with RelativePath "pkg/sub" and their
 // imports aggregated via scanPackageImports. Root-level .py files form
 // the "." package, preserving the historical shape consumers rely on.
-func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo {
-	var packages []*codev0.PackageInfo
+func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev1.PackageInfo {
+	var packages []*codev1.PackageInfo
 
 	entries, err := s.FS.ReadDir(srcDir)
 	if err != nil {
@@ -469,7 +469,7 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 	}
 
 	// Also check root-level .py files (scripts, setup.py, conftest.py).
-	rootPkg := &codev0.PackageInfo{
+	rootPkg := &codev1.PackageInfo{
 		Name:         ".",
 		RelativePath: ".",
 	}
@@ -492,7 +492,7 @@ func (s *PythonCodeServer) discoverPackages(srcDir string) []*codev0.PackageInfo
 // tree, bounded by PythonPackageWalkMaxDepth. Pre-order emission keeps
 // parents ahead of their subpackages and preserves the historical
 // ordering for flat repositories.
-func (s *PythonCodeServer) walkPythonPackages(srcDir, rel string, depth int, out *[]*codev0.PackageInfo) {
+func (s *PythonCodeServer) walkPythonPackages(srcDir, rel string, depth int, out *[]*codev1.PackageInfo) {
 	if depth > PythonPackageWalkMaxDepth {
 		return
 	}
@@ -519,7 +519,7 @@ func (s *PythonCodeServer) walkPythonPackages(srcDir, rel string, depth int, out
 
 	if len(files) > 0 {
 		relSlash := filepath.ToSlash(rel)
-		pkg := &codev0.PackageInfo{
+		pkg := &codev1.PackageInfo{
 			// Name is the language-level module path: "pkg/sub" → "pkg.sub".
 			Name:         strings.ReplaceAll(relSlash, "/", "."),
 			RelativePath: relSlash,
@@ -657,7 +657,7 @@ type uvPkgInfo struct {
 	Version string `json:"version"`
 }
 
-func (s *PythonCodeServer) listUVDependencies(srcDir string) []*codev0.Dependency {
+func (s *PythonCodeServer) listUVDependencies(srcDir string) []*codev1.Dependency {
 	// Try uv pip list --format json
 	cmd := exec.Command("uv", "pip", "list", "--format", "json")
 	cmd.Dir = srcDir
@@ -680,9 +680,9 @@ func (s *PythonCodeServer) listUVDependencies(srcDir string) []*codev0.Dependenc
 		directDeps = extractDirectDeps(string(data))
 	}
 
-	var deps []*codev0.Dependency
+	var deps []*codev1.Dependency
 	for _, pkg := range pkgs {
-		deps = append(deps, &codev0.Dependency{
+		deps = append(deps, &codev1.Dependency{
 			Name:    pkg.Name,
 			Version: pkg.Version,
 			Direct:  directDeps[strings.ToLower(pkg.Name)],
@@ -725,6 +725,6 @@ func extractDirectDeps(content string) map[string]bool {
 	return deps
 }
 
-func wrapProjectInfoPython(resp *codev0.GetProjectInfoResponse) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
+func wrapProjectInfoPython(resp *codev1.GetProjectInfoResponse) *codev1.CodeResponse {
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
 }

@@ -14,9 +14,9 @@ from codefly_sdk.codefly import init
 
 from codefly_sdk.codefly import find_service_dir, unique_to_env_key
 
-import codefly_cli.codefly.cli.v0.cli_pb2_grpc as cli_grpc
-import codefly_cli.codefly.cli.v0.cli_pb2 as cli
-import codefly_cli.codefly.base.v0.configuration_pb2 as configuration
+import codefly_cli.codefly.cli.v1.cli_pb2_grpc as cli_grpc
+import codefly_cli.codefly.cli.v1.cli_pb2 as cli
+import codefly_cli.codefly.base.v1.configuration_pb2 as configuration
 
 from google.protobuf.empty_pb2 import Empty
 

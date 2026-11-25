@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
 )
 
-func deployedEndpoint(module, service, name, api string) *basev0.Endpoint {
-	return &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api}
+func deployedEndpoint(module, service, name, api string) *basev1.Endpoint {
+	return &basev1.Endpoint{Module: module, Service: service, Name: name, Api: api}
 }
 
 // The golden case: a service exposing a named gRPC endpoint beside its
@@ -21,8 +21,8 @@ func deployedEndpoint(module, service, name, api string) *basev0.Endpoint {
 // name moves it — which is why a hand-declared port cannot stay correct.
 func TestDeployedEndpointPortsGolden(t *testing.T) {
 	ctx := context.Background()
-	endpoints := func(module string) []*basev0.Endpoint {
-		return []*basev0.Endpoint{
+	endpoints := func(module string) []*basev1.Endpoint {
+		return []*basev1.Endpoint{
 			deployedEndpoint(module, "accounts", "authority", standards.GRPC),
 			deployedEndpoint(module, "accounts", "connect", standards.CONNECT),
 			deployedEndpoint(module, "accounts", "grpc", standards.GRPC),
@@ -50,14 +50,14 @@ func TestDeployedEndpointPortsCanonicalOwnerPerAPI(t *testing.T) {
 	for _, api := range []string{standards.GRPC, standards.REST, standards.HTTP, standards.CONNECT, standards.MCP, standards.TCP} {
 		t.Run(api, func(t *testing.T) {
 			// The only endpoint of an API owns the canonical port whatever it is called.
-			ports, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{
+			ports, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{
 				deployedEndpoint("mod", "svc", "anything", api),
 			})
 			require.NoError(t, err)
 			require.Equal(t, standards.Port(api), ports["anything"])
 
 			// With siblings of the same API, the endpoint named after the API owns it.
-			ports, err = network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{
+			ports, err = network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{
 				deployedEndpoint("mod", "svc", "sibling", api),
 				deployedEndpoint("mod", "svc", api, api),
 			})
@@ -72,7 +72,7 @@ func TestDeployedEndpointPortsNamedSiblingsWithoutConventional(t *testing.T) {
 	ctx := context.Background()
 	// Two gRPC endpoints, neither named "grpc": neither is conventional, so
 	// both get named ports and nobody holds 9090.
-	ports, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{
+	ports, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{
 		deployedEndpoint("mod", "svc", "alpha", standards.GRPC),
 		deployedEndpoint("mod", "svc", "beta", standards.GRPC),
 	})
@@ -87,7 +87,7 @@ func TestDeployedEndpointPortsPriority(t *testing.T) {
 	// REST and HTTP share 8080; REST comes first in standards.APIS(), so it
 	// keeps 8080 and HTTP falls back to a named port — in either input order.
 	for _, order := range [][]string{{standards.REST, standards.HTTP}, {standards.HTTP, standards.REST}} {
-		var endpoints []*basev0.Endpoint
+		var endpoints []*basev1.Endpoint
 		for _, api := range order {
 			endpoints = append(endpoints, deployedEndpoint("mod", "svc", api, api))
 		}
@@ -104,7 +104,7 @@ func TestDeployedEndpointPortsTieBreak(t *testing.T) {
 	// priority; the lower EndpointDestination wins it, whatever the order.
 	first := deployedEndpoint("mod", "svc", "aaa", "custom-a")
 	second := deployedEndpoint("mod", "svc", "zzz", "custom-z")
-	for _, endpoints := range [][]*basev0.Endpoint{{first, second}, {second, first}} {
+	for _, endpoints := range [][]*basev1.Endpoint{{first, second}, {second, first}} {
 		ports, err := network.DeployedEndpointPorts(ctx, "mod", "svc", endpoints)
 		require.NoError(t, err)
 		require.Equal(t, uint16(80), ports["aaa"])
@@ -127,7 +127,7 @@ func TestDeployedEndpointPortsCollision(t *testing.T) {
 		seen[port] = name
 		require.Less(t, i, 100000, "no colliding pair found")
 	}
-	_, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{
+	_, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{
 		deployedEndpoint("mod", "svc", a, standards.GRPC),
 		deployedEndpoint("mod", "svc", b, standards.GRPC),
 	})
@@ -138,10 +138,10 @@ func TestDeployedEndpointPortsCollision(t *testing.T) {
 
 func TestDeployedEndpointPortsRejectsNilAndDuplicates(t *testing.T) {
 	ctx := context.Background()
-	_, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{nil})
+	_, err := network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{nil})
 	require.ErrorContains(t, err, "nil endpoint")
 
-	_, err = network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev0.Endpoint{
+	_, err = network.DeployedEndpointPorts(ctx, "mod", "svc", []*basev1.Endpoint{
 		deployedEndpoint("mod", "svc", "grpc", standards.GRPC),
 		deployedEndpoint("mod", "svc", "grpc", standards.GRPC),
 	})

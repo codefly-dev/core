@@ -15,8 +15,8 @@ import (
 
 	"github.com/codefly-dev/core/standards"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/shared"
@@ -110,7 +110,7 @@ func (s *Service) setDeclarationSource(file string, content []byte) error {
 }
 
 // TestFormula is the language-agnostic test invocation as DATA — the yaml mirror
-// of runtimev0.TestFormula. The command is captured from the project; the
+// of runtimev1.TestFormula. The command is captured from the project; the
 // provisioning map is interpreted by the language plugin (python/uv reads
 // python/editable/with/requirements/no_project). Nothing here is framework- or
 // toolchain-specific.
@@ -148,8 +148,8 @@ func (a *ServiceAutoscale) Validate() error {
 	return nil
 }
 
-func (s *Service) Proto(_ context.Context) (*basev0.Service, error) {
-	proto := &basev0.Service{
+func (s *Service) Proto(_ context.Context) (*basev1.Service, error) {
+	proto := &basev1.Service{
 		Name:        s.Name,
 		Description: s.Description,
 	}
@@ -201,7 +201,7 @@ func (s ServiceWithModule) String() string {
 }
 
 // NewService creates a service in an module
-func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService) (createdService *Service, result error) {
+func (mod *Module) NewService(ctx context.Context, action *actionsv1.AddService) (createdService *Service, result error) {
 	if action == nil {
 		return nil, wool.Get(ctx).In("mod.NewService").NewError("service action is nil")
 	}
@@ -357,7 +357,7 @@ func (s *ServiceIdentity) Clone() *ServiceIdentity {
 	}
 }
 
-func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
+func ServiceIdentityFromProto(proto *basev1.ServiceIdentity) *ServiceIdentity {
 	return &ServiceIdentity{
 		Name:                proto.Name,
 		Module:              proto.Module,
@@ -368,8 +368,8 @@ func ServiceIdentityFromProto(proto *basev0.ServiceIdentity) *ServiceIdentity {
 	}
 }
 
-func (s *ServiceIdentity) Proto() (*basev0.ServiceIdentity, error) {
-	proto := &basev0.ServiceIdentity{
+func (s *ServiceIdentity) Proto() (*basev1.ServiceIdentity, error) {
+	proto := &basev1.ServiceIdentity{
 		Name:                s.Name,
 		Module:              s.Module,
 		Workspace:           s.Workspace,
@@ -737,14 +737,14 @@ func (s *Service) HasEndpoints(_ context.Context, endpoints []string) ([]string,
 // protos the dependency checks judge: identity and visibility, with each API
 // contract left unread. LoadEndpoints reads every contract off disk, and
 // whether a consumer may depend on an endpoint does not turn on what it serves.
-func (s *Service) DependencyEndpoints() ([]*basev0.Endpoint, error) {
+func (s *Service) DependencyEndpoints() ([]*basev1.Endpoint, error) {
 	identity, err := s.Identity()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*basev0.Endpoint, 0, len(s.Endpoints))
+	out := make([]*basev1.Endpoint, 0, len(s.Endpoints))
 	for _, endpoint := range s.Endpoints {
-		out = append(out, &basev0.Endpoint{
+		out = append(out, &basev1.Endpoint{
 			Module:     identity.Module,
 			Service:    s.Name,
 			Name:       endpoint.Name,
@@ -837,7 +837,7 @@ func (s *ServiceIdentity) BaseEndpoint(name string) *Endpoint {
 	return &Endpoint{Name: name, Module: s.Module, Service: s.Name, Visibility: VisibilityPrivate}
 }
 
-func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("core.Service.LoadEndpoints", wool.NameField(s.Name))
 	w.Debug("processing endpoints", wool.SliceCountField(s.Endpoints))
 	if s.module == "" {
@@ -847,7 +847,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		return nil, err
 	}
 	var multi error
-	var out []*basev0.Endpoint
+	var out []*basev1.Endpoint
 	for _, ed := range s.Endpoints {
 		ed.Module = s.module
 		base, err := ed.Proto()
@@ -902,12 +902,12 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		case standards.CONNECT:
 			// Connect uses HTTP/2 transport — same API shape as HTTP.
 			base.Api = standards.CONNECT
-			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: ed.Secured})
+			base.ApiDetails = ToHTTPAPI(&basev1.HttpAPI{Secured: ed.Secured})
 			out = append(out, base)
 		case standards.MCP:
 			// MCP is served over Streamable HTTP — same API shape as HTTP.
 			base.Api = standards.MCP
-			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: ed.Secured})
+			base.ApiDetails = ToHTTPAPI(&basev1.HttpAPI{Secured: ed.Secured})
 			out = append(out, base)
 		}
 	}

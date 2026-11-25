@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 
-from codefly.services.builder.v0 import builder_pb2, builder_pb2_grpc, docker_pb2
+from codefly.services.builder.v1 import builder_pb2, builder_pb2_grpc, docker_pb2
 
 
 def test_cache_policy_round_trip_remains_caller_owned():

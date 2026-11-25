@@ -52,18 +52,18 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/toolbox/policyguard"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type victimServer struct {
-	toolboxv0.UnimplementedToolboxServer
+	toolboxv1.UnimplementedToolboxServer
 }
 
-func (victimServer) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
-	return &toolboxv0.IdentityResponse{
+func (victimServer) Identity(_ context.Context, _ *toolboxv1.IdentityRequest) (*toolboxv1.IdentityResponse, error) {
+	return &toolboxv1.IdentityResponse{
 		Name:           "network-victim",
 		Version:        os.Getenv("CODEFLY_TOOLBOX_VERSION"),
 		Description:    "Test-only victim plugin: outbound HTTP and FS writes with NO application guards. Sandbox is the only gate.",
@@ -71,9 +71,9 @@ func (victimServer) Identity(_ context.Context, _ *toolboxv0.IdentityRequest) (*
 	}, nil
 }
 
-func (victimServer) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
-	return &toolboxv0.ListToolsResponse{
-		Tools: []*toolboxv0.Tool{
+func (victimServer) ListTools(_ context.Context, _ *toolboxv1.ListToolsRequest) (*toolboxv1.ListToolsResponse, error) {
+	return &toolboxv1.ListToolsResponse{
+		Tools: []*toolboxv1.Tool{
 			{Name: "net.fetch", Description: "Issue HTTP GET with no allowlist; sandbox is the only gate."},
 			{Name: "fs.write", Description: "Write a file at the supplied path; sandbox is the only gate."},
 			{Name: "exec.write", Description: "Write a file by spawning /bin/sh -c. Tests sandbox inheritance into child processes."},
@@ -83,7 +83,7 @@ func (victimServer) ListTools(_ context.Context, _ *toolboxv0.ListToolsRequest) 
 	}, nil
 }
 
-func (victimServer) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (victimServer) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	switch req.Name {
 	case "net.fetch":
 		return doFetch(ctx, req)
@@ -96,7 +96,7 @@ func (victimServer) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest
 	case "check.action":
 		return doCheckAction(ctx, req)
 	default:
-		return &toolboxv0.CallToolResponse{Error: "unknown tool: " + req.Name}, nil
+		return &toolboxv1.CallToolResponse{Error: "unknown tool: " + req.Name}, nil
 	}
 }
 
@@ -126,15 +126,15 @@ func (victimServer) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest
 // response with allowed/reason/error fields so the E2E test can
 // assert all three failure modes — clean policy deny, allow,
 // transport error.
-func doCheckAction(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func doCheckAction(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	if req.Arguments == nil {
-		return &toolboxv0.CallToolResponse{Error: "check.action requires action and resource arguments"}, nil
+		return &toolboxv1.CallToolResponse{Error: "check.action requires action and resource arguments"}, nil
 	}
 	args := req.Arguments.AsMap()
 	action, _ := args["action"].(string)
 	resource, _ := args["resource"].(string)
 	if action == "" {
-		return &toolboxv0.CallToolResponse{Error: "check.action requires non-empty action"}, nil
+		return &toolboxv1.CallToolResponse{Error: "check.action requires non-empty action"}, nil
 	}
 
 	authorizer := policy.AuthorizerFromContext(ctx)
@@ -150,8 +150,8 @@ func doCheckAction(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 		result["error"] = err.Error()
 	}
 	s, _ := structpb.NewStruct(result)
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{{Body: &toolboxv0.Content_Structured{Structured: s}}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{{Body: &toolboxv1.Content_Structured{Structured: s}}},
 	}, nil
 }
 
@@ -173,14 +173,14 @@ func doCheckAction(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolbo
 // gate behavior, you're rebuilding the auth layer in the wrong
 // place. The principal is read-only metadata from the plugin's
 // perspective.
-func doWhoAmI(ctx context.Context) (*toolboxv0.CallToolResponse, error) {
+func doWhoAmI(ctx context.Context) (*toolboxv1.CallToolResponse, error) {
 	p := policy.PrincipalFrom(ctx)
 	if p == nil {
 		// Empty response indicates "no principal stamped" — the
 		// E2E test asserts against this distinct case.
 		s, _ := structpb.NewStruct(map[string]any{"present": false})
-		return &toolboxv0.CallToolResponse{
-			Content: []*toolboxv0.Content{{Body: &toolboxv0.Content_Structured{Structured: s}}},
+		return &toolboxv1.CallToolResponse{
+			Content: []*toolboxv1.Content{{Body: &toolboxv1.Content_Structured{Structured: s}}},
 		}, nil
 	}
 	s, _ := structpb.NewStruct(map[string]any{
@@ -192,12 +192,12 @@ func doWhoAmI(ctx context.Context) (*toolboxv0.CallToolResponse, error) {
 		"display_name": p.DisplayName,
 		"chain_len":    float64(len(p.DelegationChain)),
 	})
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{{Body: &toolboxv0.Content_Structured{Structured: s}}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{{Body: &toolboxv1.Content_Structured{Structured: s}}},
 	}, nil
 }
 
-func doFetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func doFetch(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	url := "http://example.com"
 	if req.Arguments != nil {
 		if v, ok := req.Arguments.AsMap()["url"].(string); ok && v != "" {
@@ -207,29 +207,29 @@ func doFetch(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.Ca
 	client := &http.Client{Timeout: 2 * time.Second}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("build request: %v", err)}, nil
+		return &toolboxv1.CallToolResponse{Error: fmt.Sprintf("build request: %v", err)}, nil
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("fetch failed: %v", err)}, nil
+		return &toolboxv1.CallToolResponse{Error: fmt.Sprintf("fetch failed: %v", err)}, nil
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Text{Text: fmt.Sprintf("status=%d body=%q", resp.StatusCode, string(body))}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Text{Text: fmt.Sprintf("status=%d body=%q", resp.StatusCode, string(body))}},
 		},
 	}, nil
 }
 
-func doWrite(req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func doWrite(req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	if req.Arguments == nil {
-		return &toolboxv0.CallToolResponse{Error: "fs.write requires path argument"}, nil
+		return &toolboxv1.CallToolResponse{Error: "fs.write requires path argument"}, nil
 	}
 	args := req.Arguments.AsMap()
 	path, _ := args["path"].(string)
 	if path == "" {
-		return &toolboxv0.CallToolResponse{Error: "fs.write requires non-empty path"}, nil
+		return &toolboxv1.CallToolResponse{Error: "fs.write requires non-empty path"}, nil
 	}
 	content, _ := args["content"].(string)
 	if content == "" {
@@ -238,11 +238,11 @@ func doWrite(req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		// This is the success-path of the sandbox test: OS denied
 		// the write. Surface verbatim.
-		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("write failed: %v", err)}, nil
+		return &toolboxv1.CallToolResponse{Error: fmt.Sprintf("write failed: %v", err)}, nil
 	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Text{Text: "wrote: " + path}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Text{Text: "wrote: " + path}},
 		},
 	}, nil
 }
@@ -258,14 +258,14 @@ func doWrite(req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error
 // shell's "Permission denied" / "Read-only file system" message is
 // part of the sandbox-blockage signal the test asserts on. We do
 // NOT redact /bin/sh exit codes — the test wants to see them.
-func doExecWrite(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func doExecWrite(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	if req.Arguments == nil {
-		return &toolboxv0.CallToolResponse{Error: "exec.write requires path argument"}, nil
+		return &toolboxv1.CallToolResponse{Error: "exec.write requires path argument"}, nil
 	}
 	args := req.Arguments.AsMap()
 	path, _ := args["path"].(string)
 	if path == "" {
-		return &toolboxv0.CallToolResponse{Error: "exec.write requires non-empty path"}, nil
+		return &toolboxv1.CallToolResponse{Error: "exec.write requires non-empty path"}, nil
 	}
 	content, _ := args["content"].(string)
 	if content == "" {
@@ -281,13 +281,13 @@ func doExecWrite(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return &toolboxv0.CallToolResponse{
+		return &toolboxv1.CallToolResponse{
 			Error: fmt.Sprintf("exec.write failed: %v: %s", err, string(out)),
 		}, nil
 	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Text{Text: "child wrote: " + path}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Text{Text: "child wrote: " + path}},
 		},
 	}, nil
 }
@@ -326,7 +326,7 @@ func main() {
 	hasScopedAuth := os.Getenv("CODEFLY_SCOPED_AUTHZ_SECRET") != ""
 	hasCallback := os.Getenv("CODEFLY_PERMISSIONS_SOCKET") != ""
 
-	var toolbox toolboxv0.ToolboxServer = &victim
+	var toolbox toolboxv1.ToolboxServer = &victim
 	if hasScopedAuth || hasCallback {
 		audience := "codefly.dev/network-victim:" + os.Getenv("CODEFLY_TOOLBOX_VERSION")
 		// PDP for the Guard's defense path. callback-backed

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Seal is the live binding of a principal's authority to one installation and
@@ -167,7 +167,7 @@ type SealSource interface {
 // the last actor hop, or the owner when the owner acts directly. It is the
 // principal an operation binding must be granted to, because it is the one
 // making the call.
-func exercisingPrincipal(wc *basev0.WorkContextV1) string {
+func exercisingPrincipal(wc *basev1.WorkContextV1) string {
 	chain := wc.GetActorChain()
 	if len(chain) == 0 {
 		return wc.GetOwnerPrincipalId()
@@ -183,7 +183,7 @@ func exercisingPrincipal(wc *basev0.WorkContextV1) string {
 // anything here is reached. The sentinel this used to return, ErrUnsealed, is
 // deleted with it: a sentinel no branch can produce is worse than no sentinel,
 // because a consumer writes a handler for it and the handler never runs.
-func sealOf(wc *basev0.WorkContextV1) *basev0.WorkSealV1 { return wc.GetSeal() }
+func sealOf(wc *basev1.WorkContextV1) *basev1.WorkSealV1 { return wc.GetSeal() }
 
 // checkSeal holds a capability's seal against the issuer's live values, and its
 // operation binding against the one binding its sealed ID resolves to.
@@ -193,7 +193,7 @@ func sealOf(wc *basev0.WorkContextV1) *basev0.WorkSealV1 { return wc.GetSeal() }
 // it was sealed to has moved, which is the same situation a superseded
 // authorization revision describes, and a caller distinguishing "re-mint" from
 // "reject this caller" needs them to read alike.
-func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
+func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev1.WorkContextV1) error {
 	sealed := sealOf(wc)
 	// The principal the seal is held for is the task's OWNER: the installation
 	// is the owner's, and a delegation hop narrows authority within it rather
@@ -249,7 +249,7 @@ func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkCont
 // A rule that applied only to some kinds of principal would be an
 // authorization decision made from a kind field, and it would leave whichever
 // kinds it skipped unrevocable.
-func checkActorEpochsAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
+func checkActorEpochsAgainst(ctx context.Context, seals SealSource, wc *basev1.WorkContextV1) error {
 	for index, hop := range wc.GetActorChain() {
 		// A hop carrying no epoch is not revocable. The SCHEMA refuses one
 		// now, with required plus gte=1, so there is no check for it here —
@@ -289,7 +289,7 @@ func checkEpochAgainst(ctx context.Context, seals SealSource, label, principalID
 // that names a binding granted to another principal in another installation:
 // the ID exists, the counters match, and nothing has asked whether the caller
 // holds it. An opaque ID is not authorization.
-func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1, sealed *basev0.WorkSealV1) error {
+func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *basev1.WorkContextV1, sealed *basev1.WorkSealV1) error {
 	binding := wc.GetOperationBinding()
 	if binding == nil {
 		return nil
@@ -345,7 +345,7 @@ func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *bas
 // added, or the owner when the owner acts directly. The binding must be
 // granted to it, within this installation, or the mint is refused: minting a
 // capability the verifier will reject is a failure best raised here.
-func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID, exercising string) (*basev0.WorkSealV1, *basev0.WorkOperationBindingV1, error) {
+func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID, exercising string) (*basev1.WorkSealV1, *basev1.WorkOperationBindingV1, error) {
 	if a.Seals == nil {
 		return nil, nil, fmt.Errorf("work context: authority has no seal source")
 	}
@@ -363,7 +363,7 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 	if err != nil {
 		return nil, nil, err
 	}
-	seal := &basev0.WorkSealV1{
+	seal := &basev1.WorkSealV1{
 		PrincipalEpoch:       epoch,
 		InstallationId:       live.InstallationID,
 		InstallationRevision: live.InstallationRevision,
@@ -396,7 +396,7 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 		return nil, nil, fmt.Errorf("%w: binding %q is granted to principal %q, which is not %q",
 			ErrInvalid, bindingID, resolved.PrincipalID, exercising)
 	}
-	return seal, &basev0.WorkOperationBindingV1{
+	return seal, &basev1.WorkOperationBindingV1{
 		BindingId:   resolved.ID,
 		Revision:    resolved.Revision,
 		Incarnation: resolved.Incarnation,
@@ -433,7 +433,7 @@ func (a *Authority) epochFor(ctx context.Context, principalID string) (uint64, e
 // the installation to 4, and a derived child kept the parent's authority while
 // carrying revision 4 and verifying. The revocation this package introduces
 // would then have been defeated by derivation.
-func (a *Authority) carryForwardSeal(ctx context.Context, parent *basev0.WorkContextV1) error {
+func (a *Authority) carryForwardSeal(ctx context.Context, parent *basev1.WorkContextV1) error {
 	if a.Seals == nil {
 		return fmt.Errorf("work context: authority has no seal source")
 	}

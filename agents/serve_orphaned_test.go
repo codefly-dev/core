@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -98,11 +98,11 @@ func killRunOfAStoreAgent(t *testing.T, environment ...string) orphanedStore {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	ctx = metadata.AppendToOutgoingContext(ctx, AuthMetadataKey, token)
-	client := runtimev0.NewRuntimeClient(conn)
-	if _, err := client.Load(ctx, &runtimev0.LoadRequest{}); err != nil {
+	client := runtimev1.NewRuntimeClient(conn)
+	if _, err := client.Load(ctx, &runtimev1.LoadRequest{}); err != nil {
 		t.Fatalf("Load: %v\nagent stderr:\n%s", err, agentLog())
 	}
-	if _, err := client.Init(ctx, &runtimev0.InitRequest{}); err != nil {
+	if _, err := client.Init(ctx, &runtimev1.InitRequest{}); err != nil {
 		t.Fatalf("Init: %v\nagent stderr:\n%s", err, agentLog())
 	}
 	reported, err := os.ReadFile(report)

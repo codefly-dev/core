@@ -18,9 +18,9 @@ Every service needs the right address for its runtime context. Hardcoding any of
 Every endpoint gets a **NetworkMapping** containing multiple **NetworkInstances** -- one per access type:
 
 ```go
-mapping := &basev0.NetworkMapping{
+mapping := &basev1.NetworkMapping{
     Endpoint: grpcEndpoint,  // the logical endpoint
-    Instances: []*basev0.NetworkInstance{
+    Instances: []*basev1.NetworkInstance{
         Native(endpoint, port),    // localhost:PORT
         Container(endpoint, port), // host.docker.internal:PORT
         Public(endpoint, port),    // configurable hostname:PORT
@@ -99,13 +99,13 @@ A service agent produces configuration during `Init()`. For example, an `postgre
 
 ```go
 // In InitResponse
-configs := []*basev0.Configuration{
+configs := []*basev1.Configuration{
     {
         Origin: "store/postgres",
-        Infos: []*basev0.ConfigurationInformation{
+        Infos: []*basev1.ConfigurationInformation{
             {
                 Name: "connection",
-                ConfigurationValues: []*basev0.ConfigurationValue{
+                ConfigurationValues: []*basev1.ConfigurationValue{
                     {Key: "url", Value: "postgresql://localhost:5432/mydb"},
                     {Key: "password", Value: "secret", Secret: true},
                 },

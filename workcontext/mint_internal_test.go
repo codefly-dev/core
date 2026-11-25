@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Authority.seal refuses to sign a capability that carries no seal, or whose
@@ -19,8 +19,8 @@ import (
 func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 	authority := &Authority{Issuer: "https://issuer.test", KeyID: "k", Key: testSigningKey(t)}
 
-	sound := func() *basev0.WorkContextV1 {
-		return &basev0.WorkContextV1{
+	sound := func() *basev1.WorkContextV1 {
+		return &basev1.WorkContextV1{
 			Typ: Typ, Algorithm: Algorithm, KeyId: "k",
 			Issuer: "https://issuer.test", Audience: "aud",
 			// A STATED window: seal's self-check decodes, and a capability
@@ -29,8 +29,8 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 			NotBeforeUnix: testMintInstant, IssuedAtUnix: testMintInstant, ExpiresAtUnix: testWindowEnd,
 			Nonce: "n", ReplayPolicy: ReplayIdempotent,
 			TenantId: "t", OwnerPrincipalId: "p", TaskId: "task", SessionId: "s",
-			AuthorityScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
-			Seal: &basev0.WorkSealV1{
+			AuthorityScopes: []*basev1.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
+			Seal: &basev1.WorkSealV1{
 				PrincipalEpoch: 1, InstallationId: "inst",
 				InstallationRevision: 1,
 			},
@@ -54,9 +54,9 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 	// An actor hop with no epoch is a principal that could never be revoked,
 	// and the minter will not hand one out either.
 	hopless := sound()
-	hopless.ActorChain = []*basev0.WorkActorV1{{
+	hopless.ActorChain = []*basev1.WorkActorV1{{
 		PrincipalId: "actor", PrincipalKind: "service", DelegationId: "d",
-		GrantedScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
+		GrantedScopes: []*basev1.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
 	}}
 	_, _, err = authority.seal(hopless)
 	require.ErrorIs(t, err, ErrInvalid)

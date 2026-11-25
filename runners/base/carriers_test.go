@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
@@ -22,18 +22,18 @@ const carrierChild = "CODEFLY_TEST_CARRIER_CHILD"
 // than a process environment can carry, beside small ones that stay inline.
 // The content of each large value follows from its key, so the process started
 // with it can say whether what it read is what was delivered.
-func carriedValues() (*basev0.Configuration, []string) {
-	info := &basev0.ConfigurationInformation{Name: "catalog"}
+func carriedValues() (*basev1.Configuration, []string) {
+	info := &basev1.ConfigurationInformation{Name: "catalog"}
 	var keys []string
 	for i := 0; i < 4; i++ {
 		key := fmt.Sprintf("BUNDLE_%02d", i)
 		keys = append(keys, key)
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: key, Value: carriedValue(key)},
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
+			&basev1.ConfigurationValue{Key: key, Value: carriedValue(key)},
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
 		)
 	}
-	return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}, keys
+	return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}, keys
 }
 
 func carriedValue(key string) string {
@@ -93,7 +93,7 @@ func TestANativeProcessReceivesValuesTooLargeForItsEnvironment(t *testing.T) {
 	ctx := context.Background()
 	configuration, keys := carriedValues()
 	manager := resources.NewEnvironmentVariableManager()
-	manager.SetEnvironment(&basev0.Environment{Name: "local"})
+	manager.SetEnvironment(&basev1.Environment{Name: "local"})
 	require.NoError(t, manager.AddConfigurations(ctx, configuration))
 	envs, err := manager.All()
 	require.NoError(t, err)
@@ -155,14 +155,14 @@ func TestANativeProcessIsNotStartedWithAnOversizedEnvironment(t *testing.T) {
 // starts.
 func TestANativeProcessWithManyInlineValuesAboveTheLimitStarts(t *testing.T) {
 	ctx := context.Background()
-	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	info := &basev1.ConfigurationInformation{Name: "bindings"}
 	for i := 0; i < 40; i++ {
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
 	}
 	manager := resources.NewEnvironmentVariableManager()
-	manager.SetEnvironment(&basev0.Environment{Name: "local"})
-	require.NoError(t, manager.AddConfigurations(ctx, &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}))
+	manager.SetEnvironment(&basev1.Environment{Name: "local"})
+	require.NoError(t, manager.AddConfigurations(ctx, &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}))
 	envs, err := manager.All()
 	require.NoError(t, err)
 	var inline int

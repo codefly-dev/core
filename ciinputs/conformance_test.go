@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 func writeFixture(t *testing.T, root, name, body string) {

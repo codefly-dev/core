@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
@@ -15,12 +15,12 @@ import (
 func TestIsAPIHelpersTolerateNilDetails(t *testing.T) {
 	ctx := context.Background()
 
-	require.Nil(t, resources.IsGRPC(ctx, &basev0.Endpoint{Api: standards.GRPC}))
-	require.Nil(t, resources.IsRest(ctx, &basev0.Endpoint{Api: standards.REST}))
-	require.Nil(t, resources.IsHTTP(ctx, &basev0.Endpoint{Api: standards.HTTP}))
-	require.Nil(t, resources.IsTCP(ctx, &basev0.Endpoint{Api: standards.TCP}))
+	require.Nil(t, resources.IsGRPC(ctx, &basev1.Endpoint{Api: standards.GRPC}))
+	require.Nil(t, resources.IsRest(ctx, &basev1.Endpoint{Api: standards.REST}))
+	require.Nil(t, resources.IsHTTP(ctx, &basev1.Endpoint{Api: standards.HTTP}))
+	require.Nil(t, resources.IsTCP(ctx, &basev1.Endpoint{Api: standards.TCP}))
 
-	grpc := &basev0.GrpcAPI{}
-	ep := &basev0.Endpoint{Api: standards.GRPC, ApiDetails: resources.ToGrpcAPI(grpc)}
+	grpc := &basev1.GrpcAPI{}
+	ep := &basev1.Endpoint{Api: standards.GRPC, ApiDetails: resources.ToGrpcAPI(grpc)}
 	require.Same(t, grpc, resources.IsGRPC(ctx, ep))
 }

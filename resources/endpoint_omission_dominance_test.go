@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +24,7 @@ func TestAFaultBehindAnOmittableReferenceIsStillRefused(t *testing.T) {
 		selectionEndpoint("primary", "grpc", "public"),
 		selectionEndpoint("secondary", "grpc", "public"),
 	))
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("hidden", "grpc", nativeAt("http://localhost:1")),
 		selectionMapping("primary", "grpc", nativeAt("http://localhost:2")),
 		selectionMapping("secondary", "grpc", nativeAt("http://localhost:3")),
@@ -33,23 +33,23 @@ func TestAFaultBehindAnOmittableReferenceIsStillRefused(t *testing.T) {
 	ambiguous := "${endpoint:" + selectionUnique + "/grpc}"
 	malformed := "${endpoint:nonsense}"
 
-	plain := func(value string) *basev0.Configuration {
-		return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-			Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "address", Value: value}},
+	plain := func(value string) *basev1.Configuration {
+		return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+			Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "address", Value: value}},
 		}}}
 	}
-	templated := func(literals ...string) *basev0.Configuration {
-		var segments []*basev0.ConfigurationValueTemplateSegment
+	templated := func(literals ...string) *basev1.Configuration {
+		var segments []*basev1.ConfigurationValueTemplateSegment
 		for _, literal := range literals {
-			segments = append(segments, &basev0.ConfigurationValueTemplateSegment{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: literal}})
+			segments = append(segments, &basev1.ConfigurationValueTemplateSegment{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: literal}})
 		}
-		return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-			Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "address", Template: &basev0.ConfigurationValueTemplate{Segments: segments}}},
+		return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+			Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "address", Template: &basev1.ConfigurationValueTemplate{Segments: segments}}},
 		}}}
 	}
 
 	for name, tc := range map[string]struct {
-		conf *basev0.Configuration
+		conf *basev1.Configuration
 		want error
 	}{
 		"omission then ambiguity":             {plain(omittable + "," + ambiguous), resources.ErrAmbiguousEndpointReference},
@@ -89,18 +89,18 @@ func TestAnUnsupportedVisibilityIsAFaultNotAnOmission(t *testing.T) {
 	ctx := context.Background()
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
 	consumer := resources.WithConsumer("payments", declaredBy(selectionEndpoint("grpc", "grpc", "pubilc")))
-	mappings := []*basev0.NetworkMapping{selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))}
+	mappings := []*basev1.NetworkMapping{selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))}
 	reference := "${endpoint:" + selectionUnique + "/grpc}"
 
-	plain := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "address", Value: reference}},
+	plain := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "address", Value: reference}},
 	}}}
-	templated := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "address", Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "grpc://" + reference}}},
+	templated := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "address", Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "grpc://" + reference}}},
 		}}},
 	}}}
-	for name, conf := range map[string]*basev0.Configuration{"plain": plain, "templated": templated} {
+	for name, conf := range map[string]*basev1.Configuration{"plain": plain, "templated": templated} {
 		t.Run(name, func(t *testing.T) {
 			_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, mappings, resources.NewNativeNetworkAccess(), inRun, consumer)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration)

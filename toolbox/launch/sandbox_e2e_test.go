@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/sandbox"
@@ -155,13 +155,13 @@ func TestE2E_OSSandbox_BlocksWriteOutsideAllowedPaths(t *testing.T) {
 	// gRPC must still work — the sandbox grants loopback when
 	// network is Open. (Deny-network would break this; that's the
 	// architectural limitation noted above.)
-	_, err = plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	_, err = plugin.Client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 
 	// --- Allowed write — must SUCCEED ---
 	allowedTarget := filepath.Join(allowedWriteDir, "ok.txt")
 	args, _ := structpb.NewStruct(map[string]any{"path": allowedTarget, "content": "hello\n"})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "fs.write", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestE2E_OSSandbox_BlocksWriteOutsideAllowedPaths(t *testing.T) {
 	// --- Forbidden write — must FAIL at OS layer ---
 	forbiddenTarget := filepath.Join(forbiddenWriteDir, "blocked.txt")
 	args2, _ := structpb.NewStruct(map[string]any{"path": forbiddenTarget, "content": "should-not-exist\n"})
-	resp2, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp2, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "fs.write", Arguments: args2,
 	})
 	require.NoError(t, err, "gRPC must succeed; the WRITE inside the plugin is what fails")
@@ -248,7 +248,7 @@ func TestE2E_NoSandbox_AllowsForbiddenWrite(t *testing.T) {
 
 	target := filepath.Join(writeDir, "control.txt")
 	args, _ := structpb.NewStruct(map[string]any{"path": target, "content": "control\n"})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "fs.write", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -331,13 +331,13 @@ func TestE2E_OSSandbox_InheritedByChildProcesses(t *testing.T) {
 	require.NoError(t, err, "victim plugin must spawn under sandbox")
 	defer plugin.Close()
 
-	_, err = plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	_, err = plugin.Client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 
 	// --- Allowed write via child shell — must SUCCEED ---
 	allowedTarget := filepath.Join(allowedWriteDir, "child-ok.txt")
 	args, _ := structpb.NewStruct(map[string]any{"path": allowedTarget, "content": "child-hello"})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "exec.write", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestE2E_OSSandbox_InheritedByChildProcesses(t *testing.T) {
 	// call hits the same denial.
 	forbiddenTarget := filepath.Join(forbiddenWriteDir, "child-blocked.txt")
 	args2, _ := structpb.NewStruct(map[string]any{"path": forbiddenTarget, "content": "child-should-not-exist"})
-	resp2, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp2, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "exec.write", Arguments: args2,
 	})
 	require.NoError(t, err, "gRPC succeeds; the FAILURE must be the child's write")
@@ -419,7 +419,7 @@ func TestE2E_NoSandbox_ChildShellAllowsForbiddenWrite(t *testing.T) {
 
 	target := filepath.Join(writeDir, "child-control.txt")
 	args, _ := structpb.NewStruct(map[string]any{"path": target, "content": "child-control"})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "exec.write", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -459,7 +459,7 @@ func resolveSymlinksOptional(t *testing.T, path string) string {
 
 // contentSummary stringifies a CallToolResponse's content blocks for
 // failure messages.
-func contentSummary(resp *toolboxv0.CallToolResponse) string {
+func contentSummary(resp *toolboxv1.CallToolResponse) string {
 	parts := make([]string, 0, len(resp.GetContent()))
 	for _, c := range resp.GetContent() {
 		if t := c.GetText(); t != "" {

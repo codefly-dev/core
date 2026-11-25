@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/runners/python"
 )
 
@@ -53,7 +53,7 @@ func TestPytestStructured_AllPassing_NoCapturedOutput(t *testing.T) {
 	run := python.ParsePytestJUnit(realisticJUnitPassing, 0)
 	resp := run.ToProtoResponse("pytest", "unit", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State)
 	require.EqualValues(t, 2, resp.Counts.Total)
 	require.EqualValues(t, 2, resp.Counts.Passed)
 	require.EqualValues(t, 0, resp.Counts.Failed)
@@ -64,7 +64,7 @@ func TestPytestStructured_AllPassing_NoCapturedOutput(t *testing.T) {
 	require.Len(t, suite.Cases, 2)
 
 	for _, c := range suite.Cases {
-		require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
+		require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
 		require.Empty(t, c.CapturedOutput,
 			"PASSED cases must not carry captured output (the load-bearing rule)")
 		require.Nil(t, c.Failure)
@@ -79,7 +79,7 @@ func TestPytestStructured_FailedCase_CarriesDetailAndKind(t *testing.T) {
 	run := python.ParsePytestJUnit(realisticJUnitMixed, 0)
 	resp := run.ToProtoResponse("pytest", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_FAILED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_FAILED, resp.Result.State)
 	require.EqualValues(t, 3, resp.Counts.Total)
 	require.EqualValues(t, 1, resp.Counts.Passed)
 	require.EqualValues(t, 1, resp.Counts.Failed)
@@ -90,22 +90,22 @@ func TestPytestStructured_FailedCase_CarriesDetailAndKind(t *testing.T) {
 	cases := caseByName(t, suite)
 
 	pc := cases["test_pass"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, pc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, pc.State)
 	require.Empty(t, pc.CapturedOutput)
 
 	fc := cases["test_fail"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, fc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, fc.State)
 	require.NotNil(t, fc.Failure)
 	require.Equal(t, "assert 1 == 2", fc.Failure.Message,
 		"failure.message comes from the JUnit `message` attribute (one-liner)")
 	require.Contains(t, fc.Failure.Detail, "tests/test_admin.py:25",
 		"failure.detail must contain the traceback for IDE jump")
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, fc.Failure.Kind)
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, fc.Failure.Kind)
 	require.NotEmpty(t, fc.CapturedOutput,
 		"FAILED cases get the failure body in captured_output")
 
 	sc := cases["test_skip"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED, sc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED, sc.State)
 	require.Empty(t, sc.CapturedOutput,
 		"SKIPPED cases follow the same retention rule as PASSED")
 	require.NotNil(t, sc.Failure, "skip reason lives on the same struct so consumers have one place to look")
@@ -116,14 +116,14 @@ func TestPytestStructured_FixtureError_ClassifiedAsSetup(t *testing.T) {
 	run := python.ParsePytestJUnit(realisticJUnitErrored, 0)
 	resp := run.ToProtoResponse("pytest", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_ERRORED, resp.Result.State,
+	require.Equal(t, runtimev1.TestRunResult_ERRORED, resp.Result.State,
 		"any errored case bubbles up to ERRORED at the run level (distinct from FAILED)")
 	require.EqualValues(t, 1, resp.Counts.Errored)
 	require.EqualValues(t, 0, resp.Counts.Failed)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_SETUP, c.Failure.Kind,
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_SETUP, c.Failure.Kind,
 		"`<error>` in pytest junit means fixture/setup failure, not assertion")
 	require.Contains(t, c.Failure.Detail, "fixture 'db' not found")
 	require.NotEmpty(t, c.CapturedOutput)
@@ -140,7 +140,7 @@ during call</failure>
 	run := python.ParsePytestJUnit(xml, 0)
 	resp := run.ToProtoResponse("pytest", "", time.Second)
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT, c.Failure.Kind,
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT, c.Failure.Kind,
 		"timeout markers in body must classify as TIMEOUT, not ASSERTION")
 }
 
@@ -175,7 +175,7 @@ func TestPytestStructured_LegacyFieldsMirrorStructured(t *testing.T) {
 	require.EqualValues(t, 1, resp.TestsFailed)
 	require.EqualValues(t, 1, resp.TestsSkipped)
 	require.InDelta(t, 87.5, resp.CoveragePct, 0.001)
-	require.Equal(t, runtimev0.TestStatus_ERROR, resp.Status.State,
+	require.Equal(t, runtimev1.TestStatus_ERROR, resp.Status.State,
 		"any failure flips legacy status to ERROR")
 	require.Len(t, resp.Failures, 1)
 	require.Contains(t, resp.Failures[0], "tests/test_admin.py")
@@ -217,7 +217,7 @@ func TestPytestStructured_EmptyXML_ReturnsEmptyRun(t *testing.T) {
 
 	require.Empty(t, resp.Suites)
 	require.EqualValues(t, 0, resp.Counts.Total)
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State,
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State,
 		"empty run is technically passed (zero failures); upstream uses runErr to know pytest crashed")
 }
 
@@ -240,9 +240,9 @@ func TestPytestStructured_LegacySummary_RoundTripsCorrectCounts(t *testing.T) {
 // caseByName returns a map of case name → *TestCase for the suite's
 // cases. Helps tests assert on specific cases without depending on
 // alphabetical ordering inside the assertions.
-func caseByName(t *testing.T, suite *runtimev0.TestSuite) map[string]*runtimev0.TestCase {
+func caseByName(t *testing.T, suite *runtimev1.TestSuite) map[string]*runtimev1.TestCase {
 	t.Helper()
-	out := make(map[string]*runtimev0.TestCase, len(suite.Cases))
+	out := make(map[string]*runtimev1.TestCase, len(suite.Cases))
 	for _, c := range suite.Cases {
 		out[c.Name] = c
 	}
@@ -259,7 +259,7 @@ func TestToProtoResponseTagsDependencyWarningFailures(t *testing.T) {
 		File: "tests/test_testing.py",
 		Cases: []*python.StructuredCase{{
 			Name:  "test_session_transactions",
-			State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			State: runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 			Output: ".cache/uv/archive/lib/python3.11/site-packages/werkzeug/test.py:862: in cookie_jar\n" +
 				"E   DeprecationWarning: The 'cookie_jar' attribute is a private API.",
 			Failure: &python.StructuredFailure{Message: "DeprecationWarning treated as error"},
@@ -277,7 +277,7 @@ func TestToProtoResponseTagsDependencyWarningFailures(t *testing.T) {
 		File: "tests/test_math.py",
 		Cases: []*python.StructuredCase{{
 			Name:    "test_add",
-			State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			State:   runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 			Output:  "assert 2 == 3",
 			Failure: &python.StructuredFailure{Message: "assertion failed"},
 		}},
@@ -295,7 +295,7 @@ func TestToProtoResponseTagsStaleRuntimeDataWarnings(t *testing.T) {
 		File: "tests/test_time.py",
 		Cases: []*python.StructuredCase{{
 			Name:  "test_historical_epoch",
-			State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			State: runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 			Output: "astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due to " +
 				"IERSStaleWarning('leap-second file is expired.')",
 			Failure: &python.StructuredFailure{
@@ -315,7 +315,7 @@ func TestToProtoResponseTagsStaleRuntimeDataWarnings(t *testing.T) {
 		File: "tests/test_cache.py",
 		Cases: []*python.StructuredCase{{
 			Name:    "test_rejects_stale_cache",
-			State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+			State:   runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 			Output:  "AssertionError: expected warning for stale cache data",
 			Failure: &python.StructuredFailure{Message: "AssertionError"},
 		}},
@@ -331,13 +331,13 @@ func TestToProtoResponseTagsStaleRuntimeDataWarnings(t *testing.T) {
 		Cases: []*python.StructuredCase{
 			{
 				Name:    "test_stale_data",
-				State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+				State:   runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 				Output:  "RuntimeDataStaleWarning: bundled table file is expired",
 				Failure: &python.StructuredFailure{Message: "RuntimeDataStaleWarning"},
 			},
 			{
 				Name:    "test_result",
-				State:   runtimev0.TestCaseState_TEST_CASE_STATE_FAILED,
+				State:   runtimev1.TestCaseState_TEST_CASE_STATE_FAILED,
 				Output:  "AssertionError: 2 != 3",
 				Failure: &python.StructuredFailure{Message: "AssertionError"},
 			},

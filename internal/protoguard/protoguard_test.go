@@ -52,24 +52,24 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	_ "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/ci/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	_ "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/ci/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	_ "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
-	_ "github.com/codefly-dev/core/generated/go/codefly/mcp/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
-	_ "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	_ "github.com/codefly-dev/core/generated/go/codefly/mcp/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/observability/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
+	_ "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 )
 
 const regenerate = "codefly generate proto --proto ./proto --output ./generated --local"
@@ -279,7 +279,7 @@ func TestEveryBindingStillHasASchema(t *testing.T) {
 // useless one here, since CI runs as root and root reads a 0000 file anyway;
 // an empty import path reproduces the same resolver state directly.
 func TestSchemaResolverRefusesToServeOurSourcesFromTheBindings(t *testing.T) {
-	const registered = "codefly/base/v0/scope.proto"
+	const registered = "codefly/base/v1/scope.proto"
 	_, registeredErr := protoregistry.GlobalFiles.FindFileByPath(registered)
 	require.NoError(t, registeredErr, "fixture must be a path the bindings really do register")
 
@@ -303,10 +303,10 @@ func TestSchemaResolverRefusesToServeOurSourcesFromTheBindings(t *testing.T) {
 // be read fails, rather than quietly succeeding against the bindings.
 func TestCompilingUnreadableSourcesFails(t *testing.T) {
 	compiler := protocompile.Compiler{
-		Resolver:       schemaResolver(t.TempDir(), []string{"codefly/base/v0/scope.proto"}),
+		Resolver:       schemaResolver(t.TempDir(), []string{"codefly/base/v1/scope.proto"}),
 		SourceInfoMode: protocompile.SourceInfoNone,
 	}
-	_, err := compiler.Compile(context.Background(), "codefly/base/v0/scope.proto")
+	_, err := compiler.Compile(context.Background(), "codefly/base/v1/scope.proto")
 	require.Error(t, err, "compiling sources that cannot be read must fail, not fall back to the bindings")
 }
 
@@ -315,9 +315,9 @@ func TestSchemaCandidatesReadGrpcNamedSchemasAsThemselves(t *testing.T) {
 		binding string
 		want    []string
 	}{
-		{"codefly/base/v0/scope.pb.go", []string{"codefly/base/v0/scope.proto"}},
-		{"codefly/base/v0/scope_grpc.pb.go", []string{"codefly/base/v0/scope_grpc.proto", "codefly/base/v0/scope.proto"}},
-		{"codefly/base/v0/stream_grpc_grpc.pb.go", []string{"codefly/base/v0/stream_grpc_grpc.proto", "codefly/base/v0/stream_grpc.proto"}},
+		{"codefly/base/v1/scope.pb.go", []string{"codefly/base/v1/scope.proto"}},
+		{"codefly/base/v1/scope_grpc.pb.go", []string{"codefly/base/v1/scope_grpc.proto", "codefly/base/v1/scope.proto"}},
+		{"codefly/base/v1/stream_grpc_grpc.pb.go", []string{"codefly/base/v1/stream_grpc_grpc.proto", "codefly/base/v1/stream_grpc.proto"}},
 	} {
 		t.Run(tc.binding, func(t *testing.T) {
 			require.Equal(t, tc.want, schemaCandidates(tc.binding))
@@ -327,7 +327,7 @@ func TestSchemaCandidatesReadGrpcNamedSchemasAsThemselves(t *testing.T) {
 	// The regression: a schema named *_grpc.proto generates a *_grpc.pb.go of
 	// its own, and stripping _grpc unconditionally reported it as an orphan of
 	// a .proto that never existed.
-	require.Contains(t, schemaCandidates("codefly/base/v0/stream_grpc.pb.go"),
-		"codefly/base/v0/stream_grpc.proto",
+	require.Contains(t, schemaCandidates("codefly/base/v1/stream_grpc.pb.go"),
+		"codefly/base/v1/stream_grpc.proto",
 		"a schema legitimately named *_grpc.proto must be recognised as its own source")
 }

@@ -3,7 +3,7 @@ package cassette
 import (
 	"fmt"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -12,7 +12,7 @@ import (
 // forwarded value, selector, suppressed presence marker, or capture reference
 // that still looks like a secret means filtering drifted, and the response must
 // not be recorded.
-func assertSafe(response *providerv0.ExecuteRequestResponse) error {
+func assertSafe(response *providerv1.ExecuteRequestResponse) error {
 	if response == nil {
 		return fmt.Errorf("cassette response is required")
 	}

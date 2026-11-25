@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -17,20 +17,20 @@ import (
 // a provider that judged nothing — so the session's own judgement is what the
 // test observes.
 type servingCLI struct {
-	v0.CLIClient
-	mappings []*basev0.NetworkMapping
+	v1.CLIClient
+	mappings []*basev1.NetworkMapping
 }
 
-func (cli *servingCLI) GetDependenciesNetworkMappings(context.Context, *v0.GetNetworkMappingsRequest, ...grpc.CallOption) (*v0.GetNetworkMappingsResponse, error) {
-	return &v0.GetNetworkMappingsResponse{NetworkMappings: cli.mappings}, nil
+func (cli *servingCLI) GetDependenciesNetworkMappings(context.Context, *v1.GetNetworkMappingsRequest, ...grpc.CallOption) (*v1.GetNetworkMappingsResponse, error) {
+	return &v1.GetNetworkMappingsResponse{NetworkMappings: cli.mappings}, nil
 }
 
-func (cli *servingCLI) GetConfiguration(context.Context, *v0.GetConfigurationRequest, ...grpc.CallOption) (*v0.GetConfigurationResponse, error) {
-	return &v0.GetConfigurationResponse{}, nil
+func (cli *servingCLI) GetConfiguration(context.Context, *v1.GetConfigurationRequest, ...grpc.CallOption) (*v1.GetConfigurationResponse, error) {
+	return &v1.GetConfigurationResponse{}, nil
 }
 
-func (cli *servingCLI) GetDependenciesConfigurations(context.Context, *v0.GetConfigurationRequest, ...grpc.CallOption) (*v0.GetConfigurationsResponse, error) {
-	return &v0.GetConfigurationsResponse{}, nil
+func (cli *servingCLI) GetDependenciesConfigurations(context.Context, *v1.GetConfigurationRequest, ...grpc.CallOption) (*v1.GetConfigurationsResponse, error) {
+	return &v1.GetConfigurationsResponse{}, nil
 }
 
 func writeFile(t *testing.T, root, relative, content string) {
@@ -67,12 +67,12 @@ func solutionConsumer(t *testing.T) string {
 	return filepath.Join(root, "product", "solutions", "notes", "services", "api")
 }
 
-func usageMapping(visibility string) *basev0.NetworkMapping {
+func usageMapping(visibility string) *basev1.NetworkMapping {
 	instance := resources.NewNetworkInstance("localhost", 19090)
 	instance.Access = resources.NewNativeNetworkAccess()
-	return &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: visibility},
-		Instances: []*basev0.NetworkInstance{instance},
+	return &basev1.NetworkMapping{
+		Endpoint:  &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: visibility},
+		Instances: []*basev1.NetworkInstance{instance},
 	}
 }
 
@@ -82,7 +82,7 @@ func usageMapping(visibility string) *basev0.NetworkMapping {
 // route to a module is refused, and a permitted one is projected.
 func TestTheSessionJudgesWhatTheCLIServesWithTheWorkspaceItFinds(t *testing.T) {
 	ctx := context.Background()
-	session := func(dir string, mappings ...*basev0.NetworkMapping) *Dependencies {
+	session := func(dir string, mappings ...*basev1.NetworkMapping) *Dependencies {
 		return &Dependencies{cli: &servingCLI{mappings: mappings}, dir: dir, runtimeContext: resources.NewRuntimeContextNative()}
 	}
 

@@ -1,7 +1,7 @@
 import pathlib
 import unittest
 
-from codefly.runnable.v0 import projection_pb2
+from codefly.runnable.v1 import projection_pb2
 from google.protobuf import json_format
 
 
@@ -34,7 +34,7 @@ class ToolProjectionContractTest(unittest.TestCase):
             "The fixture must populate every field, including new schema fields",
         )
         for field in value.DESCRIPTOR.fields:
-            if field.message_type is None or not field.message_type.full_name.startswith("codefly.runnable.v0."):
+            if field.message_type is None or not field.message_type.full_name.startswith("codefly.runnable.v1."):
                 continue
             children = getattr(value, field.name)
             if not field.is_repeated:

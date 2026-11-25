@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -29,8 +29,8 @@ func TestLoadBindsInterfacesFromTheHost(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	}
-	identity := func(bindings *basev0.ServiceInterfaceBindings) *basev0.ServiceIdentity {
-		return &basev0.ServiceIdentity{
+	identity := func(bindings *basev1.ServiceInterfaceBindings) *basev1.ServiceIdentity {
+		return &basev1.ServiceIdentity{
 			Name: "records", Module: "records", Workspace: "product", Version: "0.0.1",
 			WorkspacePath: root, RelativeToWorkspace: "modules/records/services/records",
 			InterfaceBindings: bindings,
@@ -43,11 +43,11 @@ func TestLoadBindsInterfacesFromTheHost(t *testing.T) {
 	require.ErrorContains(t, base.Load(ctx, identity(nil), &struct{}{}), "requires host resolution")
 
 	base = NewServiceBase(ctx, serviceAgent)
-	require.NoError(t, base.Load(ctx, identity(&basev0.ServiceInterfaceBindings{}), &struct{}{}))
+	require.NoError(t, base.Load(ctx, identity(&basev1.ServiceInterfaceBindings{}), &struct{}{}))
 	require.True(t, base.Service.ServiceDependencies[0].Unbound(), "nothing in the host's composition implements it")
 
 	base = NewServiceBase(ctx, serviceAgent)
-	require.NoError(t, base.Load(ctx, identity(&basev0.ServiceInterfaceBindings{Bindings: []*basev0.ServiceInterfaceBinding{
+	require.NoError(t, base.Load(ctx, identity(&basev1.ServiceInterfaceBindings{Bindings: []*basev1.ServiceInterfaceBinding{
 		{Interface: "codefly.dev/authority@0.1.0", Module: "authority", Service: "gateway", Endpoint: "grpc"},
 	}}), &struct{}{}))
 	dependency := base.Service.ServiceDependencies[0]

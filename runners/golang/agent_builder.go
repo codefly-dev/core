@@ -12,7 +12,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // DockerTemplating holds template parameters for Dockerfile generation.
@@ -40,9 +40,9 @@ type DockerEnv struct {
 
 // BuildGoDocker emits a Docker build recipe for a Go service.
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest,
+	req *builderv1.BuildRequest,
 	requirements *builders.Dependencies, builderFS embed.FS,
-	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
+	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv1.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("golang.BuildGoDocker")
 
@@ -104,9 +104,9 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 // Pass options such as services.WithPodOverlay to opt into pod-level
 // customization (serviceAccountName, an annotated ServiceAccount, pod labels)
 // without re-inlining the DeployKustomize wiring.
-func DeployGoKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv0.DeploymentRequest,
+func DeployGoKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv1.DeploymentRequest,
 	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS,
-	opts ...services.KustomizeDeploymentOption) (*builderv0.DeploymentResponse, error) {
+	opts ...services.KustomizeDeploymentOption) (*builderv1.DeploymentResponse, error) {
 	deployment := services.KustomizeDeployment{
 		EnvironmentVariables: envVars,
 		Templates:            deploymentFS,

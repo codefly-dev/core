@@ -3,8 +3,8 @@ package code
 import (
 	"context"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // SymbolSpan pairs a body-free semantic symbol with the exact parser-owned byte
@@ -12,7 +12,7 @@ import (
 // server handles, so typed symbol mutation can live here while the parsing that
 // produces it stays in core/code/semantic.
 type SymbolSpan struct {
-	Symbol         *basev0.SemanticSymbol
+	Symbol         *basev1.SemanticSymbol
 	StartByte      uint
 	EndByte        uint
 	DeclarationKey string
@@ -25,14 +25,14 @@ type SymbolSpan struct {
 // with an unsupported-operation failure when none is installed.
 type SemanticAnalyzer interface {
 	// SemanticIndex scans sourceDir through fs and returns the full typed index.
-	SemanticIndex(ctx context.Context, sourceDir string, fs VFS) (*basev0.SemanticIndex, error)
+	SemanticIndex(ctx context.Context, sourceDir string, fs VFS) (*basev1.SemanticIndex, error)
 	// SourceImports returns a deterministic per-file import inventory for a
 	// non-Go language rooted at root. The Go inventory is stdlib-based and lives
 	// in core/code.
-	SourceImports(ctx context.Context, fs VFS, root, language string) ([]*codev0.SourceFileInfo, error)
+	SourceImports(ctx context.Context, fs VFS, root, language string) ([]*codev1.SourceFileInfo, error)
 	// InspectProject fills declarative project metadata for the given
 	// code-unit language (jvm, dotnet). Unsupported languages return an error.
-	InspectProject(ctx context.Context, fs VFS, sourceDir, language string, info *codev0.GetProjectInfoResponse) error
+	InspectProject(ctx context.Context, fs VFS, sourceDir, language string, info *codev1.GetProjectInfoResponse) error
 	// DeclarationSpans returns every declaration span in body, keyed for typed
 	// symbol mutation.
 	DeclarationSpans(ctx context.Context, path string, body []byte) ([]SymbolSpan, error)

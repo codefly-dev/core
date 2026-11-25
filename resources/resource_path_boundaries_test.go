@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 )
 
 func TestCreateWorkspaceRejectsTraversingNameBeforeCreatingDirectory(t *testing.T) {
@@ -15,7 +15,7 @@ func TestCreateWorkspaceRejectsTraversingNameBeforeCreatingDirectory(t *testing.
 	escaped := filepath.Join(filepath.Dir(root), "escaped-workspace")
 	_ = os.RemoveAll(escaped)
 
-	_, err := CreateWorkspace(ctx, &actionsv0.NewWorkspace{
+	_, err := CreateWorkspace(ctx, &actionsv1.NewWorkspace{
 		Name:   "../escaped-workspace",
 		Path:   root,
 		Layout: LayoutKindModules,
@@ -38,14 +38,14 @@ func TestResourceCreatorsRejectTraversingNames(t *testing.T) {
 	}
 	workspace.layout = layout
 
-	if _, err := workspace.NewModule(ctx, &actionsv0.NewModule{Name: "../escaped-module"}); err == nil {
+	if _, err := workspace.NewModule(ctx, &actionsv1.NewModule{Name: "../escaped-module"}); err == nil {
 		t.Fatal("traversing module name was accepted")
 	}
 	mod := &Module{Name: "module", dir: root}
-	if _, err := mod.NewService(ctx, &actionsv0.AddService{Name: "../escaped-service"}); err == nil {
+	if _, err := mod.NewService(ctx, &actionsv1.AddService{Name: "../escaped-service"}); err == nil {
 		t.Fatal("traversing service name was accepted")
 	}
-	if _, err := mod.NewApplication(ctx, &actionsv0.AddApplication{Name: "../escaped-application"}); err == nil {
+	if _, err := mod.NewApplication(ctx, &actionsv1.AddApplication{Name: "../escaped-application"}); err == nil {
 		t.Fatal("traversing application name was accepted")
 	}
 }

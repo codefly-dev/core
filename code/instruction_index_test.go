@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -41,7 +41,7 @@ This dependency guidance must not be projected.
 	server := NewDefaultCodeServer(root)
 	t.Cleanup(func() { _ = server.Close() })
 	tooling := NewSourceTooling(server)
-	response, err := tooling.GetInstructionIndex(t.Context(), &toolingv0.GetInstructionIndexRequest{})
+	response, err := tooling.GetInstructionIndex(t.Context(), &toolingv1.GetInstructionIndexRequest{})
 	if err != nil {
 		t.Fatalf("GetInstructionIndex: %v", err)
 	}
@@ -49,7 +49,7 @@ This dependency guidance must not be projected.
 		t.Fatalf("GetInstructionIndex failure: %+v", response.GetFailure())
 	}
 	index := response.GetIndex()
-	if index.GetState() != basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE {
+	if index.GetState() != basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE {
 		t.Fatalf("state = %s, want COMPLETE; issues=%+v", index.GetState(), index.GetIssues())
 	}
 	if index.GetAnalyzer() != "codefly-core/goldmark" || index.GetAnalyzerVersion() != instructionAnalyzerVersion {
@@ -71,10 +71,10 @@ This dependency guidance must not be projected.
 	}
 
 	records := instructionRecordsByTitle(index)
-	assertInstructionRecord(t, records["Absolute Rules — Never Violate"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
-	assertInstructionRecord(t, records["Testing"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
-	assertInstructionRecord(t, records["Avoid These Patterns"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN, ".", "AGENTS.md")
-	assertInstructionRecord(t, records["API Guidance"], basev0.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE, "services/api", "services/api/AGENTS.md")
+	assertInstructionRecord(t, records["Absolute Rules — Never Violate"], basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
+	assertInstructionRecord(t, records["Testing"], basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT, ".", "AGENTS.md")
+	assertInstructionRecord(t, records["Avoid These Patterns"], basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN, ".", "AGENTS.md")
+	assertInstructionRecord(t, records["API Guidance"], basev1.InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE, "services/api", "services/api/AGENTS.md")
 	if strings.Contains(instructionRecordText(index), "dependency guidance") {
 		t.Fatal("ignored dependency instruction escaped into the index")
 	}
@@ -86,7 +86,7 @@ This dependency guidance must not be projected.
 		t.Fatalf("API scope retained a sibling or the unfiltered fingerprint: %+v", apiIndex)
 	}
 
-	repeated, err := tooling.GetInstructionIndex(t.Context(), &toolingv0.GetInstructionIndexRequest{})
+	repeated, err := tooling.GetInstructionIndex(t.Context(), &toolingv1.GetInstructionIndexRequest{})
 	if err != nil {
 		t.Fatalf("repeat GetInstructionIndex: %v", err)
 	}
@@ -102,12 +102,12 @@ func TestInstructionIndexDegradesOneOversizedSectionWithoutErasingSiblings(t *te
 
 	server := NewDefaultCodeServer(root)
 	t.Cleanup(func() { _ = server.Close() })
-	response, err := NewSourceTooling(server).GetInstructionIndex(t.Context(), &toolingv0.GetInstructionIndexRequest{})
+	response, err := NewSourceTooling(server).GetInstructionIndex(t.Context(), &toolingv1.GetInstructionIndexRequest{})
 	if err != nil {
 		t.Fatalf("GetInstructionIndex: %v", err)
 	}
 	index := response.GetIndex()
-	if index.GetState() != basev0.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED {
+	if index.GetState() != basev1.InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED {
 		t.Fatalf("state = %s, want DEGRADED", index.GetState())
 	}
 	if len(index.GetIssues()) != 1 || index.GetIssues()[0].GetCode() != "section_too_large" || index.GetIssues()[0].GetPath() != "AGENTS.md" {
@@ -129,7 +129,7 @@ func writeInstructionFixture(t *testing.T, root, relative, body string) {
 	}
 }
 
-func instructionDocumentScopes(index *basev0.InstructionIndex) string {
+func instructionDocumentScopes(index *basev1.InstructionIndex) string {
 	parts := make([]string, 0, len(index.GetDocuments()))
 	for _, document := range index.GetDocuments() {
 		parts = append(parts, document.GetPath()+"="+document.GetScopePath())
@@ -137,15 +137,15 @@ func instructionDocumentScopes(index *basev0.InstructionIndex) string {
 	return strings.Join(parts, ",")
 }
 
-func instructionRecordsByTitle(index *basev0.InstructionIndex) map[string]*basev0.InstructionKnowledge {
-	records := make(map[string]*basev0.InstructionKnowledge, len(index.GetRecords()))
+func instructionRecordsByTitle(index *basev1.InstructionIndex) map[string]*basev1.InstructionKnowledge {
+	records := make(map[string]*basev1.InstructionKnowledge, len(index.GetRecords()))
 	for _, record := range index.GetRecords() {
 		records[record.GetTitle()] = record
 	}
 	return records
 }
 
-func instructionRecordText(index *basev0.InstructionIndex) string {
+func instructionRecordText(index *basev1.InstructionIndex) string {
 	var body strings.Builder
 	for _, record := range index.GetRecords() {
 		body.WriteString(record.GetGuidance())
@@ -154,7 +154,7 @@ func instructionRecordText(index *basev0.InstructionIndex) string {
 	return body.String()
 }
 
-func assertInstructionRecord(t *testing.T, record *basev0.InstructionKnowledge, kind basev0.InstructionKnowledgeKind, scope, source string) {
+func assertInstructionRecord(t *testing.T, record *basev1.InstructionKnowledge, kind basev1.InstructionKnowledgeKind, scope, source string) {
 	t.Helper()
 	if record == nil {
 		t.Fatalf("record from %s is missing", source)

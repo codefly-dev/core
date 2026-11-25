@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
@@ -22,7 +22,7 @@ func TestPolicyCarriesADerivedSpecIntoAPreparedBinding(t *testing.T) {
 
 	binding := connectBinding()
 	binding.Operation.Spelling = applyText
-	binding.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: applyText}}
+	binding.Call.Route = &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: applyText}}
 	binding.Policy = spec.Policy()
 	delivered, err := runnable.DecodePrepared(encoded(t, binding))
 	require.NoError(t, err)

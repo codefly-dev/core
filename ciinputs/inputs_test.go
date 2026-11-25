@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"

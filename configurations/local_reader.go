@@ -18,7 +18,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -28,14 +28,14 @@ import (
 var ErrConfigurationConflict = errors.New("configuration definitions conflict")
 
 type ConfigurationInformationWrapper struct {
-	*basev0.ConfigurationInformation
+	*basev1.ConfigurationInformation
 }
 
 type ConfigurationInformationLocalReader struct {
 	moduleArtifactResolver ModuleArtifactResolver
 	workspace              *resources.Workspace
-	dns                    []*basev0.DNS
-	configurations         []*basev0.Configuration
+	dns                    []*basev1.DNS
+	configurations         []*basev1.Configuration
 
 	// Names of the workspace configurations that originate from the composition
 	// root itself, as opposed to those brought in from composed modules. See
@@ -51,11 +51,11 @@ func (local *ConfigurationInformationLocalReader) Identity() string {
 	return "local"
 }
 
-func (local *ConfigurationInformationLocalReader) DNS() []*basev0.DNS {
+func (local *ConfigurationInformationLocalReader) DNS() []*basev1.DNS {
 	return local.dns
 }
 
-func (local *ConfigurationInformationLocalReader) Configurations() []*basev0.Configuration {
+func (local *ConfigurationInformationLocalReader) Configurations() []*basev1.Configuration {
 	return local.configurations
 }
 
@@ -99,7 +99,7 @@ type WorkspaceConfigurations struct {
 	// workspace's own first, then the composed modules' contributions. A group
 	// the workspace overrides keeps the position the workspace declared it in,
 	// carrying the module's group with the workspace's values overlaid on it.
-	Infos []*basev0.ConfigurationInformation
+	Infos []*basev1.ConfigurationInformation
 	// ComposedBy names, for each configuration a composed module contributes,
 	// the module that provides it. A name the consuming workspace declares as
 	// its OWN stays in it: the workspace's values are overlaid onto the module's
@@ -157,7 +157,7 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 	if len(resolvers) == 1 {
 		resolve = resolvers[0]
 	}
-	if err := resolveModuleArtifacts(ctx, []*basev0.Configuration{{Origin: resources.ConfigurationWorkspace, Infos: provided.Infos}}, resolve); err != nil {
+	if err := resolveModuleArtifacts(ctx, []*basev1.Configuration{{Origin: resources.ConfigurationWorkspace, Infos: provided.Infos}}, resolve); err != nil {
 		return nil, err
 	}
 	provided.Origins = trace.project(provided.Infos)
@@ -198,7 +198,7 @@ func readWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 // from the workspaces it composes, with the two kinds of provenance kept apart.
 type ownedWorkspaceConfigurations struct {
 	// Infos are the groups in provisioning order, the workspace's own first.
-	Infos []*basev0.ConfigurationInformation
+	Infos []*basev1.ConfigurationInformation
 	// Own names the groups this workspace declares ITSELF.
 	Own map[string]bool
 	// FromComposedWorkspace names every group a composed workspace contributed,
@@ -236,7 +236,7 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 	unsupplied := provided.Unsupplied
 	owned := make(map[string]bool)
 	fromComposed := make(map[string]bool)
-	inherited := make(map[string]*basev0.ConfigurationInformation)
+	inherited := make(map[string]*basev1.ConfigurationInformation)
 	owners := make(map[string]string)
 	for _, info := range infos {
 		owned[info.Name] = true
@@ -345,13 +345,13 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		}
 	}
 
-	var confs []*basev0.Configuration
+	var confs []*basev1.Configuration
 
 	// For workspace configurations, we add one configuration per info
 	for _, info := range workspaceInfos {
-		confs = append(confs, &basev0.Configuration{
+		confs = append(confs, &basev1.Configuration{
 			Origin: resources.ConfigurationWorkspace,
-			Infos:  []*basev0.ConfigurationInformation{info},
+			Infos:  []*basev1.ConfigurationInformation{info},
 		})
 	}
 	// Load services configurations
@@ -360,7 +360,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrapf(err, "cannot load services")
 	}
 
-	serviceConfs := make(map[string]*basev0.Configuration)
+	serviceConfs := make(map[string]*basev1.Configuration)
 	serviceOrigins := make([]string, 0, len(services))
 	for _, svc := range services {
 		identity, identityErr := svc.Identity()
@@ -381,7 +381,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 
 			if len(serviceInfos) > 0 {
 				if _, ok := serviceConfs[identity.Unique()]; !ok {
-					serviceConfs[identity.Unique()] = &basev0.Configuration{
+					serviceConfs[identity.Unique()] = &basev1.Configuration{
 						Origin: identity.Unique(),
 					}
 				}
@@ -430,7 +430,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	// rather than delivering a plausible value — a development address, or nothing
 	// — that only fails once a client dials it. Overrides have been applied, so an
 	// operator supplying one with --set has discharged it.
-	if remaining := StillUnsupplied(unsupplied, func(origin string) []*basev0.ConfigurationInformation {
+	if remaining := StillUnsupplied(unsupplied, func(origin string) []*basev1.ConfigurationInformation {
 		if origin == "" {
 			return workspaceInfos
 		}
@@ -451,7 +451,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 // and another module may offer the same name — so every offer is held until all
 // of them are in.
 type composedConfiguration struct {
-	info *basev0.ConfigurationInformation
+	info *basev1.ConfigurationInformation
 	// module is the composed module the current info came from, and repo the
 	// composed repository that module belongs to.
 	module string
@@ -538,7 +538,7 @@ func composeModuleWorkspaceConfigurations(
 	workspaceLevel *ownedWorkspaceConfigurations,
 	workspaceConfigurationDir string,
 	profiles []string,
-) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
+) ([]*basev1.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
 	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
 	// overriding locates the consuming workspace's own declaration of a name, by
@@ -571,7 +571,7 @@ func composeModuleWorkspaceConfigurations(
 // it — so an offer is recorded against what is already there rather than
 // appended, and resolve then turns what survives into the provisioned set.
 type composedModuleOffers struct {
-	workspaceInfos []*basev0.ConfigurationInformation
+	workspaceInfos []*basev1.ConfigurationInformation
 	// replacing are the workspace-level names that win whole, so a module's
 	// offer of one is dropped where it is made rather than resolved.
 	replacing map[string]bool
@@ -608,7 +608,7 @@ func newComposedModuleOffers(workspaceNames int, profiles []string) *composedMod
 }
 
 // offer records what one composed module provides, from one of its directories.
-func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) error {
+func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev1.ConfigurationInformation) error {
 	w := wool.Get(ctx).In("configurations.composedModuleOffers.offer")
 	for _, info := range infos {
 		for _, root := range offers.workspaceInfos {
@@ -672,7 +672,7 @@ func (offers *composedModuleOffers) offer(ctx context.Context, module string, re
 
 // readOnce reads one configuration directory, the first time it is asked for it,
 // and collects what the profile left unsupplied there.
-func (offers *composedModuleOffers) readOnce(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
+func (offers *composedModuleOffers) readOnce(ctx context.Context, dir string) ([]*basev1.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("configurations.composedModuleOffers.readOnce")
 	key := dir
 	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
@@ -767,9 +767,9 @@ func (offers *composedModuleOffers) gather(ctx context.Context, workspace *resou
 // provisioned groups still owe.
 func (offers *composedModuleOffers) resolve(
 	ctx context.Context,
-	workspaceInfos []*basev0.ConfigurationInformation,
+	workspaceInfos []*basev1.ConfigurationInformation,
 	overriding map[string]int,
-) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
+) ([]*basev1.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
 	w := wool.Get(ctx).In("configurations.composedModuleOffers.resolve")
 
 	composedBy := make(map[string]string, len(offers.order))
@@ -872,14 +872,14 @@ func (offers *composedModuleOffers) resolve(
 // to overlay or to overlay onto, and which declaration would win is a fact
 // about line order rather than about what either author said.
 func overlayWorkspaceConfigurationOverride(
-	base *basev0.ConfigurationInformation,
-	override *basev0.ConfigurationInformation,
+	base *basev1.ConfigurationInformation,
+	override *basev1.ConfigurationInformation,
 	module string,
-) (*basev0.ConfigurationInformation, error) {
+) (*basev1.ConfigurationInformation, error) {
 	if err := checkArtifactOverlay(base, override, false); err != nil {
 		return nil, err
 	}
-	overlaid, ok := proto.Clone(base).(*basev0.ConfigurationInformation)
+	overlaid, ok := proto.Clone(base).(*basev1.ConfigurationInformation)
 	if !ok {
 		return nil, fmt.Errorf("cannot clone composed module configuration %q", base.GetName())
 	}
@@ -1013,9 +1013,9 @@ func composedModuleWorkspaceDir(dir, consumingWorkspaceDir string) string {
 // injection, so services receive the same typed Configuration objects in
 // persisted and ephemeral runs.
 func applyWorkspaceConfigurationOverrides(
-	infos []*basev0.ConfigurationInformation,
+	infos []*basev1.ConfigurationInformation,
 	encoded string,
-) ([]*basev0.ConfigurationInformation, map[string]bool, error) {
+) ([]*basev1.ConfigurationInformation, map[string]bool, error) {
 	overrides, err := resources.DecodeWorkspaceConfigurationOverrides(encoded)
 	if err != nil {
 		return nil, nil, err
@@ -1037,10 +1037,10 @@ func applyWorkspaceConfigurationOverrides(
 // loaded workspace. This is deliberately earlier than Manager validation and
 // agent startup, so ephemeral and persisted values follow one typed path.
 func applyServiceConfigurationOverrides(
-	confs map[string]*basev0.Configuration,
+	confs map[string]*basev1.Configuration,
 	serviceOrigins []string,
 	encoded string,
-) (map[string]*basev0.Configuration, error) {
+) (map[string]*basev1.Configuration, error) {
 	overrides, err := resources.DecodeServiceConfigurationOverrides(encoded)
 	if err != nil {
 		return nil, err
@@ -1066,7 +1066,7 @@ func applyServiceConfigurationOverrides(
 		}
 		conf := confs[origin]
 		if conf == nil {
-			conf = &basev0.Configuration{Origin: origin}
+			conf = &basev1.Configuration{Origin: origin}
 			confs[origin] = conf
 		}
 		if err := checkArtifactOverride(conf.Infos, override.Name, override.Key); err != nil {
@@ -1084,11 +1084,11 @@ func applyServiceConfigurationOverrides(
 // origin use the returned name so an override is attributed to the configuration
 // it actually landed on.
 func applyConfigurationValueOverride(
-	infos []*basev0.ConfigurationInformation,
+	infos []*basev1.ConfigurationInformation,
 	name, key, value string,
 	secret bool,
-) ([]*basev0.ConfigurationInformation, string) {
-	var info *basev0.ConfigurationInformation
+) ([]*basev1.ConfigurationInformation, string) {
+	var info *basev1.ConfigurationInformation
 	for _, candidate := range infos {
 		if resources.Match(candidate.Name, name) {
 			info = candidate
@@ -1096,10 +1096,10 @@ func applyConfigurationValueOverride(
 		}
 	}
 	if info == nil {
-		info = &basev0.ConfigurationInformation{Name: name}
+		info = &basev1.ConfigurationInformation{Name: name}
 		infos = append(infos, info)
 	}
-	var configurationValue *basev0.ConfigurationValue
+	var configurationValue *basev1.ConfigurationValue
 	for _, candidate := range info.ConfigurationValues {
 		if resources.Match(candidate.Key, key) {
 			configurationValue = candidate
@@ -1107,7 +1107,7 @@ func applyConfigurationValueOverride(
 		}
 	}
 	if configurationValue == nil {
-		configurationValue = &basev0.ConfigurationValue{Key: key}
+		configurationValue = &basev1.ConfigurationValue{Key: key}
 		info.ConfigurationValues = append(info.ConfigurationValues, configurationValue)
 	}
 	configurationValue.Value = value
@@ -1115,8 +1115,8 @@ func applyConfigurationValueOverride(
 	return infos, info.Name
 }
 
-func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {
-	var dns []*basev0.DNS
+func loadDNS(_ context.Context, file string) ([]*basev1.DNS, error) {
+	var dns []*basev1.DNS
 	f, err := os.ReadFile(file) //nolint:gosec // file is a dns declaration of the workspace being read
 	if err != nil {
 		return nil, err
@@ -1168,7 +1168,7 @@ func FromService(service *resources.ServiceIdentity, dep string) (*Configuration
 
 // LoadConfigurationInformationsFromFiles returns all configurations infos
 // Naming is path based with respect to dir
-func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
+func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]*basev1.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("provider.LoadConfigurationsFromEnvFiles")
 
 	w.Trace("loading configurations from directory", wool.DirField(dir))
@@ -1211,9 +1211,9 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 		return nil, w.Wrapf(definitionErr, "cannot load secret configurations")
 	}
 
-	infos := make([]*basev0.ConfigurationInformation, 0, len(files))
+	infos := make([]*basev1.ConfigurationInformation, 0, len(files))
 	for _, file := range files {
-		var confInfo *basev0.ConfigurationInformation
+		var confInfo *basev1.ConfigurationInformation
 		switch file.kind {
 		case kindEnv:
 			confInfo, err = loadFromEnvFile(ctx, file)
@@ -1328,14 +1328,14 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 	return nil
 }
 
-func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev0.ConfigurationInformation, error) {
+func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev1.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("provider.loadFromEnvFile")
 
 	f, err := os.ReadFile(file.path)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot read env file")
 	}
-	info := &basev0.ConfigurationInformation{
+	info := &basev1.ConfigurationInformation{
 		Name: file.name,
 	}
 	lines := strings.Split(string(f), "\n")
@@ -1367,7 +1367,7 @@ func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev0.Conf
 				return nil, w.Wrapf(err, "reference-only secret %q on line %d", key, index+1)
 			}
 		}
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev1.ConfigurationValue{
 			Key:    tokens[0],
 			Value:  tokens[1],
 			Secret: file.secret,
@@ -1376,7 +1376,7 @@ func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev0.Conf
 	return info, nil
 }
 
-func loadFromYamlFile(ctx context.Context, file *configurationFile) (*basev0.ConfigurationInformation, error) {
+func loadFromYamlFile(ctx context.Context, file *configurationFile) (*basev1.ConfigurationInformation, error) {
 	info, err := ConfigurationInformationDataFromFile(ctx, file.name, file.path, file.secret)
 	if err != nil {
 		return nil, err
@@ -1456,12 +1456,12 @@ func ExtractFromPath(p string) string {
 }
 
 // ConsolidateInfo consolidate informations values per name
-func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
-	ordered := append([]*basev0.ConfigurationInformation(nil), infos...)
+func ConsolidateInfo(_ context.Context, infos []*basev1.ConfigurationInformation) ([]*basev1.ConfigurationInformation, error) {
+	ordered := append([]*basev1.ConfigurationInformation(nil), infos...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return ordered[i].Name < ordered[j].Name
 	})
-	consolidated := make(map[string]*basev0.ConfigurationInformation)
+	consolidated := make(map[string]*basev1.ConfigurationInformation)
 	for _, info := range ordered {
 		if info.Data != nil {
 			if _, found := consolidated[info.Name]; found {
@@ -1474,7 +1474,7 @@ func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation
 			return nil, fmt.Errorf("duplicate configuration data: %s: %w", info.Name, ErrConfigurationConflict)
 		}
 		if _, ok := consolidated[info.Name]; !ok {
-			consolidated[info.Name] = &basev0.ConfigurationInformation{
+			consolidated[info.Name] = &basev1.ConfigurationInformation{
 				Name: info.Name,
 			}
 		}
@@ -1485,7 +1485,7 @@ func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	result := make([]*basev0.ConfigurationInformation, 0, len(names))
+	result := make([]*basev1.ConfigurationInformation, 0, len(names))
 	for _, name := range names {
 		result = append(result, consolidated[name])
 	}
@@ -1503,7 +1503,7 @@ func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation
 // what must be healthy first, and an ordering that has forgotten which endpoint
 // was named can only deliver the former. Two references to different endpoints
 // of one producer are therefore two entries, not one.
-func EndpointProducers(infos []*basev0.ConfigurationInformation) map[string][]string {
+func EndpointProducers(infos []*basev1.ConfigurationInformation) map[string][]string {
 	out := make(map[string][]string)
 	for _, info := range infos {
 		seen := make(map[string]bool)

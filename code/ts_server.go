@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // TypeScriptCodeServer extends DefaultCodeServer with TypeScript /
@@ -42,7 +42,7 @@ func (s *TypeScriptCodeServer) registerTypeScriptOverrides() {
 
 // --- Standalone gRPC RPCs ---
 
-func (s *TypeScriptCodeServer) GetProjectInfo(ctx context.Context, _ *codev0.GetProjectInfoRequest) (*codev0.GetProjectInfoResponse, error) {
+func (s *TypeScriptCodeServer) GetProjectInfo(ctx context.Context, _ *codev1.GetProjectInfoRequest) (*codev1.GetProjectInfoResponse, error) {
 	resp, err := s.handleGetProjectInfo(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -52,9 +52,9 @@ func (s *TypeScriptCodeServer) GetProjectInfo(ctx context.Context, _ *codev0.Get
 
 // --- Handlers ---
 
-func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	srcDir := s.SourceDir
-	resp := &codev0.GetProjectInfoResponse{Language: "typescript"}
+	resp := &codev1.GetProjectInfoResponse{Language: "typescript"}
 
 	// Parse package.json for the module name + declared deps.
 	if data, err := s.FS.ReadFile(filepath.Join(srcDir, "package.json")); err == nil {
@@ -66,7 +66,7 @@ func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *code
 	var err error
 	resp.SourceFiles, resp.SourceFilesOmitted, err = s.inspectOptionalSourceImports(ctx, srcDir, "typescript")
 	if err != nil {
-		return codeFailure(wrapProjectInfoTS(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
+		return codeFailure(wrapProjectInfoTS(resp), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}
 
 	return wrapProjectInfoTS(resp), nil
@@ -74,8 +74,8 @@ func (s *TypeScriptCodeServer) handleGetProjectInfo(ctx context.Context, _ *code
 
 // --- Helpers ---
 
-func wrapProjectInfoTS(resp *codev0.GetProjectInfoResponse) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
+func wrapProjectInfoTS(resp *codev1.GetProjectInfoResponse) *codev1.CodeResponse {
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
 }
 
 // packageJSON is the minimal slice of fields we care about.
@@ -89,17 +89,17 @@ type packageJSON struct {
 // declared deps from package.json. Direct=true for production
 // dependencies; dev deps are also Direct=true (they're explicitly
 // declared, just at a different lifecycle).
-func parsePackageJSON(data []byte) (string, []*codev0.Dependency) {
+func parsePackageJSON(data []byte) (string, []*codev1.Dependency) {
 	var pkg packageJSON
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return "", nil
 	}
-	var deps []*codev0.Dependency
+	var deps []*codev1.Dependency
 	for name, version := range pkg.Dependencies {
-		deps = append(deps, &codev0.Dependency{Name: name, Version: version, Direct: true})
+		deps = append(deps, &codev1.Dependency{Name: name, Version: version, Direct: true})
 	}
 	for name, version := range pkg.DevDependencies {
-		deps = append(deps, &codev0.Dependency{Name: name, Version: version, Direct: true})
+		deps = append(deps, &codev1.Dependency{Name: name, Version: version, Direct: true})
 	}
 	sort.Slice(deps, func(i, j int) bool { return deps[i].Name < deps[j].Name })
 	return pkg.Name, deps
@@ -109,7 +109,7 @@ func parsePackageJSON(data []byte) (string, []*codev0.Dependency) {
 // containing .ts/.tsx/.js/.jsx files as a "package" (the
 // TypeScript equivalent of Python's directory-as-package
 // convention). Skips node_modules + .next/dist build outputs.
-func (s *TypeScriptCodeServer) discoverTSPackages(srcDir string) []*codev0.PackageInfo {
+func (s *TypeScriptCodeServer) discoverTSPackages(srcDir string) []*codev1.PackageInfo {
 	type pkgAccum struct {
 		files []string
 	}
@@ -147,7 +147,7 @@ func (s *TypeScriptCodeServer) discoverTSPackages(srcDir string) []*codev0.Packa
 		return nil
 	})
 
-	out := make([]*codev0.PackageInfo, 0, len(pkgs))
+	out := make([]*codev1.PackageInfo, 0, len(pkgs))
 	relPaths := make([]string, 0, len(pkgs))
 	for rel := range pkgs {
 		relPaths = append(relPaths, rel)
@@ -160,7 +160,7 @@ func (s *TypeScriptCodeServer) discoverTSPackages(srcDir string) []*codev0.Packa
 		if name == "." {
 			name = "."
 		}
-		out = append(out, &codev0.PackageInfo{
+		out = append(out, &codev1.PackageInfo{
 			Name:         name,
 			RelativePath: rel,
 			Files:        accum.files,

@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestDefaultCodeServerInspectsGradleProjectWithoutExecutingBuildTool(t *testing.T) {
@@ -30,8 +30,8 @@ import org.apache.logging.log4j.Logger;
 class Ads {}
 `)
 
-	response, err := newSemanticServer(root).Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := newSemanticServer(root).Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ class Ads {}
 	if info.GetLanguage() != "jvm" || info.GetModule() != "example.ads" || info.GetLanguageVersion() != "21" {
 		t.Fatalf("identity = language %q module %q version %q", info.GetLanguage(), info.GetModule(), info.GetLanguageVersion())
 	}
-	wantDependencies := []*codev0.Dependency{
+	wantDependencies := []*codev1.Dependency{
 		{Name: "io.grpc:grpc-protobuf", Version: "1.82.1", Direct: true},
 		{Name: "io.grpc:grpc-stub", Version: "1.82.1", Direct: true},
 		{Name: "org.apache.logging.log4j:log4j-core", Version: "2.26.1", Direct: true},
@@ -69,8 +69,8 @@ func TestDefaultCodeServerInspectsDotNetSolutionProjects(t *testing.T) {
 	writeProjectInspectionFile(t, root, "tests/cartservice.tests.csproj", `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><PackageReference Include="xunit" Version="2.9.3" /></ItemGroup></Project>`)
 	writeProjectInspectionFile(t, root, "src/Program.cs", "using Grpc.Core;\nusing Microsoft.AspNetCore.Hosting;\nclass Program {}\n")
 
-	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,13 +98,13 @@ func TestDefaultCodeServerInspectsDotNetSolutionProjects(t *testing.T) {
 func TestDefaultCodeServerReportsUnsupportedInspectionAsTypedFailure(t *testing.T) {
 	root := t.TempDir()
 	writeProjectInspectionFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
-	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := response.GetFailure(); failure.GetCode() != basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION || failure.GetRetryable() {
+	if failure := response.GetFailure(); failure.GetCode() != basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION || failure.GetRetryable() {
 		t.Fatalf("failure = %+v, want non-retryable unsupported", failure)
 	}
 	if response.GetGetProjectInfo().GetLanguage() != "ruby" {

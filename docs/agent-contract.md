@@ -1,9 +1,9 @@
 # CLI-agent compatibility
 
-`codefly.services.agent.v0.AgentInformation.contract` is the CLI-agent wire
+`codefly.services.agent.v1.AgentInformation.contract` is the CLI-agent wire
 contract. Its protocol generation is independent of Core's Go module version,
 the agent release, and the `v0` protobuf package namespace. Implementations can
-compile the schema under `proto/codefly/services/agent/v0` in any language;
+compile the schema under `proto/codefly/services/agent/v1` in any language;
 sharing Core's Go implementation is not a compatibility requirement.
 
 ## No static agent compatibility knowledge

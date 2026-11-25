@@ -7,12 +7,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ValidateModuleArtifactReference validates a declaration without resolving a
 // module. The selected-module owner must confine and qualify the actual read.
-func ValidateModuleArtifactReference(ref *basev0.ConfigurationModuleArtifactReference) error {
+func ValidateModuleArtifactReference(ref *basev1.ConfigurationModuleArtifactReference) error {
 	if ref == nil || ref.Module == "" || strings.TrimSpace(ref.Module) != ref.Module ||
 		strings.ContainsAny(ref.Module, "/\\\x00\r\n") || ref.Path == "" || path.IsAbs(ref.Path) ||
 		path.Clean(ref.Path) != ref.Path || ref.Path == "." || strings.ContainsAny(ref.Path, "\\\x00\r\n") {
@@ -40,7 +40,7 @@ func ValidateModuleArtifactBytes(value string) error {
 
 // ValidateModuleArtifactValue refuses unresolved declarations and validates
 // generated evidence against the actual value before filtering or emission.
-func ValidateModuleArtifactValue(value *basev0.ConfigurationValue) error {
+func ValidateModuleArtifactValue(value *basev1.ConfigurationValue) error {
 	if value == nil {
 		return fmt.Errorf("configuration value is nil")
 	}
@@ -62,7 +62,7 @@ func ValidateModuleArtifactValue(value *basev0.ConfigurationValue) error {
 	}
 	identity := evidence.ArtifactIdentity
 	sum := sha256.Sum256([]byte(value.Value))
-	if identity == nil || identity.Algorithm != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256 ||
+	if identity == nil || identity.Algorithm != basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256 ||
 		identity.SizeBytes != int64(len(value.Value)) || identity.Digest != fmt.Sprintf("%x", sum) {
 		return fmt.Errorf("module artifact identity does not match delivered value")
 	}
@@ -72,19 +72,19 @@ func ValidateModuleArtifactValue(value *basev0.ConfigurationValue) error {
 // ValidateModuleArtifactDelivery checks the unmerged baseline and every new
 // contribution before precedence can discard an offer. Baseline is comparison
 // state, not a request to emit it again. Equality never authorizes replacement.
-func ValidateModuleArtifactDelivery(baseline, contributions []*basev0.Configuration, overrides map[string]string) error {
+func ValidateModuleArtifactDelivery(baseline, contributions []*basev1.Configuration, overrides map[string]string) error {
 	type offer struct {
 		key, group, raw string
 		bound, document bool
 	}
 	var offers []offer
-	for _, batch := range [][]*basev0.Configuration{baseline, contributions} {
+	for _, batch := range [][]*basev1.Configuration{baseline, contributions} {
 		for _, conf := range batch {
 			for _, info := range conf.GetInfos() {
 				if info == nil {
 					return fmt.Errorf("nil configuration information")
 				}
-				group := artifactCarrier(ConfigurationValueEnvironmentKey(conf, info.Name, &basev0.ConfigurationValue{}))
+				group := artifactCarrier(ConfigurationValueEnvironmentKey(conf, info.Name, &basev1.ConfigurationValue{}))
 				if info.Data != nil {
 					offers = append(offers, offer{group: group, document: true})
 				}

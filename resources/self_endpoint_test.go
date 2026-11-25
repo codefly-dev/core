@@ -5,18 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
-func selfMapping() *basev0.NetworkMapping {
-	endpoint := &basev0.Endpoint{Module: "platform-example", Service: "back-end", Name: "rest", Api: "rest"}
+func selfMapping() *basev1.NetworkMapping {
+	endpoint := &basev1.Endpoint{Module: "platform-example", Service: "back-end", Name: "rest", Api: "rest"}
 	native := resources.NewHTTPNetworkInstance("localhost", 31000, false)
 	native.Access = resources.NewNativeNetworkAccess()
 	inCluster := resources.NewHTTPNetworkInstance("back-end.platform-example.svc.cluster.local", 8080, false)
 	inCluster.Access = resources.NewContainerNetworkAccess()
-	return &basev0.NetworkMapping{Endpoint: endpoint, Instances: []*basev0.NetworkInstance{native, inCluster}}
+	return &basev1.NetworkMapping{Endpoint: endpoint, Instances: []*basev1.NetworkInstance{native, inCluster}}
 }
 
 func TestSelfEndpointKeyUsesTheEndpointNormalization(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSelfEndpointKeyUsesTheEndpointNormalization(t *testing.T) {
 func TestAddSelfEndpointsKeepsListenAndAdvertisedAddressesApart(t *testing.T) {
 	ctx := context.Background()
 	manager := resources.NewEnvironmentVariableManager()
-	mappings := []*basev0.NetworkMapping{selfMapping()}
+	mappings := []*basev1.NetworkMapping{selfMapping()}
 	require.NoError(t, manager.AddEndpoints(ctx, resources.LocalizeNetworkMapping(mappings, "localhost"), resources.NewContainerNetworkAccess()))
 	require.NoError(t, manager.AddSelfEndpoints(ctx, mappings, resources.NewContainerNetworkAccess()))
 
@@ -65,7 +65,7 @@ func TestFindSelfNetworkInstanceDoesNotFallBackToTheListenAddress(t *testing.T) 
 func TestAddSelfEndpointsSkipsMappingsWithoutTheRequestedAccess(t *testing.T) {
 	ctx := context.Background()
 	manager := resources.NewEnvironmentVariableManager()
-	require.NoError(t, manager.AddSelfEndpoints(ctx, []*basev0.NetworkMapping{nil, {}, selfMapping()}, resources.NewPublicNetworkAccess()))
+	require.NoError(t, manager.AddSelfEndpoints(ctx, []*basev1.NetworkMapping{nil, {}, selfMapping()}, resources.NewPublicNetworkAccess()))
 	require.Empty(t, manager.SelfEndpoints())
 }
 
@@ -87,7 +87,7 @@ func TestKubernetesRuntimeContextIsADeployedContainerContext(t *testing.T) {
 
 	// A deployed workload consumes the container configuration its producers
 	// publish, exactly as a container run does.
-	container := &basev0.Configuration{Origin: "configuration/app/store", RuntimeContext: resources.NewRuntimeContextContainer()}
-	native := &basev0.Configuration{Origin: "configuration/app/store", RuntimeContext: resources.NewRuntimeContextNative()}
-	require.Equal(t, []*basev0.Configuration{container}, resources.FilterConfigurations([]*basev0.Configuration{native, container}, kubernetes))
+	container := &basev1.Configuration{Origin: "configuration/app/store", RuntimeContext: resources.NewRuntimeContextContainer()}
+	native := &basev1.Configuration{Origin: "configuration/app/store", RuntimeContext: resources.NewRuntimeContextNative()}
+	require.Equal(t, []*basev1.Configuration{container}, resources.FilterConfigurations([]*basev1.Configuration{native, container}, kubernetes))
 }

@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	"golang.org/x/mod/modfile"
 )
 
@@ -47,17 +47,17 @@ func (s *GoCodeServer) registerGoOverrides() {
 
 // --- GetProjectInfo (go.mod + go list) ---
 
-func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	srcDir := s.SourceDir
-	resp := &codev0.GetProjectInfoResponse{Language: "go"}
+	resp := &codev1.GetProjectInfoResponse{Language: "go"}
 
 	modData, err := s.FS.ReadFile(filepath.Join(srcDir, "go.mod"))
 	if err != nil {
-		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.get-project-info", fmt.Sprintf("read go.mod: %v", err)), nil
+		return codeFailure(wrapProjectInfo(resp), basev1.FailureCode_FAILURE_CODE_IO_FAILED, "code.get-project-info", fmt.Sprintf("read go.mod: %v", err)), nil
 	}
 	module, err := modfile.Parse("go.mod", modData, nil)
 	if err != nil {
-		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", fmt.Sprintf("parse go.mod: %v", err)), nil
+		return codeFailure(wrapProjectInfo(resp), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", fmt.Sprintf("parse go.mod: %v", err)), nil
 	}
 	if module.Module != nil {
 		resp.Module = module.Module.Mod.Path
@@ -66,7 +66,7 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 		resp.LanguageVersion = module.Go.Version
 	}
 	for _, requirement := range module.Require {
-		resp.Dependencies = append(resp.Dependencies, &codev0.Dependency{
+		resp.Dependencies = append(resp.Dependencies, &codev1.Dependency{
 			Name: requirement.Mod.Path, Version: requirement.Mod.Version, Direct: !requirement.Indirect,
 		})
 	}
@@ -78,7 +78,7 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 	resp.FileHashes = computeFileHashes(s.FS, srcDir)
 	resp.SourceFiles, err = s.inspectSourceImports(ctx, srcDir, "go")
 	if err != nil {
-		return codeFailure(wrapProjectInfo(resp), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
+		return codeFailure(wrapProjectInfo(resp), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "code.get-project-info", err.Error()), nil
 	}
 
 	return wrapProjectInfo(resp), nil
@@ -86,15 +86,15 @@ func (s *GoCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeR
 
 // --- ListDependencies (go list -m) ---
 
-func (s *GoCodeServer) handleListDependencies(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *GoCodeServer) handleListDependencies(ctx context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	deps, err := goListDependencies(ctx, s.SourceDir)
 	if err != nil {
-		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
-			ListDependencies: &codev0.ListDependenciesResponse{},
-		}}, basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.list-dependencies", fmt.Sprintf("go list -m failed: %v", err)), nil
+		return codeFailure(&codev1.CodeResponse{Result: &codev1.CodeResponse_ListDependencies{
+			ListDependencies: &codev1.ListDependenciesResponse{},
+		}}, basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.list-dependencies", fmt.Sprintf("go list -m failed: %v", err)), nil
 	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ListDependencies{
-		ListDependencies: &codev0.ListDependenciesResponse{Dependencies: deps},
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_ListDependencies{
+		ListDependencies: &codev1.ListDependenciesResponse{Dependencies: deps},
 	}}, nil
 }
 
@@ -115,7 +115,7 @@ type goModJSON struct {
 	Dir     string `json:"Dir"`
 }
 
-func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
+func goListPackages(ctx context.Context, dir string) []*codev1.PackageInfo {
 	// Try with the caller's environment first — projects that
 	// rely on a go.work wiring local modules (Mind, multi-module
 	// monorepos) need it. If go.work blocks the listing because
@@ -141,7 +141,7 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 	if rd, err := filepath.EvalSymlinks(dir); err == nil {
 		resolvedDir = rd
 	}
-	var pkgs []*codev0.PackageInfo
+	var pkgs []*codev1.PackageInfo
 	decoder := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var pkg goPackageJSON
@@ -156,7 +156,7 @@ func goListPackages(ctx context.Context, dir string) []*codev0.PackageInfo {
 		if relPath == "" {
 			relPath = "."
 		}
-		pkgs = append(pkgs, &codev0.PackageInfo{
+		pkgs = append(pkgs, &codev1.PackageInfo{
 			Name: pkg.ImportPath, RelativePath: relPath,
 			Files: pkg.GoFiles, Imports: pkg.Imports, Doc: pkg.Doc,
 		})
@@ -176,7 +176,7 @@ func runGoList(ctx context.Context, dir string, workOff bool) ([]byte, error) {
 	return cmd.Output()
 }
 
-func goListDependencies(ctx context.Context, dir string) ([]*codev0.Dependency, error) {
+func goListDependencies(ctx context.Context, dir string) ([]*codev1.Dependency, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "-m", "-json", "all")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off") // see goListPackages
@@ -188,7 +188,7 @@ func goListDependencies(ctx context.Context, dir string) ([]*codev0.Dependency, 
 	// is a valid result, not an error. The earlier `var deps []*Dep` form
 	// returned nil in that case, which the handler couldn't distinguish
 	// from a failed exec.
-	deps := []*codev0.Dependency{}
+	deps := []*codev1.Dependency{}
 	decoder := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var m goModJSON
@@ -198,7 +198,7 @@ func goListDependencies(ctx context.Context, dir string) ([]*codev0.Dependency, 
 		if m.Main {
 			continue
 		}
-		deps = append(deps, &codev0.Dependency{
+		deps = append(deps, &codev1.Dependency{
 			Name: m.Path, Version: m.Version, Direct: m.Dir != "",
 		})
 	}
@@ -216,6 +216,6 @@ func computeFileHashes(vfs VFS, dir string) map[string]string {
 	return ComputeFileHashes(vfs, dir, goFileExtensions)
 }
 
-func wrapProjectInfo(resp *codev0.GetProjectInfoResponse) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
+func wrapProjectInfo(resp *codev1.GetProjectInfoResponse) *codev1.CodeResponse {
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetProjectInfo{GetProjectInfo: resp}}
 }

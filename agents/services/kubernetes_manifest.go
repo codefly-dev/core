@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/kustomize/api/krusty"
@@ -45,10 +45,10 @@ const APIServerAccessRequired = "required"
 func BuildKubernetesManifestBundle(
 	destination string,
 	environment string,
-	profile builderv0.KubernetesOutputProfile,
-	validation *builderv0.KubernetesManifestValidation,
-	secretReferences map[string]*builderv0.KubernetesSecretKeyReference,
-) (*builderv0.KubernetesManifestBundle, error) {
+	profile builderv1.KubernetesOutputProfile,
+	validation *builderv1.KubernetesManifestValidation,
+	secretReferences map[string]*builderv1.KubernetesSecretKeyReference,
+) (*builderv1.KubernetesManifestBundle, error) {
 	selected, err := ParseOutputProfile(profile)
 	if err != nil {
 		return nil, fmt.Errorf("describe rendered tree: %w", err)
@@ -57,8 +57,8 @@ func BuildKubernetesManifestBundle(
 	if err != nil {
 		return nil, fmt.Errorf("inventory rendered tree: %w", err)
 	}
-	return &builderv0.KubernetesManifestBundle{
-		Format:           builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
+	return &builderv1.KubernetesManifestBundle{
+		Format:           builderv1.KubernetesDeploymentOutput_KUSTOMIZE,
 		Profile:          selected.Proto(),
 		ContractVersion:  KubernetesManifestContractVersion,
 		EntryPoints:      []string{path.Join("overlays", environment)},
@@ -69,8 +69,8 @@ func BuildKubernetesManifestBundle(
 	}, nil
 }
 
-func inventoryManifestFiles(destination string) ([]*builderv0.KubernetesManifestFile, error) {
-	var files []*builderv0.KubernetesManifestFile
+func inventoryManifestFiles(destination string) ([]*builderv1.KubernetesManifestFile, error) {
+	var files []*builderv1.KubernetesManifestFile
 	err := filepath.WalkDir(destination, func(entryPath string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -87,7 +87,7 @@ func inventoryManifestFiles(destination string) ([]*builderv0.KubernetesManifest
 			return relErr
 		}
 		sum := sha256.Sum256(content)
-		files = append(files, &builderv0.KubernetesManifestFile{
+		files = append(files, &builderv1.KubernetesManifestFile{
 			Path:   filepath.ToSlash(relative),
 			Digest: "sha256:" + hex.EncodeToString(sum[:]),
 		})
@@ -100,7 +100,7 @@ func inventoryManifestFiles(destination string) ([]*builderv0.KubernetesManifest
 	return files, nil
 }
 
-func aggregateManifestDigest(files []*builderv0.KubernetesManifestFile) string {
+func aggregateManifestDigest(files []*builderv1.KubernetesManifestFile) string {
 	hasher := sha256.New()
 	for _, file := range files {
 		fmt.Fprintf(hasher, "%s\x00%s\n", file.GetPath(), file.GetDigest())
@@ -250,18 +250,18 @@ func ValidateKubernetesManifestTree(
 	destination string,
 	environment string,
 	namespace string,
-	profile builderv0.KubernetesOutputProfile,
+	profile builderv1.KubernetesOutputProfile,
 	validateServerSide bool,
 	validationKubeconfig string,
 	validationContext string,
-) *builderv0.KubernetesManifestValidation {
-	result := &builderv0.KubernetesManifestValidation{
-		StaticValidation:     builderv0.KubernetesManifestValidation_STATUS_PASSED,
-		ServerSideValidation: builderv0.KubernetesManifestValidation_STATUS_NOT_RUN,
+) *builderv1.KubernetesManifestValidation {
+	result := &builderv1.KubernetesManifestValidation{
+		StaticValidation:     builderv1.KubernetesManifestValidation_STATUS_PASSED,
+		ServerSideValidation: builderv1.KubernetesManifestValidation_STATUS_NOT_RUN,
 	}
 	selected, err := ParseOutputProfile(profile)
 	if err != nil {
-		result.StaticValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
+		result.StaticValidation = builderv1.KubernetesManifestValidation_STATUS_FAILED
 		result.Violations = []string{fmt.Sprintf("unsupported Kubernetes output profile: %v", err)}
 		return result
 	}
@@ -271,7 +271,7 @@ func ValidateKubernetesManifestTree(
 		violations = validateKubernetesManifest(manifest, namespace, selected)
 	}
 	if len(violations) > 0 {
-		result.StaticValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
+		result.StaticValidation = builderv1.KubernetesManifestValidation_STATUS_FAILED
 		result.Violations = stableViolations(violations)
 		return result
 	}
@@ -284,18 +284,18 @@ func ValidateKubernetesManifestTree(
 			validationKubeconfig,
 			validationContext,
 		); err != nil {
-			result.ServerSideValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
+			result.ServerSideValidation = builderv1.KubernetesManifestValidation_STATUS_FAILED
 			result.Violations = []string{err.Error()}
 			return result
 		}
-		result.ServerSideValidation = builderv0.KubernetesManifestValidation_STATUS_PASSED
+		result.ServerSideValidation = builderv1.KubernetesManifestValidation_STATUS_PASSED
 		result.ValidatedContext = validationContext
 	}
 
 	result.Restricted = selected.Restricted() &&
-		result.StaticValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED &&
+		result.StaticValidation == builderv1.KubernetesManifestValidation_STATUS_PASSED &&
 		(!validateServerSide ||
-			result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED)
+			result.ServerSideValidation == builderv1.KubernetesManifestValidation_STATUS_PASSED)
 	return result
 }
 

@@ -4,8 +4,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from codefly.services.builder.v0 import deployment_pb2
-from codefly.services.builder.v0 import docker_pb2
+from codefly.services.builder.v1 import deployment_pb2
+from codefly.services.builder.v1 import docker_pb2
 
 
 # A unittest.TestCase, not bare functions: `python -m unittest discover`

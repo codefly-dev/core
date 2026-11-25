@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -17,7 +17,7 @@ const (
 
 // ValidateRequest enforces the typed-selection handshake. Unscoped requests
 // remain valid, but a selection and its identity must always travel together.
-func ValidateRequest(req *runtimev0.TestRequest) error {
+func ValidateRequest(req *runtimev1.TestRequest) error {
 	if req == nil {
 		return fmt.Errorf("test request is required")
 	}
@@ -40,27 +40,27 @@ func ValidateRequest(req *runtimev0.TestRequest) error {
 
 // Validate rejects ambiguous or non-canonical selections before a runtime
 // plugin attempts to render them for its native test runner.
-func Validate(selection *runtimev0.TestSelection) error {
+func Validate(selection *runtimev1.TestSelection) error {
 	if selection == nil {
 		return fmt.Errorf("test selection is required")
 	}
 	switch scope := selection.GetScope().(type) {
-	case *runtimev0.TestSelection_Package:
+	case *runtimev1.TestSelection_Package:
 		if scope.Package == nil {
 			return fmt.Errorf("test package selection is required")
 		}
 		return validateValue("test package", scope.Package.GetPackage(), maxSelectionValueBytes)
-	case *runtimev0.TestSelection_File:
+	case *runtimev1.TestSelection_File:
 		if scope.File == nil {
 			return fmt.Errorf("test file selection is required")
 		}
 		return validatePath(scope.File.GetPath())
-	case *runtimev0.TestSelection_Suite:
+	case *runtimev1.TestSelection_Suite:
 		if scope.Suite == nil {
 			return fmt.Errorf("test suite selection is required")
 		}
 		return validateValue("test suite", scope.Suite.GetName(), maxSelectionValueBytes)
-	case *runtimev0.TestSelection_TestCase:
+	case *runtimev1.TestSelection_TestCase:
 		return validateCase(scope.TestCase)
 	case nil:
 		return fmt.Errorf("test selection scope is required")
@@ -69,7 +69,7 @@ func Validate(selection *runtimev0.TestSelection) error {
 	}
 }
 
-func validateCase(testCase *runtimev0.TestCaseSelection) error {
+func validateCase(testCase *runtimev1.TestCaseSelection) error {
 	if testCase == nil {
 		return fmt.Errorf("test case selection is required")
 	}
@@ -142,7 +142,7 @@ func validateValue(name, value string, maxBytes int) error {
 // Call this only after native selector translation succeeded. It deliberately
 // refuses to manufacture a TestRun because the run metadata belongs to the
 // runtime that executed the tests.
-func Acknowledge(req *runtimev0.TestRequest, resp *runtimev0.TestResponse) error {
+func Acknowledge(req *runtimev1.TestRequest, resp *runtimev1.TestResponse) error {
 	if err := ValidateRequest(req); err != nil {
 		return err
 	}
@@ -152,14 +152,14 @@ func Acknowledge(req *runtimev0.TestRequest, resp *runtimev0.TestResponse) error
 	if resp == nil || resp.GetRun() == nil {
 		return fmt.Errorf("typed test selection response requires run metadata")
 	}
-	resp.Run.RequestedSelection = proto.Clone(req.GetSelection()).(*runtimev0.TestSelection)
+	resp.Run.RequestedSelection = proto.Clone(req.GetSelection()).(*runtimev1.TestSelection)
 	resp.Run.SelectionId = req.GetSelectionId()
 	return nil
 }
 
 // VerifyAcknowledgement rejects broad/default runs and older peers that did
 // not honor a scoped request.
-func VerifyAcknowledgement(req *runtimev0.TestRequest, resp *runtimev0.TestResponse) error {
+func VerifyAcknowledgement(req *runtimev1.TestRequest, resp *runtimev1.TestResponse) error {
 	if err := ValidateRequest(req); err != nil {
 		return err
 	}

@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
@@ -20,28 +20,28 @@ import (
 // arrives later. RECOVERY_RECEIPT comes with it rather than being a choice: a
 // terminal answer the caller may never receive has to be resolvable by reading
 // the effect, and PreparePackage refuses the pair without it.
-func submittedPackage(t *testing.T) *basev0.RunnablePackage {
+func submittedPackage(t *testing.T) *basev1.RunnablePackage {
 	t.Helper()
 	declared := samplePackage(t)
-	declared.Execution.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
-	declared.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	declared.Execution.Completion = basev1.RunnableExecution_COMPLETION_SUBMIT
+	declared.Execution.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
 	pkg, err := runnable.PreparePackage(declared)
 	require.NoError(t, err)
 	return pkg
 }
 
-func submittedInvocation(t *testing.T, pkg *basev0.RunnablePackage) *basev0.RunnableInvocation {
+func submittedInvocation(t *testing.T, pkg *basev1.RunnablePackage) *basev1.RunnableInvocation {
 	t.Helper()
 	inv := sampleInvocation(pkg)
 	inv.EffectId = "effect-1"
-	inv.Callback = &basev0.RunnableCallbackTarget{Address: "https://runtime.example/codefly/runnable/reports", Audience: "runtime"}
+	inv.Callback = &basev1.RunnableCallbackTarget{Address: "https://runtime.example/codefly/runnable/reports", Audience: "runtime"}
 	prepared, err := runnable.PrepareInvocation(inv, pkg)
 	require.NoError(t, err)
 	return prepared
 }
 
-func acceptance() *runnablev0.RunnableAcceptance {
-	return &runnablev0.RunnableAcceptance{
+func acceptance() *runnablev1.RunnableAcceptance {
+	return &runnablev1.RunnableAcceptance{
 		Schema:            runnable.AcceptanceSchemaV1,
 		InvocationId:      "inv-1",
 		Handle:            "owner-work-7f3c",
@@ -99,7 +99,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		call    func(runnable.Call) runnable.Call
-		outcome basev0.RunnableServedOutcome
+		outcome basev1.RunnableServedOutcome
 		certain bool
 	}{
 		{
@@ -108,7 +108,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.FailureCode = "quota_exhausted"
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_OWNER_FAILED,
+			outcome: basev1.RunnableServedOutcome_SERVED_OWNER_FAILED,
 			certain: true,
 		},
 		{
@@ -117,7 +117,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.AuthorityResolved = false
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE,
+			outcome: basev1.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE,
 			certain: true,
 		},
 		{
@@ -127,7 +127,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.Trouble = errors.New("connection reset")
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
+			outcome: basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
 			certain: false,
 		},
 		{
@@ -136,7 +136,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.Response = []byte(`{"schema":"codefly.runnable-acceptance/v1","invocation_id":"inv-1"}`)
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
+			outcome: basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
 			certain: false,
 		},
 		{
@@ -147,7 +147,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.Response = submitDocument(t, other)
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
+			outcome: basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
 			certain: false,
 		},
 		{
@@ -158,7 +158,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 				c.Response = submitDocument(t, silent)
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
+			outcome: basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
 			certain: false,
 		},
 	} {
@@ -168,7 +168,7 @@ func TestASubmitCallThatDidNotAcceptIsTheServedTaxonomy(t *testing.T) {
 			require.Nil(t, accepted.Acceptance)
 			require.Equal(t, tc.outcome, accepted.Completion.GetOutcome())
 			require.Equal(t, tc.certain, runnable.ServedOutcomeIsCertain(accepted.Completion.GetOutcome()))
-			require.NotEqual(t, basev0.RunnableServedOutcome_SERVED_SUCCEEDED, accepted.Completion.GetOutcome(),
+			require.NotEqual(t, basev1.RunnableServedOutcome_SERVED_SUCCEEDED, accepted.Completion.GetOutcome(),
 				"a submit reply is not the work's answer, so no way of ending it can prove the effect committed")
 		})
 	}
@@ -182,27 +182,27 @@ func TestTheCallbackAddressIsSortedByTheDocumentsOwnSchema(t *testing.T) {
 	inv := submittedInvocation(t, pkg)
 	accepted := acceptance()
 
-	heartbeat := submitDocument(t, &runnablev0.RunnableHeartbeat{
+	heartbeat := submitDocument(t, &runnablev1.RunnableHeartbeat{
 		Schema:       runnable.HeartbeatSchemaV1,
 		Handle:       accepted.GetHandle(),
 		InvocationId: "inv-1",
 		ObservedAt:   timestamppb.New(issued.Add(time.Minute)),
-		Progress:     &runnablev0.RunnableProgress{Done: 3, Total: 10, Note: "reconciling"},
+		Progress:     &runnablev1.RunnableProgress{Done: 3, Total: 10, Note: "reconciling"},
 	})
 	reported, err := runnable.ClassifyReport(heartbeat, inv, pkg, accepted)
 	require.NoError(t, err)
 	require.Nil(t, reported.Completion, "a heartbeat is never terminal")
 	require.Equal(t, uint64(3), reported.Heartbeat.GetProgress().GetDone())
 
-	callback := submitDocument(t, &runnablev0.RunnableCompletionCallback{
+	callback := submitDocument(t, &runnablev1.RunnableCompletionCallback{
 		Schema:       runnable.CallbackSchemaV1,
 		Handle:       accepted.GetHandle(),
 		InvocationId: "inv-1",
 		EffectId:     "effect-1",
-		Result: &basev0.RunnableResult{
+		Result: &basev1.RunnableResult{
 			Protocol:     runnable.ServedProtocolV1,
 			InvocationId: "inv-1",
-			Status:       basev0.RunnableResult_SUCCEEDED,
+			Status:       basev1.RunnableResult_SUCCEEDED,
 			Output:       []byte(`{"count":4,"longest":"quick"}`),
 		},
 		CompletedAt: timestamppb.New(issued.Add(time.Hour)),
@@ -210,7 +210,7 @@ func TestTheCallbackAddressIsSortedByTheDocumentsOwnSchema(t *testing.T) {
 	reported, err = runnable.ClassifyReport(callback, inv, pkg, accepted)
 	require.NoError(t, err)
 	require.Nil(t, reported.Heartbeat)
-	require.Equal(t, basev0.RunnableServedOutcome_SERVED_SUCCEEDED, reported.Completion.GetOutcome())
+	require.Equal(t, basev1.RunnableServedOutcome_SERVED_SUCCEEDED, reported.Completion.GetOutcome())
 	require.True(t, runnable.ServedOutcomeIsCertain(reported.Completion.GetOutcome()))
 	// The answer is dated by the owner's own completed_at: a caller's clock
 	// records when it heard, which for a report that waited is not when the
@@ -225,10 +225,10 @@ func TestAReportMustBelongToTheAcceptedWork(t *testing.T) {
 	pkg := submittedPackage(t)
 	inv := submittedInvocation(t, pkg)
 	accepted := acceptance()
-	result := &basev0.RunnableResult{
+	result := &basev1.RunnableResult{
 		Protocol:     runnable.ServedProtocolV1,
 		InvocationId: "inv-1",
-		Status:       basev0.RunnableResult_SUCCEEDED,
+		Status:       basev1.RunnableResult_SUCCEEDED,
 		Output:       []byte(`{"count":4,"longest":"quick"}`),
 	}
 
@@ -240,7 +240,7 @@ func TestAReportMustBelongToTheAcceptedWork(t *testing.T) {
 		{
 			name: "another handle",
 			document: func() []byte {
-				return submitDocument(t, &runnablev0.RunnableCompletionCallback{
+				return submitDocument(t, &runnablev1.RunnableCompletionCallback{
 					Schema: runnable.CallbackSchemaV1, Handle: "owner-work-other", InvocationId: "inv-1",
 					EffectId: "effect-1", Result: result, CompletedAt: timestamppb.New(issued.Add(time.Hour)),
 				})
@@ -250,7 +250,7 @@ func TestAReportMustBelongToTheAcceptedWork(t *testing.T) {
 		{
 			name: "another effect identity",
 			document: func() []byte {
-				return submitDocument(t, &runnablev0.RunnableCompletionCallback{
+				return submitDocument(t, &runnablev1.RunnableCompletionCallback{
 					Schema: runnable.CallbackSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
 					EffectId: "effect-2", Result: result, CompletedAt: timestamppb.New(issued.Add(time.Hour)),
 				})
@@ -272,7 +272,7 @@ func TestAReportMustBelongToTheAcceptedWork(t *testing.T) {
 		{
 			name: "a terminal answer carrying no result",
 			document: func() []byte {
-				return submitDocument(t, &runnablev0.RunnableCompletionCallback{
+				return submitDocument(t, &runnablev1.RunnableCompletionCallback{
 					Schema: runnable.CallbackSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
 					EffectId: "effect-1", CompletedAt: timestamppb.New(issued.Add(time.Hour)),
 				})
@@ -296,29 +296,29 @@ func TestTheStatusReadAnswersACallerWhoseCallbackNeverArrived(t *testing.T) {
 	inv := submittedInvocation(t, pkg)
 	accepted := acceptance()
 
-	running := submitDocument(t, &runnablev0.RunnableStatus{
+	running := submitDocument(t, &runnablev1.RunnableStatus{
 		Schema: runnable.StatusSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
-		State:    runnablev0.RunnableStatus_STATE_RUNNING,
-		Progress: &runnablev0.RunnableProgress{Done: 1, Note: "still going"},
+		State:    runnablev1.RunnableStatus_STATE_RUNNING,
+		Progress: &runnablev1.RunnableProgress{Done: 1, Note: "still going"},
 	})
 	status, completion, err := runnable.ClassifyStatus(running, inv, pkg, accepted)
 	require.NoError(t, err)
 	require.Nil(t, completion, "work that has not ended has no outcome to record")
-	require.Equal(t, runnablev0.RunnableStatus_STATE_RUNNING, status.GetState())
+	require.Equal(t, runnablev1.RunnableStatus_STATE_RUNNING, status.GetState())
 
-	failed := submitDocument(t, &runnablev0.RunnableStatus{
+	failed := submitDocument(t, &runnablev1.RunnableStatus{
 		Schema: runnable.StatusSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
-		State: runnablev0.RunnableStatus_STATE_COMPLETED,
-		Result: &basev0.RunnableResult{
+		State: runnablev1.RunnableStatus_STATE_COMPLETED,
+		Result: &basev1.RunnableResult{
 			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1",
-			Status: basev0.RunnableResult_FAILED,
-			Error:  &basev0.RunnableError{Code: "card_declined", Message: "the issuer declined"},
+			Status: basev1.RunnableResult_FAILED,
+			Error:  &basev1.RunnableError{Code: "card_declined", Message: "the issuer declined"},
 		},
 		CompletedAt: timestamppb.New(issued.Add(time.Hour)),
 	})
 	_, completion, err = runnable.ClassifyStatus(failed, inv, pkg, accepted)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
+	require.Equal(t, basev1.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
 	require.Equal(t, "card_declined", completion.GetFailureCode())
 	require.True(t, runnable.ServedOutcomeIsCertain(completion.GetOutcome()))
 
@@ -326,21 +326,21 @@ func TestTheStatusReadAnswersACallerWhoseCallbackNeverArrived(t *testing.T) {
 	// it rather than withholding it: a caller told "lost" reads the receipt,
 	// while a caller told nothing cannot tell this from an owner that never
 	// accepted the work at all.
-	lost := submitDocument(t, &runnablev0.RunnableStatus{
+	lost := submitDocument(t, &runnablev1.RunnableStatus{
 		Schema: runnable.StatusSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
-		State: runnablev0.RunnableStatus_STATE_LOST,
+		State: runnablev1.RunnableStatus_STATE_LOST,
 	})
 	_, completion, err = runnable.ClassifyStatus(lost, inv, pkg, accepted)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE, completion.GetOutcome())
+	require.Equal(t, basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE, completion.GetOutcome())
 	require.False(t, runnable.ServedOutcomeIsCertain(completion.GetOutcome()))
 	require.Contains(t, completion.GetMessage(), "receipt")
 
 	// A status that says the work ended and carries no answer says the work
 	// ended and refuses to say how, which is not something a caller can record.
-	silent := submitDocument(t, &runnablev0.RunnableStatus{
+	silent := submitDocument(t, &runnablev1.RunnableStatus{
 		Schema: runnable.StatusSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
-		State: runnablev0.RunnableStatus_STATE_COMPLETED, CompletedAt: timestamppb.New(issued.Add(time.Hour)),
+		State: runnablev1.RunnableStatus_STATE_COMPLETED, CompletedAt: timestamppb.New(issued.Add(time.Hour)),
 	})
 	_, _, err = runnable.ClassifyStatus(silent, inv, pkg, accepted)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
@@ -349,12 +349,12 @@ func TestTheStatusReadAnswersACallerWhoseCallbackNeverArrived(t *testing.T) {
 	// A status that says the work is running and carries an answer for it is
 	// two statements about one invocation, and the second would be read as
 	// terminal.
-	inconsistent := submitDocument(t, &runnablev0.RunnableStatus{
+	inconsistent := submitDocument(t, &runnablev1.RunnableStatus{
 		Schema: runnable.StatusSchemaV1, Handle: accepted.GetHandle(), InvocationId: "inv-1",
-		State: runnablev0.RunnableStatus_STATE_ACCEPTED,
-		Result: &basev0.RunnableResult{
+		State: runnablev1.RunnableStatus_STATE_ACCEPTED,
+		Result: &basev1.RunnableResult{
 			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1",
-			Status: basev0.RunnableResult_SUCCEEDED, Output: []byte(`{"count":4,"longest":"quick"}`),
+			Status: basev1.RunnableResult_SUCCEEDED, Output: []byte(`{"count":4,"longest":"quick"}`),
 		},
 	})
 	_, _, err = runnable.ClassifyStatus(inconsistent, inv, pkg, accepted)
@@ -370,27 +370,27 @@ func TestTheCallbackAddressIsHeldToTheRulesBeforeTheCall(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		target *basev0.RunnableCallbackTarget
+		target *basev1.RunnableCallbackTarget
 		want   string
 	}{
 		{
 			name:   "plaintext to a host that may resolve anywhere",
-			target: &basev0.RunnableCallbackTarget{Address: "http://runtime.example/reports", Audience: "runtime"},
+			target: &basev1.RunnableCallbackTarget{Address: "http://runtime.example/reports", Audience: "runtime"},
 			want:   "not a loopback host",
 		},
 		{
 			name:   "a scheme nothing POSTs to",
-			target: &basev0.RunnableCallbackTarget{Address: "ftp://runtime.example/reports", Audience: "runtime"},
+			target: &basev1.RunnableCallbackTarget{Address: "ftp://runtime.example/reports", Audience: "runtime"},
 			want:   "not an HTTP address",
 		},
 		{
 			name:   "a credential smuggled into the URL",
-			target: &basev0.RunnableCallbackTarget{Address: "https://user:secret@runtime.example/reports", Audience: "runtime"},
+			target: &basev1.RunnableCallbackTarget{Address: "https://user:secret@runtime.example/reports", Audience: "runtime"},
 			want:   "userinfo",
 		},
 		{
 			name:   "no audience to mint the reporting capability for",
-			target: &basev0.RunnableCallbackTarget{Address: "https://runtime.example/reports"},
+			target: &basev1.RunnableCallbackTarget{Address: "https://runtime.example/reports"},
 			want:   "audience",
 		},
 	} {
@@ -407,10 +407,10 @@ func TestTheCallbackAddressIsHeldToTheRulesBeforeTheCall(t *testing.T) {
 
 	// A development caller on this machine is admitted in plaintext, because a
 	// loopback address cannot leave it.
-	require.NoError(t, runnable.ValidateCallbackTarget(&basev0.RunnableCallbackTarget{
+	require.NoError(t, runnable.ValidateCallbackTarget(&basev1.RunnableCallbackTarget{
 		Address: "http://127.0.0.1:41235/reports", Audience: "runtime",
 	}))
-	require.NoError(t, runnable.ValidateCallbackTarget(&basev0.RunnableCallbackTarget{
+	require.NoError(t, runnable.ValidateCallbackTarget(&basev1.RunnableCallbackTarget{
 		Address: "http://localhost:41235/reports", Audience: "runtime",
 	}))
 }
@@ -421,7 +421,7 @@ func TestTheCallbackAddressIsHeldToTheRulesBeforeTheCall(t *testing.T) {
 func TestACallModeInvocationCarriesNoCallbackAddress(t *testing.T) {
 	pkg := preparedPackage(t)
 	inv := sampleInvocation(pkg)
-	inv.Callback = &basev0.RunnableCallbackTarget{Address: "https://runtime.example/reports", Audience: "runtime"}
+	inv.Callback = &basev1.RunnableCallbackTarget{Address: "https://runtime.example/reports", Audience: "runtime"}
 
 	_, err := runnable.PrepareInvocation(inv, pkg)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
@@ -436,9 +436,9 @@ func TestWorkThatStartsLaterCarriesTheGrantRatherThanACapability(t *testing.T) {
 	pkg := submittedPackage(t)
 	inv := sampleInvocation(pkg)
 	inv.EffectId = "effect-1"
-	inv.Identity = &basev0.RunnableInvocationIdentity{
-		Carrier: &basev0.RunnableInvocationIdentity_Grant{
-			Grant: &basev0.RunnableGrantReference{DelegationId: "delegation-9", Audience: "documents"},
+	inv.Identity = &basev1.RunnableInvocationIdentity{
+		Carrier: &basev1.RunnableInvocationIdentity_Grant{
+			Grant: &basev1.RunnableGrantReference{DelegationId: "delegation-9", Audience: "documents"},
 		},
 	}
 	prepared, err := runnable.PrepareInvocation(inv, pkg)

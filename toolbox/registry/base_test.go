@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 )
 
@@ -33,7 +33,7 @@ func TestBase_ListTools_ProjectsAllDefinitions(t *testing.T) {
 		{Name: "a.two", SummaryDescription: "second"},
 	})
 
-	resp, err := f.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	resp, err := f.ListTools(context.Background(), &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Tools, 2)
 	require.Equal(t, "a.one", resp.Tools[0].Name)
@@ -46,7 +46,7 @@ func TestBase_ListToolSummaries_AppliesTagsFilter(t *testing.T) {
 	})
 
 	resp, err := f.ListToolSummaries(context.Background(),
-		&toolboxv0.ListToolSummariesRequest{TagsFilter: []string{"read-only"}})
+		&toolboxv1.ListToolSummariesRequest{TagsFilter: []string{"read-only"}})
 	require.NoError(t, err)
 	require.Len(t, resp.Tools, 1)
 	require.Equal(t, "ro", resp.Tools[0].Name)
@@ -58,7 +58,7 @@ func TestBase_DescribeTool_KnownTool(t *testing.T) {
 		{Name: "x.do", SummaryDescription: "short", LongDescription: "long", InputSchema: schema},
 	})
 
-	resp, err := f.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: "x.do"})
+	resp, err := f.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: "x.do"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 	require.NotNil(t, resp.Tool)
@@ -71,7 +71,7 @@ func TestBase_DescribeTool_UnknownTool_ReturnsInBandError(t *testing.T) {
 		{Name: "exists", SummaryDescription: "x"},
 	})
 
-	resp, err := f.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: "missing"})
+	resp, err := f.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: "missing"})
 	require.NoError(t, err, "unknown tool surfaces as response.error, not gRPC error")
 	require.Nil(t, resp.Tool)
 	require.Contains(t, resp.Error, "missing")
@@ -80,7 +80,7 @@ func TestBase_DescribeTool_UnknownTool_ReturnsInBandError(t *testing.T) {
 }
 
 func TestBase_CallTool_DispatchesToHandler(t *testing.T) {
-	var captured *toolboxv0.CallToolRequest
+	var captured *toolboxv1.CallToolRequest
 	schema, err := structpb.NewStruct(map[string]any{
 		"type": "object", "properties": map[string]any{"k": map[string]any{"type": "string"}},
 		"additionalProperties": false,
@@ -89,15 +89,15 @@ func TestBase_CallTool_DispatchesToHandler(t *testing.T) {
 	f := newFake([]*registry.ToolDefinition{
 		{
 			Name: "x.do", InputSchema: schema,
-			Handler: func(_ context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+			Handler: func(_ context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 				captured = req
-				return &toolboxv0.CallToolResponse{}
+				return &toolboxv1.CallToolResponse{}
 			},
 		},
 	})
 
 	args, _ := structpb.NewStruct(map[string]any{"k": "v"})
-	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "x.do",
 		Arguments: args,
 	})
@@ -109,12 +109,12 @@ func TestBase_CallTool_DispatchesToHandler(t *testing.T) {
 
 func TestBase_CallTool_UnknownTool_ReturnsInBandError(t *testing.T) {
 	f := newFake([]*registry.ToolDefinition{
-		{Name: "exists", Handler: func(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
-			return &toolboxv0.CallToolResponse{}
+		{Name: "exists", Handler: func(_ context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
+			return &toolboxv1.CallToolResponse{}
 		}},
 	})
 
-	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "missing"})
+	resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "missing"})
 	require.NoError(t, err)
 	require.Contains(t, resp.Error, "missing")
 }
@@ -136,9 +136,9 @@ func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
 		{
 			Name:        "fetch",
 			InputSchema: schema,
-			Handler: func(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+			Handler: func(_ context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 				handlerCalled = true
-				return &toolboxv0.CallToolResponse{}
+				return &toolboxv1.CallToolResponse{}
 			},
 		},
 	})
@@ -146,7 +146,7 @@ func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
 	t.Run("missing required field is rejected", func(t *testing.T) {
 		handlerCalled = false
 		args, _ := structpb.NewStruct(map[string]any{}) // url missing
-		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 			Name:      "fetch",
 			Arguments: args,
 		})
@@ -159,7 +159,7 @@ func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
 	t.Run("wrong type is rejected", func(t *testing.T) {
 		handlerCalled = false
 		args, _ := structpb.NewStruct(map[string]any{"url": 42}) // url should be string
-		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 			Name:      "fetch",
 			Arguments: args,
 		})
@@ -171,7 +171,7 @@ func TestBase_CallTool_ValidatesAgainstInputSchema(t *testing.T) {
 	t.Run("valid args pass through to handler", func(t *testing.T) {
 		handlerCalled = false
 		args, _ := structpb.NewStruct(map[string]any{"url": "https://example.com"})
-		resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+		resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 			Name:      "fetch",
 			Arguments: args,
 		})
@@ -187,15 +187,15 @@ func TestBase_CallTool_NoSchemaFailsClosed(t *testing.T) {
 		{
 			Name:        "no_schema",
 			InputSchema: nil,
-			Handler: func(_ context.Context, _ *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+			Handler: func(_ context.Context, _ *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 				handlerCalled = true
-				return &toolboxv0.CallToolResponse{}
+				return &toolboxv1.CallToolResponse{}
 			},
 		},
 	})
 
 	args, _ := structpb.NewStruct(map[string]any{"anything": "goes"})
-	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "no_schema",
 		Arguments: args,
 	})
@@ -212,7 +212,7 @@ func TestBase_CallTool_NilHandler_SurfacesPluginBug(t *testing.T) {
 		{Name: "broken", Handler: nil},
 	})
 
-	resp, err := f.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "broken"})
+	resp, err := f.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "broken"})
 	require.NoError(t, err, "no panic, no gRPC error — clean in-band response")
 	require.Contains(t, strings.ToLower(resp.Error), "no handler")
 }
@@ -231,13 +231,13 @@ func TestBase_DescriptorProvidesIdentityAndParentTag(t *testing.T) {
 		SandboxSummary: "reads only",
 	}, f.defs...)
 
-	identity, err := f.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	identity, err := f.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "example", identity.Name)
 	require.Equal(t, "1.2.3", identity.Version)
 	require.Equal(t, []string{"examplectl"}, identity.CanonicalFor)
 
-	summaries, err := f.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	summaries, err := f.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
 	require.Equal(t, []string{"example", "read-only"}, summaries.Tools[0].Tags)
 	// The plugin-owned definition is not mutated while normalizing metadata.

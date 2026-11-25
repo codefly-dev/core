@@ -10,7 +10,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 type Loader interface {
@@ -20,8 +20,8 @@ type Loader interface {
 	// return the same instances on every call (not fresh copies): after Load,
 	// the Manager resolves secret references in these objects in place, and
 	// LoadConfigurations reads them back expecting the resolved values.
-	Configurations() []*basev0.Configuration
-	DNS() []*basev0.DNS
+	Configurations() []*basev1.Configuration
+	DNS() []*basev1.DNS
 }
 
 // compositionRootConfigurationsLoader is an optional capability a Loader may
@@ -54,7 +54,7 @@ type Manager struct {
 	secretResolvers []SecretResolver
 
 	// Per Name in
-	worspaceConfigurations map[string]*basev0.Configuration
+	worspaceConfigurations map[string]*basev1.Configuration
 
 	// Workspace configuration names composed modules defined incompatibly,
 	// mapped to the diagnostic raised when a dependency selects one.
@@ -66,11 +66,11 @@ type Manager struct {
 	compositionRootWorkspaceConfigurations map[string]bool
 
 	// Per service
-	serviceConfigurations map[string]*basev0.Configuration
+	serviceConfigurations map[string]*basev1.Configuration
 
-	exposedFromServiceConfigurations map[string][]*basev0.Configuration
+	exposedFromServiceConfigurations map[string][]*basev1.Configuration
 
-	dns []*basev0.DNS
+	dns []*basev1.DNS
 
 	reduced  []string
 	doReduce bool
@@ -84,8 +84,8 @@ type Manager struct {
 
 	// Run network mappings used to resolve ${endpoint:…} references in workspace
 	// configuration values, alongside the same secret resolution.
-	networkMappings []*basev0.NetworkMapping
-	networkAccess   *basev0.NetworkAccess
+	networkMappings []*basev1.NetworkMapping
+	networkAccess   *basev1.NetworkAccess
 
 	// selection identifies the consumer these reads resolve for, so a
 	// ${endpoint:…} reference is answered by the endpoint it names, judged
@@ -106,11 +106,11 @@ func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, er
 	return &Manager{
 		workspace:                              workspace,
 		services:                               make(map[string]*resources.Service),
-		worspaceConfigurations:                 make(map[string]*basev0.Configuration),
+		worspaceConfigurations:                 make(map[string]*basev1.Configuration),
 		ambiguousWorkspaceConfigurations:       make(map[string]error),
 		compositionRootWorkspaceConfigurations: make(map[string]bool),
-		serviceConfigurations:                  make(map[string]*basev0.Configuration),
-		exposedFromServiceConfigurations:       make(map[string][]*basev0.Configuration),
+		serviceConfigurations:                  make(map[string]*basev1.Configuration),
+		exposedFromServiceConfigurations:       make(map[string][]*basev1.Configuration),
 		resolvedWorkspace:                      make(map[string]bool),
 	}, nil
 }
@@ -132,7 +132,7 @@ func (manager *Manager) WithSecretResolver(resolvers ...SecretResolver) *Manager
 // against which ${endpoint:…} references in workspace configuration values are
 // resolved. The composition root sets these once ports are allocated, before any
 // workspace configuration is selected.
-func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
+func (manager *Manager) WithNetworkMappings(mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess) *Manager {
 	manager.networkMappings = mappings
 	manager.networkAccess = access
 	return manager
@@ -161,7 +161,7 @@ func (manager *Manager) WithRunProducers(inRun func(unique string) bool) *Manage
 // else is shared with the manager. Services initialize concurrently, so a
 // composition root reads each consumer's configurations through its own view
 // rather than setting the mappings on the shared manager before each read.
-func (manager *Manager) ForConsumer(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
+func (manager *Manager) ForConsumer(mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess) *Manager {
 	if manager == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func (manager *Manager) resolveSecrets(ctx context.Context, env *resources.Envir
 // place, at most once per load. The per-load URI cache is shared with every
 // other selected configuration and with the service-origin pass, so a reference
 // used by several is fetched from its provider only once.
-func (manager *Manager) resolveWorkspaceConfiguration(ctx context.Context, name string, conf *basev0.Configuration) error {
+func (manager *Manager) resolveWorkspaceConfiguration(ctx context.Context, name string, conf *basev1.Configuration) error {
 	if manager.resolvedWorkspace[name] {
 		return nil
 	}
@@ -288,7 +288,7 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 			if conf.Origin == resources.ConfigurationWorkspace {
 				for _, info := range conf.Infos {
 					if _, ok := manager.worspaceConfigurations[info.Name]; !ok {
-						manager.worspaceConfigurations[info.Name] = &basev0.Configuration{
+						manager.worspaceConfigurations[info.Name] = &basev1.Configuration{
 							Origin: resources.ConfigurationWorkspace,
 						}
 					}
@@ -301,7 +301,7 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 			}
 			for _, info := range conf.Infos {
 				if _, ok := manager.serviceConfigurations[conf.Origin]; !ok {
-					manager.serviceConfigurations[conf.Origin] = &basev0.Configuration{
+					manager.serviceConfigurations[conf.Origin] = &basev1.Configuration{
 						Origin: conf.Origin,
 					}
 				}
@@ -312,7 +312,7 @@ func (manager *Manager) LoadConfigurations(_ context.Context) error {
 	return nil
 }
 
-func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -322,7 +322,7 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	out := make([]*basev0.Configuration, 0, len(names))
+	out := make([]*basev1.Configuration, 0, len(names))
 	for _, name := range names {
 		conf := manager.worspaceConfigurations[name]
 		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
@@ -378,7 +378,7 @@ var ErrNotACompositionRootConfiguration = errors.New("not a workspace configurat
 // does not declare or an invalid declaration is refused here, naming the
 // configuration and key, whichever consumer meets it. Unresolvable secrets
 // still fail the run (they are universal, not consumer-specific).
-func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -407,7 +407,7 @@ var ErrNoCompositionRootConfigurationNamed = errors.New("a named composition-roo
 // sorted by name with each group once, so the order a caller lists names in
 // does not change what it reads. A nil manager refuses too, rather than
 // answering a named read with nothing.
-func (manager *Manager) GetNamedCompositionRootWorkspaceConfigurations(ctx context.Context, names ...string) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetNamedCompositionRootWorkspaceConfigurations(ctx context.Context, names ...string) ([]*basev1.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.GetNamedCompositionRootWorkspaceConfigurations")
 	if manager == nil {
 		return nil, w.NewError("configurations.Manager: receiver is nil — a named read of %s was attempted before Manager initialization", strings.Join(names, ", "))
@@ -421,9 +421,9 @@ func (manager *Manager) GetNamedCompositionRootWorkspaceConfigurations(ctx conte
 
 // readCompositionRootConfigurations resolves the selected root-provided groups,
 // in order, refusing on the first fault.
-func (manager *Manager) readCompositionRootConfigurations(ctx context.Context, selected []string) ([]*basev0.Configuration, error) {
+func (manager *Manager) readCompositionRootConfigurations(ctx context.Context, selected []string) ([]*basev1.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.GetCompositionRootWorkspaceConfigurations")
-	out := make([]*basev0.Configuration, 0, len(selected))
+	out := make([]*basev1.Configuration, 0, len(selected))
 	for _, name := range selected {
 		conf := manager.worspaceConfigurations[name]
 		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
@@ -509,7 +509,7 @@ func (manager *Manager) refuseUnlessCompositionRoot(name string) error {
 // reference to something the run contains is expected to hold. A reference to a
 // producer the run does not contain is dropped for this consumer with a WARN —
 // see WithRunProducers, which is what tells the two apart.
-func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
+func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev1.Configuration) (*basev1.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpoints")
 	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess,
 		resources.WithRunProducers(manager.runProducers),
@@ -525,7 +525,7 @@ func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, c
 // depend on is dropped for that consumer rather than failing it. Only this path
 // is lenient; GetWorkspaceConfigurations and GetWorkspaceDependenciesConfigurations
 // stay fail-fast so a mistyped module/service/endpoint still surfaces loudly.
-func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
+func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name string, conf *basev1.Configuration) (*basev1.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpointsRunWide")
 	// The run set travels with the run-wide read as it does with the strict one:
 	// it is what tells a consumer that legitimately cannot see an endpoint from a
@@ -571,12 +571,12 @@ func (manager *Manager) WorkspaceEndpointReferences(deps ...string) []string {
 	return references
 }
 
-func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Context, deps ...string) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Context, deps ...string) ([]*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
 	w := wool.Get(ctx).In("Manager.GetWorkspaceDependenciesConfigurations")
-	out := make([]*basev0.Configuration, 0, len(deps))
+	out := make([]*basev1.Configuration, 0, len(deps))
 	for _, dep := range deps {
 		conf, ok := manager.worspaceConfigurations[dep]
 		if !ok {
@@ -597,7 +597,7 @@ func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Conte
 	return out, nil
 }
 
-func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -606,14 +606,14 @@ func (manager *Manager) GetServiceConfigurations(_ context.Context) ([]*basev0.C
 		origins = append(origins, origin)
 	}
 	slices.Sort(origins)
-	out := make([]*basev0.Configuration, 0, len(origins))
+	out := make([]*basev1.Configuration, 0, len(origins))
 	for _, origin := range origins {
 		out = append(out, manager.serviceConfigurations[origin])
 	}
 	return out, nil
 }
 
-func (manager *Manager) GetServiceConfiguration(_ context.Context, service *resources.ServiceIdentity) (*basev0.Configuration, error) {
+func (manager *Manager) GetServiceConfiguration(_ context.Context, service *resources.ServiceIdentity) (*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -623,7 +623,7 @@ func (manager *Manager) GetServiceConfiguration(_ context.Context, service *reso
 	return nil, nil
 }
 
-func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resources.ServiceIdentity, confs ...*basev0.Configuration) error {
+func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resources.ServiceIdentity, confs ...*basev1.Configuration) error {
 	if manager == nil {
 		return nil
 	}
@@ -633,7 +633,7 @@ func (manager *Manager) ExposeConfiguration(ctx context.Context, service *resour
 	return nil
 }
 
-func (manager *Manager) GetSharedServiceConfiguration(_ context.Context, unique string) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetSharedServiceConfiguration(_ context.Context, unique string) ([]*basev1.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
@@ -662,14 +662,14 @@ func (manager *Manager) LoadDNS(_ context.Context) error {
 	return nil
 }
 
-func (manager *Manager) DNS() []*basev0.DNS {
+func (manager *Manager) DNS() []*basev1.DNS {
 	if manager == nil {
 		return nil
 	}
 	return manager.dns
 }
 
-func (manager *Manager) GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev0.DNS, error) {
+func (manager *Manager) GetDNS(ctx context.Context, svc *resources.ServiceIdentity, endpointName string) (*basev1.DNS, error) {
 	// Returning (nil, error) on a nil receiver lets callers distinguish
 	// "uninitialized manager" from "manager has no matching DNS entry".
 	// The previous (nil, nil) return swallowed the misconfiguration —

@@ -10,7 +10,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"github.com/Masterminds/semver"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/version"
 	"github.com/codefly-dev/core/wool"
@@ -83,7 +83,7 @@ func (s AgentResolutionSupport) For(store AgentStore) (AgentResolutionBehavior, 
 }
 
 type AgentKindRegistration struct {
-	ProtoKind              basev0.Agent_Kind
+	ProtoKind              basev1.Agent_Kind
 	Resource               AgentKind
 	InstallSubdirectory    string
 	ExecutablePrefix       string
@@ -109,7 +109,7 @@ func (r AgentKindRegistration) GitHubAsset(name, version, goos, goarch string) s
 
 var agentKindRegistry = []AgentKindRegistration{
 	{
-		ProtoKind:              basev0.Agent_SERVICE,
+		ProtoKind:              basev1.Agent_SERVICE,
 		Resource:               ServiceAgent,
 		InstallSubdirectory:    "services",
 		ExecutablePrefix:       "service",
@@ -126,7 +126,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		aliases:      []AgentKind{BuilderServiceAgent, RuntimeServiceAgent, CodeServiceAgent},
 	},
 	{
-		ProtoKind:              basev0.Agent_JOB,
+		ProtoKind:              basev1.Agent_JOB,
 		Resource:               JobAgent,
 		InstallSubdirectory:    "jobs",
 		ExecutablePrefix:       "job",
@@ -134,7 +134,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		GitHubAssetPrefix:      "job",
 	},
 	{
-		ProtoKind:              basev0.Agent_APPLICATION,
+		ProtoKind:              basev1.Agent_APPLICATION,
 		Resource:               ApplicationAgent,
 		InstallSubdirectory:    "applications",
 		ExecutablePrefix:       "application",
@@ -150,7 +150,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		AutoDownload: true,
 	},
 	{
-		ProtoKind:              basev0.Agent_MODULE,
+		ProtoKind:              basev1.Agent_MODULE,
 		Resource:               ModuleAgent,
 		InstallSubdirectory:    "modules",
 		ExecutablePrefix:       "module",
@@ -166,7 +166,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		AutoDownload: true,
 	},
 	{
-		ProtoKind:              basev0.Agent_TOOLBOX,
+		ProtoKind:              basev1.Agent_TOOLBOX,
 		Resource:               ToolboxAgent,
 		InstallSubdirectory:    "toolboxes",
 		ExecutablePrefix:       "toolbox",
@@ -182,7 +182,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		AutoDownload: true,
 	},
 	{
-		ProtoKind:              basev0.Agent_PROVIDER,
+		ProtoKind:              basev1.Agent_PROVIDER,
 		Resource:               ProviderAgent,
 		InstallSubdirectory:    "providers",
 		ExecutablePrefix:       "provider",
@@ -195,7 +195,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		Operations: AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 	},
 	{
-		ProtoKind:              basev0.Agent_SOLUTION,
+		ProtoKind:              basev1.Agent_SOLUTION,
 		Resource:               SolutionAgent,
 		InstallSubdirectory:    "solutions",
 		ExecutablePrefix:       "solution",
@@ -208,7 +208,7 @@ var agentKindRegistry = []AgentKindRegistration{
 		Operations: AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 	},
 	{
-		ProtoKind:              basev0.Agent_RUNNABLE,
+		ProtoKind:              basev1.Agent_RUNNABLE,
 		Resource:               RunnableAgent,
 		InstallSubdirectory:    "runnables",
 		ExecutablePrefix:       "runnable",
@@ -226,7 +226,7 @@ var agentKindRegistry = []AgentKindRegistration{
 }
 
 var (
-	agentKinds  map[basev0.Agent_Kind]AgentKindRegistration
+	agentKinds  map[basev1.Agent_Kind]AgentKindRegistration
 	agentInputs map[AgentKind]AgentKindRegistration
 	CLI         *Agent
 )
@@ -251,7 +251,7 @@ func init() {
 }
 
 func initializeAgentKindRegistry() error {
-	agentKinds = make(map[basev0.Agent_Kind]AgentKindRegistration, len(agentKindRegistry))
+	agentKinds = make(map[basev1.Agent_Kind]AgentKindRegistration, len(agentKindRegistry))
 	agentInputs = make(map[AgentKind]AgentKindRegistration, len(agentKindRegistry))
 	repositories := make(map[string]AgentKind, len(agentKindRegistry))
 	assets := make(map[string]AgentKind, len(agentKindRegistry))
@@ -287,7 +287,7 @@ func initializeAgentKindRegistry() error {
 }
 
 func ValidateAgentKindRegistration(registration AgentKindRegistration) error {
-	if registration.ProtoKind == basev0.Agent_UNKNOWN {
+	if registration.ProtoKind == basev1.Agent_UNKNOWN {
 		return fmt.Errorf("proto kind is required")
 	}
 	if registration.Resource == "" {
@@ -339,7 +339,7 @@ func AgentKindRegistrationFor(kind AgentKind) (AgentKindRegistration, error) {
 	return registration, nil
 }
 
-func AgentKindRegistrationFromProto(kind basev0.Agent_Kind) (AgentKindRegistration, error) {
+func AgentKindRegistrationFromProto(kind basev1.Agent_Kind) (AgentKindRegistration, error) {
 	registration, ok := agentKinds[kind]
 	if !ok {
 		return AgentKindRegistration{}, fmt.Errorf("unknown agent kind: %s", kind)
@@ -351,7 +351,7 @@ func (p *Agent) String() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
 }
 
-func LoadAgent(ctx context.Context, action *basev0.Agent, expectedKind AgentKind) (*Agent, error) {
+func LoadAgent(ctx context.Context, action *basev1.Agent, expectedKind AgentKind) (*Agent, error) {
 	w := wool.Get(ctx).In("LoadAgent")
 	agent, err := AgentFromProto(action)
 	if err != nil {
@@ -367,7 +367,7 @@ func LoadAgent(ctx context.Context, action *basev0.Agent, expectedKind AgentKind
 	return agent, nil
 }
 
-func AgentKindFromProto(kind basev0.Agent_Kind) (*AgentKind, error) {
+func AgentKindFromProto(kind basev1.Agent_Kind) (*AgentKind, error) {
 	registration, err := AgentKindRegistrationFromProto(kind)
 	if err != nil {
 		return nil, err
@@ -376,7 +376,7 @@ func AgentKindFromProto(kind basev0.Agent_Kind) (*AgentKind, error) {
 	return &resource, nil
 }
 
-func ValidateAgent(agent *basev0.Agent) error {
+func ValidateAgent(agent *basev1.Agent) error {
 	if agent == nil {
 		return fmt.Errorf("agent is required")
 	}
@@ -414,7 +414,7 @@ func (p *Agent) Identifier() string {
 // agent proto for display. It does not validate the agent kind: display paths
 // (e.g. rendering the equivalent CLI command) must not panic or fail on a
 // malformed or unregistered kind.
-func AgentIdentifierFromProto(agent *basev0.Agent) string {
+func AgentIdentifierFromProto(agent *basev1.Agent) string {
 	if agent == nil {
 		return ""
 	}
@@ -529,7 +529,7 @@ func ParseAgent(ctx context.Context, kind AgentKind, input string) (*Agent, erro
 	return AgentFromProto(agent)
 }
 
-func parseAgent(ctx context.Context, kind AgentKind, input string) (*basev0.Agent, error) {
+func parseAgent(ctx context.Context, kind AgentKind, input string) (*basev1.Agent, error) {
 	w := wool.Get(ctx).In("parseAgent", wool.Field("kind", kind), wool.Field("agent", input))
 	if input == "" {
 		return nil, fmt.Errorf("empty")
@@ -556,14 +556,14 @@ func parseAgent(ctx context.Context, kind AgentKind, input string) (*basev0.Agen
 	if err != nil {
 		return nil, err
 	}
-	agent := &basev0.Agent{Kind: registration.ProtoKind, Publisher: publisher, Name: name, Version: agentVersion}
+	agent := &basev1.Agent{Kind: registration.ProtoKind, Publisher: publisher, Name: name, Version: agentVersion}
 	if err := ValidateAgent(agent); err != nil {
 		return nil, err
 	}
 	return agent, nil
 }
 
-func AgentFromProto(agent *basev0.Agent) (*Agent, error) {
+func AgentFromProto(agent *basev1.Agent) (*Agent, error) {
 	if err := ValidateAgent(agent); err != nil {
 		return nil, err
 	}
@@ -579,12 +579,12 @@ func AgentFromProto(agent *basev0.Agent) (*Agent, error) {
 	}, nil
 }
 
-func (p *Agent) Proto() (*basev0.Agent, error) {
+func (p *Agent) Proto() (*basev1.Agent, error) {
 	registration, err := AgentKindRegistrationFor(p.Kind)
 	if err != nil {
 		return nil, err
 	}
-	agent := &basev0.Agent{
+	agent := &basev1.Agent{
 		Kind:      registration.ProtoKind,
 		Publisher: p.Publisher,
 		Name:      p.Name,

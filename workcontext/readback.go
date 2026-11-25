@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ReadBack is the issuer answering a question about a capability it issued,
@@ -119,7 +119,7 @@ type ReadBackCapability struct {
 }
 
 // Context is the claims snapshot.
-func (r *ReadBackCapability) Context() *basev0.WorkContextV1 { return r.verified.Context() }
+func (r *ReadBackCapability) Context() *basev1.WorkContextV1 { return r.verified.Context() }
 
 // Encoded is the token exactly as read back.
 func (r *ReadBackCapability) Encoded() string { return r.verified.Encoded() }
@@ -128,9 +128,9 @@ func (r *ReadBackCapability) Encoded() string { return r.verified.Encoded() }
 func (r *ReadBackCapability) SHA256() string { return r.verified.SHA256() }
 
 // Actor is the current actor's hop, or nil when the owner acts directly.
-func (r *ReadBackCapability) Actor() *basev0.WorkActorV1 { return r.verified.Actor() }
+func (r *ReadBackCapability) Actor() *basev1.WorkActorV1 { return r.verified.Actor() }
 
 // EffectiveScopes are the scopes the current actor holds.
-func (r *ReadBackCapability) EffectiveScopes() []*basev0.WorkScopeV1 {
+func (r *ReadBackCapability) EffectiveScopes() []*basev1.WorkScopeV1 {
 	return r.verified.EffectiveScopes()
 }

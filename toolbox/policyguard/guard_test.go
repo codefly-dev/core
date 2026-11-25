@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/toolbox/git"
 	"github.com/codefly-dev/core/toolbox/policyguard"
@@ -40,7 +40,7 @@ func TestGuard_Identity_Passthrough(t *testing.T) {
 	// describes the toolbox; refusing it would defeat catalog UIs.
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), policy.DenyAllPDP{}, "git")
-	resp, err := g.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	resp, err := g.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "git", resp.Name,
 		"Identity must always pass through; PDPs only gate side-effecting RPCs")
@@ -49,7 +49,7 @@ func TestGuard_Identity_Passthrough(t *testing.T) {
 func TestGuard_ListTools_Passthrough(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), policy.DenyAllPDP{}, "git")
-	resp, err := g.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	resp, err := g.ListTools(context.Background(), &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Tools,
 		"ListTools must pass through even under deny-all — agents need to know what's offered before they can ask for permission")
@@ -67,7 +67,7 @@ func TestGuard_TwoPhase_Passthrough(t *testing.T) {
 	g := policyguard.New(git.New(dir, "guard-test"), policy.DenyAllPDP{}, "git")
 
 	t.Run("ListToolSummaries", func(t *testing.T) {
-		resp, err := g.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+		resp, err := g.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Tools,
 			"ListToolSummaries must pass through; deny-all only gates the side-effecting CallTool")
@@ -75,7 +75,7 @@ func TestGuard_TwoPhase_Passthrough(t *testing.T) {
 
 	t.Run("DescribeTool", func(t *testing.T) {
 		resp, err := g.DescribeTool(context.Background(),
-			&toolboxv0.DescribeToolRequest{Name: "git.status"})
+			&toolboxv1.DescribeToolRequest{Name: "git.status"})
 		require.NoError(t, err)
 		require.NotNil(t, resp.Tool, "DescribeTool must return a non-nil ToolSpec")
 		require.Equal(t, "git.status", resp.Tool.Name)
@@ -86,7 +86,7 @@ func TestGuard_TwoPhase_Passthrough(t *testing.T) {
 		// in-band error envelope. We assert both surfaces compose
 		// cleanly through the Guard.
 		resp, err := g.DescribeTool(context.Background(),
-			&toolboxv0.DescribeToolRequest{Name: "git.nonexistent"})
+			&toolboxv1.DescribeToolRequest{Name: "git.nonexistent"})
 		require.NoError(t, err)
 		require.Nil(t, resp.Tool)
 		require.NotEmpty(t, resp.Error)
@@ -97,7 +97,7 @@ func TestGuard_CallTool_AllowAll_PassesThrough(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), policy.AllowAllPDP{}, "git")
 	resp, err := g.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "git.status"})
+		&toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error, "allow-all PDP must not refuse any call")
 	require.NotEmpty(t, resp.Content, "allow-all must pass through to the real implementation")
@@ -107,7 +107,7 @@ func TestGuard_CallTool_DenyAll_RefusesWithReason(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), policy.DenyAllPDP{}, "git")
 	resp, err := g.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "git.status"})
+		&toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err, "policy refusal is a tool-level error, not a transport error")
 	require.NotEmpty(t, resp.Error, "deny-all PDP must produce a refusal envelope")
 	require.Contains(t, resp.Error, "deny-all",
@@ -127,12 +127,12 @@ func TestGuard_CallTool_JSONPolicy_Granular(t *testing.T) {
 
 	// Allowed
 	resp, _ := g.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "git.status"})
+		&toolboxv1.CallToolRequest{Name: "git.status"})
 	require.Empty(t, resp.Error, "git.status must pass: %v", resp.Error)
 
 	// Default-denied
 	resp, _ = g.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "git.log"})
+		&toolboxv1.CallToolRequest{Name: "git.log"})
 	require.NotEmpty(t, resp.Error,
 		"git.log has no rule and default is deny — must be refused")
 	require.Contains(t, resp.Error, "default-deny")
@@ -142,7 +142,7 @@ func TestGuard_NilPDP_FailsClosed(t *testing.T) {
 	dir := gitWorkspace(t)
 	g := policyguard.New(git.New(dir, "guard-test"), nil, "git")
 	resp, err := g.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "git.status"})
+		&toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Contains(t, resp.Error, "deny-all", "nil PDP must not disable enforcement")
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/runners/javascript"
 )
 
@@ -117,7 +117,7 @@ func TestVitest_AllPassing_NoCapturedOutput(t *testing.T) {
 	run := javascript.ParseJestVitestJSON(realisticVitestPassing, 0)
 	resp := run.ToProtoResponse("vitest", "unit", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State)
 	require.EqualValues(t, 2, resp.Counts.Total)
 	require.EqualValues(t, 2, resp.Counts.Passed)
 	require.EqualValues(t, 0, resp.Counts.Failed)
@@ -128,7 +128,7 @@ func TestVitest_AllPassing_NoCapturedOutput(t *testing.T) {
 	require.Len(t, suite.Cases, 2)
 
 	for _, c := range suite.Cases {
-		require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
+		require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
 		require.Empty(t, c.CapturedOutput,
 			"PASSED cases get NO captured output (the load-bearing rule)")
 		require.Nil(t, c.Failure)
@@ -179,7 +179,7 @@ func TestVitest_FailedCase_CarriesFailureMessage(t *testing.T) {
 	run := javascript.ParseJestVitestJSON(realisticVitestMixed, 0)
 	resp := run.ToProtoResponse("vitest", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_FAILED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_FAILED, resp.Result.State)
 	require.EqualValues(t, 3, resp.Counts.Total)
 	require.EqualValues(t, 1, resp.Counts.Passed)
 	require.EqualValues(t, 1, resp.Counts.Failed)
@@ -189,19 +189,19 @@ func TestVitest_FailedCase_CarriesFailureMessage(t *testing.T) {
 	cases := caseByName(t, suite)
 
 	pc := cases["validates token"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, pc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, pc.State)
 	require.Empty(t, pc.CapturedOutput)
 
 	fc := cases["rejects expired"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, fc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, fc.State)
 	require.NotNil(t, fc.Failure)
 	require.Contains(t, fc.Failure.Detail, "AssertionError",
 		"failure.detail must contain the failureMessages content for diagnosis")
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, fc.Failure.Kind)
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, fc.Failure.Kind)
 	require.NotEmpty(t, fc.CapturedOutput)
 
 	sc := cases["skipped path"]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED, sc.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED, sc.State)
 	require.Empty(t, sc.CapturedOutput)
 }
 
@@ -209,16 +209,16 @@ func TestVitest_ImportError_ClassifiedAsBuildError(t *testing.T) {
 	run := javascript.ParseJestVitestJSON(realisticVitestImportError, 0)
 	resp := run.ToProtoResponse("vitest", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_ERRORED, resp.Result.State,
+	require.Equal(t, runtimev1.TestRunResult_ERRORED, resp.Result.State,
 		"file-level failureMessage with no assertions = file failed to load = ERRORED")
 	require.Len(t, resp.Suites, 1)
 	require.Len(t, resp.Suites[0].Cases, 1)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
 	require.Equal(t, "<file>", c.Name,
 		"synthetic <file> case name signals this isn't a real test")
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR, c.Failure.Kind)
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR, c.Failure.Kind)
 	require.Contains(t, c.Failure.Detail, "Cannot find module")
 }
 
@@ -241,7 +241,7 @@ func TestVitest_TimeoutClassified(t *testing.T) {
     }`
 	resp := javascript.ParseJestVitestJSON(json, 0).ToProtoResponse("vitest", "", time.Second)
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT, c.Failure.Kind,
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT, c.Failure.Kind,
 		"timeout markers in failureMessages must classify as TIMEOUT")
 }
 
@@ -287,7 +287,7 @@ func TestVitest_LegacyFieldsMirrorStructured(t *testing.T) {
 	require.EqualValues(t, 1, resp.TestsFailed)
 	require.EqualValues(t, 1, resp.TestsSkipped)
 	require.InDelta(t, 75.0, resp.CoveragePct, 0.001)
-	require.Equal(t, runtimev0.TestStatus_ERROR, resp.Status.State,
+	require.Equal(t, runtimev1.TestStatus_ERROR, resp.Status.State,
 		"any failure flips legacy status to ERROR")
 	require.Len(t, resp.Failures, 1,
 		"failures list contains one entry per failed case")
@@ -313,9 +313,9 @@ func TestVitest_MalformedJSON_GracefulNoPanic(t *testing.T) {
 
 // --- Helper --------------------------------------------------------
 
-func caseByName(t *testing.T, suite *runtimev0.TestSuite) map[string]*runtimev0.TestCase {
+func caseByName(t *testing.T, suite *runtimev1.TestSuite) map[string]*runtimev1.TestCase {
 	t.Helper()
-	out := make(map[string]*runtimev0.TestCase, len(suite.Cases))
+	out := make(map[string]*runtimev1.TestCase, len(suite.Cases))
 	for _, c := range suite.Cases {
 		out[c.Name] = c
 	}

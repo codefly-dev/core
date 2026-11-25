@@ -123,7 +123,7 @@ a call rather than forbidding one.
 ## Detecting violations
 
 ```go
-findings := contract.Detect(index) // index: the consumer's basev0.SemanticIndex
+findings := contract.Detect(index) // index: the consumer's basev1.SemanticIndex
 ```
 
 `Detect` reads a consumer's source through its semantic index — the body-free

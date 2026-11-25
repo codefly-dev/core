@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -27,7 +27,7 @@ func (h *harness) startIn(in workcontext.StartInput) (string, error) {
 	in.OrganizationID = organization
 	in.TaskID = taskID
 	in.Audience = audience
-	in.AuthorityScopes = []*basev0.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)}
+	in.AuthorityScopes = []*basev1.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)}
 	in.TTL = time.Hour
 	token, _, err := h.authority.Start(context.Background(), in)
 	return token, err
@@ -39,7 +39,7 @@ func (h *harness) childIn(parent *workcontext.Verified, session string) (string,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           30 * time.Minute,
 		SessionID:     session,

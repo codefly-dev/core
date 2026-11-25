@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 )
@@ -41,10 +41,10 @@ func TestOptingOutOfEveryEndpointIsNotSilentlyALifecycleCheck(t *testing.T) {
 // An agent can return any Endpoint from Load. A contradiction used to be
 // accepted at ingestion and only fail later, when the manifest was written back.
 func TestWireEndpointsAreValidatedAtIngestion(t *testing.T) {
-	grpcHealthOnHTTP := &basev0.Endpoint{
+	grpcHealthOnHTTP := &basev1.Endpoint{
 		Name: standards.HTTP, Service: "accounts", Module: "saas", Api: standards.HTTP,
-		Health: &basev0.Health{Readiness: &basev0.Probe{
-			Predicate: &basev0.Probe_GrpcHealth{GrpcHealth: &basev0.GrpcHealthProbe{}},
+		Health: &basev1.Health{Readiness: &basev1.Probe{
+			Predicate: &basev1.Probe_GrpcHealth{GrpcHealth: &basev1.GrpcHealthProbe{}},
 		}},
 	}
 	_, err := resources.FromProtoEndpoints(grpcHealthOnHTTP)
@@ -53,16 +53,16 @@ func TestWireEndpointsAreValidatedAtIngestion(t *testing.T) {
 
 	// "Declared nothing" and "declared something empty" stay distinct: the first
 	// is legacy transport, the second is an unusable probe.
-	empty := &basev0.Endpoint{
+	empty := &basev1.Endpoint{
 		Name: standards.HTTP, Service: "accounts", Module: "saas", Api: standards.HTTP,
-		Health: &basev0.Health{Readiness: &basev0.Probe{}},
+		Health: &basev1.Health{Readiness: &basev1.Probe{}},
 	}
 	require.ErrorContains(t, resources.ValidateEndpointHealth(empty), `readiness declares no predicate`)
 
-	valid := &basev0.Endpoint{
+	valid := &basev1.Endpoint{
 		Name: standards.GRPC, Service: "accounts", Module: "saas", Api: standards.GRPC,
-		Health: &basev0.Health{Readiness: &basev0.Probe{
-			Predicate: &basev0.Probe_GrpcHealth{GrpcHealth: &basev0.GrpcHealthProbe{Service: "accounts.v1.Accounts"}},
+		Health: &basev1.Health{Readiness: &basev1.Probe{
+			Predicate: &basev1.Probe_GrpcHealth{GrpcHealth: &basev1.GrpcHealthProbe{Service: "accounts.v1.Accounts"}},
 		}},
 	}
 	converted, err := resources.FromProtoEndpoints(valid)
@@ -73,19 +73,19 @@ func TestWireEndpointsAreValidatedAtIngestion(t *testing.T) {
 // The transport security an evaluator needs is recorded only in the endpoint's
 // API details, so the plan has to carry it or a TLS endpoint is dialled plain.
 func TestPlanCarriesEndpointTransportSecurity(t *testing.T) {
-	secured := &basev0.Endpoint{
+	secured := &basev1.Endpoint{
 		Name: standards.GRPC, Service: "accounts", Module: "saas", Api: standards.GRPC,
-		ApiDetails: &basev0.API{Value: &basev0.API_Grpc{Grpc: &basev0.GrpcAPI{Secured: true}}},
+		ApiDetails: &basev1.API{Value: &basev1.API_Grpc{Grpc: &basev1.GrpcAPI{Secured: true}}},
 	}
-	plain := &basev0.Endpoint{
+	plain := &basev1.Endpoint{
 		Name: standards.HTTP, Service: "accounts", Module: "saas", Api: standards.HTTP,
-		ApiDetails: &basev0.API{Value: &basev0.API_Http{Http: &basev0.HttpAPI{}}},
+		ApiDetails: &basev1.API{Value: &basev1.API_Http{Http: &basev1.HttpAPI{}}},
 	}
 	require.True(t, resources.EndpointSecured(secured))
 	require.False(t, resources.EndpointSecured(plain))
 
 	dependency := &resources.ServiceDependency{Name: "accounts", Module: "saas"}
-	requirements, err := resources.PlanReadiness([]*resources.ServiceDependency{dependency}, []*basev0.Endpoint{secured, plain})
+	requirements, err := resources.PlanReadiness([]*resources.ServiceDependency{dependency}, []*basev1.Endpoint{secured, plain})
 	require.NoError(t, err)
 	require.Len(t, requirements, 2)
 
@@ -110,7 +110,7 @@ func TestUnsupportedKindErrorOffersOnlyKindsAnEndpointAccepts(t *testing.T) {
 
 // AcceptedHTTPStatuses handed callers the package's own default slice.
 func TestDefaultHTTPStatusesCannotBeMutatedByCallers(t *testing.T) {
-	probe := &basev0.HttpProbe{Path: "/healthz"}
+	probe := &basev1.HttpProbe{Path: "/healthz"}
 	resources.AcceptedHTTPStatuses(probe)[0].Max = 599
 
 	require.False(t, resources.HTTPStatusAccepted(probe, 503), "a caller must not be able to widen the default for every probe")
@@ -130,8 +130,8 @@ func TestEndpointHashIsStableForEndpointsWithoutHealth(t *testing.T) {
 	require.Equal(t, first, second)
 
 	withHealth := resources.Light(endpoints[0])
-	withHealth.Health = &basev0.Health{Readiness: &basev0.Probe{
-		Predicate: &basev0.Probe_GrpcHealth{GrpcHealth: &basev0.GrpcHealthProbe{}},
+	withHealth.Health = &basev1.Health{Readiness: &basev1.Probe{
+		Predicate: &basev1.Probe_GrpcHealth{GrpcHealth: &basev1.GrpcHealthProbe{}},
 	}}
 	changed, err := resources.EndpointHash(ctx, withHealth)
 	require.NoError(t, err)

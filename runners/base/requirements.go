@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -40,7 +40,7 @@ func CheckPythonPath() (string, error) {
 // mode is missing. Toolchains are irrelevant for the NIX/DOCKER backends (nix
 // availability is checked separately at runtime-context resolution), so this
 // only concerns the native/LOCAL path.
-func CheckToolchains(ctx context.Context, toolchains []*agentv0.Toolchain) error {
+func CheckToolchains(ctx context.Context, toolchains []*agentv1.Toolchain) error {
 	w := wool.Get(ctx).In("CheckToolchains")
 	warnMissing := func(bin, label string) {
 		if _, err := exec.LookPath(bin); err != nil {
@@ -49,21 +49,21 @@ func CheckToolchains(ctx context.Context, toolchains []*agentv0.Toolchain) error
 	}
 	for _, tc := range toolchains {
 		switch tc.Type {
-		case agentv0.Toolchain_GO:
+		case agentv1.Toolchain_GO:
 			warnMissing("go", "Go")
-		case agentv0.Toolchain_NPM:
+		case agentv1.Toolchain_NPM:
 			warnMissing("npm", "NPM")
-		case agentv0.Toolchain_PYTHON:
+		case agentv1.Toolchain_PYTHON:
 			if _, err := CheckPythonPath(); err != nil {
 				w.Warn("Python is required to run in native mode. But don't worry, you can still run in container mode!")
 			}
-		case agentv0.Toolchain_PYTHON_POETRY:
+		case agentv1.Toolchain_PYTHON_POETRY:
 			warnMissing("poetry", "Poetry")
-		case agentv0.Toolchain_RUST:
+		case agentv1.Toolchain_RUST:
 			warnMissing("rustc", "Rust")
-		case agentv0.Toolchain_CARGO:
+		case agentv1.Toolchain_CARGO:
 			warnMissing("cargo", "Cargo")
-		case agentv0.Toolchain_SWIFT:
+		case agentv1.Toolchain_SWIFT:
 			warnMissing("swift", "Swift")
 		}
 	}

@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"time"
 
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/runners/runstate"
 	"github.com/codefly-dev/core/sdk/session"
 	"google.golang.org/grpc"
@@ -91,7 +91,7 @@ func main() {
 	server.note("owner=" + os.Getenv(runstate.OwnerEnvironment))
 
 	srv := grpc.NewServer()
-	v0.RegisterCLIServer(srv, server)
+	v1.RegisterCLIServer(srv, server)
 	checker := health.NewServer()
 	checker.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, checker)
@@ -132,7 +132,7 @@ func handshakeVersion(mode string) uint32 {
 }
 
 type controlServer struct {
-	v0.UnimplementedCLIServer
+	v1.UnimplementedCLIServer
 	owner       *session.Session
 	handshake   bool
 	stall       bool
@@ -157,7 +157,7 @@ func (s *controlServer) note(name string) {
 	_, _ = fmt.Fprintln(file, name)
 }
 
-func (s *controlServer) SessionHandshake(ctx context.Context, req *v0.SessionHandshakeRequest) (*v0.SessionHandshakeResponse, error) {
+func (s *controlServer) SessionHandshake(ctx context.Context, req *v1.SessionHandshakeRequest) (*v1.SessionHandshakeResponse, error) {
 	s.note("SessionHandshake")
 	if s.stall {
 		<-ctx.Done()
@@ -170,7 +170,7 @@ func (s *controlServer) SessionHandshake(ctx context.Context, req *v0.SessionHan
 	if s.capability {
 		capabilities = append(capabilities, session.IsolatedControlSocketCapability)
 	}
-	return &v0.SessionHandshakeResponse{
+	return &v1.SessionHandshakeResponse{
 		SessionId:       s.owner.ID,
 		Proof:           s.owner.Proof(req.GetChallenge()),
 		ProtocolVersion: s.version,
@@ -183,74 +183,74 @@ func (s *controlServer) Ping(context.Context, *emptypb.Empty) (*emptypb.Empty, e
 	return &emptypb.Empty{}, nil
 }
 
-func (s *controlServer) GetFlowStatus(context.Context, *emptypb.Empty) (*v0.FlowStatus, error) {
+func (s *controlServer) GetFlowStatus(context.Context, *emptypb.Empty) (*v1.FlowStatus, error) {
 	s.note("GetFlowStatus")
 	if s.legacyFlow {
-		return &v0.FlowStatus{}, nil
+		return &v1.FlowStatus{}, nil
 	}
 	if s.failedFlow {
-		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
+		return &v1.FlowStatus{Services: []*v1.ServiceReadiness{
 			{
 				Service:   "app/api",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED,
 				EnteredAt: timestamppb.New(s.startedAt),
 				Message:   "exited with code 1",
 			},
 			{
 				Service:   "infra/postgres",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
 				EnteredAt: timestamppb.New(s.startedAt),
 			},
 		}}, nil
 	}
 	if s.stalledFlow {
-		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
+		return &v1.FlowStatus{Services: []*v1.ServiceReadiness{
 			{
 				Service:   "infra/postgres",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
 				EnteredAt: timestamppb.New(s.startedAt),
 				Message:   "pulling postgres:16",
 			},
 			{
 				Service:   "app/api",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING,
 				EnteredAt: timestamppb.New(s.startedAt),
 			},
 		}}, nil
 	}
-	return &v0.FlowStatus{
+	return &v1.FlowStatus{
 		Ready: true,
-		Services: []*v0.ServiceReadiness{
+		Services: []*v1.ServiceReadiness{
 			{
 				Service:   "infra/postgres",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_READY,
 				EnteredAt: timestamppb.New(s.startedAt),
 			},
 		},
 	}, nil
 }
 
-func (s *controlServer) GetDependenciesNetworkMappings(context.Context, *v0.GetNetworkMappingsRequest) (*v0.GetNetworkMappingsResponse, error) {
+func (s *controlServer) GetDependenciesNetworkMappings(context.Context, *v1.GetNetworkMappingsRequest) (*v1.GetNetworkMappingsResponse, error) {
 	s.note("GetDependenciesNetworkMappings")
-	return &v0.GetNetworkMappingsResponse{}, nil
+	return &v1.GetNetworkMappingsResponse{}, nil
 }
 
-func (s *controlServer) GetConfiguration(context.Context, *v0.GetConfigurationRequest) (*v0.GetConfigurationResponse, error) {
+func (s *controlServer) GetConfiguration(context.Context, *v1.GetConfigurationRequest) (*v1.GetConfigurationResponse, error) {
 	s.note("GetConfiguration")
-	return &v0.GetConfigurationResponse{}, nil
+	return &v1.GetConfigurationResponse{}, nil
 }
 
-func (s *controlServer) GetDependenciesConfigurations(context.Context, *v0.GetConfigurationRequest) (*v0.GetConfigurationsResponse, error) {
+func (s *controlServer) GetDependenciesConfigurations(context.Context, *v1.GetConfigurationRequest) (*v1.GetConfigurationsResponse, error) {
 	s.note("GetDependenciesConfigurations")
-	return &v0.GetConfigurationsResponse{}, nil
+	return &v1.GetConfigurationsResponse{}, nil
 }
 
-func (s *controlServer) StopFlow(context.Context, *v0.StopFlowRequest) (*v0.StopFlowResponse, error) {
+func (s *controlServer) StopFlow(context.Context, *v1.StopFlowRequest) (*v1.StopFlowResponse, error) {
 	s.note("StopFlow")
-	return &v0.StopFlowResponse{}, nil
+	return &v1.StopFlowResponse{}, nil
 }
 
-func (s *controlServer) DestroyFlow(context.Context, *v0.DestroyFlowRequest) (*v0.DestroyFlowResponse, error) {
+func (s *controlServer) DestroyFlow(context.Context, *v1.DestroyFlowRequest) (*v1.DestroyFlowResponse, error) {
 	s.note("DestroyFlow")
-	return &v0.DestroyFlowResponse{}, nil
+	return &v1.DestroyFlowResponse{}, nil
 }

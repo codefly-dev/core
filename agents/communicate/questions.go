@@ -1,35 +1,35 @@
 package communicate
 
 import (
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
-func Display(msg *agentv0.Message, data map[string]string) *agentv0.Question {
-	return &agentv0.Question{
+func Display(msg *agentv1.Message, data map[string]string) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Display{
-			Display: &agentv0.Display{Data: data},
+		Value: &agentv1.Question_Display{
+			Display: &agentv1.Display{Data: data},
 		},
 	}
 }
 
-func NewConfirm(msg *agentv0.Message, defaultConfirm bool) *agentv0.Question {
-	return &agentv0.Question{
+func NewConfirm(msg *agentv1.Message, defaultConfirm bool) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Confirm{
-			Confirm: &agentv0.Confirm{
+		Value: &agentv1.Question_Confirm{
+			Confirm: &agentv1.Confirm{
 				Default: defaultConfirm,
 			},
 		},
 	}
 }
 
-func NewIntInput(msg *agentv0.Message, defaultValue int) *agentv0.Question {
-	return &agentv0.Question{
+func NewIntInput(msg *agentv1.Message, defaultValue int) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Input{
-			Input: &agentv0.Input{
-				Default: &agentv0.Input_IntDefault{
+		Value: &agentv1.Question_Input{
+			Input: &agentv1.Input{
+				Default: &agentv1.Input_IntDefault{
 					IntDefault: int32(defaultValue),
 				},
 			},
@@ -37,12 +37,12 @@ func NewIntInput(msg *agentv0.Message, defaultValue int) *agentv0.Question {
 	}
 }
 
-func NewStringInput(msg *agentv0.Message, defaultValue string) *agentv0.Question {
-	return &agentv0.Question{
+func NewStringInput(msg *agentv1.Message, defaultValue string) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Input{
-			Input: &agentv0.Input{
-				Default: &agentv0.Input_StringDefault{
+		Value: &agentv1.Question_Input{
+			Input: &agentv1.Input{
+				Default: &agentv1.Input_StringDefault{
 					StringDefault: defaultValue,
 				},
 			},
@@ -50,22 +50,22 @@ func NewStringInput(msg *agentv0.Message, defaultValue string) *agentv0.Question
 	}
 }
 
-func NewSelection(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Question {
-	return &agentv0.Question{
+func NewSelection(msg *agentv1.Message, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Selection{
-			Selection: &agentv0.Selection{
+		Value: &agentv1.Question_Selection{
+			Selection: &agentv1.Selection{
 				Options: options,
 			},
 		},
 	}
 }
 
-func NewChoice(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Question {
-	return &agentv0.Question{
+func NewChoice(msg *agentv1.Message, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Choice{
-			Choice: &agentv0.Choice{
+		Value: &agentv1.Question_Choice{
+			Choice: &agentv1.Choice{
 				Options: options,
 			},
 		},
@@ -75,11 +75,11 @@ func NewChoice(msg *agentv0.Message, options ...*agentv0.Message) *agentv0.Quest
 // NewChoiceWithDefault declares the deterministic option selected by
 // non-interactive callers. defaultOption is the stable Message.Name, not its
 // display label.
-func NewChoiceWithDefault(msg *agentv0.Message, defaultOption string, options ...*agentv0.Message) *agentv0.Question {
-	return &agentv0.Question{
+func NewChoiceWithDefault(msg *agentv1.Message, defaultOption string, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Choice{
-			Choice: &agentv0.Choice{
+		Value: &agentv1.Question_Choice{
+			Choice: &agentv1.Choice{
 				Options:       options,
 				DefaultOption: defaultOption,
 			},
@@ -89,13 +89,13 @@ func NewChoiceWithDefault(msg *agentv0.Message, defaultOption string, options ..
 
 // NewSelectionWithDefault declares the deterministic set selected by
 // non-interactive callers. Each value is a stable Message.Name.
-func NewSelectionWithDefault(msg *agentv0.Message, defaultOptions []string, options ...*agentv0.Message) *agentv0.Question {
-	return &agentv0.Question{
+func NewSelectionWithDefault(msg *agentv1.Message, defaultOptions []string, options ...*agentv1.Message) *agentv1.Question {
+	return &agentv1.Question{
 		Message: msg,
-		Value: &agentv0.Question_Selection{
-			Selection: &agentv0.Selection{
+		Value: &agentv1.Question_Selection{
+			Selection: &agentv1.Selection{
 				Options: options,
-				Default: &agentv0.SelectionDefault{
+				Default: &agentv1.SelectionDefault{
 					Options: append([]string(nil), defaultOptions...),
 				},
 			},

@@ -67,7 +67,7 @@ The local operator container-stop receipt has a separate, narrowly scoped
 including its fixed shape, fresh-comparison lifecycle and refusal on incompatible
 evidence. It does not extend the process-group registry exception to other state.
 
-Per-consumer module update evidence and verdicts use `codefly.update.v0`.
+Per-consumer module update evidence and verdicts use `codefly.update.v1`.
 See [module updates](module-updates.md) for the offline comparison, authenticated
 release artifacts, usage completeness requirements, and delivery ownership.
 
@@ -116,7 +116,7 @@ maintained by hand.
 
 ### Universal failures
 
-Plugin boundaries use `codefly.base.v0.Failure` as the universal structured
+Plugin boundaries use `codefly.base.v1.Failure` as the universal structured
 error detail. gRPC failures carry it inside standard `google.rpc.Status`;
 domain responses may embed the same message when partial output or failure
 evidence must still be returned. Callers must branch on `FailureCode`, not parse

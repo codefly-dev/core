@@ -6,21 +6,21 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	usagecontract "github.com/codefly-dev/core/contracts/usage"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 func TestAdvertisementPreservesValidationContract(t *testing.T) {
-	validation := &agentv0.ValidationCapabilities{
-		Lint: &agentv0.ValidationOperationCapability{
+	validation := &agentv1.ValidationCapabilities{
+		Lint: &agentv1.ValidationOperationCapability{
 			Supported: true,
-			Scopes:    []agentv0.ValidationScope{agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
+			Scopes:    []agentv1.ValidationScope{agentv1.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
 		},
-		Test: &agentv0.TestValidationCapability{
+		Test: &agentv1.TestValidationCapability{
 			Supported: true,
-			Scopes:    []agentv0.ValidationScope{agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
-			Suites: []*agentv0.TestSuiteCapability{{
+			Scopes:    []agentv1.ValidationScope{agentv1.ValidationScope_VALIDATION_SCOPE_WORKSPACE},
+			Suites: []*agentv1.TestSuiteCapability{{
 				Name:           "unit",
-				DependencyMode: agentv0.TestDependencyMode_TEST_DEPENDENCY_MODE_NONE,
+				DependencyMode: agentv1.TestDependencyMode_TEST_DEPENDENCY_MODE_NONE,
 				DefaultSuite:   true,
 			}},
 		},
@@ -43,7 +43,7 @@ func TestAdvertisementSupportsExecutionExporterOnlyPlugin(t *testing.T) {
 	if len(info.GetCapabilities()) != 1 {
 		t.Fatalf("capabilities = %v, want execution exporter only", info.GetCapabilities())
 	}
-	if got := info.GetCapabilities()[0].GetType(); got != agentv0.Capability_EXECUTION_EXPORTER {
+	if got := info.GetCapabilities()[0].GetType(); got != agentv1.Capability_EXECUTION_EXPORTER {
 		t.Fatalf("capability = %v, want EXECUTION_EXPORTER", got)
 	}
 }

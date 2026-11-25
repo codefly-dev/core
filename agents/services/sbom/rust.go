@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/internal/cargometadata"
 )
 
@@ -69,7 +69,7 @@ func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev
 	}
 	reachable := cargoReachable(rootIDs, edges)
 
-	var root *agentv0.Component
+	var root *agentv1.Component
 	rootID := ""
 	if len(rootIDs) == 1 {
 		rootID = rootIDs[0]
@@ -77,12 +77,12 @@ func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev
 		if !ok {
 			return nil, fmt.Errorf("cargo metadata root %q has no package", rootID)
 		}
-		root = cargoComponent(pkg, agentv0.ComponentType_MODULE)
+		root = cargoComponent(pkg, agentv1.ComponentType_MODULE)
 	} else {
 		name := filepath.Base(filepath.Clean(dir))
-		root = &agentv0.Component{
+		root = &agentv1.Component{
 			Name:   name,
-			Type:   agentv0.ComponentType_MODULE,
+			Type:   agentv1.ComponentType_MODULE,
 			Purl:   "pkg:generic/" + url.PathEscape(name),
 			BomRef: "pkg:generic/" + url.PathEscape(name),
 		}
@@ -93,17 +93,17 @@ func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	components := make([]*agentv0.Component, 0, len(ids))
-	dependencies := make([]*agentv0.Dependency, 0, len(ids)+1)
+	components := make([]*agentv1.Component, 0, len(ids))
+	dependencies := make([]*agentv1.Dependency, 0, len(ids)+1)
 	for _, id := range ids {
 		pkg, ok := packages[id]
 		if !ok {
 			continue
 		}
 		if id != rootID {
-			componentType := agentv0.ComponentType_LIBRARY
+			componentType := agentv1.ComponentType_LIBRARY
 			if _, ok := workspace[id]; ok {
-				componentType = agentv0.ComponentType_MODULE
+				componentType = agentv1.ComponentType_MODULE
 			}
 			components = append(components, cargoComponent(pkg, componentType))
 		}
@@ -113,7 +113,7 @@ func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev
 				dependsOn = append(dependsOn, refs[dependencyID])
 			}
 		}
-		dependencies = append(dependencies, &agentv0.Dependency{Ref: refs[id], DependsOn: dependsOn})
+		dependencies = append(dependencies, &agentv1.Dependency{Ref: refs[id], DependsOn: dependsOn})
 	}
 	if rootID == "" {
 		var roots []string
@@ -122,7 +122,7 @@ func cargoMetadataResult(metadata cargometadata.Metadata, dir string, includeDev
 				roots = append(roots, refs[id])
 			}
 		}
-		dependencies = append(dependencies, &agentv0.Dependency{Ref: root.BomRef, DependsOn: roots})
+		dependencies = append(dependencies, &agentv1.Dependency{Ref: root.BomRef, DependsOn: roots})
 	}
 	return finish(root, components, dependencies, "cargo-metadata", "RUST")
 }
@@ -154,8 +154,8 @@ func cargoReachable(roots []string, edges map[string][]string) map[string]struct
 	return reachable
 }
 
-func cargoComponent(pkg cargoPackage, componentType agentv0.ComponentType) *agentv0.Component {
-	component := &agentv0.Component{
+func cargoComponent(pkg cargoPackage, componentType agentv1.ComponentType) *agentv1.Component {
+	component := &agentv1.Component{
 		Name:    pkg.Name,
 		Version: pkg.Version,
 		Type:    componentType,
@@ -166,7 +166,7 @@ func cargoComponent(pkg cargoPackage, componentType agentv0.ComponentType) *agen
 		component.Licenses = []string{*pkg.License}
 	}
 	if pkg.Checksum != nil && *pkg.Checksum != "" {
-		component.Hashes = []*agentv0.Hash{{Algorithm: "SHA-256", Content: strings.ToLower(*pkg.Checksum)}}
+		component.Hashes = []*agentv1.Hash{{Algorithm: "SHA-256", Content: strings.ToLower(*pkg.Checksum)}}
 	}
 	return component
 }

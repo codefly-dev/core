@@ -15,7 +15,7 @@ import (
 	"syscall"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -149,12 +149,12 @@ func (resolved *ResolvedComposition) operationArtifact(owner string, reference A
 }
 
 type PreparedArtifactExecution struct {
-	request   *basev0.ArtifactExecution
+	request   *basev1.ArtifactExecution
 	operation ResolvedArtifactOperation
 }
 
-func (execution *PreparedArtifactExecution) Request() *basev0.ArtifactExecution {
-	return proto.Clone(execution.request).(*basev0.ArtifactExecution)
+func (execution *PreparedArtifactExecution) Request() *basev1.ArtifactExecution {
+	return proto.Clone(execution.request).(*basev1.ArtifactExecution)
 }
 
 // PrepareArtifactExecution resolves only declared input slots. A missing mapping
@@ -228,7 +228,7 @@ func (resolved *ResolvedComposition) prepareArtifactExecution(target, service, o
 		return nil, fmt.Errorf("%s/services/%s: explicit %s artifact operation is missing", target, service, operation)
 	}
 	declared := resolved.record.Operations[index]
-	request := &basev0.ArtifactExecution{ContractVersion: artifactexecution.Contract, SelectionIdentity: resolved.identity, Target: target, Service: service, Protocol: declared.Protocol, ExecutorDigest: declared.Executor.Artifact.Digest, ConfigurationIdentity: resolved.record.ConfigurationIdentity, BindingIdentity: structuredIdentity(map[string]string{})}
+	request := &basev1.ArtifactExecution{ContractVersion: artifactexecution.Contract, SelectionIdentity: resolved.identity, Target: target, Service: service, Protocol: declared.Protocol, ExecutorDigest: declared.Executor.Artifact.Digest, ConfigurationIdentity: resolved.record.ConfigurationIdentity, BindingIdentity: structuredIdentity(map[string]string{})}
 	if runtime != nil {
 		request.BindingIdentity = runtime.BindingIdentity
 	}
@@ -248,10 +248,10 @@ func (resolved *ResolvedComposition) prepareArtifactExecution(target, service, o
 				artifact.URI = actual.Derived.URI
 			}
 		}
-		request.Inputs = append(request.Inputs, &basev0.ArtifactExecutionInput{Name: name, Target: acquisition.Target, Artifact: artifact.Name, Uri: artifact.URI, MediaType: artifact.MediaType, Digest: artifact.Digest})
+		request.Inputs = append(request.Inputs, &basev1.ArtifactExecutionInput{Name: name, Target: acquisition.Target, Artifact: artifact.Name, Uri: artifact.URI, MediaType: artifact.MediaType, Digest: artifact.Digest})
 	}
 	for name, media := range declared.Outputs {
-		request.Outputs = append(request.Outputs, &basev0.ArtifactExecutionOutput{Name: name, MediaType: media})
+		request.Outputs = append(request.Outputs, &basev1.ArtifactExecutionOutput{Name: name, MediaType: media})
 	}
 	prepared, err := artifactexecution.Prepare(request)
 	if err != nil {
@@ -270,14 +270,14 @@ type ArtifactExecutionRecord struct {
 	Service   string                            `json:"service"`
 	Operation string                            `json:"operation"`
 	Identity  string                            `json:"identity"`
-	Outputs   []*basev0.ArtifactExecutionOutput `json:"outputs"`
+	Outputs   []*basev1.ArtifactExecutionOutput `json:"outputs"`
 }
 
 type VerifiedArtifactExecution struct{ record ArtifactExecutionRecord }
 
 // VerifyArtifactExecutionDirectory reads receipt paths confined to the caller's
 // staging directory. Approval records the hashes; applying them remains the host's job.
-func VerifyArtifactExecutionDirectory(ctx context.Context, prepared *PreparedArtifactExecution, receipt *basev0.ArtifactExecutionReceipt, directory string) (*VerifiedArtifactExecution, error) {
+func VerifyArtifactExecutionDirectory(ctx context.Context, prepared *PreparedArtifactExecution, receipt *basev1.ArtifactExecutionReceipt, directory string) (*VerifiedArtifactExecution, error) {
 	if prepared == nil {
 		return nil, errors.New("prepared artifact execution is required")
 	}
@@ -347,7 +347,7 @@ func openExecutionOutput(root *os.Root, path string) (*os.File, error) {
 	return file, nil
 }
 
-func VerifyArtifactExecution(ctx context.Context, prepared *PreparedArtifactExecution, receipt *basev0.ArtifactExecutionReceipt, outputs []ExecutionOutputInput) (*VerifiedArtifactExecution, error) {
+func VerifyArtifactExecution(ctx context.Context, prepared *PreparedArtifactExecution, receipt *basev1.ArtifactExecutionReceipt, outputs []ExecutionOutputInput) (*VerifiedArtifactExecution, error) {
 	if prepared == nil {
 		return nil, errors.New("prepared artifact execution is required")
 	}
@@ -362,7 +362,7 @@ func VerifyArtifactExecution(ctx context.Context, prepared *PreparedArtifactExec
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		index := slices.IndexFunc(receipt.Outputs, func(o *basev0.ArtifactExecutionOutput) bool { return o.Name == output.Name })
+		index := slices.IndexFunc(receipt.Outputs, func(o *basev1.ArtifactExecutionOutput) bool { return o.Name == output.Name })
 		if index < 0 || seen[output.Name] || output.Content == nil {
 			return nil, errors.New("unselected or duplicate execution output")
 		}
@@ -391,9 +391,9 @@ func verifyExecutionContent(ctx context.Context, content io.Reader, digest strin
 	return nil
 }
 
-func verifiedExecution(prepared *PreparedArtifactExecution, receipt *basev0.ArtifactExecutionReceipt) *VerifiedArtifactExecution {
-	cloned := proto.Clone(receipt).(*basev0.ArtifactExecutionReceipt)
-	slices.SortFunc(cloned.Outputs, func(a, b *basev0.ArtifactExecutionOutput) int { return strings.Compare(a.Name, b.Name) })
+func verifiedExecution(prepared *PreparedArtifactExecution, receipt *basev1.ArtifactExecutionReceipt) *VerifiedArtifactExecution {
+	cloned := proto.Clone(receipt).(*basev1.ArtifactExecutionReceipt)
+	slices.SortFunc(cloned.Outputs, func(a, b *basev1.ArtifactExecutionOutput) int { return strings.Compare(a.Name, b.Name) })
 	return &VerifiedArtifactExecution{record: ArtifactExecutionRecord{Target: prepared.operation.Target, Service: prepared.operation.Service, Operation: prepared.operation.Operation, Identity: receipt.Identity, Outputs: cloned.Outputs}}
 }
 
@@ -429,9 +429,9 @@ func (resolved *ResolvedComposition) checkExecutionOutputs(record *DeploymentRec
 		}
 		delete(expected, execution.record.Identity)
 		cloned := execution.record
-		cloned.Outputs = make([]*basev0.ArtifactExecutionOutput, len(execution.record.Outputs))
+		cloned.Outputs = make([]*basev1.ArtifactExecutionOutput, len(execution.record.Outputs))
 		for i, output := range execution.record.Outputs {
-			cloned.Outputs[i] = proto.Clone(output).(*basev0.ArtifactExecutionOutput)
+			cloned.Outputs[i] = proto.Clone(output).(*basev1.ArtifactExecutionOutput)
 		}
 		record.Executions = append(record.Executions, cloned)
 	}

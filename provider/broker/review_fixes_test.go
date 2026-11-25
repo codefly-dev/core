@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/cassette"
@@ -40,13 +40,13 @@ func TestExecute_OwnershipBodyFieldOmittedRejected(t *testing.T) {
 	m := mustLoad(t)
 	origin := admittedOrigin(t)
 	// A create request whose body omits the ownership field "name" entirely.
-	request := &providerv0.PlannedRequest{
+	request := &providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.create",
 		RequestDescriptorDigest: descriptorDigest(t, m, "account.create"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_POST,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
-		Body:                    map[string]*providerv0.PublicValue{}, // no "name"
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		Body:                    map[string]*providerv1.PublicValue{}, // no "name"
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
 		ResponsePolicyDigest:    fakeDigest("account-response-policy"),
 		IdempotencyKey:          "idem-1",
 	}
@@ -61,7 +61,7 @@ func TestExecute_OwnershipBodyFieldOmittedRejected(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, bound, providerv0.HTTPMethod_HTTP_METHOD_POST), bound))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, bound, providerv1.HTTPMethod_HTTP_METHOD_POST), bound))
 	require.ErrorContains(t, err, "ownership body field \"name\" is missing")
 	require.Empty(t, h.sink.stored)
 }
@@ -77,11 +77,11 @@ func TestExecute_NonSuccessSurfacesStatusAndDropsBody(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.NoError(t, err)
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
 	require.Equal(t, uint32(http.StatusBadRequest), response.GetStatusCode())
-	require.Equal(t, providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE, response.GetCertainty())
+	require.Equal(t, providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE, response.GetCertainty())
 	require.Empty(t, response.GetForwarded())
 	require.Empty(t, response.GetCaptures())
 
@@ -106,9 +106,9 @@ func TestExecute_BodylessSuccessSurfacesStatus(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, del, providerv0.HTTPMethod_HTTP_METHOD_DELETE), del))
+	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, del, providerv1.HTTPMethod_HTTP_METHOD_DELETE), del))
 	require.NoError(t, err)
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
 	require.Equal(t, uint32(http.StatusNoContent), response.GetStatusCode())
 	require.Empty(t, response.GetForwarded())
 }
@@ -123,7 +123,7 @@ func TestExecute_BodylessSuccessWithRequiredCaptureFailsClosed(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "schema requires fields")
 	require.Empty(t, h.sink.stored)
 }
@@ -143,7 +143,7 @@ func TestExecute_BudgetDeadlineEnforcedOnRoundTrip(t *testing.T) {
 	h := newHarness(t)
 	cfg := h.config(false)
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
-	cfg.Budget = &providerv0.RequestBudget{
+	cfg.Budget = &providerv1.RequestBudget{
 		RequestCount:  4,
 		RequestBytes:  8192,
 		ResponseBytes: 65536,
@@ -152,9 +152,9 @@ func TestExecute_BudgetDeadlineEnforcedOnRoundTrip(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	response, err := session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.NoError(t, err)
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN, response.GetDelivery())
 }
 
 // Finding 4: replay never resolves DNS. A cassette recorded for an unresolvable
@@ -169,10 +169,10 @@ func TestExecute_ReplayDoesNotResolveDNS(t *testing.T) {
 	}
 	h := newHarnessOn(t, originConfig{scheme: "https", host: "unresolvable.invalid", port: 443, class: "public"})
 
-	recorded := &providerv0.ExecuteRequestResponse{
+	recorded := &providerv1.ExecuteRequestResponse{
 		StatusCode: http.StatusCreated,
-		Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		Forwarded:  []*providerv0.FilteredField{{Selector: "$.id", Value: pubString(remoteID)}},
+		Certainty:  providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Forwarded:  []*providerv1.FilteredField{{Selector: "$.id", Value: pubString(remoteID)}},
 	}
 	recorder := cassette.New(cassette.ModeRecord, "1.2.3")
 	require.NoError(t, recorder.Record(cassette.NewKey(h.create, h.admitted), http.StatusCreated, nil, recorded))
@@ -187,7 +187,7 @@ func TestExecute_ReplayDoesNotResolveDNS(t *testing.T) {
 	replaySession, err := broker.New(replayCfg)
 	require.NoError(t, err)
 
-	response, err := replaySession.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	response, err := replaySession.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.NoError(t, err, "replay must not depend on DNS")
 	require.Equal(t, uint32(http.StatusCreated), response.GetStatusCode())
 
@@ -197,7 +197,7 @@ func TestExecute_ReplayDoesNotResolveDNS(t *testing.T) {
 	liveCfg.Resolver = failing
 	liveSession, err := broker.New(liveCfg)
 	require.NoError(t, err)
-	_, err = liveSession.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = liveSession.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.Error(t, err)
 }
 
@@ -210,11 +210,11 @@ func TestExecute_RequestByteBudgetCountsHeaders(t *testing.T) {
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
 	// The create body alone is tiny; a 60-byte ceiling is only exceeded once the
 	// request line, Host, and headers are counted.
-	cfg.Budget = &providerv0.RequestBudget{RequestCount: 4, RequestBytes: 60, ResponseBytes: 65536}
+	cfg.Budget = &providerv1.RequestBudget{RequestCount: 4, RequestBytes: 60, ResponseBytes: 65536}
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "exceeds byte budget")
 	require.Empty(t, h.sink.stored)
 }
@@ -226,14 +226,14 @@ func TestExecute_ConcurrentCallsRespectBudget(t *testing.T) {
 	server := accountServer(t, nil)
 	cfg := h.config(false)
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
-	cfg.Budget = &providerv0.RequestBudget{RequestCount: 1, RequestBytes: 8192, ResponseBytes: 65536}
+	cfg.Budget = &providerv1.RequestBudget{RequestCount: 1, RequestBytes: 8192, ResponseBytes: 65536}
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
 	const workers = 8
-	handles := make([]*providerv0.CredentialHandle, workers)
+	handles := make([]*providerv1.CredentialHandle, workers)
 	for i := range handles {
-		handles[i] = h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+		handles[i] = h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	}
 
 	var wg sync.WaitGroup
@@ -241,7 +241,7 @@ func TestExecute_ConcurrentCallsRespectBudget(t *testing.T) {
 	successes := 0
 	for i := range workers {
 		wg.Add(1)
-		go func(handle *providerv0.CredentialHandle) {
+		go func(handle *providerv1.CredentialHandle) {
 			defer wg.Done()
 			_, err := session.Execute(context.Background(), h.executeRequest(handle, h.create))
 			if err == nil {

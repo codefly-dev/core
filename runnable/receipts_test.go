@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0"
+	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v1"
 )
 
 // The generic receipt lookup is what an operation declaring no lookup_method
@@ -30,7 +30,7 @@ func TestReceiptsLookupIsTheGenericWireContract(t *testing.T) {
 		return numbers
 	}
 
-	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("codefly.runnable.receipts.v0.Receipts")
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("codefly.runnable.receipts.v1.Receipts")
 	require.NoError(t, err)
 	service, ok := descriptor.(protoreflect.ServiceDescriptor)
 	require.True(t, ok)
@@ -69,7 +69,7 @@ func TestReceiptsLookupIsTheGenericWireContract(t *testing.T) {
 // asserted: two arms, mutually exclusive, and a set-but-empty response
 // distinguishable from no outcome at all.
 func TestReceiptLookupCanCarryACommittedRejection(t *testing.T) {
-	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("codefly.runnable.receipts.v0.LookupResponse")
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("codefly.runnable.receipts.v1.LookupResponse")
 	require.NoError(t, err)
 	response, ok := descriptor.(protoreflect.MessageDescriptor)
 	require.True(t, ok)

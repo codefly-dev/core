@@ -17,7 +17,7 @@ import (
 
 	"github.com/codefly-dev/core/templates"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // DockerBuildRecipeContractVersion identifies the recipe contract a caller
@@ -47,7 +47,7 @@ const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v1"
 // BuildDockerBuildPlan does not enforce it — it takes a bare destination and its
 // tree walk is relative-safe, so a guard there would reject valid callers of a
 // generic helper rather than catch the contract violation at the request boundary.
-func ValidateBuildRequestOutputDirectory(req *builderv0.BuildRequest) error {
+func ValidateBuildRequestOutputDirectory(req *builderv1.BuildRequest) error {
 	dir := req.GetOutputDirectory()
 	if dir == "" {
 		return nil
@@ -119,7 +119,7 @@ func PrepareRecipeDestination(builderFS fs.FS, outputDirectory string) ([]string
 // whatever the destination directory currently holds. Use it from any runner
 // that renders a known template set; BuildDockerBuildPlan remains for callers
 // that assemble a destination tree by other means and want all of it covered.
-func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRecipe, emitted []string) (*builderv0.DockerBuildPlan, error) {
+func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv1.DockerBuildRecipe, emitted []string) (*builderv1.DockerBuildPlan, error) {
 	files, err := inventoryRecipePaths(destination, emitted)
 	if err != nil {
 		return nil, fmt.Errorf("inventory recipe files: %w", err)
@@ -127,12 +127,12 @@ func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.Docker
 	if err := validateRecipes(destination, recipes, files); err != nil {
 		return nil, err
 	}
-	return &builderv0.DockerBuildPlan{
+	return &builderv1.DockerBuildPlan{
 		Recipes:         recipes,
 		Files:           files,
-		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED),
+		Digest:          aggregateRecipeDigest(recipes, files, builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED),
 		ContractVersion: DockerBuildRecipeContractVersion,
-		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED,
+		Scope:           builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED,
 	}, nil
 }
 
@@ -151,7 +151,7 @@ func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.Docker
 // there, an unexpected entry is drift. A caller that renders a known template set
 // into a directory it shares with the repository should use
 // BuildEmittedDockerBuildPlan instead, which claims only the files it wrote.
-func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRecipe) (*builderv0.DockerBuildPlan, error) {
+func BuildDockerBuildPlan(destination string, recipes []*builderv1.DockerBuildRecipe) (*builderv1.DockerBuildPlan, error) {
 	files, err := inventoryRecipeFiles(destination)
 	if err != nil {
 		return nil, fmt.Errorf("inventory recipe tree: %w", err)
@@ -159,12 +159,12 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 	if err := validateRecipes(destination, recipes, files); err != nil {
 		return nil, err
 	}
-	return &builderv0.DockerBuildPlan{
+	return &builderv1.DockerBuildPlan{
 		Recipes:         recipes,
 		Files:           files,
-		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE),
+		Digest:          aggregateRecipeDigest(recipes, files, builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE),
 		ContractVersion: DockerBuildRecipeContractVersion,
-		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE,
+		Scope:           builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE,
 	}, nil
 }
 
@@ -184,7 +184,7 @@ func RecipeBuildPlatforms() []string {
 
 // BuildPlanRequested reports whether a request supplies a recipe destination.
 // Image-building runners must reject requests without one before preparation.
-func BuildPlanRequested(req *builderv0.BuildRequest) bool {
+func BuildPlanRequested(req *builderv1.BuildRequest) bool {
 	return req.GetOutputDirectory() != ""
 }
 
@@ -206,15 +206,15 @@ func BuildPlanRequested(req *builderv0.BuildRequest) bool {
 // ignore left behind by an older template set would silently keep files out of
 // the image with no error and no diff.
 // RecipeOption adds a declaration to the recipe a plan helper assembles.
-type RecipeOption func(*builderv0.DockerBuildRecipe)
+type RecipeOption func(*builderv1.DockerBuildRecipe)
 
 // WithGoModuleDownloads declares the Go modules the recipe downloads while it
 // builds (DockerBuildRecipe.go_module_downloads): each module root, relative to
 // the recipe's build context, is read from the named proxy build context. The
 // caller fetches them before any image build and supplies them, so the build
 // needs no credential. The declaration is covered by the plan digest.
-func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOption {
-	return func(recipe *builderv0.DockerBuildRecipe) {
+func WithGoModuleDownloads(downloads ...*builderv1.GoModuleDownload) RecipeOption {
+	return func(recipe *builderv1.DockerBuildRecipe) {
 		recipe.GoModuleDownloads = append(recipe.GoModuleDownloads, downloads...)
 	}
 }
@@ -228,8 +228,8 @@ func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOptio
 // plan. Declarations are
 // digested in the order given and an exact duplicate is refused, so declare
 // them sorted and de-duplicated.
-func WithGitSourceDownloads(downloads ...*builderv0.GitSourceDownload) RecipeOption {
-	return func(recipe *builderv0.DockerBuildRecipe) {
+func WithGitSourceDownloads(downloads ...*builderv1.GitSourceDownload) RecipeOption {
+	return func(recipe *builderv1.DockerBuildRecipe) {
 		recipe.GitSourceDownloads = append(recipe.GitSourceDownloads, downloads...)
 	}
 }
@@ -265,7 +265,7 @@ func IsGitSourceCommit(commit string) bool {
 	return gitCommitID.MatchString(commit)
 }
 
-func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv0.DockerBuildPlan, error) {
+func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv1.DockerBuildPlan, error) {
 	dockerignore := ""
 	for _, name := range emitted {
 		if name == "dockerignore" {
@@ -273,7 +273,7 @@ func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emi
 			break
 		}
 	}
-	recipe := &builderv0.DockerBuildRecipe{
+	recipe := &builderv1.DockerBuildRecipe{
 		Name:         "app",
 		Dockerfile:   "Dockerfile",
 		Context:      ".",
@@ -284,7 +284,7 @@ func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emi
 	for _, option := range options {
 		option(recipe)
 	}
-	return BuildEmittedDockerBuildPlan(outputDirectory, []*builderv0.DockerBuildRecipe{recipe}, emitted)
+	return BuildEmittedDockerBuildPlan(outputDirectory, []*builderv1.DockerBuildRecipe{recipe}, emitted)
 }
 
 // inventoryRecipePaths inventories exactly the destination-relative paths given,
@@ -293,8 +293,8 @@ func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emi
 // followed: fileDigest would otherwise hash an out-of-tree target and buildx
 // would read it, so containment is enforced on the real file type, not only on
 // the lexical path.
-func inventoryRecipePaths(destination string, paths []string) ([]*builderv0.RecipeFile, error) {
-	files := make([]*builderv0.RecipeFile, 0, len(paths))
+func inventoryRecipePaths(destination string, paths []string) ([]*builderv1.RecipeFile, error) {
+	files := make([]*builderv1.RecipeFile, 0, len(paths))
 	seen := make(map[string]struct{}, len(paths))
 	for _, raw := range paths {
 		relative, err := recipeRelPath(destination, raw)
@@ -320,7 +320,7 @@ func inventoryRecipePaths(destination string, paths []string) ([]*builderv0.Reci
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, &builderv0.RecipeFile{
+		files = append(files, &builderv1.RecipeFile{
 			Path:   relative,
 			Digest: digest,
 			Mode:   uint32(info.Mode().Perm()),
@@ -355,13 +355,13 @@ func inventoryRecipePaths(destination string, paths []string) ([]*builderv0.Reci
 // over an editor backup. A plan that declares no scope is rejected rather than
 // verified under a default, and the scope is covered by the digest so it cannot
 // be rewritten to weaken the check.
-func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) error {
+func VerifyDockerBuildPlan(destination string, plan *builderv1.DockerBuildPlan) error {
 	if plan == nil {
 		return fmt.Errorf("build plan is nil")
 	}
 	// The earlier format first, whatever contract the plan states: a plan from
 	// before plans declared their inventory scope cannot be verified at all.
-	if plan.GetScope() == builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED {
+	if plan.GetScope() == builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED {
 		return fmt.Errorf("build plan declares no inventory scope (%s); it cannot be verified: that is the format plans had before they declared what their inventory covers, and it is not read whatever contract the plan states, so rebuild the agent that emitted it on a core that states the contract as %s",
 			plan.GetScope(), DockerBuildRecipeContractVersion)
 	}
@@ -370,12 +370,12 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 			stated, DockerBuildRecipeContractVersion, DockerBuildRecipeContractVersion)
 	}
 
-	var files []*builderv0.RecipeFile
+	var files []*builderv1.RecipeFile
 	var err error
 	switch scope := plan.GetScope(); scope {
-	case builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE:
+	case builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE:
 		files, err = inventoryRecipeFiles(destination)
-	case builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED:
+	case builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED:
 		declared := make([]string, 0, len(plan.GetFiles()))
 		for _, file := range plan.GetFiles() {
 			declared = append(declared, file.GetPath())
@@ -416,7 +416,7 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 // it rejected a perfectly valid context such as "code" whenever the service had
 // no builder/code directory. Existence and containment of the context belong to
 // the executor, which is the only party that knows the service directory.
-func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile) error {
+func validateRecipes(destination string, recipes []*builderv1.DockerBuildRecipe, files []*builderv1.RecipeFile) error {
 	inventory := make(map[string]struct{}, len(files))
 	for _, file := range files {
 		inventory[file.GetPath()] = struct{}{}
@@ -439,9 +439,9 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 			return fmt.Errorf("recipe %q dockerfile %q is not present in the recipe tree", recipe.GetName(), recipe.GetDockerfile())
 		}
 		switch recipe.GetContextRoot() {
-		case builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED,
-			builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE,
-			builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT:
+		case builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED,
+			builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE,
+			builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT:
 		default:
 			return fmt.Errorf("recipe %q has unknown context root %d", recipe.GetName(), recipe.GetContextRoot())
 		}
@@ -476,7 +476,7 @@ var proxyContextName = regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`)
 // names a module root that stays inside the build context and a proxy context
 // that is a valid, distinct build-context name. The root is resolved against the
 // context by the caller, so it is checked here for shape, not existence.
-func validateGoModuleDownloads(recipe *builderv0.DockerBuildRecipe) error {
+func validateGoModuleDownloads(recipe *builderv1.DockerBuildRecipe) error {
 	contexts := make(map[string]struct{}, len(recipe.GetGoModuleDownloads()))
 	for _, download := range recipe.GetGoModuleDownloads() {
 		root := download.GetModuleRoot()
@@ -516,7 +516,7 @@ var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@
 // context. The same repository may be declared at several commits; the same
 // (repository, commit, context) twice is refused. A refused repository may
 // carry a credential, so errors name the declaration by position, never by URL.
-func validateGitSourceDownloads(recipe *builderv0.DockerBuildRecipe) error {
+func validateGitSourceDownloads(recipe *builderv1.DockerBuildRecipe) error {
 	proxies := make(map[string]struct{}, len(recipe.GetGoModuleDownloads()))
 	for _, download := range recipe.GetGoModuleDownloads() {
 		proxies[download.GetProxyContext()] = struct{}{}
@@ -618,8 +618,8 @@ func recipeRelPath(destination, p string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
-func inventoryRecipeFiles(destination string) ([]*builderv0.RecipeFile, error) {
-	var files []*builderv0.RecipeFile
+func inventoryRecipeFiles(destination string) ([]*builderv1.RecipeFile, error) {
+	var files []*builderv1.RecipeFile
 	err := filepath.WalkDir(destination, func(entryPath string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -648,7 +648,7 @@ func inventoryRecipeFiles(destination string) ([]*builderv0.RecipeFile, error) {
 		if digestErr != nil {
 			return digestErr
 		}
-		files = append(files, &builderv0.RecipeFile{
+		files = append(files, &builderv1.RecipeFile{
 			Path:   filepath.ToSlash(relative),
 			Digest: digest,
 			Mode:   uint32(info.Mode().Perm()),
@@ -710,7 +710,7 @@ const (
 // unchanged. The context root, the Go module downloads and the git sources of
 // every recipe are always covered, declared or not, so no declaration can be
 // dropped from a plan without moving its digest.
-func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
+func aggregateRecipeDigest(recipes []*builderv1.DockerBuildRecipe, files []*builderv1.RecipeFile, scope builderv1.RecipeInventoryScope) string {
 	return recipeDigestCovering(recipeCoversAll, recipes, files, scope)
 }
 
@@ -719,7 +719,7 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 // not. An earlier digest covers less than the format does, so a plan carrying
 // one is refused naming that, rather than as a mismatch a reader would take for
 // tampering.
-func earlierRecipeDigestCoverage(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope, stated string) string {
+func earlierRecipeDigestCoverage(recipes []*builderv1.DockerBuildRecipe, files []*builderv1.RecipeFile, scope builderv1.RecipeInventoryScope, stated string) string {
 	if stated == pathsAndContentRecipeDigest(files) {
 		return "file paths and content"
 	}
@@ -741,7 +741,7 @@ func earlierRecipeDigestCoverage(recipes []*builderv0.DockerBuildRecipe, files [
 
 // pathsAndContentRecipeDigest is the first recipe digest: file paths and
 // content, and nothing of the recipes.
-func pathsAndContentRecipeDigest(files []*builderv0.RecipeFile) string {
+func pathsAndContentRecipeDigest(files []*builderv1.RecipeFile) string {
 	hasher := sha256.New()
 	for _, file := range files {
 		fmt.Fprintf(hasher, "%s\x00%s\n", file.GetPath(), file.GetDigest())
@@ -749,7 +749,7 @@ func pathsAndContentRecipeDigest(files []*builderv0.RecipeFile) string {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
-func recipeDigestCovering(coverage recipeDigestCoverage, recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
+func recipeDigestCovering(coverage recipeDigestCoverage, recipes []*builderv1.DockerBuildRecipe, files []*builderv1.RecipeFile, scope builderv1.RecipeInventoryScope) string {
 	hasher := sha256.New()
 	// The scope decides how strictly the inventory is verified, so it is covered
 	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // PDPDecision is what the PDP returns. Three terminal states:
@@ -50,7 +50,7 @@ type PDPDecision struct {
 	// and the scope vocabulary the approvals engine decides in; the
 	// gateway must not guess either by taking apart a resource
 	// string.
-	Approval *basev0.ApprovalRequiredV1
+	Approval *basev1.ApprovalRequiredV1
 }
 
 // PDPRequest is everything a policy decision point needs to make a

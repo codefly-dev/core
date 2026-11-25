@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/stretchr/testify/require"
 )
@@ -136,13 +136,13 @@ func TestRuntimeCatalogMustBeManifestSubsetAndDescriptorBound(t *testing.T) {
 	require.NoError(t, providerManifest.ValidateCatalog(catalog))
 	catalogDigest, err := catalog.Digest()
 	require.NoError(t, err)
-	runtime := &providerv0.RuntimeCatalog{
+	runtime := &providerv1.RuntimeCatalog{
 		ProtocolVersion: manifest.ProtocolVersionV0, ManifestSchemaVersion: manifest.SchemaVersionV0,
 		StateSchemaVersions: []uint32{1},
-		Requests: []*providerv0.RuntimeCatalogRequest{{
+		Requests: []*providerv1.RuntimeCatalogRequest{{
 			Id: providerManifest.Requests[0].ID, Digest: requestDigest,
 		}},
-		ResourceTypes:       []*providerv0.RuntimeCatalogResource{{Id: "account", Actions: []string{"observe"}}},
+		ResourceTypes:       []*providerv1.RuntimeCatalogResource{{Id: "account", Actions: []string{"observe"}}},
 		ProjectionContracts: []string{"codefly.dev/configuration/billing@1"},
 		DiagnosticCodes:     []string{"provider.fixture.invalid-input"},
 		Digest:              catalogDigest,

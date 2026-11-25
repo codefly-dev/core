@@ -10,18 +10,18 @@ import (
 	"slices"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/manifest"
 )
 
-var methodNames = map[providerv0.HTTPMethod]string{
-	providerv0.HTTPMethod_HTTP_METHOD_GET:    http.MethodGet,
-	providerv0.HTTPMethod_HTTP_METHOD_HEAD:   http.MethodHead,
-	providerv0.HTTPMethod_HTTP_METHOD_POST:   http.MethodPost,
-	providerv0.HTTPMethod_HTTP_METHOD_PUT:    http.MethodPut,
-	providerv0.HTTPMethod_HTTP_METHOD_PATCH:  http.MethodPatch,
-	providerv0.HTTPMethod_HTTP_METHOD_DELETE: http.MethodDelete,
+var methodNames = map[providerv1.HTTPMethod]string{
+	providerv1.HTTPMethod_HTTP_METHOD_GET:    http.MethodGet,
+	providerv1.HTTPMethod_HTTP_METHOD_HEAD:   http.MethodHead,
+	providerv1.HTTPMethod_HTTP_METHOD_POST:   http.MethodPost,
+	providerv1.HTTPMethod_HTTP_METHOD_PUT:    http.MethodPut,
+	providerv1.HTTPMethod_HTTP_METHOD_PATCH:  http.MethodPatch,
+	providerv1.HTTPMethod_HTTP_METHOD_DELETE: http.MethodDelete,
 }
 
 // buildRequest constructs the exact outbound request. The provider supplies
@@ -32,7 +32,7 @@ var methodNames = map[providerv0.HTTPMethod]string{
 func (s *Session) buildRequest(
 	ctx context.Context,
 	descriptor manifest.RequestDescriptor,
-	planned *providerv0.PlannedRequest,
+	planned *providerv1.PlannedRequest,
 	origin urlguard.Origin,
 	remoteID string,
 ) (*http.Request, int64, error) {
@@ -63,7 +63,7 @@ func (s *Session) buildRequest(
 	return request, int64(size), nil
 }
 
-func (s *Session) bindPath(descriptor manifest.RequestDescriptor, planned *providerv0.PlannedRequest, remoteID string) (string, error) {
+func (s *Session) bindPath(descriptor manifest.RequestDescriptor, planned *providerv1.PlannedRequest, remoteID string) (string, error) {
 	template := descriptor.PathTemplate
 	params := planned.GetPathParameters()
 	if len(params) != len(descriptor.RemoteIDParameters) {
@@ -90,7 +90,7 @@ func (s *Session) bindPath(descriptor manifest.RequestDescriptor, planned *provi
 	return urlguard.SafePath(template)
 }
 
-func bindQuery(descriptor manifest.RequestDescriptor, planned *providerv0.PlannedRequest) (string, error) {
+func bindQuery(descriptor manifest.RequestDescriptor, planned *providerv1.PlannedRequest) (string, error) {
 	values := url.Values{}
 	for key, value := range planned.GetQuery() {
 		if !slices.Contains(descriptor.AllowedQueryFields, key) {
@@ -105,7 +105,7 @@ func bindQuery(descriptor manifest.RequestDescriptor, planned *providerv0.Planne
 	return values.Encode(), nil
 }
 
-func bindBody(descriptor manifest.RequestDescriptor, planned *providerv0.PlannedRequest, remoteID string) ([]byte, int, error) {
+func bindBody(descriptor manifest.RequestDescriptor, planned *providerv1.PlannedRequest, remoteID string) ([]byte, int, error) {
 	body := planned.GetBody()
 	// Every declared ownership field must be present and bound to the planned
 	// remote id. Checking only the fields the provider chose to include would let
@@ -145,7 +145,7 @@ func bindBody(descriptor manifest.RequestDescriptor, planned *providerv0.Planned
 // contributes no headers at all: there is no caller-header allowlist to widen
 // because the descriptor carries structured fields only. Authorization is left
 // for the credential vault to inject.
-func (s *Session) applyOwnedHeaders(request *http.Request, planned *providerv0.PlannedRequest, hasBody bool) {
+func (s *Session) applyOwnedHeaders(request *http.Request, planned *providerv1.PlannedRequest, hasBody bool) {
 	request.Header = http.Header{}
 	request.Host = request.URL.Host
 	request.Header.Set("User-Agent", s.userAgent)
@@ -160,9 +160,9 @@ func (s *Session) applyOwnedHeaders(request *http.Request, planned *providerv0.P
 	}
 }
 
-func isMutating(method providerv0.HTTPMethod) bool {
+func isMutating(method providerv1.HTTPMethod) bool {
 	switch method {
-	case providerv0.HTTPMethod_HTTP_METHOD_GET, providerv0.HTTPMethod_HTTP_METHOD_HEAD:
+	case providerv1.HTTPMethod_HTTP_METHOD_GET, providerv1.HTTPMethod_HTTP_METHOD_HEAD:
 		return false
 	default:
 		return true

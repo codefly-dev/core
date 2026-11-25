@@ -5,21 +5,21 @@ import (
 	"net/url"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRequestWireFieldCaseIsPreservedAndBoundExactly(t *testing.T) {
-	value := &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "owned-resource"}}
+	value := &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: "owned-resource"}}
 	descriptor := manifest.RequestDescriptor{
 		AllowedQueryFields:  []string{"clientID"},
 		AllowedBodyFields:   []string{"tokenName"},
 		OwnershipBodyFields: []string{"tokenName"},
 	}
-	planned := &providerv0.PlannedRequest{
-		Query: map[string]*providerv0.PublicValue{"clientID": value},
-		Body:  map[string]*providerv0.PublicValue{"tokenName": value},
+	planned := &providerv1.PlannedRequest{
+		Query: map[string]*providerv1.PublicValue{"clientID": value},
+		Body:  map[string]*providerv1.PublicValue{"tokenName": value},
 	}
 	query, err := bindQuery(descriptor, planned)
 	require.NoError(t, err)
@@ -34,10 +34,10 @@ func TestRequestWireFieldCaseIsPreservedAndBoundExactly(t *testing.T) {
 
 	_, _, err = bindBody(descriptor, planned, "different-resource")
 	require.ErrorContains(t, err, "not the planned remote id")
-	planned.Query = map[string]*providerv0.PublicValue{"clientid": value}
+	planned.Query = map[string]*providerv1.PublicValue{"clientid": value}
 	_, err = bindQuery(descriptor, planned)
 	require.ErrorContains(t, err, "not allowed")
-	planned.Body = map[string]*providerv0.PublicValue{"tokenname": value}
+	planned.Body = map[string]*providerv1.PublicValue{"tokenname": value}
 	_, _, err = bindBody(descriptor, planned, "owned-resource")
 	require.ErrorContains(t, err, "ownership body field")
 	planned.Body["tokenName"] = value

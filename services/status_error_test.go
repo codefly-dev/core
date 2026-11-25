@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/failures"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 func TestOperationStatusErrorPreservesDiagnostic(t *testing.T) {
@@ -17,7 +17,7 @@ func TestOperationStatusErrorPreservesDiagnostic(t *testing.T) {
 }
 
 func TestOperationStatusFailurePreservesTypedDetail(t *testing.T) {
-	failure := failures.New(basev0.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE, "runtime.compile", "compiler unavailable")
+	failure := failures.New(basev1.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE, "runtime.compile", "compiler unavailable")
 	err := operationStatusFailure("runtime build", failure.GetMessage(), failure)
 	if err.Error() != "runtime build failed: compiler unavailable" {
 		t.Fatalf("error = %q", err)

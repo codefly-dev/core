@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestDefaultCodeServerRejectsTraversalForEveryPathOperation(t *testing.T) {
@@ -24,37 +24,37 @@ func TestDefaultCodeServerRejectsTraversalForEveryPathOperation(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"read", func() error { _, err := s.readFile(ctx, &codev0.ReadFileRequest{Path: "../outside.txt"}); return err }},
+		{"read", func() error { _, err := s.readFile(ctx, &codev1.ReadFileRequest{Path: "../outside.txt"}); return err }},
 		{"write", func() error {
-			_, err := s.writeFile(ctx, &codev0.WriteFileRequest{Path: "../outside.txt", Content: "changed"})
+			_, err := s.writeFile(ctx, &codev1.WriteFileRequest{Path: "../outside.txt", Content: "changed"})
 			return err
 		}},
-		{"list", func() error { _, err := s.listFiles(ctx, &codev0.ListFilesRequest{Path: ".."}); return err }},
+		{"list", func() error { _, err := s.listFiles(ctx, &codev1.ListFilesRequest{Path: ".."}); return err }},
 		{"delete", func() error {
-			_, err := s.deleteFile(ctx, &codev0.DeleteFileRequest{Path: "../outside.txt"})
+			_, err := s.deleteFile(ctx, &codev1.DeleteFileRequest{Path: "../outside.txt"})
 			return err
 		}},
 		{"move-source", func() error {
-			_, err := s.moveFile(ctx, &codev0.MoveFileRequest{OldPath: "../outside.txt", NewPath: "moved.txt"})
+			_, err := s.moveFile(ctx, &codev1.MoveFileRequest{OldPath: "../outside.txt", NewPath: "moved.txt"})
 			return err
 		}},
 		{"move-destination", func() error {
-			_, err := s.moveFile(ctx, &codev0.MoveFileRequest{OldPath: "inside.txt", NewPath: "../outside.txt"})
+			_, err := s.moveFile(ctx, &codev1.MoveFileRequest{OldPath: "inside.txt", NewPath: "../outside.txt"})
 			return err
 		}},
 		{"create", func() error {
-			_, err := s.createFile(ctx, &codev0.CreateFileRequest{Path: "../outside.txt", Content: "changed", Overwrite: true})
+			_, err := s.createFile(ctx, &codev1.CreateFileRequest{Path: "../outside.txt", Content: "changed", Overwrite: true})
 			return err
 		}},
 		{"search", func() error {
-			_, err := s.search(ctx, &codev0.SearchRequest{Path: "..", Pattern: "secret"})
+			_, err := s.search(ctx, &codev1.SearchRequest{Path: "..", Pattern: "secret"})
 			return err
 		}},
 		{"apply-edit", func() error {
-			_, err := s.applyEdit(ctx, &codev0.ApplyEditRequest{File: "../outside.txt", Find: "secret", Replace: "changed"})
+			_, err := s.applyEdit(ctx, &codev1.ApplyEditRequest{File: "../outside.txt", Find: "secret", Replace: "changed"})
 			return err
 		}},
-		{"fix", func() error { _, err := s.fixDefault(ctx, &codev0.FixRequest{File: "../outside.txt"}); return err }},
+		{"fix", func() error { _, err := s.fixDefault(ctx, &codev1.FixRequest{File: "../outside.txt"}); return err }},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +93,7 @@ func TestDefaultCodeServerDoesNotFollowEscapingSymlink(t *testing.T) {
 	}
 
 	s := NewDefaultCodeServer(root)
-	resp, err := s.readFile(context.Background(), &codev0.ReadFileRequest{Path: "escape/secret.txt"})
+	resp, err := s.readFile(context.Background(), &codev1.ReadFileRequest{Path: "escape/secret.txt"})
 	if err != nil {
 		return // Rejection is also a safe outcome.
 	}
@@ -119,20 +119,20 @@ func TestGitOperationsRejectOptionInjectionAndEscapingPaths(t *testing.T) {
 	s := NewDefaultCodeServer(t.TempDir())
 	ctx := context.Background()
 
-	if _, err := s.gitDiff(ctx, &codev0.GitDiffRequest{
+	if _, err := s.gitDiff(ctx, &codev1.GitDiffRequest{
 		BaseRef: "--no-index",
 		HeadRef: "/etc/hosts",
 		Path:    "/etc/passwd",
 	}); err == nil {
 		t.Fatal("git diff accepted option injection that enables arbitrary --no-index paths")
 	}
-	if _, err := s.gitShow(ctx, &codev0.GitShowRequest{
+	if _, err := s.gitShow(ctx, &codev1.GitShowRequest{
 		Ref:  "--output=/tmp/codefly-git-show",
 		Path: "",
 	}); err == nil {
 		t.Fatal("git show accepted an option in place of a ref")
 	}
-	if _, err := s.gitBlame(ctx, &codev0.GitBlameRequest{Path: "../../etc/passwd"}); err == nil {
+	if _, err := s.gitBlame(ctx, &codev1.GitBlameRequest{Path: "../../etc/passwd"}); err == nil {
 		t.Fatal("git blame accepted an escaping path")
 	}
 }

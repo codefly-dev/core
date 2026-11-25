@@ -26,7 +26,7 @@ The former remains with its actual configuration consumer.
 
 ## Nested data
 
-The generic primitive already exists: `codefly.base.v0.ConfigurationData` carries
+The generic primitive already exists: `codefly.base.v1.ConfigurationData` carries
 format, bytes and a secrecy flag inside `ConfigurationInformation`. JSON objects,
 arrays, numbers, booleans and null remain structured data. Flat environment values
 remain strings. A JSON document must not be flattened into invented environment

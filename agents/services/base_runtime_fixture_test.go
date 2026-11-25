@@ -6,7 +6,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func fixtureRuntimeWrapper() *RuntimeWrapper {
@@ -42,7 +42,7 @@ func requireNoFixture(t *testing.T, wrapper *RuntimeWrapper) {
 func TestRuntimeFixtureFromInitReachesAServiceThatIsNeverStarted(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 }
@@ -50,8 +50,8 @@ func TestRuntimeFixtureFromInitReachesAServiceThatIsNeverStarted(t *testing.T) {
 func TestRuntimeFixtureSurvivesAStartThatCarriesNoSelection(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
-	wrapper.SetFixtureFromStart((&runtimev0.StartRequest{}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromStart((&runtimev1.StartRequest{}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 }
@@ -60,8 +60,8 @@ func TestRuntimeFixtureSurvivesAStartThatCarriesNoSelection(t *testing.T) {
 func TestRuntimeFixtureFallsBackToStartWhenInitCarriesNone(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{}).GetFixture())
-	wrapper.SetFixtureFromStart((&runtimev0.StartRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{}).GetFixture())
+	wrapper.SetFixtureFromStart((&runtimev1.StartRequest{Fixture: "dev-admin"}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 }
@@ -69,8 +69,8 @@ func TestRuntimeFixtureFallsBackToStartWhenInitCarriesNone(t *testing.T) {
 func TestRuntimeFixtureKeepsTheInitSelectionOverStart(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
-	wrapper.SetFixtureFromStart((&runtimev0.StartRequest{Fixture: "other"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromStart((&runtimev1.StartRequest{Fixture: "other"}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 	require.NotContains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=other")
@@ -79,7 +79,7 @@ func TestRuntimeFixtureKeepsTheInitSelectionOverStart(t *testing.T) {
 func TestRuntimeFixtureAbsentWhenNoSelectionIsMade(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{}).GetFixture())
 
 	requireNoFixture(t, wrapper)
 }
@@ -90,11 +90,11 @@ func TestRuntimeFixtureAbsentWhenNoSelectionIsMade(t *testing.T) {
 func TestRuntimeFixtureIsRestampedOnAnAgentThatIsLoadedAgain(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 
 	reload(wrapper)
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 }
@@ -105,8 +105,8 @@ func TestRuntimeFixtureIsRestampedOnAnAgentThatIsLoadedAgain(t *testing.T) {
 func TestRuntimeFixtureChangesWhenAReusedAgentIsInitedAgain(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "read-only"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "read-only"}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=read-only")
 	require.NotContains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
@@ -115,8 +115,8 @@ func TestRuntimeFixtureChangesWhenAReusedAgentIsInitedAgain(t *testing.T) {
 func TestRuntimeFixtureIsClearedWhenAReusedAgentIsInitedWithoutOne(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{}).GetFixture())
 
 	requireNoFixture(t, wrapper)
 }
@@ -126,8 +126,8 @@ func TestRuntimeFixtureIsClearedWhenAReusedAgentIsInitedWithoutOne(t *testing.T)
 func TestRuntimeFixtureSurvivesADirectEnvironmentStampFromStart(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetFixtureFromInit((&runtimev0.InitRequest{Fixture: "dev-admin"}).GetFixture())
-	wrapper.EnvironmentVariables.SetFixture((&runtimev0.StartRequest{}).GetFixture())
+	wrapper.SetFixtureFromInit((&runtimev1.InitRequest{Fixture: "dev-admin"}).GetFixture())
+	wrapper.EnvironmentVariables.SetFixture((&runtimev1.StartRequest{}).GetFixture())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__FIXTURE=dev-admin")
 }

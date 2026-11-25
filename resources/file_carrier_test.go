@@ -9,17 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
-func workspaceGroup(values map[string]string, secret bool) *basev0.Configuration {
-	info := &basev0.ConfigurationInformation{Name: "group"}
+func workspaceGroup(values map[string]string, secret bool) *basev1.Configuration {
+	info := &basev1.ConfigurationInformation{Name: "group"}
 	for key, value := range values {
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{Key: key, Value: value, Secret: secret})
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev1.ConfigurationValue{Key: key, Value: value, Secret: secret})
 	}
-	return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
 }
 
 func byKey(envs []*resources.EnvironmentVariable) map[string]*resources.EnvironmentVariable {

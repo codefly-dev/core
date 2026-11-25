@@ -11,7 +11,7 @@ import (
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
 	coreservices "github.com/codefly-dev/core/agents/services"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -52,7 +52,7 @@ func loadCompatibleAgent(ctx context.Context, agent *resources.Agent, options ..
 	if err != nil {
 		return nil, err
 	}
-	info, err := agentv0.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	info, err := agentv1.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 	if err == nil {
 		err = contract.Check(info.GetContract())
 	}

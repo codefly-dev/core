@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -14,22 +14,22 @@ func TestPublisherClassificationIsNotConsumerCompatibility(t *testing.T) {
 	baseline, pin := fixture(t)
 	for _, tc := range []struct {
 		name   string
-		mutate func(*updatev0.ContractSnapshot)
+		mutate func(*updatev1.ContractSnapshot)
 		level  moduleupdate.ChangeLevel
 	}{
 		{"unchanged", nil, moduleupdate.ChangePatch},
-		{"optional addition", func(s *updatev0.ContractSnapshot) {
-			s.Items = append(s.Items, &updatev0.ContractItem{Id: "optional", Digest: changedDigest})
+		{"optional addition", func(s *updatev1.ContractSnapshot) {
+			s.Items = append(s.Items, &updatev1.ContractItem{Id: "optional", Digest: changedDigest})
 		}, moduleupdate.ChangeMinor},
-		{"unused RPC removed", func(s *updatev0.ContractSnapshot) {
-			s.Items = slices.DeleteFunc(s.Items, func(i *updatev0.ContractItem) bool { return i.Id == list })
+		{"unused RPC removed", func(s *updatev1.ContractSnapshot) {
+			s.Items = slices.DeleteFunc(s.Items, func(i *updatev1.ContractItem) bool { return i.Id == list })
 		}, moduleupdate.ChangeMajor},
-		{"non-schema requirement removed", func(s *updatev0.ContractSnapshot) {
-			s.Items = slices.DeleteFunc(s.Items, func(i *updatev0.ContractItem) bool { return i.Id == registration })
+		{"non-schema requirement removed", func(s *updatev1.ContractSnapshot) {
+			s.Items = slices.DeleteFunc(s.Items, func(i *updatev1.ContractItem) bool { return i.Id == registration })
 		}, moduleupdate.ChangeMajor},
 		{"changed bytes", change(get), moduleupdate.ChangeUndetermined},
-		{"new requirement", func(s *updatev0.ContractSnapshot) {
-			s.Items = append(s.Items, &updatev0.ContractItem{Id: "auth/new", Digest: changedDigest, RequiredByAll: true})
+		{"new requirement", func(s *updatev1.ContractSnapshot) {
+			s.Items = append(s.Items, &updatev1.ContractItem{Id: "auth/new", Digest: changedDigest, RequiredByAll: true})
 		}, moduleupdate.ChangeUndetermined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,7 +40,7 @@ func TestPublisherClassificationIsNotConsumerCompatibility(t *testing.T) {
 				require.NotEmpty(t, result.Undetermined)
 			}
 			if tc.name == "unused RPC removed" {
-				require.Equal(t, updatev0.Verdict_VERDICT_SAFE, moduleupdate.Evaluate(diff, pin).Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_SAFE, moduleupdate.Evaluate(diff, pin).Verdict)
 			}
 		})
 	}
@@ -58,7 +58,7 @@ func TestReleaseStageNeverInfersSafety(t *testing.T) {
 			before.Version = tc.before
 			before, err := moduleupdate.PrepareSnapshot(before)
 			require.NoError(t, err)
-			after := proto.Clone(before).(*updatev0.ContractSnapshot)
+			after := proto.Clone(before).(*updatev1.ContractSnapshot)
 			after.Version = tc.after
 			change(get)(after)
 			after, err = moduleupdate.PrepareSnapshot(after)

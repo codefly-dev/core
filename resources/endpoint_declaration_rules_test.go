@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // readWithout reads a service manifest the way the loader does — the endpoint
@@ -54,7 +54,7 @@ func readWithout(deleted string) func(document []byte) error {
 // — decode, then judge the declaration whole — with one rule deleted.
 func readWireWithout(deleted string) func(raw []byte) error {
 	return func(raw []byte) error {
-		endpoint := &basev0.Endpoint{}
+		endpoint := &basev1.Endpoint{}
 		if err := proto.Unmarshal(raw, endpoint); err != nil {
 			return err
 		}
@@ -242,7 +242,7 @@ func TestEveryEndpointDeclarationFixtureReachesItsOutcome(t *testing.T) {
 // its own package's test). Here, the projection and the dependency verdict.
 func TestEveryEndpointWireFixtureReachesItsOutcome(t *testing.T) {
 	RunEndpointWireKit(t, func(raw []byte) error {
-		endpoint := &basev0.Endpoint{}
+		endpoint := &basev1.Endpoint{}
 		if err := proto.Unmarshal(raw, endpoint); err != nil {
 			return err
 		}
@@ -250,12 +250,12 @@ func TestEveryEndpointWireFixtureReachesItsOutcome(t *testing.T) {
 		return err
 	})
 	RunEndpointWireKit(t, func(raw []byte) error {
-		endpoint := &basev0.Endpoint{}
+		endpoint := &basev1.Endpoint{}
 		if err := proto.Unmarshal(raw, endpoint); err != nil {
 			return err
 		}
 		composition := &Workspace{Name: "test", Modules: []*ModuleReference{{Name: "saas"}, {Name: "billing"}}}
-		_, err := ConsumedDependencyEndpoints(composition, "billing", &ServiceDependency{Module: "saas", Name: "accounts"}, []*basev0.Endpoint{endpoint})
+		_, err := ConsumedDependencyEndpoints(composition, "billing", &ServiceDependency{Module: "saas", Name: "accounts"}, []*basev1.Endpoint{endpoint})
 		return err
 	})
 }
@@ -276,7 +276,7 @@ func TestTheEndpointDeclarationKitFailsAReaderThatSkipsARule(t *testing.T) {
 	}
 	wire := &recordingKitT{}
 	RunEndpointWireKit(wire, func(raw []byte) error {
-		endpoint := &basev0.Endpoint{}
+		endpoint := &basev1.Endpoint{}
 		if err := proto.Unmarshal(raw, endpoint); err != nil {
 			return err
 		}

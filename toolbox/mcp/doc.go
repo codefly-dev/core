@@ -25,7 +25,7 @@
 // server, so an MCP client that talks to one talks to the other.
 //
 // Why this lives in core/toolbox/mcp/ and not cli/pkg/mcp/: the
-// transcoder takes a toolboxv0.ToolboxClient. That client may point
+// transcoder takes a toolboxv1.ToolboxClient. That client may point
 // at an in-process toolbox (for tests, for embedded use cases) or
 // at a spawned plugin (host.Plugin.Client()). Keeping the
 // transcoder in core means any binary — the codefly CLI, a future

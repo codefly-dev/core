@@ -6,28 +6,28 @@ import (
 	"runtime"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
-	require.Equal(t, int32(1), int32(basev0.Agent_SERVICE))
-	require.Equal(t, int32(2), int32(basev0.Agent_JOB))
-	require.Equal(t, int32(3), int32(basev0.Agent_APPLICATION))
-	require.Equal(t, int32(4), int32(basev0.Agent_MODULE))
-	require.Equal(t, int32(5), int32(basev0.Agent_TOOLBOX))
-	require.Equal(t, int32(6), int32(basev0.Agent_PROVIDER))
-	require.Equal(t, int32(7), int32(basev0.Agent_SOLUTION))
-	require.Equal(t, int32(8), int32(basev0.Agent_RUNNABLE))
-	expected := map[basev0.Agent_Kind]struct {
+	require.Equal(t, int32(1), int32(basev1.Agent_SERVICE))
+	require.Equal(t, int32(2), int32(basev1.Agent_JOB))
+	require.Equal(t, int32(3), int32(basev1.Agent_APPLICATION))
+	require.Equal(t, int32(4), int32(basev1.Agent_MODULE))
+	require.Equal(t, int32(5), int32(basev1.Agent_TOOLBOX))
+	require.Equal(t, int32(6), int32(basev1.Agent_PROVIDER))
+	require.Equal(t, int32(7), int32(basev1.Agent_SOLUTION))
+	require.Equal(t, int32(8), int32(basev1.Agent_RUNNABLE))
+	expected := map[basev1.Agent_Kind]struct {
 		resource   string
 		subdir     string
 		prefix     string
 		resolution resources.AgentResolutionSupport
 		operations resources.AgentOperationSupport
 	}{
-		basev0.Agent_SERVICE: {
+		basev1.Agent_SERVICE: {
 			"codefly:service", "services", "service",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
@@ -35,8 +35,8 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
-		basev0.Agent_JOB: {"codefly:job", "jobs", "job", resources.AgentResolutionSupport{}, resources.AgentOperationSupport{}},
-		basev0.Agent_APPLICATION: {
+		basev1.Agent_JOB: {"codefly:job", "jobs", "job", resources.AgentResolutionSupport{}, resources.AgentOperationSupport{}},
+		basev1.Agent_APPLICATION: {
 			"codefly:application", "applications", "application",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
@@ -44,7 +44,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
-		basev0.Agent_MODULE: {
+		basev1.Agent_MODULE: {
 			"codefly:module", "modules", "module",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
@@ -52,7 +52,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, Load: true},
 		},
-		basev0.Agent_TOOLBOX: {
+		basev1.Agent_TOOLBOX: {
 			"codefly:toolbox", "toolboxes", "toolbox",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
@@ -60,21 +60,21 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
-		basev0.Agent_PROVIDER: {
+		basev1.Agent_PROVIDER: {
 			"codefly:provider", "providers", "provider",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionVerifiedArtifact, Nix: resources.AgentResolutionVerifiedArtifact,
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
-		basev0.Agent_SOLUTION: {
+		basev1.Agent_SOLUTION: {
 			"codefly:solution", "solutions", "solution",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionVerifiedArtifact, Nix: resources.AgentResolutionVerifiedArtifact,
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
-		basev0.Agent_RUNNABLE: {
+		basev1.Agent_RUNNABLE: {
 			"codefly:runnable", "runnables", "runnable",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
@@ -115,10 +115,10 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 		require.Equal(t, registration.Resource, *roundTrip)
 	}
 
-	_, err := resources.AgentKindFromProto(basev0.Agent_UNKNOWN)
+	_, err := resources.AgentKindFromProto(basev1.Agent_UNKNOWN)
 	require.ErrorContains(t, err, "unknown agent kind")
-	_, err = resources.LoadAgent(context.Background(), &basev0.Agent{
-		Kind: basev0.Agent_UNKNOWN, Publisher: "codefly.dev", Name: "unknown",
+	_, err = resources.LoadAgent(context.Background(), &basev1.Agent{
+		Kind: basev1.Agent_UNKNOWN, Publisher: "codefly.dev", Name: "unknown",
 	}, resources.ServiceAgent)
 	require.ErrorContains(t, err, "unknown agent kind")
 	_, err = resources.AgentKindRegistrationFor("codefly:unknown")
@@ -127,7 +127,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 
 func TestAgentRegistryRejectsIncompleteRegistration(t *testing.T) {
 	err := resources.ValidateAgentKindRegistration(resources.AgentKindRegistration{
-		ProtoKind: basev0.Agent_PROVIDER,
+		ProtoKind: basev1.Agent_PROVIDER,
 		Resource:  resources.ProviderAgent,
 		Operations: resources.AgentOperationSupport{
 			Load: true,
@@ -177,7 +177,7 @@ func TestRunnableAgentKindIsLanguageNeutral(t *testing.T) {
 	require.False(t, python.IsService())
 	proto, err := python.Proto()
 	require.NoError(t, err)
-	require.Equal(t, basev0.Agent_RUNNABLE, proto.GetKind())
+	require.Equal(t, basev1.Agent_RUNNABLE, proto.GetKind())
 
 	_, err = resources.LoadAgent(context.Background(), proto, resources.ServiceAgent)
 	require.ErrorContains(t, err, "cannot be used as")

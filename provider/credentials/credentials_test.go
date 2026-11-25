@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/credentials"
 	"github.com/stretchr/testify/require"
@@ -13,8 +13,8 @@ import (
 
 const secret = "sk_live_1234567890abcdef"
 
-func binding() *providerv0.BindingAddress {
-	return &providerv0.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
+func binding() *providerv1.BindingAddress {
+	return &providerv1.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
 }
 
 func origin() urlguard.Origin {
@@ -30,9 +30,9 @@ func baseScope() credentials.Scope {
 		PlanID:         "plan-1",
 		ActionID:       "action-1",
 		RequestDigest:  "sha256:req",
-		Purpose:        providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		Purpose:        providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
 		Origin:         origin(),
-		Method:         providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:         providerv1.HTTPMethod_HTTP_METHOD_POST,
 		Injection:      credentials.Injection{Kind: credentials.InjectBearer},
 		MaxUses:        1,
 		TTL:            time.Minute,
@@ -41,12 +41,12 @@ func baseScope() credentials.Scope {
 
 func baseUse() credentials.Use {
 	return credentials.Use{
-		Purpose:       providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		Purpose:       providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
 		Binding:       binding(),
 		ActionID:      "action-1",
 		RequestDigest: "sha256:req",
 		Origin:        origin(),
-		Method:        providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:        providerv1.HTTPMethod_HTTP_METHOD_POST,
 	}
 }
 
@@ -62,7 +62,7 @@ func TestMint_ReturnsOpaqueHandleNoSecret(t *testing.T) {
 	handle, err := vault.Mint(secret, baseScope())
 	require.NoError(t, err)
 	require.NotContains(t, handle.GetHandle(), secret)
-	require.Equal(t, providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT, handle.GetPurpose())
+	require.Equal(t, providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT, handle.GetPurpose())
 }
 
 func TestInject_SucceedsThenExhaustsUses(t *testing.T) {
@@ -85,7 +85,7 @@ func TestInject_CrossPurposeRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	use := baseUse()
-	use.Purpose = providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME
+	use.Purpose = providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME
 	request := newRequest(t)
 	require.ErrorContains(t, vault.Inject(request, handle.GetHandle(), use), "purpose")
 	require.Empty(t, request.Header.Get("Authorization"))
@@ -97,7 +97,7 @@ func TestInject_CrossBindingRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	use := baseUse()
-	use.Binding = &providerv0.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "other"}
+	use.Binding = &providerv1.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "other"}
 	require.ErrorContains(t, vault.Inject(newRequest(t), handle.GetHandle(), use), "binding")
 }
 
@@ -121,7 +121,7 @@ func TestInject_WrongOriginOrMethodRejected(t *testing.T) {
 	require.ErrorContains(t, vault.Inject(newRequest(t), handle.GetHandle(), wrongOrigin), "origin")
 
 	wrongMethod := baseUse()
-	wrongMethod.Method = providerv0.HTTPMethod_HTTP_METHOD_DELETE
+	wrongMethod.Method = providerv1.HTTPMethod_HTTP_METHOD_DELETE
 	require.ErrorContains(t, vault.Inject(newRequest(t), handle.GetHandle(), wrongMethod), "method")
 }
 

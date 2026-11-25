@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -47,7 +47,7 @@ func ConfigurationDocumentKey(origin, name, environment string, secret bool) str
 	return prefix + hex.EncodeToString(digest[:])
 }
 
-func configurationDocumentVariable(origin, name, environment string, data *basev0.ConfigurationData) (*EnvironmentVariable, error) {
+func configurationDocumentVariable(origin, name, environment string, data *basev1.ConfigurationData) (*EnvironmentVariable, error) {
 	if origin == "" || name == "" || environment == "" {
 		return nil, fmt.Errorf("configuration document requires origin, name and environment")
 	}

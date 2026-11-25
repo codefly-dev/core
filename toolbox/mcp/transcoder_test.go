@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/toolbox/git"
 	"github.com/codefly-dev/core/toolbox/mcp"
@@ -54,11 +54,11 @@ func (g *gitErr) Error() string {
 // bufconn so the transcoder talks to a real ToolboxClient. No
 // subprocess: cheaper than spawning the plugin, sufficient for
 // transcoder-only tests.
-func startInProcessGitToolbox(t *testing.T, workspace string) toolboxv0.ToolboxClient {
+func startInProcessGitToolbox(t *testing.T, workspace string) toolboxv1.ToolboxClient {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	toolboxv0.RegisterToolboxServer(srv, git.New(workspace, "mcp-test"))
+	toolboxv1.RegisterToolboxServer(srv, git.New(workspace, "mcp-test"))
 	go func() { _ = srv.Serve(listener) }()
 	t.Cleanup(srv.Stop)
 
@@ -70,14 +70,14 @@ func startInProcessGitToolbox(t *testing.T, workspace string) toolboxv0.ToolboxC
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return toolboxv0.NewToolboxClient(conn)
+	return toolboxv1.NewToolboxClient(conn)
 }
 
 // runTranscoder sends `requests` (a slice of JSON-RPC frames) to a
 // transcoder backed by the given client, then returns whatever the
 // transcoder wrote back. Helper because plumbing pipes for stdio
 // transports is verbose at every test site.
-func runTranscoder(t *testing.T, client toolboxv0.ToolboxClient, requests []string) []map[string]any {
+func runTranscoder(t *testing.T, client toolboxv1.ToolboxClient, requests []string) []map[string]any {
 	t.Helper()
 
 	in := strings.NewReader(strings.Join(requests, "\n") + "\n")

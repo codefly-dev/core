@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/runnable"
 	"github.com/codefly-dev/core/wool"
 )
@@ -36,7 +36,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		call    func(runnable.Call) runnable.Call
-		outcome basev0.RunnableServedOutcome
+		outcome basev1.RunnableServedOutcome
 		certain bool
 	}{
 		{
@@ -45,7 +45,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.Response = succeededDocument(t)
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_SUCCEEDED,
+			outcome: basev1.RunnableServedOutcome_SERVED_SUCCEEDED,
 			certain: true,
 		},
 		{
@@ -54,7 +54,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.FailureCode = "card_declined"
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_OWNER_FAILED,
+			outcome: basev1.RunnableServedOutcome_SERVED_OWNER_FAILED,
 			certain: true,
 		},
 		{
@@ -63,7 +63,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.AuthorityResolved = false
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE,
+			outcome: basev1.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE,
 			certain: true,
 		},
 		{
@@ -73,7 +73,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.Trouble = errors.New("connection reset")
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
+			outcome: basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
 			certain: false,
 		},
 		{
@@ -83,7 +83,7 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.Trouble = errors.New("job container exited without answering")
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
+			outcome: basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE,
 			certain: false,
 		},
 		{
@@ -92,20 +92,20 @@ func TestServedClassificationDrawsTheLineTheProcessTaxonomyDrew(t *testing.T) {
 				c.Response = []byte(`{"protocol":"codefly.runnable.served/v1"`)
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
+			outcome: basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY,
 			certain: false,
 		},
 		{
 			name: "an interrupted invocation leaves the effect unproven",
 			call: func(c runnable.Call) runnable.Call {
-				c.Response = resultDocument(t, &basev0.RunnableResult{
+				c.Response = resultDocument(t, &basev1.RunnableResult{
 					Protocol:     inv.GetProtocol(),
 					InvocationId: inv.GetInvocationId(),
-					Status:       basev0.RunnableResult_INTERRUPTED,
+					Status:       basev1.RunnableResult_INTERRUPTED,
 				})
 				return c
 			},
-			outcome: basev0.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN,
+			outcome: basev1.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN,
 			certain: false,
 		},
 	} {
@@ -136,7 +136,7 @@ func TestABareFailureProvesNothing(t *testing.T) {
 	bare.Trouble = errors.New("owner answered 409 with no typed code")
 	completion, err := runnable.ClassifyServed(inv, pkg, bare)
 	require.NoError(t, err)
-	require.NotEqual(t, basev0.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
+	require.NotEqual(t, basev1.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
 	require.False(t, runnable.ServedOutcomeIsCertain(completion.GetOutcome()))
 
 	// A FAILED document with an empty code is not a valid result at all — the
@@ -144,29 +144,29 @@ func TestABareFailureProvesNothing(t *testing.T) {
 	// than a proven no-effect one. Either way it stays on the unproven side,
 	// which is the property that matters.
 	codeless := servedCall()
-	codeless.Response = resultDocument(t, &basev0.RunnableResult{
+	codeless.Response = resultDocument(t, &basev1.RunnableResult{
 		Protocol:     inv.GetProtocol(),
 		InvocationId: inv.GetInvocationId(),
-		Status:       basev0.RunnableResult_FAILED,
-		Error:        &basev0.RunnableError{Message: "something went wrong"},
+		Status:       basev1.RunnableResult_FAILED,
+		Error:        &basev1.RunnableError{Message: "something went wrong"},
 	})
 	completion, err = runnable.ClassifyServed(inv, pkg, codeless)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY, completion.GetOutcome())
+	require.Equal(t, basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY, completion.GetOutcome())
 	require.False(t, runnable.ServedOutcomeIsCertain(completion.GetOutcome()))
 
 	// The same answer carrying the owner's own code is the assertion, and is
 	// certain.
 	coded := servedCall()
-	coded.Response = resultDocument(t, &basev0.RunnableResult{
+	coded.Response = resultDocument(t, &basev1.RunnableResult{
 		Protocol:     inv.GetProtocol(),
 		InvocationId: inv.GetInvocationId(),
-		Status:       basev0.RunnableResult_FAILED,
-		Error:        &basev0.RunnableError{Code: "card_declined", Message: "declined"},
+		Status:       basev1.RunnableResult_FAILED,
+		Error:        &basev1.RunnableError{Code: "card_declined", Message: "declined"},
 	})
 	completion, err = runnable.ClassifyServed(inv, pkg, coded)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
+	require.Equal(t, basev1.RunnableServedOutcome_SERVED_OWNER_FAILED, completion.GetOutcome())
 	require.Equal(t, "card_declined", completion.GetFailureCode())
 	require.True(t, runnable.ServedOutcomeIsCertain(completion.GetOutcome()))
 }
@@ -244,8 +244,8 @@ func TestWorkContextHeaderIsTheOneTheSDKSends(t *testing.T) {
 // rather than as a mistake in a string.
 func TestGeneratedHarnessEndpointIsOneSpelling(t *testing.T) {
 	require.Equal(t, "CODEFLY__RUNNABLE_ADDRESS", runnable.ListenAddressEnv)
-	require.Equal(t, "/codefly.runnable.v0.Runnable/Invoke", runnable.ServedInvokeProcedure)
-	require.Equal(t, "/codefly.runnable.v0.Runnable/Lookup", runnable.ServedLookupProcedure)
+	require.Equal(t, "/codefly.runnable.v1.Runnable/Invoke", runnable.ServedInvokeProcedure)
+	require.Equal(t, "/codefly.runnable.v1.Runnable/Lookup", runnable.ServedLookupProcedure)
 
 	// Both must satisfy ConnectProcedure.procedure, which is two path segments
 	// — a one-segment route would be refused at install rather than at a call,

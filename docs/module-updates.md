@@ -3,7 +3,7 @@
 `moduleupdate` computes SAFE, NEW CAPABILITY, BREAKING, or UNDETERMINED from a release's
 contract evidence and one consumer's exact pins. It performs no network access
 or deployment changes. Its public messages live in
-`proto/codefly/update/v0/update.proto`; Go consumers use the generated bindings.
+`proto/codefly/update/v1/update.proto`; Go consumers use the generated bindings.
 
 ## Evidence and publication
 

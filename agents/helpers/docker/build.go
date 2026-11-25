@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
@@ -44,7 +44,7 @@ type BuilderConfiguration struct {
 	// BuildPlatformEnvironmentVariable, then DefaultBuildPlatform.
 	Platform      string
 	BuildxBuilder string
-	Cache         *builderv0.BuildCacheOptions
+	Cache         *builderv1.BuildCacheOptions
 	Output        io.Writer
 }
 
@@ -69,7 +69,7 @@ type backendBuildRequest struct {
 	Tag           string
 	Context       string
 	Output        io.Writer
-	Cache         *builderv0.BuildCacheOptions
+	Cache         *builderv1.BuildCacheOptions
 }
 
 func IsValidDockerImageName(_ string) bool {

@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -22,51 +22,51 @@ const (
 	restSpelling    = "POST /v1/items"
 )
 
-func preparedPolicy() *runnablev0.Operation {
-	return &runnablev0.Operation{
+func preparedPolicy() *runnablev1.Operation {
+	return &runnablev1.Operation{
 		AttemptTimeout: durationpb.New(10 * time.Second),
 		TotalTimeout:   durationpb.New(time.Minute),
 		MaxAttempts:    3,
 		Backoff:        durationpb.New(time.Second),
 		RetryableCodes: []string{"UNAVAILABLE"},
 		Audience:       "acme.items",
-		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
-		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		InvokeScopes:   []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
+		LookupScopes:   []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
+		Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 	}
 }
 
-func preparedContract() *basev0.RunnableContract {
-	return &basev0.RunnableContract{
+func preparedContract() *basev1.RunnableContract {
+	return &basev1.RunnableContract{
 		Protocol: resources.RunnableServiceProtocolV1,
-		Input:    &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "item", Type: basev0.RunnableField_STRING}}},
-		Output:   &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "applied", Type: basev0.RunnableField_BOOLEAN}}},
+		Input:    &basev1.RunnableSchema{Fields: []*basev1.RunnableField{{Name: "item", Type: basev1.RunnableField_STRING}}},
+		Output:   &basev1.RunnableSchema{Fields: []*basev1.RunnableField{{Name: "applied", Type: basev1.RunnableField_BOOLEAN}}},
 	}
 }
 
-func connectBinding() *runnablev0.PreparedBinding {
-	return &runnablev0.PreparedBinding{
-		Operation: &runnablev0.PreparedOperation{Module: "owner", Service: "items", Endpoint: "grpc", Spelling: connectSpelling},
-		Call: &runnablev0.PreparedCall{
+func connectBinding() *runnablev1.PreparedBinding {
+	return &runnablev1.PreparedBinding{
+		Operation: &runnablev1.PreparedOperation{Module: "owner", Service: "items", Endpoint: "grpc", Spelling: connectSpelling},
+		Call: &runnablev1.PreparedCall{
 			Address: "http://items-connect.owner:8081",
-			Route:   &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: connectSpelling}},
+			Route:   &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: connectSpelling}},
 		},
 		Contract: preparedContract(),
 		Policy:   preparedPolicy(),
 	}
 }
 
-func restBinding() *runnablev0.PreparedBinding {
+func restBinding() *runnablev1.PreparedBinding {
 	binding := connectBinding()
 	binding.Operation.Endpoint = "rest"
 	binding.Operation.Spelling = restSpelling
-	binding.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "POST", Path: "/v1/items"}}
+	binding.Call.Route = &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: "POST", Path: "/v1/items"}}
 	// A REST operation names the outcomes it retries by HTTP status.
 	binding.Policy.RetryableCodes = []string{"503"}
 	return binding
 }
 
-func encoded(t *testing.T, binding *runnablev0.PreparedBinding) []byte {
+func encoded(t *testing.T, binding *runnablev1.PreparedBinding) []byte {
 	t.Helper()
 	value, err := runnable.EncodePrepared(binding)
 	require.NoError(t, err)
@@ -110,13 +110,13 @@ func TestARESTOperationIsPreparedOnItsOwnRoute(t *testing.T) {
 
 func TestAPreparedBindingsRouteMustBeTheOperationItNames(t *testing.T) {
 	elsewhere := connectBinding()
-	elsewhere.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: "/acme.items.v1.Items/Cancel"}}
+	elsewhere.Call.Route = &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: "/acme.items.v1.Items/Cancel"}}
 	_, err := runnable.EncodePrepared(elsewhere)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.Contains(t, err.Error(), "/acme.items.v1.Items/Cancel")
 
 	otherRoute := restBinding()
-	otherRoute.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "PUT", Path: "/v1/items"}}
+	otherRoute.Call.Route = &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: "PUT", Path: "/v1/items"}}
 	_, err = runnable.EncodePrepared(otherRoute)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.Contains(t, err.Error(), "PUT /v1/items")
@@ -124,7 +124,7 @@ func TestAPreparedBindingsRouteMustBeTheOperationItNames(t *testing.T) {
 	// A gRPC spelling read as a route, and a route read as a procedure: the
 	// conflation the typed target replaces.
 	asProcedure := restBinding()
-	asProcedure.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: restSpelling}}
+	asProcedure.Call.Route = &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: restSpelling}}
 	_, err = runnable.EncodePrepared(asProcedure)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 
@@ -166,7 +166,7 @@ func TestAPolicyOutsideTheInstallationBoundsIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 
 	wideningLookup := connectBinding()
-	wideningLookup.Policy.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"write"}}}
+	wideningLookup.Policy.LookupScopes = []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"write"}}}
 	_, err = runnable.EncodePrepared(wideningLookup)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
@@ -322,17 +322,17 @@ func TestAPreparedValueIsReadStrictly(t *testing.T) {
 // environment for each, which Linux refuses at exec; these are small enough
 // that none of them is delivered by file at all.
 func TestAWorkerReceivingTwentyFourOperationsStaysUnderLinuxLimits(t *testing.T) {
-	info := &basev0.ConfigurationInformation{Name: "runnable-bindings"}
+	info := &basev1.ConfigurationInformation{Name: "runnable-bindings"}
 	for i := 0; i < 24; i++ {
 		binding := connectBinding()
 		binding.Operation.Spelling = fmt.Sprintf("/acme.items.v1.Items/Apply%02d", i)
-		binding.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: binding.Operation.GetSpelling()}}
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{
+		binding.Call.Route = &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: binding.Operation.GetSpelling()}}
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev1.ConfigurationValue{
 			Key:   fmt.Sprintf("ACME__OPERATION_%02d", i),
 			Value: string(encoded(t, binding)),
 		})
 	}
-	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	configuration := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
 
 	envs, err := resources.ConfigurationAsEnvironmentVariables(configuration, "local", false)
 	require.NoError(t, err)

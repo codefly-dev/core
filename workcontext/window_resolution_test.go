@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -83,7 +83,7 @@ func TestMint_RefusesATTLTheWireCannotState(t *testing.T) {
 				OrganizationID:     organization,
 				TaskID:             taskID,
 				Audience:           audience,
-				AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+				AuthorityScopes:    []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 				TTL:                500 * time.Millisecond,
 			})
 			require.ErrorIs(t, err, workcontext.ErrInvalid)
@@ -96,7 +96,7 @@ func TestMint_RefusesATTLTheWireCannotState(t *testing.T) {
 				PrincipalKind: "agent",
 				AgentID:       "fixture.test/agent:1.0.0",
 				DelegationID:  "d-sub-second",
-				GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+				GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 				Audience:      audience,
 				TTL:           500 * time.Millisecond,
 			})
@@ -194,7 +194,7 @@ func TestStartAndChildStateAWholeSecondAtEveryPhase(t *testing.T) {
 				OrganizationID:     organization,
 				TaskID:             taskID,
 				Audience:           audience,
-				AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read", "write", "merge"}, nil)},
+				AuthorityScopes:    []*basev1.WorkScopeV1{scope("repo", []string{"read", "write", "merge"}, nil)},
 				TTL:                workcontext.MinTTL,
 			})
 			require.NoError(t, err, "MinTTL is the shortest window statable, not an unmintable one")
@@ -206,7 +206,7 @@ func TestStartAndChildStateAWholeSecondAtEveryPhase(t *testing.T) {
 				PrincipalKind: "agent",
 				AgentID:       "fixture.test/agent:1.0.0",
 				DelegationID:  "d-phase",
-				GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+				GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 				Audience:      audience,
 				TTL:           workcontext.MinTTL,
 			})

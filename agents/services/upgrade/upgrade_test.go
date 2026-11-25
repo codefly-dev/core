@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 func TestDiffMods(t *testing.T) {
@@ -25,7 +25,7 @@ func TestDiffMods(t *testing.T) {
 	}
 	got := diffMods(before, after)
 	sort.Slice(got, func(i, j int) bool { return got[i].Package < got[j].Package })
-	want := []*builderv0.UpgradeChange{
+	want := []*builderv1.UpgradeChange{
 		{Package: "github.com/foo/bar", From: "v1.2.3", To: "v1.2.5"},
 		{Package: "github.com/new/dep", From: "", To: "v0.0.1"},
 	}
@@ -155,14 +155,14 @@ func TestNpmLatestInstallGroupsAreAtomicAndWorkspaceAware(t *testing.T) {
 }
 
 func TestMergeUpgradeChangesKeepsWorkspaceOnlyChanges(t *testing.T) {
-	planned := []*builderv0.UpgradeChange{
+	planned := []*builderv1.UpgradeChange{
 		{Package: "react", From: "19.2.7", To: "19.2.8"},
 		{Package: "react-dom", From: "19.2.7", To: "19.2.8"},
 	}
-	observed := []*builderv0.UpgradeChange{
+	observed := []*builderv1.UpgradeChange{
 		{Package: "react-dom", From: "19.2.7", To: "19.2.9"},
 	}
-	want := []*builderv0.UpgradeChange{
+	want := []*builderv1.UpgradeChange{
 		{Package: "react", From: "19.2.7", To: "19.2.8"},
 		{Package: "react-dom", From: "19.2.7", To: "19.2.9"},
 	}
@@ -216,7 +216,7 @@ unchanged==1.0
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	changes := []*builderv0.UpgradeChange{
+	changes := []*builderv1.UpgradeChange{
 		{Package: "django", To: "5.0.1"},
 		{Package: "requests", To: "2.31.0"},
 		{Package: "Uvicorn", To: "0.30.0"}, // case-insensitive match
@@ -239,7 +239,7 @@ unchanged==1.0
 
 func TestRewriteRequirements_missingFile(t *testing.T) {
 	// No requirements.txt exists; should be a no-op, not an error.
-	if err := rewriteRequirements(t.TempDir(), []*builderv0.UpgradeChange{{Package: "x", To: "1"}}); err != nil {
+	if err := rewriteRequirements(t.TempDir(), []*builderv1.UpgradeChange{{Package: "x", To: "1"}}); err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
 }
@@ -302,7 +302,7 @@ func TestNpmSelectedInstallsMoveAnExactPin(t *testing.T) {
 	if !reflect.DeepEqual(groups, wantGroups) {
 		t.Fatalf("groups = %+v, want %+v", groups, wantGroups)
 	}
-	wantChanges := []*builderv0.UpgradeChange{
+	wantChanges := []*builderv1.UpgradeChange{
 		{Package: "@scope/ui", From: "1.4.0", To: "2.0.0"},
 		{Package: "next", From: "16.3.6", To: "16.4.6"},
 	}

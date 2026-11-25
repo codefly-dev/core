@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/sdk"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func TestProjectOutputActionIsValidationReady(t *testing.T) {
 
 	// The action must be accepted by canonical plan validation as-is, without
 	// the caller reaching in to attach a bound output proposal.
-	plan := &providerv0.OrderedPlan{PlanId: "plan", Actions: []*providerv0.PlanAction{action}}
+	plan := &providerv1.OrderedPlan{PlanId: "plan", Actions: []*providerv1.PlanAction{action}}
 	_, err = canonical.BindOrderedPlanDigest(plan)
 	require.NoError(t, err)
 
@@ -35,7 +35,7 @@ func TestTypedActionsAndOutputProposal(t *testing.T) {
 	require.ErrorContains(t, err, "prospective")
 	action, err := sdk.NewCreateAction("create", 0, "account", "prospective-123")
 	require.NoError(t, err)
-	require.Equal(t, providerv0.ActionType_ACTION_TYPE_CREATE, action.Type)
+	require.Equal(t, providerv1.ActionType_ACTION_TYPE_CREATE, action.Type)
 
 	proposal := billingProposal()
 	bound, err := sdk.BindOutputProposal(proposal)
@@ -50,7 +50,7 @@ func TestTypedActionsAndOutputProposal(t *testing.T) {
 }
 
 func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *testing.T) {
-	for _, proposal := range []*providerv0.OutputProposal{
+	for _, proposal := range []*providerv1.OutputProposal{
 		featureFlagsServerProposal(),
 		featureFlagsBrowserProposal(),
 	} {
@@ -59,7 +59,7 @@ func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *tes
 	}
 
 	tests := map[string]struct {
-		proposal *providerv0.OutputProposal
+		proposal *providerv1.OutputProposal
 		want     string
 	}{
 		"missing required server value": {
@@ -68,12 +68,12 @@ func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *tes
 		},
 		"undeclared management credential": {
 			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_MANAGEMENT_CREDENTIAL",
-				opaqueOutput("secret://feature-flags/management", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
+				opaqueOutput("secret://feature-flags/management", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
 			want: "undeclared key",
 		},
 		"management purpose on server credential": {
 			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_SERVER_CREDENTIAL",
-				opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
+				opaqueOutput("secret://feature-flags/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT)),
 			want: "credential purpose",
 		},
 		"raw server URL instead of admitted endpoint reference": {
@@ -82,12 +82,12 @@ func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *tes
 		},
 		"server credential in browser contract": {
 			proposal: withOutputValue(featureFlagsBrowserProposal(), "FEATURE_FLAGS_SERVER_CREDENTIAL",
-				opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
+				opaqueOutput("secret://feature-flags/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
 			want: "undeclared key",
 		},
 		"browser credential in server contract": {
 			proposal: withOutputValue(featureFlagsServerProposal(), "FEATURE_FLAGS_BROWSER_CREDENTIAL",
-				opaqueOutput("secret://feature-flags/browser", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
+				opaqueOutput("secret://feature-flags/browser", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)),
 			want: "undeclared key",
 		},
 	}
@@ -100,21 +100,21 @@ func TestFeatureFlagsOutputProposalEnforcesConsumerAndAdmissionBoundaries(t *tes
 }
 
 func TestFilteredResponseAndCaptureHelpersExposeOnlySafeValuesOrReferences(t *testing.T) {
-	response := &providerv0.ExecuteRequestResponse{
-		Delivery:  providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED,
-		Certainty: providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		Forwarded: []*providerv0.FilteredField{
-			{Selector: "$.id", Value: &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "remote-123"}}},
+	response := &providerv1.ExecuteRequestResponse{
+		Delivery:  providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED,
+		Certainty: providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Forwarded: []*providerv1.FilteredField{
+			{Selector: "$.id", Value: &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: "remote-123"}}},
 		},
 	}
 	decoded, err := sdk.DecodeFilteredResponse(response)
 	require.NoError(t, err)
 	require.Equal(t, "remote-123", decoded["$.id"].GetStringValue())
 
-	capture := &providerv0.CaptureResult{
+	capture := &providerv1.CaptureResult{
 		CaptureId: "capture-1", Captured: true,
-		SinkReference: &providerv0.OpaqueReference{
-			Reference: "capture://sink/1", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		SinkReference: &providerv1.OpaqueReference{
+			Reference: "capture://sink/1", Purpose: providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 		},
 	}
 	reference, err := sdk.HandleCaptureResult(capture)
@@ -130,65 +130,65 @@ func TestFilteredResponseAndCaptureHelpersExposeOnlySafeValuesOrReferences(t *te
 	require.ErrorContains(t, err, "opaque reference")
 
 	capture.SinkReference.Reference = "capture://sink/1"
-	capture.SinkReference.Purpose = providerv0.CredentialPurpose(99)
+	capture.SinkReference.Purpose = providerv1.CredentialPurpose(99)
 	_, err = sdk.HandleCaptureResult(capture)
 	require.ErrorContains(t, err, "unknown credential purpose")
 }
 
 func TestFilteredResponseRejectsUnknownDeliveryAndCertaintyEnums(t *testing.T) {
-	response := &providerv0.ExecuteRequestResponse{
-		Delivery:  providerv0.DeliveryState(99),
-		Certainty: providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+	response := &providerv1.ExecuteRequestResponse{
+		Delivery:  providerv1.DeliveryState(99),
+		Certainty: providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
 	}
 	_, err := sdk.DecodeFilteredResponse(response)
 	require.ErrorContains(t, err, "delivery is unknown")
 
-	response.Delivery = providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT
-	response.Certainty = providerv0.OutcomeCertainty(99)
+	response.Delivery = providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT
+	response.Certainty = providerv1.OutcomeCertainty(99)
 	_, err = sdk.DecodeFilteredResponse(response)
 	require.ErrorContains(t, err, "certainty is unknown")
 }
 
 func TestProviderInformationBootstrapsCatalogFromVerifiedArtifactIdentity(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
-	information := &providerv0.GetProviderInformationResponse{
-		Artifact: &providerv0.AgentArtifactIdentity{
+	information := &providerv1.GetProviderInformationResponse{
+		Artifact: &providerv1.AgentArtifactIdentity{
 			Publisher: "codefly.dev", Name: "fixture", Version: "1.2.3",
 			ArtifactDigest: digest, ManifestDigest: digest,
 		},
-		Catalog: &providerv0.RuntimeCatalog{Digest: "sha256:" + strings.Repeat("2", 64)},
+		Catalog: &providerv1.RuntimeCatalog{Digest: "sha256:" + strings.Repeat("2", 64)},
 	}
 	base, err := sdk.NewBase(information)
 	require.NoError(t, err)
-	response, err := base.GetProviderInformation(context.Background(), &providerv0.GetProviderInformationRequest{
+	response, err := base.GetProviderInformation(context.Background(), &providerv1.GetProviderInformationRequest{
 		Artifact: information.Artifact,
 	})
 	require.NoError(t, err)
 	require.Equal(t, information.Catalog.Digest, response.Catalog.Digest)
 
-	mismatch := &providerv0.AgentArtifactIdentity{
+	mismatch := &providerv1.AgentArtifactIdentity{
 		Publisher: "codefly.dev", Name: "fixture", Version: "1.2.4",
 		ArtifactDigest: digest, ManifestDigest: digest,
 	}
-	_, err = base.GetProviderInformation(context.Background(), &providerv0.GetProviderInformationRequest{Artifact: mismatch})
+	_, err = base.GetProviderInformation(context.Background(), &providerv1.GetProviderInformationRequest{Artifact: mismatch})
 	require.ErrorContains(t, err, "artifact identity mismatch")
 }
 
 func TestValidateUpgradeRequiresOneExactOfflineStep(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
-	upgraded := &providerv0.ProviderStateV1{
+	upgraded := &providerv1.ProviderStateV1{
 		StateSchemaVersion: 1, Generation: 1,
-		Binding:    &providerv0.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: "binding"},
+		Binding:    &providerv1.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: "binding"},
 		ProviderId: "codefly.dev/fixture", ProviderVersion: "1.2.3",
 		ManifestSchemaVersion: "codefly.provider-manifest/v0", ManifestDigest: digest, ArtifactDigest: digest,
-		Ownership: providerv0.Ownership_OWNERSHIP_OBSERVED,
+		Ownership: providerv1.Ownership_OWNERSHIP_OBSERVED,
 	}
-	response := &providerv0.UpgradeStateResponse{
-		State: &providerv0.ProviderState{
+	response := &providerv1.UpgradeStateResponse{
+		State: &providerv1.ProviderState{
 			SchemaVersion: 1,
-			Schema:        &providerv0.ProviderState_V1{V1: upgraded},
+			Schema:        &providerv1.ProviderState_V1{V1: upgraded},
 		},
-		Record: &providerv0.UpgradeRecord{
+		Record: &providerv1.UpgradeRecord{
 			FromVersion: 0, ToVersion: 1, AgentVersion: "2.0.0",
 			ArtifactDigest: digest, PriorDigest: digest, ResultDigest: digest, UpgradedAt: timestamppb.Now(),
 		},
@@ -202,62 +202,62 @@ func TestValidateUpgradeRequiresOneExactOfflineStep(t *testing.T) {
 	require.ErrorContains(t, sdk.ValidateUpgrade(response, 1, 2), "does not match v1 payload")
 }
 
-func featureFlagsServerProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func featureFlagsServerProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: "codefly.dev/configuration/feature-flags@1", TargetGeneration: 1,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"FEATURE_FLAGS_SERVER_ENDPOINT":   publicOutput("endpoint://feature-flags/server"),
 			"FEATURE_FLAGS_APPLICATION_ID":    publicOutput("accounts"),
 			"FEATURE_FLAGS_ENVIRONMENT_ID":    publicOutput("production"),
 			"FEATURE_FLAGS_PROVIDER_MODE":     publicOutput("hosted"),
-			"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueOutput("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"FEATURE_FLAGS_SERVER_CREDENTIAL": opaqueOutput("secret://feature-flags/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
 		},
 	}
 }
 
-func billingProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func billingProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: "codefly.dev/configuration/billing@1", TargetGeneration: 2,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"STRIPE_PUBLISHABLE_KEY": publicOutput("pk_live_public_identifier"),
-			"STRIPE_SECRET_KEY":      opaqueOutput("secret://stripe/runtime", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			"STRIPE_WEBHOOK_SECRET":  opaqueOutput("secret://stripe/webhook", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
+			"STRIPE_SECRET_KEY":      opaqueOutput("secret://stripe/runtime", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"STRIPE_WEBHOOK_SECRET":  opaqueOutput("secret://stripe/webhook", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
 		},
 	}
 }
 
-func featureFlagsBrowserProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func featureFlagsBrowserProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: "codefly.dev/configuration/feature-flags-browser@1", TargetGeneration: 1,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"FEATURE_FLAGS_EDGE_ENDPOINT":      publicOutput("endpoint://feature-flags/edge"),
 			"FEATURE_FLAGS_APPLICATION_ID":     publicOutput("accounts"),
 			"FEATURE_FLAGS_ENVIRONMENT_ID":     publicOutput("production"),
 			"FEATURE_FLAGS_PROVIDER_MODE":      publicOutput("hosted"),
-			"FEATURE_FLAGS_BROWSER_CREDENTIAL": opaqueOutput("secret://feature-flags/browser", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"FEATURE_FLAGS_BROWSER_CREDENTIAL": opaqueOutput("secret://feature-flags/browser", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
 		},
 	}
 }
 
-func featureFlagsServerProposalWithout(key string) *providerv0.OutputProposal {
+func featureFlagsServerProposalWithout(key string) *providerv1.OutputProposal {
 	proposal := featureFlagsServerProposal()
 	delete(proposal.Values, key)
 	return proposal
 }
 
-func withOutputValue(proposal *providerv0.OutputProposal, key string, value *providerv0.OutputValue) *providerv0.OutputProposal {
+func withOutputValue(proposal *providerv1.OutputProposal, key string, value *providerv1.OutputValue) *providerv1.OutputProposal {
 	proposal.Values[key] = value
 	return proposal
 }
 
-func publicOutput(value string) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: &providerv0.PublicValue{
-		Kind: &providerv0.PublicValue_StringValue{StringValue: value},
+func publicOutput(value string) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_PublicValue{PublicValue: &providerv1.PublicValue{
+		Kind: &providerv1.PublicValue_StringValue{StringValue: value},
 	}}}
 }
 
-func opaqueOutput(reference string, purpose providerv0.CredentialPurpose) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+func opaqueOutput(reference string, purpose providerv1.CredentialPurpose) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_OpaqueReference{OpaqueReference: &providerv1.OpaqueReference{
 		Reference: reference, Purpose: purpose,
 	}}}
 }

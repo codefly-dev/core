@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/git"
 )
 
@@ -16,7 +16,7 @@ import (
 // the size discipline comes from this list staying small.
 func TestGit_ListToolSummaries_Lightweight(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
-	resp, err := srv.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	resp, err := srv.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Tools, 3, "git toolbox has three tools today (status/log/diff)")
 
@@ -38,14 +38,14 @@ func TestGit_ListToolSummaries_Lightweight(t *testing.T) {
 func TestGit_ListToolSummaries_TagsFilter_ANDSemantics(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
 	// All git tools are read-only → all should pass.
-	resp, err := srv.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{
+	resp, err := srv.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{
 		TagsFilter: []string{"read-only"},
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Tools, 3)
 
 	// No git tool tags itself "destructive" → empty.
-	resp, err = srv.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{
+	resp, err = srv.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{
 		TagsFilter: []string{"destructive"},
 	})
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestGit_DescribeTool_KnownAndUnknown(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
 
 	// Known tool — full spec.
-	resp, err := srv.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: "git.status"})
+	resp, err := srv.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 	require.NotNil(t, resp.Tool)
@@ -72,7 +72,7 @@ func TestGit_DescribeTool_KnownAndUnknown(t *testing.T) {
 		"every tool must include at least one example — the load-bearing addition of the two-phase design")
 
 	// Unknown tool — error envelope.
-	resp, err = srv.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: "git.nope"})
+	resp, err = srv.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: "git.nope"})
 	require.NoError(t, err, "unknown tool surfaces as response.error, not transport error")
 	require.Empty(t, resp.Tool)
 	require.NotEmpty(t, resp.Error)
@@ -88,7 +88,7 @@ func TestGit_TwoPhase_RoundTrip(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
 
 	// Phase 1: load catalog.
-	cat, err := srv.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	cat, err := srv.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, cat.Tools)
 
@@ -97,14 +97,14 @@ func TestGit_TwoPhase_RoundTrip(t *testing.T) {
 	picked := cat.Tools[0].Name
 
 	// Phase 2: fetch its full spec.
-	desc, err := srv.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: picked})
+	desc, err := srv.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: picked})
 	require.NoError(t, err)
 	require.Equal(t, picked, desc.Tool.Name)
 	require.NotNil(t, desc.Tool.InputSchema, "spec carries the full schema; summary did not")
 
 	// Phase 3: call it. (Doesn't assert the result content — just
 	// that the dispatch path the spec describes is wired.)
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: picked})
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: picked})
 	require.NoError(t, err, "tool listed in catalog must be callable: %s", picked)
 	_ = resp // result content varies per tool; not asserting here
 }

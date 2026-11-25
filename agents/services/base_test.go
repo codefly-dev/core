@@ -12,8 +12,8 @@ import (
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/builders"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -26,8 +26,8 @@ func TestDockerImageBuildDigestIsRequestScoped(t *testing.T) {
 		Service:  &resources.Service{Version: "1.2.3"},
 	}
 	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	taggedBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"}
-	digestBuild := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", ImageDigest: digest}
+	taggedBuild := &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"}
+	digestBuild := &builderv1.DockerBuildContext{DockerRepository: "registry.example.com", ImageDigest: digest}
 
 	base.SetDefaultDockerImage(taggedBuild)
 
@@ -48,7 +48,7 @@ func TestUniqueWithWorkspaceSeparatesInvocationScopes(t *testing.T) {
 		base := &Base{
 			Identity:    &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service"},
 			Wool:        wool.Get(ctx),
-			Environment: &basev0.Environment{NamingScope: scope},
+			Environment: &basev1.Environment{NamingScope: scope},
 		}
 		return base.UniqueWithWorkspace()
 	}

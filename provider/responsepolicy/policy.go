@@ -13,20 +13,20 @@ import (
 	"fmt"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 )
 
 // Sink durably stores a captured secret and returns only an opaque reference.
 // The production backend is out of scope; the host injects a concrete Sink.
 type Sink interface {
-	Put(ctx context.Context, target SinkTarget, secret string) (*providerv0.OpaqueReference, error)
+	Put(ctx context.Context, target SinkTarget, secret string) (*providerv1.OpaqueReference, error)
 }
 
 // SinkTarget is the exact pre-authorized capture destination. It is derived by
 // the host from the plan, never from provider input.
 type SinkTarget struct {
-	Purpose providerv0.CredentialPurpose
+	Purpose providerv1.CredentialPurpose
 	Key     string
 }
 
@@ -36,7 +36,7 @@ type SinkTarget struct {
 type Field struct {
 	Selector    manifest.Selector
 	Disposition manifest.ResponseDisposition
-	Purpose     providerv0.CredentialPurpose
+	Purpose     providerv1.CredentialPurpose
 	Required    bool
 	SinkKey     string
 }
@@ -60,13 +60,13 @@ const (
 // Forwarded is one safe field cleared for return to the provider.
 type Forwarded struct {
 	Selector string
-	Value    *providerv0.PublicValue
+	Value    *providerv1.PublicValue
 }
 
 // Capture is the durable result of one capture selector.
 type Capture struct {
 	Selector  string
-	Reference *providerv0.OpaqueReference
+	Reference *providerv1.OpaqueReference
 	Outcome   CaptureOutcome
 }
 

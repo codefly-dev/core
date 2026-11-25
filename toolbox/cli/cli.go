@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/llmout"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/toolbox/registry"
@@ -72,7 +72,7 @@ func (t *Toolbox) Tools() []*registry.ToolDefinition {
 			Tags:        []string{t.bin, "cli"},
 			Idempotency: "unknown",
 			ErrorModes:  fmt.Sprintf("Returns `%s ...` error text (compressed) on non-zero exit or when the environment can't provide the binary.", t.bin),
-			Examples: []*toolboxv0.ToolExample{
+			Examples: []*toolboxv1.ToolExample{
 				{
 					Description:     fmt.Sprintf("Run `%s` with a subcommand.", t.bin),
 					Arguments:       mustStruct(map[string]any{"args": []any{"version"}}),
@@ -84,7 +84,7 @@ func (t *Toolbox) Tools() []*registry.ToolDefinition {
 	}
 }
 
-func (t *Toolbox) run(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (t *Toolbox) run(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	args := toStrings(respond.Args(req)["args"])
 
 	proc, err := t.env.NewProcess(t.bin, args...)

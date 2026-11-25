@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents/manager"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/require"
@@ -149,7 +149,7 @@ func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 		same, err := LoadAgent(t.Context(), &original, "fixture/peer")
 		require.NoError(t, err)
 		require.Equal(t, first.ProcessInfo.PID, same.ProcessInfo.PID)
-		_, err = first.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		_, err = first.GetAgentInformation(t.Context(), &agentv1.AgentInformationRequest{})
 		require.NoError(t, err)
 		ClearAgent("fixture/peer")
 		upgraded, err := LoadAgent(t.Context(), &replacement, "fixture/peer")
@@ -174,7 +174,7 @@ func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 		require.ErrorContains(t, err, "agent selection changed")
 		_, err = LoadCode(t.Context(), service)
 		require.ErrorContains(t, err, "agent selection changed")
-		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv1.AgentInformationRequest{})
 		require.NoError(t, err)
 		ClearAgent(ServiceCacheKey(service))
 		upgraded, err := Load(t.Context(), nil, nil, service)
@@ -254,7 +254,7 @@ func TestCachedAgentBindsExecutableContent(t *testing.T) {
 		require.ErrorContains(t, err, "agent artifact changed")
 		_, err = LoadCode(t.Context(), service)
 		require.ErrorContains(t, err, "agent artifact changed")
-		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv1.AgentInformationRequest{})
 		require.NoError(t, err, "refusing reuse must not stop the active agent")
 		replace(binaries[0])
 		same, err := Load(t.Context(), nil, nil, service)

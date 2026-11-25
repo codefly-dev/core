@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
 )
 
-func loadReadinessService(t *testing.T, dir, module string) (*resources.Service, []*basev0.Endpoint) {
+func loadReadinessService(t *testing.T, dir, module string) (*resources.Service, []*basev1.Endpoint) {
 	t.Helper()
 	ctx := context.Background()
 	service, err := resources.LoadServiceFromDir(ctx, filepath.Join("testdata/readiness", dir))
@@ -23,7 +23,7 @@ func loadReadinessService(t *testing.T, dir, module string) (*resources.Service,
 	return service, endpoints
 }
 
-func endpointNamed(t *testing.T, endpoints []*basev0.Endpoint, name string) *basev0.Endpoint {
+func endpointNamed(t *testing.T, endpoints []*basev1.Endpoint, name string) *basev1.Endpoint {
 	t.Helper()
 	for _, endpoint := range endpoints {
 		if endpoint.Name == name {
@@ -44,7 +44,7 @@ func TestLegacyEndpointsKeepTransportOnlyReadiness(t *testing.T) {
 
 		probe, declared := resources.EndpointReadinessProbe(endpoint)
 		require.False(t, declared)
-		require.Equal(t, basev0.ProbeKind_PROBE_KIND_TRANSPORT, resources.ProbeKindOf(probe))
+		require.Equal(t, basev1.ProbeKind_PROBE_KIND_TRANSPORT, resources.ProbeKindOf(probe))
 	}
 }
 
@@ -54,14 +54,14 @@ func TestGeneratedEndpointsDeclareRicherPredicates(t *testing.T) {
 	grpc := endpointNamed(t, endpoints, standards.GRPC)
 	readiness, declared := resources.EndpointReadinessProbe(grpc)
 	require.True(t, declared)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_GRPC_HEALTH, resources.ProbeKindOf(readiness))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_GRPC_HEALTH, resources.ProbeKindOf(readiness))
 	require.Equal(t, "accounts.v1.Accounts", readiness.GetGrpcHealth().GetService())
 
 	plan := resources.PlanEndpointProbes(grpc)
 	require.True(t, plan.ReadinessDeclared)
 	require.Equal(t, `grpc health SERVING for "accounts.v1.Accounts"`, resources.DescribeProbe(plan.Readiness))
 	require.Equal(t, "grpc health SERVING", resources.DescribeProbe(plan.Liveness), "liveness is its own predicate")
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_TRANSPORT, resources.ProbeKindOf(plan.Startup))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_TRANSPORT, resources.ProbeKindOf(plan.Startup))
 	require.Equal(t, uint32(30), plan.Startup.GetTiming().GetFailureThreshold())
 	require.Equal(t, "1s", plan.Startup.GetTiming().GetInitialDelay().AsDuration().String())
 
@@ -74,7 +74,7 @@ func TestGeneratedEndpointsDeclareRicherPredicates(t *testing.T) {
 	admin := endpointNamed(t, endpoints, "admin")
 	adminReadiness, declared := resources.EndpointReadinessProbe(admin)
 	require.True(t, declared)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(adminReadiness))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(adminReadiness))
 
 	// Liveness and startup are absent unless declared: a restart policy is never
 	// inferred from a readiness declaration.
@@ -94,7 +94,7 @@ func TestHTTPProbeRejectsFailureStatuses(t *testing.T) {
 
 	// An HTTP probe that declares no statuses still refuses 503: the audit case
 	// where any reachable HTTP server was accepted.
-	bare := &basev0.HttpProbe{Path: "/healthz"}
+	bare := &basev1.HttpProbe{Path: "/healthz"}
 	require.True(t, resources.HTTPStatusAccepted(bare, 200))
 	require.False(t, resources.HTTPStatusAccepted(bare, 503))
 }
@@ -175,7 +175,7 @@ func TestPlanReadinessEndpointlessDependencyDefaultsToLifecycle(t *testing.T) {
 	requirements, err := resources.PlanServiceDependencyReadiness(dependency, nil)
 	require.NoError(t, err)
 	require.Len(t, requirements, 1)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(requirements[0].Probe))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(requirements[0].Probe))
 	require.Empty(t, requirements[0].Endpoint)
 }
 
@@ -188,12 +188,12 @@ func TestJobDependenciesRequireCompletionByDefault(t *testing.T) {
 	require.Equal(t, resources.PrerequisiteCompletion, job.JobDependencies[0].Prerequisite())
 	seed, err := resources.PlanJobDependencyReadiness(job.JobDependencies[0])
 	require.NoError(t, err)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_COMPLETION, resources.ProbeKindOf(seed.Probe))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_COMPLETION, resources.ProbeKindOf(seed.Probe))
 	require.Equal(t, "saas/seed: successful completion", seed.String())
 
 	watcher, err := resources.PlanJobDependencyReadiness(job.JobDependencies[1])
 	require.NoError(t, err)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(watcher.Probe))
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_AGENT, resources.ProbeKindOf(watcher.Probe))
 
 	dir := t.TempDir()
 	require.NoError(t, job.SaveToDir(ctx, dir))
@@ -304,13 +304,13 @@ func TestFailingPredicatesNameTheFailingCheck(t *testing.T) {
 	requirements, err := resources.PlanServiceDependencyReadiness(dependency, accounts)
 	require.NoError(t, err)
 
-	report := &basev0.HealthReport{Generation: 3}
+	report := &basev1.HealthReport{Generation: 3}
 	report.Results = append(report.Results,
-		requirements[0].Result(basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "connection refused"))
+		requirements[0].Result(basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "connection refused"))
 
 	result := report.Results[0]
-	require.Equal(t, basev0.ProbeIntent_PROBE_INTENT_READINESS, result.Intent)
-	require.Equal(t, basev0.ProbeKind_PROBE_KIND_GRPC_HEALTH, result.Kind)
+	require.Equal(t, basev1.ProbeIntent_PROBE_INTENT_READINESS, result.Intent)
+	require.Equal(t, basev1.ProbeKind_PROBE_KIND_GRPC_HEALTH, result.Kind)
 	require.Equal(t, "saas/accounts", result.Dependency)
 	require.Equal(t, standards.GRPC, result.Api)
 	require.Equal(t, []string{`saas/accounts/grpc: grpc health SERVING for "accounts.v1.Accounts" (connection refused)`},

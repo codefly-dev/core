@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 )
 
 // EmbedRequest is a typed embedding request. InputType is Voyage's retrieval
@@ -27,12 +27,12 @@ type EmbedRequest struct {
 // Dimensions is not rendered here: its field name is vendor-specific
 // (output_dimension for Voyage, dimensions for OpenAI), so PlannedEmbed resolves
 // it against the target descriptor's allowed fields.
-func (r EmbedRequest) body() map[string]*providerv0.PublicValue {
-	inputs := make([]*providerv0.PublicValue, 0, len(r.Input))
+func (r EmbedRequest) body() map[string]*providerv1.PublicValue {
+	inputs := make([]*providerv1.PublicValue, 0, len(r.Input))
 	for _, input := range r.Input {
 		inputs = append(inputs, stringValue(input))
 	}
-	body := map[string]*providerv0.PublicValue{
+	body := map[string]*providerv1.PublicValue{
 		"model": stringValue(r.Model),
 		"input": listValue(inputs),
 	}
@@ -59,7 +59,7 @@ type EmbeddingResponse struct {
 
 // DecodeEmbedding decodes the filtered forwarded fields into ordered embedding
 // vectors.
-func DecodeEmbedding(response *providerv0.ExecuteRequestResponse) (*EmbeddingResponse, error) {
+func DecodeEmbedding(response *providerv1.ExecuteRequestResponse) (*EmbeddingResponse, error) {
 	result := &EmbeddingResponse{}
 	vectors := map[int]Embedding{}
 	for _, field := range response.GetForwarded() {
@@ -107,7 +107,7 @@ func embeddingIndex(selector string) (int, bool) {
 }
 
 // toVector converts a forwarded list of numbers into an embedding vector.
-func toVector(value *providerv0.PublicValue) (Embedding, error) {
+func toVector(value *providerv1.PublicValue) (Embedding, error) {
 	list := value.GetListValue()
 	if list == nil {
 		return nil, fmt.Errorf("embedding is not a list")
@@ -123,11 +123,11 @@ func toVector(value *providerv0.PublicValue) (Embedding, error) {
 	return vector, nil
 }
 
-func toFloat(value *providerv0.PublicValue) (float64, error) {
+func toFloat(value *providerv1.PublicValue) (float64, error) {
 	switch kind := value.GetKind().(type) {
-	case *providerv0.PublicValue_DecimalValue:
+	case *providerv1.PublicValue_DecimalValue:
 		return strconv.ParseFloat(kind.DecimalValue, 64)
-	case *providerv0.PublicValue_IntegerValue:
+	case *providerv1.PublicValue_IntegerValue:
 		return float64(kind.IntegerValue), nil
 	default:
 		return 0, fmt.Errorf("embedding component is not a number")

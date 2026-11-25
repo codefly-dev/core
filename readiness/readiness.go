@@ -26,7 +26,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -47,7 +47,7 @@ type Target struct {
 	Completed bool
 }
 
-func attemptTimeout(probe *basev0.Probe) time.Duration {
+func attemptTimeout(probe *basev1.Probe) time.Duration {
 	if declared := probe.GetTiming().GetTimeout().AsDuration(); declared > 0 {
 		return declared
 	}
@@ -82,16 +82,16 @@ type outcome struct {
 	requirement *resources.ReadinessRequirement
 }
 
-func (o outcome) pass() *basev0.ProbeResult {
-	return o.requirement.Result(basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNSPECIFIED, "")
+func (o outcome) pass() *basev1.ProbeResult {
+	return o.requirement.Result(basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNSPECIFIED, "")
 }
 
-func (o outcome) fail(kind basev0.ProbeFailureKind, format string, args ...any) *basev0.ProbeResult {
-	return o.requirement.Result(basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, kind, fmt.Sprintf(format, args...))
+func (o outcome) fail(kind basev1.ProbeFailureKind, format string, args ...any) *basev1.ProbeResult {
+	return o.requirement.Result(basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, kind, fmt.Sprintf(format, args...))
 }
 
 // attempt is one evaluation of a predicate against an already-prepared target.
-type attempt func(context.Context) *basev0.ProbeResult
+type attempt func(context.Context) *basev1.ProbeResult
 
 // Check evaluates one requirement and returns its typed result. It never
 // returns an error: a failing predicate is data the caller reports, not an
@@ -101,7 +101,7 @@ type attempt func(context.Context) *basev0.ProbeResult
 // attempts the predicate every period until it sees success_threshold
 // consecutive passes or failure_threshold consecutive failures. A probe that
 // declares no timing is a single attempt.
-func Check(ctx context.Context, requirement *resources.ReadinessRequirement, target Target) *basev0.ProbeResult {
+func Check(ctx context.Context, requirement *resources.ReadinessRequirement, target Target) *basev1.ProbeResult {
 	out := outcome{requirement: requirement}
 
 	run, release, invalid := prepare(requirement, target, out)
@@ -112,16 +112,16 @@ func Check(ctx context.Context, requirement *resources.ReadinessRequirement, tar
 
 	timing := requirement.Probe.GetTiming()
 	if err := wait(ctx, timing.GetInitialDelay().AsDuration()); err != nil {
-		return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT,
+		return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT,
 			"the probe schedule was cancelled during its initial delay: %v", err)
 	}
 
 	successes, failures := threshold(timing.GetSuccessThreshold()), threshold(timing.GetFailureThreshold())
 	var consecutivePasses, consecutiveFailures uint32
-	var lastFailure *basev0.ProbeResult
+	var lastFailure *basev1.ProbeResult
 	for {
 		result := run(ctx)
-		if result.GetOutcome() == basev0.ProbeOutcome_PROBE_OUTCOME_PASSED {
+		if result.GetOutcome() == basev1.ProbeOutcome_PROBE_OUTCOME_PASSED {
 			consecutiveFailures = 0
 			consecutivePasses++
 			if consecutivePasses >= successes {
@@ -139,7 +139,7 @@ func Check(ctx context.Context, requirement *resources.ReadinessRequirement, tar
 			if lastFailure != nil {
 				return lastFailure
 			}
-			return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT,
+			return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT,
 				"the probe passed %d of %d required consecutive attempts before the schedule was cancelled: %v",
 				consecutivePasses, successes, err)
 		}
@@ -149,56 +149,56 @@ func Check(ctx context.Context, requirement *resources.ReadinessRequirement, tar
 // prepare validates the target and builds whatever the predicate reuses across
 // attempts: one gRPC connection, one HTTP client. It returns a non-nil result
 // when the target cannot be probed at all.
-func prepare(requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev0.ProbeResult) {
+func prepare(requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev1.ProbeResult) {
 	noop := func() {}
 
 	switch predicate := requirement.Probe.GetPredicate().(type) {
-	case *basev0.Probe_Agent:
-		return func(context.Context) *basev0.ProbeResult {
+	case *basev1.Probe_Agent:
+		return func(context.Context) *basev1.ProbeResult {
 			if target.Started {
 				return out.pass()
 			}
-			return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_LIFECYCLE, "the owning agent does not report a started service")
+			return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_LIFECYCLE, "the owning agent does not report a started service")
 		}, noop, nil
 
-	case *basev0.Probe_Completion:
-		return func(context.Context) *basev0.ProbeResult {
+	case *basev1.Probe_Completion:
+		return func(context.Context) *basev1.ProbeResult {
 			if target.Completed {
 				return out.pass()
 			}
-			return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INCOMPLETE, "the workload has not completed successfully")
+			return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INCOMPLETE, "the workload has not completed successfully")
 		}, noop, nil
 
-	case *basev0.Probe_Transport:
+	case *basev1.Probe_Transport:
 		if target.Address == "" {
-			return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
+			return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
 		}
 		limit := attemptTimeout(requirement.Probe)
-		return func(ctx context.Context) *basev0.ProbeResult {
+		return func(ctx context.Context) *basev1.ProbeResult {
 			dialer := net.Dialer{Timeout: limit}
 			conn, err := dialer.DialContext(ctx, "tcp", target.Address)
 			if err != nil {
-				return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", target.Address, err)
+				return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", target.Address, err)
 			}
 			_ = conn.Close()
 			return out.pass()
 		}, noop, nil
 
-	case *basev0.Probe_GrpcHealth:
+	case *basev1.Probe_GrpcHealth:
 		return prepareGrpcHealth(predicate.GrpcHealth, requirement, target, out)
 
-	case *basev0.Probe_Http:
+	case *basev1.Probe_Http:
 		return prepareHTTP(predicate.Http, requirement, target, out)
 
 	default:
-		return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no predicate is declared")
+		return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no predicate is declared")
 	}
 }
 
-func prepareGrpcHealth(probe *basev0.GrpcHealthProbe, requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev0.ProbeResult) {
+func prepareGrpcHealth(probe *basev1.GrpcHealthProbe, requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev1.ProbeResult) {
 	noop := func() {}
 	if target.Address == "" {
-		return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
+		return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
 	}
 
 	// A secured endpoint answers TLS only. Dialling it in plaintext produces a
@@ -207,7 +207,7 @@ func prepareGrpcHealth(probe *basev0.GrpcHealthProbe, requirement *resources.Rea
 	if requirement.Secured {
 		host, _, err := net.SplitHostPort(target.Address)
 		if err != nil {
-			return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s is not a host:port address: %v", target.Address, err)
+			return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s is not a host:port address: %v", target.Address, err)
 		}
 		transport = credentials.NewTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 	}
@@ -217,11 +217,11 @@ func prepareGrpcHealth(probe *basev0.GrpcHealthProbe, requirement *resources.Rea
 	// tick, per endpoint.
 	conn, err := grpc.NewClient(target.Address, grpc.WithTransportCredentials(transport))
 	if err != nil {
-		return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s cannot be dialled: %v", target.Address, err)
+		return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s cannot be dialled: %v", target.Address, err)
 	}
 	limit := attemptTimeout(requirement.Probe)
 
-	return func(ctx context.Context) *basev0.ProbeResult {
+	return func(ctx context.Context) *basev1.ProbeResult {
 			ctx, cancel := context.WithTimeout(ctx, limit)
 			defer cancel()
 
@@ -229,16 +229,16 @@ func prepareGrpcHealth(probe *basev0.GrpcHealthProbe, requirement *resources.Rea
 			if err != nil {
 				switch status.Code(err) {
 				case codes.Unimplemented:
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNIMPLEMENTED,
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNIMPLEMENTED,
 						"%s does not serve grpc.health.v1.Health", target.Address)
 				case codes.DeadlineExceeded:
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT, "%s: %v", target.Address, err)
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT, "%s: %v", target.Address, err)
 				default:
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", target.Address, err)
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", target.Address, err)
 				}
 			}
 			if response.GetStatus() != healthpb.HealthCheckResponse_SERVING {
-				return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_NOT_SERVING, "%s answered %s", target.Address, response.GetStatus())
+				return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_NOT_SERVING, "%s answered %s", target.Address, response.GetStatus())
 			}
 			return out.pass()
 		}, func() {
@@ -246,10 +246,10 @@ func prepareGrpcHealth(probe *basev0.GrpcHealthProbe, requirement *resources.Rea
 		}, nil
 }
 
-func prepareHTTP(probe *basev0.HttpProbe, requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev0.ProbeResult) {
+func prepareHTTP(probe *basev1.HttpProbe, requirement *resources.ReadinessRequirement, target Target, out outcome) (attempt, func(), *basev1.ProbeResult) {
 	noop := func() {}
 	if target.Address == "" {
-		return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
+		return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "no address was resolved for this endpoint")
 	}
 
 	scheme := "http"
@@ -258,7 +258,7 @@ func prepareHTTP(probe *basev0.HttpProbe, requirement *resources.ReadinessRequir
 	}
 	endpoint := fmt.Sprintf("%s://%s%s", scheme, target.Address, probe.GetPath())
 	if _, err := url.Parse(endpoint); err != nil {
-		return nil, noop, out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s is not a usable URL: %v", endpoint, err)
+		return nil, noop, out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s is not a usable URL: %v", endpoint, err)
 	}
 
 	client := &http.Client{
@@ -270,33 +270,33 @@ func prepareHTTP(probe *basev0.HttpProbe, requirement *resources.ReadinessRequir
 	}
 	limit := attemptTimeout(requirement.Probe)
 
-	return func(ctx context.Context) *basev0.ProbeResult {
+	return func(ctx context.Context) *basev1.ProbeResult {
 			ctx, cancel := context.WithTimeout(ctx, limit)
 			defer cancel()
 
 			request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
-				return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s cannot be requested: %v", endpoint, err)
+				return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, "%s cannot be requested: %v", endpoint, err)
 			}
 			response, err := client.Do(request)
 			if err != nil {
 				if ctx.Err() != nil {
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT, "%s: %v", endpoint, err)
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_TIMEOUT, "%s: %v", endpoint, err)
 				}
-				return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", endpoint, err)
+				return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNREACHABLE, "%s: %v", endpoint, err)
 			}
 			defer func() { _ = response.Body.Close() }()
 
 			if !resources.HTTPStatusAccepted(probe, response.StatusCode) {
-				return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, "%s answered %d", endpoint, response.StatusCode)
+				return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, "%s answered %d", endpoint, response.StatusCode)
 			}
 			if expected := probe.GetBodyContains(); expected != "" {
 				body, err := io.ReadAll(response.Body)
 				if err != nil {
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, "%s: %v", endpoint, err)
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, "%s: %v", endpoint, err)
 				}
 				if !strings.Contains(string(body), expected) {
-					return out.fail(basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, "%s body does not contain %q", endpoint, expected)
+					return out.fail(basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_BODY, "%s body does not contain %q", endpoint, expected)
 				}
 			}
 			return out.pass()
@@ -312,7 +312,7 @@ func prepareHTTP(probe *basev0.HttpProbe, requirement *resources.ReadinessRequir
 // Requirements are checked concurrently: each one honours its own declared
 // schedule, so evaluating them in sequence would make one slow dependency's
 // timeout the floor for the whole pass.
-func Evaluate(ctx context.Context, requirements []*resources.ReadinessRequirement, generation uint64, resolve func(*resources.ReadinessRequirement) Target) *basev0.HealthReport {
+func Evaluate(ctx context.Context, requirements []*resources.ReadinessRequirement, generation uint64, resolve func(*resources.ReadinessRequirement) Target) *basev1.HealthReport {
 	// resolve runs on the caller's goroutine: it is a caller-supplied closure,
 	// usually reading a shared map of network mappings, and is not ours to call
 	// concurrently.
@@ -321,7 +321,7 @@ func Evaluate(ctx context.Context, requirements []*resources.ReadinessRequiremen
 		targets[i] = resolve(requirement)
 	}
 
-	results := make([]*basev0.ProbeResult, len(requirements))
+	results := make([]*basev1.ProbeResult, len(requirements))
 	var group sync.WaitGroup
 	for i := range requirements {
 		group.Add(1)
@@ -332,9 +332,9 @@ func Evaluate(ctx context.Context, requirements []*resources.ReadinessRequiremen
 	}
 	group.Wait()
 
-	report := &basev0.HealthReport{Generation: generation, Ready: true}
+	report := &basev1.HealthReport{Generation: generation, Ready: true}
 	for _, result := range results {
-		if result.GetOutcome() != basev0.ProbeOutcome_PROBE_OUTCOME_PASSED {
+		if result.GetOutcome() != basev1.ProbeOutcome_PROBE_OUTCOME_PASSED {
 			report.Ready = false
 		}
 		report.Results = append(report.Results, result)

@@ -7,11 +7,11 @@
 // implements a subset of these capabilities by registering server
 // types from sub-packages:
 //
-//	agentv0.AgentServer       — identity + capabilities (always required)
-//	runtimev0.RuntimeServer   — service-process lifecycle
-//	builderv0.BuilderServer   — Docker build, k8s deploy, scaffolding
-//	codev0.CodeServer         — file/git/LSP operations
-//	toolingv0.ToolingServer   — language-specific analysis
+//	agentv1.AgentServer       — identity + capabilities (always required)
+//	runtimev1.RuntimeServer   — service-process lifecycle
+//	builderv1.BuilderServer   — Docker build, k8s deploy, scaffolding
+//	codev1.CodeServer         — file/git/LSP operations
+//	toolingv1.ToolingServer   — language-specific analysis
 //
 // The Serve function binds a gRPC listener (default 127.0.0.1:0;
 // override via CODEFLY_AGENT_BIND_ADDR), registers every server the

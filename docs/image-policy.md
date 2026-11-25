@@ -54,7 +54,7 @@ coordinate declarations, or switch vulnerability auditing to enforcement.
 Those changes belong to the CLI and policy producers, once the build location
 and policy delivery are decided; see [configuration-contract.md](configuration-contract.md).
 
-Artifact scanning is complementary. The existing `builderv0.AuditRequest`
+Artifact scanning is complementary. The existing `builderv1.AuditRequest`
 `fail_on_vuln` flag asks for `state=ERROR` on HIGH-or-above findings and defaults
 to false (report-only). `agents/services.BuilderWrapper.AuditContainer` applies
 that contract to Trivy image reports. A target needs both source/input checks

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -51,7 +51,7 @@ func bannedDeliveryTerm(name string) string {
 // identifier is deleted, its number and name reserved, never kept beside its
 // successor. The two this contract once carried are pinned below as deletions.
 func TestKubernetesPluginContractHasNoDeliverySystemTerms(t *testing.T) {
-	file := builderv0.File_codefly_services_builder_v0_deployment_proto
+	file := builderv1.File_codefly_services_builder_v0_deployment_proto
 
 	enums := file.Enums()
 	for i := 0; i < enums.Len(); i++ {
@@ -64,7 +64,7 @@ func TestKubernetesPluginContractHasNoDeliverySystemTerms(t *testing.T) {
 
 	// KubernetesManifestValidation.promotable mirrored restricted; it is
 	// deleted, its number and name reserved, and nothing populates it.
-	validation := (&builderv0.KubernetesManifestValidation{}).ProtoReflect().Descriptor()
+	validation := (&builderv1.KubernetesManifestValidation{}).ProtoReflect().Descriptor()
 	require.Nil(t, validation.Fields().ByName("promotable"))
 	require.Nil(t, validation.Fields().ByNumber(3))
 	require.True(t, validation.ReservedNames().Has("promotable"))
@@ -134,22 +134,22 @@ func TestKubernetesRenderingInputsHaveNoDeliverySystemFields(t *testing.T) {
 // number is refused here by that judgement, not by the decoder, and so is a
 // number the schema never defined.
 func TestRestrictedProfileHasNoDeliverySystemDependencies(t *testing.T) {
-	restricted, err := ParseOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	restricted, err := ParseOutputProfile(builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
 	require.NoError(t, err)
 	require.True(t, restricted.Restricted())
 	require.False(t, restricted.InlineSecrets())
 
-	ephemeral, err := ParseOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
+	ephemeral, err := ParseOutputProfile(builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
 	require.NoError(t, err)
 	require.False(t, ephemeral.Restricted())
 	require.True(t, ephemeral.InlineSecrets())
 
-	_, err = ParseOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED)
+	_, err = ParseOutputProfile(builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED)
 	require.ErrorIs(t, err, ErrOutputProfileNotSelected)
 
 	// The number the deleted profile held: reserved by the schema, refused
 	// by name as a deleted value, and never "not restricted".
-	deleted, err := ParseOutputProfile(builderv0.KubernetesOutputProfile(2))
+	deleted, err := ParseOutputProfile(builderv1.KubernetesOutputProfile(2))
 	require.ErrorIs(t, err, ErrOutputProfileUnknown)
 	require.Contains(t, err.Error(), "number 2 names a value the schema deleted")
 	require.Contains(t, err.Error(), "KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1")
@@ -157,12 +157,12 @@ func TestRestrictedProfileHasNoDeliverySystemDependencies(t *testing.T) {
 	require.False(t, deleted.InlineSecrets())
 
 	// A number the schema never defined is refused as such.
-	_, err = ParseOutputProfile(builderv0.KubernetesOutputProfile(7))
+	_, err = ParseOutputProfile(builderv1.KubernetesOutputProfile(7))
 	require.ErrorIs(t, err, ErrOutputProfileUnknown)
 	require.Contains(t, err.Error(), "number 7 is not a value of KubernetesOutputProfile")
 
 	// The schema's own record of the deletion is what the refusal reads.
-	descriptor := builderv0.KubernetesOutputProfile(0).Descriptor()
+	descriptor := builderv1.KubernetesOutputProfile(0).Descriptor()
 	require.True(t, descriptor.ReservedRanges().Has(2))
 	require.True(t, descriptor.ReservedNames().Has("KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1"))
 	require.Nil(t, descriptor.Values().ByNumber(2))

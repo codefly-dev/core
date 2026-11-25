@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/manifest"
@@ -37,7 +37,7 @@ func ScreenContent(texts []string) error {
 
 // Executor runs one admitted broker request. *broker.Session satisfies it.
 type Executor interface {
-	Execute(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*providerv0.ExecuteRequestResponse, error)
+	Execute(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*providerv1.ExecuteRequestResponse, error)
 }
 
 // Client issues typed LLM and embedding calls through an admitted broker
@@ -53,7 +53,7 @@ func NewClient(exec Executor) *Client {
 }
 
 // Chat runs a non-streaming chat request and decodes the whole response.
-func (c *Client) Chat(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*ChatResponse, error) {
+func (c *Client) Chat(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*ChatResponse, error) {
 	response, err := c.exec.Execute(ctx, request)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (c *Client) Chat(ctx context.Context, request *providerv0.ExecuteRequestReq
 }
 
 // ChatStream runs a streaming chat request and decodes the ordered deltas.
-func (c *Client) ChatStream(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*ChatStream, error) {
+func (c *Client) ChatStream(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*ChatStream, error) {
 	response, err := c.exec.Execute(ctx, request)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (c *Client) ChatStream(ctx context.Context, request *providerv0.ExecuteRequ
 }
 
 // Embed runs an embedding request and decodes the ordered vectors.
-func (c *Client) Embed(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*EmbeddingResponse, error) {
+func (c *Client) Embed(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*EmbeddingResponse, error) {
 	response, err := c.exec.Execute(ctx, request)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func (c *Client) Embed(ctx context.Context, request *providerv0.ExecuteRequestRe
 }
 
 // Rerank runs a rerank request and decodes the scored results.
-func (c *Client) Rerank(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*RerankResponse, error) {
+func (c *Client) Rerank(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*RerankResponse, error) {
 	response, err := c.exec.Execute(ctx, request)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func (c *Client) Rerank(ctx context.Context, request *providerv0.ExecuteRequestR
 // PlannedChat binds a chat request to a digest-bound PlannedRequest for the
 // chat descriptor. The host wraps it in an ExecuteRequestRequest with the
 // operation, budget, and credential handles before executing.
-func PlannedChat(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request ChatRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+func PlannedChat(m *manifest.Manifest, origin *providerv1.AdmittedOrigin, request ChatRequest, idempotencyKey, responsePolicyDigest string) (*providerv1.PlannedRequest, error) {
 	if err := ScreenContent(request.content()); err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func PlannedChat(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, reques
 // the embed descriptor. Dimensions, when set, is rendered under whichever field
 // name the target descriptor allows (output_dimension for Voyage, dimensions for
 // OpenAI).
-func PlannedEmbed(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request EmbedRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+func PlannedEmbed(m *manifest.Manifest, origin *providerv1.AdmittedOrigin, request EmbedRequest, idempotencyKey, responsePolicyDigest string) (*providerv1.PlannedRequest, error) {
 	if err := ScreenContent(request.content()); err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func PlannedEmbed(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, reque
 
 // PlannedRerank binds a rerank request to a digest-bound PlannedRequest for the
 // rerank descriptor.
-func PlannedRerank(m *manifest.Manifest, origin *providerv0.AdmittedOrigin, request RerankRequest, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+func PlannedRerank(m *manifest.Manifest, origin *providerv1.AdmittedOrigin, request RerankRequest, idempotencyKey, responsePolicyDigest string) (*providerv1.PlannedRequest, error) {
 	if err := ScreenContent(request.content()); err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func dimensionField(descriptor manifest.RequestDescriptor) (string, bool) {
 	return "", false
 }
 
-func plannedPost(origin *providerv0.AdmittedOrigin, descriptor manifest.RequestDescriptor, body map[string]*providerv0.PublicValue, idempotencyKey, responsePolicyDigest string) (*providerv0.PlannedRequest, error) {
+func plannedPost(origin *providerv1.AdmittedOrigin, descriptor manifest.RequestDescriptor, body map[string]*providerv1.PublicValue, idempotencyKey, responsePolicyDigest string) (*providerv1.PlannedRequest, error) {
 	for key := range body {
 		if !slices.Contains(descriptor.AllowedBodyFields, key) {
 			return nil, fmt.Errorf("body field %q is not allowed by the %q descriptor", key, descriptor.ID)
@@ -159,13 +159,13 @@ func plannedPost(origin *providerv0.AdmittedOrigin, descriptor manifest.RequestD
 	if err != nil {
 		return nil, err
 	}
-	planned := &providerv0.PlannedRequest{
+	planned := &providerv1.PlannedRequest{
 		RequestDescriptorId:     descriptor.ID,
 		RequestDescriptorDigest: digest,
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_POST,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
 		Body:                    body,
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME},
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME},
 		ResponsePolicyDigest:    responsePolicyDigest,
 		IdempotencyKey:          idempotencyKey,
 	}

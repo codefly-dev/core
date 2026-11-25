@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/runners/golang"
 )
 
@@ -32,7 +32,7 @@ func TestStructured_PassingCase_NoOutputCaptured(t *testing.T) {
 	run := golang.ParseTestJSONStructured(raw)
 	resp := run.ToProtoResponse("go-test", "unit", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State)
 	require.EqualValues(t, 1, resp.Counts.Total)
 	require.EqualValues(t, 1, resp.Counts.Passed)
 	require.EqualValues(t, 0, resp.Counts.Failed)
@@ -43,7 +43,7 @@ func TestStructured_PassingCase_NoOutputCaptured(t *testing.T) {
 	require.Len(t, suite.Cases, 1)
 	c := suite.Cases[0]
 	require.Equal(t, "TestFoo", c.Name)
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
 
 	// Load-bearing assertion: PASSED case has NO captured output.
 	// This is the entire reason for the schema overhaul — a 10000-test
@@ -70,18 +70,18 @@ func TestStructured_FailingCase_CarriesOutputAndFailureKind(t *testing.T) {
 	run := golang.ParseTestJSONStructured(raw)
 	resp := run.ToProtoResponse("go-test", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_FAILED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_FAILED, resp.Result.State)
 	require.EqualValues(t, 1, resp.Counts.Failed)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, c.State)
 	require.NotEmpty(t, c.CapturedOutput,
 		"FAILED case must carry its captured output for diagnosis")
 	require.Contains(t, c.CapturedOutput, "expected: 3")
 	require.Contains(t, c.CapturedOutput, "actual  : 5")
 
 	require.NotNil(t, c.Failure)
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, c.Failure.Kind,
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION, c.Failure.Kind,
 		"plain assertion failure must be classified as ASSERTION")
 	require.Contains(t, c.Failure.Detail, "expected: 3",
 		"failure.detail must contain the assertion detail for IDE display")
@@ -100,7 +100,7 @@ func TestStructured_PanicCase_ClassifiedAsPanic(t *testing.T) {
 	resp := run.ToProtoResponse("go-test", "", time.Second)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_PANIC, c.Failure.Kind,
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_PANIC, c.Failure.Kind,
 		"panic markers in output must classify as PANIC, not ASSERTION")
 }
 
@@ -113,15 +113,15 @@ func TestStructured_BuildFailure_AttributedAsErroredAndBuildError(t *testing.T) 
 	run := golang.ParseTestJSONStructured(raw)
 	resp := run.ToProtoResponse("go-test", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_ERRORED, resp.Result.State,
+	require.Equal(t, runtimev1.TestRunResult_ERRORED, resp.Result.State,
 		"build failure makes the WHOLE run ERRORED, not FAILED")
 	require.EqualValues(t, 1, resp.Counts.Errored)
 
 	require.Len(t, resp.Suites, 1)
 	require.Len(t, resp.Suites[0].Cases, 1, "synthetic <package> case stands in for the whole package failure")
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
-	require.Equal(t, runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR, c.Failure.Kind)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED, c.State)
+	require.Equal(t, runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR, c.Failure.Kind)
 	require.Contains(t, c.Failure.Detail, "undefined: Foo")
 }
 
@@ -135,12 +135,12 @@ func TestStructured_SkippedCase_NoFailure(t *testing.T) {
 	run := golang.ParseTestJSONStructured(raw)
 	resp := run.ToProtoResponse("go-test", "", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State,
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State,
 		"a skipped case alone doesn't fail the run")
 	require.EqualValues(t, 1, resp.Counts.Skipped)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED, c.State)
 	require.Empty(t, c.CapturedOutput,
 		"SKIPPED case has no output captured — same retention rule as PASSED")
 	require.Nil(t, c.Failure)
@@ -167,7 +167,7 @@ func TestStructured_LegacyFieldsArePopulated(t *testing.T) {
 	require.EqualValues(t, 1, resp.TestsFailed)
 	require.EqualValues(t, 1, resp.TestsSkipped)
 	require.NotNil(t, resp.Status)
-	require.Equal(t, runtimev0.TestStatus_ERROR, resp.Status.State,
+	require.Equal(t, runtimev1.TestStatus_ERROR, resp.Status.State,
 		"any failure flips legacy status to ERROR (preserves existing consumer behavior)")
 
 	require.Len(t, resp.Failures, 1, "legacy Failures string list must contain one entry per failed case")

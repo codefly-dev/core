@@ -16,7 +16,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/readiness"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -48,14 +48,14 @@ func TestHTTPProbeDoesNotFollowRedirects(t *testing.T) {
 
 	strict := secureRequirement(t, standards.HTTP, &resources.Probe{Kind: resources.ProbeKindHTTP, Path: "/healthz", Statuses: []string{"200"}}, false)
 	result := readiness.Check(ctx, strict, target)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, result.Outcome)
-	require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, result.FailureKind)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, result.Outcome)
+	require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_UNEXPECTED_STATUS, result.FailureKind)
 	require.Contains(t, result.Message, "answered 302")
 
 	// The 3xx is now observable, so the default 200-399 range can actually match
 	// one instead of never seeing it.
 	lenient := secureRequirement(t, standards.HTTP, &resources.Probe{Kind: resources.ProbeKindHTTP, Path: "/healthz"}, false)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, lenient, target).Outcome)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, lenient, target).Outcome)
 }
 
 // A secured endpoint answers TLS only; dialling it plaintext produced a
@@ -66,12 +66,12 @@ func TestSecuredRequirementsDialTLS(t *testing.T) {
 	plaintextGRPC := serveGRPC(t, true, healthpb.HealthCheckResponse_SERVING)
 	probe := &resources.Probe{Kind: resources.ProbeKindGRPCHealth}
 
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED,
 		readiness.Check(ctx, secureRequirement(t, standards.GRPC, probe, false), readiness.Target{Address: plaintextGRPC}).Outcome,
 		"an unsecured requirement must speak plaintext")
 
 	secured := readiness.Check(ctx, secureRequirement(t, standards.GRPC, probe, true), readiness.Target{Address: plaintextGRPC})
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, secured.Outcome,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, secured.Outcome,
 		"a secured requirement must attempt TLS, which a plaintext server cannot answer")
 
 	plaintextHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -81,9 +81,9 @@ func TestSecuredRequirementsDialTLS(t *testing.T) {
 	address := strings.TrimPrefix(plaintextHTTP.URL, "http://")
 	httpProbe := &resources.Probe{Kind: resources.ProbeKindHTTP, Path: "/healthz"}
 
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED,
 		readiness.Check(ctx, secureRequirement(t, standards.HTTP, httpProbe, false), readiness.Target{Address: address}).Outcome)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_FAILED,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_FAILED,
 		readiness.Check(ctx, secureRequirement(t, standards.HTTP, httpProbe, true), readiness.Target{Address: address}).Outcome,
 		"a secured requirement must request https, which a plaintext server cannot answer")
 }
@@ -106,7 +106,7 @@ func TestUnusableTargetsAreNotReportedAsUnreachable(t *testing.T) {
 				api = standards.TCP
 			}
 			result := readiness.Check(ctx, secureRequirement(t, api, probe, false), readiness.Target{})
-			require.Equal(t, basev0.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, result.FailureKind)
+			require.Equal(t, basev1.ProbeFailureKind_PROBE_FAILURE_KIND_INVALID_TARGET, result.FailureKind)
 		})
 	}
 }
@@ -136,14 +136,14 @@ func TestDeclaredTimingIsHonoured(t *testing.T) {
 		Kind: resources.ProbeKindHTTP, Path: "/healthz",
 		Period: "1ms", FailureThreshold: 5,
 	}, false)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, tolerant, readiness.Target{Address: address}).Outcome,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, readiness.Check(ctx, tolerant, readiness.Target{Address: address}).Outcome,
 		"a probe declaring 5 tolerated failures must not give up on the first 503")
 
 	mu.Lock()
 	attempts = 0
 	mu.Unlock()
 	impatient := secureRequirement(t, standards.HTTP, &resources.Probe{Kind: resources.ProbeKindHTTP, Path: "/healthz"}, false)
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_FAILED, readiness.Check(ctx, impatient, readiness.Target{Address: address}).Outcome,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_FAILED, readiness.Check(ctx, impatient, readiness.Target{Address: address}).Outcome,
 		"a probe declaring no timing is still a single attempt")
 
 	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -154,7 +154,7 @@ func TestDeclaredTimingIsHonoured(t *testing.T) {
 		Kind: resources.ProbeKindHTTP, Path: "/healthz", InitialDelay: "80ms",
 	}, false)
 	started := time.Now()
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED,
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED,
 		readiness.Check(ctx, delayed, readiness.Target{Address: strings.TrimPrefix(healthy.URL, "http://")}).Outcome)
 	require.GreaterOrEqual(t, time.Since(started), 80*time.Millisecond, "the declared initial delay must be waited out")
 }
@@ -195,7 +195,7 @@ func TestGrpcProbeReusesOneConnectionAcrossItsSchedule(t *testing.T) {
 	probe := &resources.Probe{Kind: resources.ProbeKindGRPCHealth, Period: "1ms", SuccessThreshold: 4}
 	result := readiness.Check(context.Background(), secureRequirement(t, standards.GRPC, probe, false),
 		readiness.Target{Address: listener.Addr().String()})
-	require.Equal(t, basev0.ProbeOutcome_PROBE_OUTCOME_PASSED, result.Outcome)
+	require.Equal(t, basev1.ProbeOutcome_PROBE_OUTCOME_PASSED, result.Outcome)
 
 	counter.mu.Lock()
 	defer counter.mu.Unlock()

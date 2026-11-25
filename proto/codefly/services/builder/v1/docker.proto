@@ -1,0 +1,215 @@
+syntax = "proto3";
+package codefly.services.builder.v1;
+
+
+// DockerBuildContext contains Docker-specific image build inputs.
+message DockerBuildContext {
+  // docker_repository is the image repository used for Docker builds.
+  string docker_repository = 1;
+  // image_digest is the immutable sha256 manifest digest a restricted, digest-pinned output refers to.
+  string image_digest = 2;
+  // cache configures optional external layer reuse, never artifact or test reuse.
+  BuildCacheOptions cache = 3;
+  // buildx_builder selects the caller-owned Buildx executor for in-agent builds.
+  string buildx_builder = 4;
+  // image_bindings selects exact external images for agent-declared roles.
+  // Requires the live base-image-bindings/v1 execution contract. The agent
+  // renders these references; callers must never rewrite its Dockerfile.
+  repeated BuildImageInput image_bindings = 5;
+}
+
+// BuildImageInput names an external image and the recipe variant consuming it.
+// In capabilities it declares a role's default; in a build request it binds
+// that role to an immutable replacement. Roles and variants are agent-owned.
+message BuildImageInput {
+  // role is unique within the loaded service's image inputs.
+  string role = 1;
+  // reference is a fully qualified image pinned by sha256 digest, or scratch.
+  string reference = 2;
+  // variant names the recipe's compatibility requirements, such as its OS/ABI
+  // and toolchain family. A different variant requires agent implementation;
+  // a registry relocation alone does not change it.
+  string variant = 3;
+}
+
+// DockerBuildResult captures Docker image references produced by a build.
+message DockerBuildResult {
+  // images are image tags or digests produced by the Docker build.
+  repeated string images = 1;
+}
+
+// RecipeFile is one file in a build recipe, paired with its content digest.
+message RecipeFile {
+  // path is the output_directory-relative POSIX path of the recipe file.
+  string path = 1;
+  // digest is the content digest of the file, formatted as "sha256:<hex>".
+  string digest = 2;
+  // mode is the file's Unix permission bits (the low 9 bits of the file mode).
+  // It is part of the plan's integrity boundary: buildx preserves the executable
+  // bit into the image, so a mode change with identical content is a real change
+  // the aggregate digest must detect.
+  uint32 mode = 3;
+}
+
+// RecipeContextRoot selects the base against which a recipe context is resolved.
+// It is independent of the file inventory scope.
+enum RecipeContextRoot {
+  // RECIPE_CONTEXT_ROOT_UNSPECIFIED preserves the v3 service-directory base.
+  RECIPE_CONTEXT_ROOT_UNSPECIFIED = 0;
+  // RECIPE_CONTEXT_ROOT_SERVICE explicitly selects the service directory.
+  RECIPE_CONTEXT_ROOT_SERVICE = 1;
+  // RECIPE_CONTEXT_ROOT_OUTPUT selects BuildRequest.output_directory, for an
+  // agent that assembles its build inputs there rather than building source.
+  RECIPE_CONTEXT_ROOT_OUTPUT = 2;
+}
+
+// DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,
+// its build context, and the target image reference. A service may emit many
+// recipes (for example an application image and a migration image).
+message DockerBuildRecipe {
+  // name is the recipe's logical identity within the service, such as "app" or
+  // "migration". It is unique per service and stable across builds.
+  string name = 1;
+  // dockerfile is the output_directory-relative path to the Dockerfile.
+  string dockerfile = 2;
+  // context is the build-context directory the Dockerfile is evaluated against,
+  // relative to context_root. An unspecified root retains the v3 SERVICE base.
+  // The executor must reject absolute paths and paths escaping the selected
+  // root, including symlink escapes. Dockerfile and dockerignore remain relative
+  // to output_directory regardless of this selection.
+  string context = 3;
+  // dockerignore is the optional output_directory-relative ignore file.
+  string dockerignore = 4;
+  // image is the fully qualified image reference the caller builds and pushes.
+  string image = 5;
+  // platforms are target platforms in buildx "os/arch" form, such as
+  // "linux/amd64". More than one platform yields a multi-arch manifest list.
+  repeated string platforms = 6;
+  // build_args are Docker build arguments passed with --build-arg.
+  map<string, string> build_args = 7;
+  // target is the optional Dockerfile stage to build.
+  string target = 8;
+  // context_root explicitly selects where context is rooted. It always
+  // participates in the plan digest, so a root cannot be changed or cleared
+  // without the plan being refused rather than silently building source.
+  RecipeContextRoot context_root = 9;
+  // go_module_downloads are the Go modules whose dependency graph this recipe
+  // downloads while it builds. Declaring them moves the download out of the
+  // build: the caller fetches each graph once, before it builds any image, with
+  // the credentials of the machine running the build, and supplies it to the
+  // build as a module proxy. A recipe that declares its downloads therefore
+  // needs no credential inside the build, and none is mounted into it. The
+  // list always participates in the plan digest, so a declaration cannot be
+  // dropped and the build run without the caller supplying it.
+  repeated GoModuleDownload go_module_downloads = 10;
+  // git_source_downloads are the git commits this recipe's dependency
+  // resolution fetches while it builds, as its lockfile pins them. Declaring
+  // them moves the fetch out of the build: the caller fetches each commit once,
+  // before it builds any image, with the credentials of the machine running the
+  // build, and supplies it to the build as a bare repository mirror. A recipe
+  // that declares them therefore needs no credential inside the build. The
+  // list always participates in the plan digest, in order, so a declaration
+  // cannot be dropped and the build run without the caller supplying it. A
+  // host accepts a plan only after it has fetched every declared source, and
+  // refuses a declaration it did not fetch.
+  repeated GitSourceDownload git_source_downloads = 11;
+}
+
+// GoModuleDownload is one Go module graph a recipe downloads.
+message GoModuleDownload {
+  // module_root is the directory holding the module's go.mod, relative to the
+  // recipe's build context. It must stay inside that context.
+  string module_root = 1;
+  // proxy_context names the build context the caller supplies the downloaded
+  // graph as: a directory in the Go module proxy layout (the module cache's
+  // cache/download tree), which the Dockerfile reads as GOPROXY=file://. The
+  // Dockerfile declares a stage of the same name (FROM scratch) so it still
+  // builds, from the network, when no caller supplies one.
+  string proxy_context = 2;
+}
+
+// GitSourceDownload is one locked git commit a recipe fetches.
+message GitSourceDownload {
+  // repository is the URL the build fetches from, exactly as the lockfile
+  // records it: https:// or ssh://, spelled in lowercase, a host, an optional
+  // port and a path, every path character in [A-Za-z0-9._~/:+-] (no "@", no
+  // percent-encoding), with no query, fragment, password or token (ssh may
+  // name a login user). The Dockerfile
+  // maps this URL onto the supplied mirror (git's url.<base>.insteadOf), so it
+  // must match the lockfile byte for byte.
+  string repository = 1;
+  // commit is the full object id the lockfile pins: 40 (SHA-1) or 64 (SHA-256)
+  // lowercase hexadecimal characters.
+  string commit = 2;
+  // mirror_context names the build context the caller supplies the fetched
+  // commits as: a directory holding one bare repository per declared
+  // repository, named by the lowercase hex SHA-256 of the repository string
+  // followed by ".git" (services.GitSourceMirrorPath in Go), each holding every
+  // declared commit under refs/commit/<commit> (services.GitSourceMirrorRef).
+  // Several downloads may share one mirror context. The Dockerfile declares a
+  // stage of the same name (FROM scratch) so it still builds, from the network,
+  // when no caller supplies one.
+  string mirror_context = 3;
+}
+
+// RecipeInventoryScope states what a plan's file inventory claims to cover, so
+// the verifier knows what "complete" means for that plan. Without it the
+// verifier has to guess, and the two answers are not interchangeable: guessing
+// EMITTED for a TREE plan stops detecting files ADDED to a build context after
+// emission, and guessing TREE for an EMITTED plan fails a build over unrelated
+// content in the service's committed builder/ directory.
+enum RecipeInventoryScope {
+  // RECIPE_INVENTORY_SCOPE_UNSPECIFIED does not authorize verification; a plan
+  // that omits the scope is rejected rather than verified under a default.
+  RECIPE_INVENTORY_SCOPE_UNSPECIFIED = 0;
+  // RECIPE_INVENTORY_SCOPE_EMITTED claims only the files the emitting build
+  // wrote. Other entries under output_directory are outside the claim and are
+  // neither digested nor rejected.
+  RECIPE_INVENTORY_SCOPE_EMITTED = 1;
+  // RECIPE_INVENTORY_SCOPE_TREE claims every file under output_directory. The
+  // emitter assembled the whole destination — typically because it copied the
+  // build context there and a recipe builds "." — so an entry the inventory does
+  // not list is drift in the emitter's own output and fails verification.
+  RECIPE_INVENTORY_SCOPE_TREE = 2;
+}
+
+// DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
+// output_directory. The caller owns running docker buildx from the recipes, so
+// the recipes are a durable, first-class artifact rather than an image built
+// inside the agent process.
+message DockerBuildPlan {
+  // recipes is the ordered set of image build recipes for the service.
+  repeated DockerBuildRecipe recipes = 1;
+  // files is the canonical, sorted inventory of the files the emitting build
+  // wrote, with digests. It is not an inventory of everything in
+  // output_directory: that directory is the service's committed builder/, so
+  // unrelated content there must neither perturb the digest nor fail the build.
+  repeated RecipeFile files = 2;
+  // digest is the aggregate content digest over files, formatted as
+  // "sha256:<hex>". Identical recipe trees yield an identical digest.
+  string digest = 3;
+  // contract_version identifies the recipe contract the caller validates.
+  // There is one, "codefly.dev/docker-build-recipe/v1"; a plan stating any
+  // other is refused by name.
+  string contract_version = 4;
+  // scope states what the files inventory covers. It is part of the aggregate
+  // digest, so a plan cannot be downgraded to a weaker verification by
+  // rewriting this field.
+  RecipeInventoryScope scope = 5;
+}
+
+// BuildCacheOptions is caller-owned transport policy. Registry credentials are
+// resolved by Docker, never serialized into a request or recipe.
+message BuildCacheOptions {
+  // imports are trusted registry cache repositories to read.
+  repeated string imports = 1;
+  // exports are registry cache repositories to write; empty is read-only.
+  repeated string exports = 2;
+  // scope separates workspace/service/recipe and trust domain. It must be stable
+  // across source edits. The backend adds the target platform to the cache tag.
+  string scope = 3;
+  // mode selects exported layers. Empty defaults to max; max includes intermediate layers.
+  string mode = 4;
+  // backend currently supports only registry; unknown or empty backends fail.
+  string backend = 5;
+}

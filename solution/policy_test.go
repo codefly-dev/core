@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/solution"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -19,22 +19,22 @@ import (
 )
 
 func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
-	expected := map[string]*solutionv0.SolutionMethodPolicy{
-		"GetSolutionInformation": {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_READ_ONLY},
-		"Create":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
-		"Update":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
-		"Package":                {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE},
-		"Render":                 {Network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ, Effect: solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
+	expected := map[string]*solutionv1.SolutionMethodPolicy{
+		"GetSolutionInformation": {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_READ_ONLY},
+		"Create":                 {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
+		"Update":                 {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
+		"Package":                {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE},
+		"Render":                 {Network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ, Effect: solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE},
 	}
 
-	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	require.Equal(t, len(expected), service.Methods().Len())
 	for i := 0; i < service.Methods().Len(); i++ {
 		method := service.Methods().Get(i)
 		options := method.Options().(*descriptorpb.MethodOptions)
-		require.True(t, proto.HasExtension(options, solutionv0.E_SolutionMethodPolicy), method.Name())
-		policy := proto.GetExtension(options, solutionv0.E_SolutionMethodPolicy).(*solutionv0.SolutionMethodPolicy)
+		require.True(t, proto.HasExtension(options, solutionv1.E_SolutionMethodPolicy), method.Name())
+		policy := proto.GetExtension(options, solutionv1.E_SolutionMethodPolicy).(*solutionv1.SolutionMethodPolicy)
 		want := expected[string(method.Name())]
 		require.NotNil(t, want, method.Name())
 		require.True(t, proto.Equal(want, policy), method.Name())
@@ -45,7 +45,7 @@ func TestSolutionRPCMethodPolicyIsMachineEnforceable(t *testing.T) {
 // relies on: the gate is unary-only, so a streaming Solution RPC would dispatch
 // unchecked. Adding one must fail here until a stream gate exists.
 func TestSolutionContractIsUnaryOnly(t *testing.T) {
-	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	for i := 0; i < service.Methods().Len(); i++ {
 		method := service.Methods().Get(i)
@@ -62,14 +62,14 @@ func TestSolutionContractIsUnaryOnly(t *testing.T) {
 // {network: OFFLINE, effect: REGISTRY_WRITE} that the ordered ceiling checks
 // would otherwise silently accept.
 func TestSolutionMethodPolicyAxesAreCoherent(t *testing.T) {
-	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
 	require.NotNil(t, service)
 	for i := 0; i < service.Methods().Len(); i++ {
 		method := service.Methods().Get(i)
 		options := method.Options().(*descriptorpb.MethodOptions)
-		policy := proto.GetExtension(options, solutionv0.E_SolutionMethodPolicy).(*solutionv0.SolutionMethodPolicy)
-		registryNetwork := policy.GetNetwork() == solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE
-		registryEffect := policy.GetEffect() == solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE
+		policy := proto.GetExtension(options, solutionv1.E_SolutionMethodPolicy).(*solutionv1.SolutionMethodPolicy)
+		registryNetwork := policy.GetNetwork() == solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE
+		registryEffect := policy.GetEffect() == solutionv1.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE
 		require.Equal(t, registryEffect, registryNetwork,
 			"%s: registry network and registry effect must agree", method.Name())
 	}
@@ -78,23 +78,23 @@ func TestSolutionMethodPolicyAxesAreCoherent(t *testing.T) {
 // recordingSolutionServer is a real Solution server that records which RPCs it
 // handled so a test can assert a denied call never reached it.
 type recordingSolutionServer struct {
-	solutionv0.UnimplementedSolutionServer
+	solutionv1.UnimplementedSolutionServer
 	handled map[string]int
 }
 
-func (s *recordingSolutionServer) GetSolutionInformation(context.Context, *solutionv0.GetSolutionInformationRequest) (*solutionv0.GetSolutionInformationResponse, error) {
+func (s *recordingSolutionServer) GetSolutionInformation(context.Context, *solutionv1.GetSolutionInformationRequest) (*solutionv1.GetSolutionInformationResponse, error) {
 	s.handled["GetSolutionInformation"]++
-	return &solutionv0.GetSolutionInformationResponse{}, nil
+	return &solutionv1.GetSolutionInformationResponse{}, nil
 }
 
-func (s *recordingSolutionServer) Create(context.Context, *solutionv0.CreateRequest) (*solutionv0.CreateResponse, error) {
+func (s *recordingSolutionServer) Create(context.Context, *solutionv1.CreateRequest) (*solutionv1.CreateResponse, error) {
 	s.handled["Create"]++
-	return &solutionv0.CreateResponse{}, nil
+	return &solutionv1.CreateResponse{}, nil
 }
 
-func (s *recordingSolutionServer) Package(context.Context, *solutionv0.PackageRequest) (*solutionv0.PackageResponse, error) {
+func (s *recordingSolutionServer) Package(context.Context, *solutionv1.PackageRequest) (*solutionv1.PackageResponse, error) {
 	s.handled["Package"]++
-	return &solutionv0.PackageResponse{}, nil
+	return &solutionv1.PackageResponse{}, nil
 }
 
 // TestEnforcingClientInterceptorDefaultsToLeastPrivilege pins the fail-closed
@@ -107,7 +107,7 @@ func TestEnforcingClientInterceptorDefaultsToLeastPrivilege(t *testing.T) {
 	server := &recordingSolutionServer{handled: map[string]int{}}
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	solutionv0.RegisterSolutionServer(grpcServer, server)
+	solutionv1.RegisterSolutionServer(grpcServer, server)
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(grpcServer.Stop)
 
@@ -120,11 +120,11 @@ func TestEnforcingClientInterceptorDefaultsToLeastPrivilege(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	client := solutionv0.NewSolutionClient(conn)
+	client := solutionv1.NewSolutionClient(conn)
 
 	// No ceiling on the context defaults to least privilege: the read-only
 	// advertisement call is admitted and reaches the server...
-	_, err = client.GetSolutionInformation(context.Background(), &solutionv0.GetSolutionInformationRequest{})
+	_, err = client.GetSolutionInformation(context.Background(), &solutionv1.GetSolutionInformationRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, server.handled["GetSolutionInformation"])
 
@@ -132,7 +132,7 @@ func TestEnforcingClientInterceptorDefaultsToLeastPrivilege(t *testing.T) {
 	// denial names the remedy so it is not mistaken for an auth failure: the
 	// missing ceiling — declared by routing through solution.Client — not the
 	// token, is what the caller must fix.
-	_, err = client.Create(context.Background(), &solutionv0.CreateRequest{})
+	_, err = client.Create(context.Background(), &solutionv1.CreateRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, server.handled["Create"])
 	require.Contains(t, status.Convert(err).Message(), "solution.Client")
@@ -146,7 +146,7 @@ func TestClientRequiresCeilingPerCall(t *testing.T) {
 	server := &recordingSolutionServer{handled: map[string]int{}}
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	solutionv0.RegisterSolutionServer(grpcServer, server)
+	solutionv1.RegisterSolutionServer(grpcServer, server)
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(grpcServer.Stop)
 
@@ -162,13 +162,13 @@ func TestClientRequiresCeilingPerCall(t *testing.T) {
 	client := solution.NewClient(conn)
 
 	// Scaffold ceiling admits Create...
-	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv0.CreateRequest{})
+	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv1.CreateRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, server.handled["Create"])
 
 	// ...and denies Package, which the wrapper cannot dispatch without a
 	// publish-level ceiling.
-	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
+	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv1.PackageRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, server.handled["Package"])
 }
@@ -182,7 +182,7 @@ func TestClientEnforcesWithoutDialInterceptor(t *testing.T) {
 	server := &recordingSolutionServer{handled: map[string]int{}}
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	solutionv0.RegisterSolutionServer(grpcServer, server)
+	solutionv1.RegisterSolutionServer(grpcServer, server)
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(grpcServer.Stop)
 
@@ -198,13 +198,13 @@ func TestClientEnforcesWithoutDialInterceptor(t *testing.T) {
 	client := solution.NewClient(conn)
 
 	// Scaffold ceiling admits Create — it reaches the server.
-	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv0.CreateRequest{})
+	_, err = client.Create(context.Background(), solution.CeilingScaffold(), &solutionv1.CreateRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, server.handled["Create"])
 
 	// Package exceeds it — refused by Client itself, never reaching the server,
 	// even though nothing on the connection would have stopped it.
-	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv0.PackageRequest{})
+	_, err = client.Package(context.Background(), solution.CeilingScaffold(), &solutionv1.PackageRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, server.handled["Package"])
 }
@@ -223,7 +223,7 @@ func TestEnforcingClientInterceptorPassesThroughNonSolutionCalls(t *testing.T) {
 }
 
 func TestSolutionPolicyEnumsAreOrderedAsCeilings(t *testing.T) {
-	networks := solutionv0.SolutionNetworkMode(0).Descriptor()
+	networks := solutionv1.SolutionNetworkMode(0).Descriptor()
 	require.Equal(t, []protoreflect.Name{
 		"SOLUTION_NETWORK_MODE_UNSPECIFIED",
 		"SOLUTION_NETWORK_MODE_OFFLINE",
@@ -231,7 +231,7 @@ func TestSolutionPolicyEnumsAreOrderedAsCeilings(t *testing.T) {
 		"SOLUTION_NETWORK_MODE_REGISTRY_WRITE",
 	}, enumNames(networks.Values()))
 
-	effects := solutionv0.SolutionEffect(0).Descriptor()
+	effects := solutionv1.SolutionEffect(0).Descriptor()
 	require.Equal(t, []protoreflect.Name{
 		"SOLUTION_EFFECT_UNSPECIFIED",
 		"SOLUTION_EFFECT_READ_ONLY",

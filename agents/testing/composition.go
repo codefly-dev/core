@@ -22,8 +22,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -122,14 +122,14 @@ func AssertKustomizeTemplatesWithOverlay(t *testing.T, templates fs.FS, paramete
 		templates,
 		parameters,
 		overlay,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 	)
 	assertKustomizeProfile(
 		t,
 		templates,
 		parameters,
 		overlay,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 	)
 	return ephemeral
 }
@@ -139,7 +139,7 @@ func assertKustomizeProfile(
 	templates fs.FS,
 	parameters any,
 	overlay *services.PodTemplateOverlay,
-	profile builderv0.KubernetesOutputProfile,
+	profile builderv1.KubernetesOutputProfile,
 ) string {
 	t.Helper()
 	ctx := context.Background()
@@ -170,11 +170,11 @@ func assertKustomizeProfile(
 	base.Builder = builder
 
 	destination := t.TempDir()
-	deployment := &builderv0.KubernetesDeployment{
+	deployment := &builderv1.KubernetesDeployment{
 		Namespace:   "codefly-test",
 		Destination: destination,
 		Profile:     profile,
-		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+		SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{
 			"CODEFLY_TEST_SECRET": {Name: "example-service-secrets", Key: "test-secret"},
 		},
 	}
@@ -192,12 +192,12 @@ func assertKustomizeProfile(
 	if selected.InlineSecrets() {
 		params.SecretMap = services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"}
 	}
-	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, templates, params); err != nil {
+	if err := builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, deployment, templates, params); err != nil {
 		t.Fatalf("render %s kustomize templates: %v", profile, err)
 	}
 
 	validation := services.ValidateKubernetesManifestTree(ctx, destination, "test", "codefly-test", profile, false, "", "")
-	if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_PASSED {
+	if validation.GetStaticValidation() != builderv1.KubernetesManifestValidation_STATUS_PASSED {
 		t.Fatalf("%s static conformance failed:\n%s", profile, strings.Join(validation.GetViolations(), "\n"))
 	}
 	if selected.Restricted() {
@@ -268,7 +268,7 @@ spec:
         key: applications/example-service
         property: password
 `
-	assertContractResult(t, "positive", positive, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	assertContractResult(t, "positive", positive, builderv1.KubernetesManifestValidation_STATUS_PASSED, "")
 	currentRestricted := strings.Replace(
 		restrictedDeploymentManifest,
 		"        seccompProfile:\n          type: RuntimeDefault\n      containers:",
@@ -281,7 +281,7 @@ spec:
 		"readOnlyRootFilesystem: true\n            seLinuxOptions:\n              type: container_engine_t",
 		1,
 	)
-	assertContractResult(t, "current restricted fields", currentRestricted, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	assertContractResult(t, "current restricted fields", currentRestricted, builderv1.KubernetesManifestValidation_STATUS_PASSED, "")
 	// A ConfigMap value holding nested JSON ends in "}}"; that is rendered
 	// output, not an unresolved template action.
 	jsonConfig := restrictedDeploymentManifest + `
@@ -294,7 +294,7 @@ metadata:
 data:
   NESTED_SETTINGS: '{"documents":{"queues":["intake"],"tenant":"acme"}}'
 `
-	assertContractResult(t, "nested JSON config value", jsonConfig, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	assertContractResult(t, "nested JSON config value", jsonConfig, builderv1.KubernetesManifestValidation_STATUS_PASSED, "")
 	// A restricted render has to be able to carry a value a producer declared as
 	// an assembly — a connection string embedding a password. A flat remoteRef
 	// mapping cannot express one, so the shape is spec.target.template over this
@@ -307,7 +307,7 @@ data:
       engineVersion: v2
       data:
         connection: "postgresql://reader:{{ .password | urlquery }}@store:5432/app"`),
-		builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+		builderv1.KubernetesManifestValidation_STATUS_PASSED, "")
 
 	tests := []struct {
 		name     string
@@ -586,7 +586,7 @@ rules: []
 		},
 	}
 	for _, test := range tests {
-		assertContractResult(t, test.name, test.manifest, builderv0.KubernetesManifestValidation_STATUS_FAILED, test.contains)
+		assertContractResult(t, test.name, test.manifest, builderv1.KubernetesManifestValidation_STATUS_FAILED, test.contains)
 	}
 	assertInvalidKustomization(t)
 	assertExtensionlessPlaceholder(t)
@@ -619,12 +619,12 @@ func assertInvalidKustomization(t *testing.T) {
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+			builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",
 		)
-		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
+		if validation.GetStaticValidation() != builderv1.KubernetesManifestValidation_STATUS_FAILED {
 			t.Fatalf("status = %s, want failed", validation.GetStaticValidation())
 		}
 		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "kustomize build") {
@@ -673,12 +673,12 @@ resources:
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+			builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",
 		)
-		if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_FAILED {
+		if validation.GetStaticValidation() != builderv1.KubernetesManifestValidation_STATUS_FAILED {
 			t.Fatalf("status = %s, want failed; violations: %v", validation.GetStaticValidation(), validation.GetViolations())
 		}
 		if !strings.Contains(strings.Join(validation.GetViolations(), "\n"), "unresolved placeholder") {
@@ -691,7 +691,7 @@ func assertContractResult(
 	t *testing.T,
 	name string,
 	manifest string,
-	expected builderv0.KubernetesManifestValidation_Status,
+	expected builderv1.KubernetesManifestValidation_Status,
 	contains string,
 ) {
 	t.Helper()
@@ -728,7 +728,7 @@ resources:
 			destination,
 			"test",
 			"codefly-test",
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+			builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 			false,
 			"",
 			"",

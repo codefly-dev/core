@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,11 +84,11 @@ func TestSingleImageBuildPlanIgnoresStaleDockerignore(t *testing.T) {
 // whose context was a subdirectory.
 func TestRecipeContextIsNotResolvedAgainstTheOutputDirectory(t *testing.T) {
 	dir, emitted := writeRecipeTree(t, false)
-	recipe := &builderv0.DockerBuildRecipe{
+	recipe := &builderv1.DockerBuildRecipe{
 		Name: "app", Dockerfile: "Dockerfile", Context: "code",
 		Image: "repo/app:v1", Platforms: RecipeBuildPlatforms(),
 	}
-	plan, err := BuildEmittedDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe}, emitted)
+	plan, err := BuildEmittedDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe}, emitted)
 	require.NoError(t, err)
 	require.Equal(t, "code", plan.GetRecipes()[0].GetContext())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
@@ -98,14 +98,14 @@ func TestRecipeContextIsNotResolvedAgainstTheOutputDirectory(t *testing.T) {
 // rejected, so a plan can never point buildx outside the roots it is given.
 func TestRecipePathsStillRejectEscapes(t *testing.T) {
 	dir, emitted := writeRecipeTree(t, false)
-	for name, recipe := range map[string]*builderv0.DockerBuildRecipe{
+	for name, recipe := range map[string]*builderv1.DockerBuildRecipe{
 		"context escapes":    {Name: "app", Dockerfile: "Dockerfile", Context: "../..", Image: "i"},
 		"context absolute":   {Name: "app", Dockerfile: "Dockerfile", Context: "/etc", Image: "i"},
 		"dockerfile escapes": {Name: "app", Dockerfile: "../Dockerfile", Context: ".", Image: "i"},
 		"empty name":         {Dockerfile: "Dockerfile", Context: ".", Image: "i"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := BuildEmittedDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe}, emitted)
+			_, err := BuildEmittedDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{recipe}, emitted)
 			require.Error(t, err)
 		})
 	}

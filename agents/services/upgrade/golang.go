@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Golang bumps Go module dependencies in dir.
@@ -154,7 +154,7 @@ func golangDryRun(ctx context.Context, dir string, opts Options) (*Result, error
 	if err != nil && len(out) == 0 {
 		return nil, err
 	}
-	var changes []*builderv0.UpgradeChange
+	var changes []*builderv1.UpgradeChange
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {
 		var m goListEntry
@@ -172,7 +172,7 @@ func golangDryRun(ctx context.Context, dir string, opts Options) (*Result, error
 		if !inOnly(m.Path, opts.Only) {
 			continue
 		}
-		changes = append(changes, &builderv0.UpgradeChange{
+		changes = append(changes, &builderv1.UpgradeChange{
 			Package: m.Path,
 			From:    m.Version,
 			To:      m.Update.Version,
@@ -212,11 +212,11 @@ func snapshotMods(ctx context.Context, dir string) (map[string]string, error) {
 	return snap, nil
 }
 
-func diffMods(before, after map[string]string) []*builderv0.UpgradeChange {
-	var changes []*builderv0.UpgradeChange
+func diffMods(before, after map[string]string) []*builderv1.UpgradeChange {
+	var changes []*builderv1.UpgradeChange
 	for path, newV := range after {
 		if oldV := before[path]; oldV != newV {
-			changes = append(changes, &builderv0.UpgradeChange{
+			changes = append(changes, &builderv1.UpgradeChange{
 				Package: path,
 				From:    oldV,
 				To:      newV,

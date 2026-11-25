@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // AgeBucket classifies code age relative to a reference date.
@@ -77,7 +77,7 @@ func (ft *FileTimeline) Lines() int {
 
 // BuildFileTimeline groups blame lines into consecutive chunks by commit hash,
 // classifies each by age relative to refDate, and extracts a summary.
-func BuildFileTimeline(path string, blameLines []*codev0.GitBlameLine, refDate time.Time) *FileTimeline {
+func BuildFileTimeline(path string, blameLines []*codev1.GitBlameLine, refDate time.Time) *FileTimeline {
 	if len(blameLines) == 0 {
 		return &FileTimeline{Path: path}
 	}
@@ -182,7 +182,7 @@ func BuildProjectTimeline(ctx context.Context, vfs VFS, rootDir string, extensio
 }
 
 // gitBlameFile runs git blame --porcelain on a single file and returns parsed blame lines.
-func gitBlameFile(ctx context.Context, repoDir, path string) ([]*codev0.GitBlameLine, error) {
+func gitBlameFile(ctx context.Context, repoDir, path string) ([]*codev1.GitBlameLine, error) {
 	cmd := exec.CommandContext(ctx, "git", "blame", "--porcelain", "--", path)
 	cmd.Dir = repoDir
 	var stdout, stderr bytes.Buffer

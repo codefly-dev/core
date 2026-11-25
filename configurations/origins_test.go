@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -107,7 +107,7 @@ func TestConfigurationOriginsFollowEqualValuedOverridesAndDefaults(t *testing.T)
 	require.NotContains(t, string(encoded), "private-secret")
 	require.Len(t, provided.Decisions, 2)
 	d := provided.Decisions[0]
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT, d.Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT, d.Rule)
 	require.Equal(t, "host", d.Module)
 	require.Len(t, d.Selected, 1)
 	require.Len(t, d.Shadowed, 1)
@@ -148,7 +148,7 @@ func TestConfigurationOriginsFollowWholeDocumentReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []*configurations.ConfigurationOrigin{{Group: "policy", File: "configurations/staging/policy.yaml", Document: true}}, provided.Origins)
 	require.Len(t, provided.Decisions, 1)
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT, provided.Decisions[0].Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT, provided.Decisions[0].Rule)
 	require.True(t, provided.Decisions[0].Final)
 	require.Equal(t, "configurations/local/policy.yaml", provided.Decisions[0].Shadowed[0].File)
 }
@@ -165,7 +165,7 @@ func TestConfigurationProfileDecisionsFollowIndividualValueIdentity(t *testing.T
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, dir), &resources.Environment{Name: "staging", ConfigurationProfile: "staging"})
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 2)
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY, provided.Decisions[0].Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY, provided.Decisions[0].Rule)
 	require.False(t, provided.Decisions[0].Final)
 	require.True(t, provided.Decisions[1].Final)
 	require.Equal(t, "staging", provided.Decisions[1].Profile)
@@ -202,7 +202,7 @@ func TestConfigurationDecisionsRetainNestedImportReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 2)
 	middle, product := provided.Decisions[0], provided.Decisions[1]
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP, middle.Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP, middle.Rule)
 	require.Equal(t, "base", middle.ImportedWorkspace)
 	require.Equal(t, "middle", middle.Workspace)
 	require.False(t, middle.Final, "intermediate winner must not be advertised as final")
@@ -278,7 +278,7 @@ func TestConfigurationOriginsWorkspaceDocumentOverride(t *testing.T) {
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, filepath.Join(root, "product")), resources.LocalEnvironment())
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 1)
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT, provided.Decisions[0].Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT, provided.Decisions[0].Rule)
 	require.True(t, provided.Decisions[0].Final)
 	require.Equal(t, provided.Origins, provided.Decisions[0].Selected)
 	encoded, err := json.Marshal(provided.Decisions)
@@ -300,7 +300,7 @@ func TestConfigurationDecisionsCombineModuleAndRepositoryOffers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 1, "one replacement per module/group, even when it offers from two locations")
 	decision := provided.Decisions[0]
-	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT, decision.Rule)
+	require.Equal(t, basev1.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT, decision.Rule)
 	require.Equal(t, "host", decision.Module)
 	require.True(t, decision.Final)
 	require.Equal(t, provided.Origins, decision.Selected)

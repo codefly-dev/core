@@ -16,14 +16,14 @@ import (
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/callertoken"
 	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/grpcconfig"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/runners/runstate"
@@ -86,14 +86,14 @@ const agentAbandonBudget = 20 * time.Second
 //   - ExecutionExporter: durable product-neutral execution receipt delivery. Exporter
 //     plugins never participate in, alter, or authorize the underlying execution.
 type PluginRegistration struct {
-	Agent             agentv0.AgentServer
-	Runtime           runtimev0.RuntimeServer
-	Builder           builderv0.BuilderServer
-	Code              codev0.CodeServer                   // Deprecated: use Tooling/Toolbox for language-specific operations.
-	Tooling           toolingv0.ToolingServer             // Transitional: collapses into Toolbox via lang.* convention.
-	Toolbox           toolboxv0.ToolboxServer             // The unified callable contract (MCP-shape).
-	Provider          providerv0.ProviderServer           // Provider-neutral external binding reconciliation.
-	Solution          solutionv0.SolutionServer           // Solution executor: scaffold/package/render a solution spec.
+	Agent             agentv1.AgentServer
+	Runtime           runtimev1.RuntimeServer
+	Builder           builderv1.BuilderServer
+	Code              codev1.CodeServer                   // Deprecated: use Tooling/Toolbox for language-specific operations.
+	Tooling           toolingv1.ToolingServer             // Transitional: collapses into Toolbox via lang.* convention.
+	Toolbox           toolboxv1.ToolboxServer             // The unified callable contract (MCP-shape).
+	Provider          providerv1.ProviderServer           // Provider-neutral external binding reconciliation.
+	Solution          solutionv1.SolutionServer           // Solution executor: scaffold/package/render a solution spec.
 	ExecutionExporter executionv1.ExecutionExporterServer // Product-neutral receipt exporter plugin.
 
 	// PDP gates Toolbox tool calls when non-nil. Wires the
@@ -147,7 +147,7 @@ const AuthMetadataKey = callertoken.MetadataKey
 // safely tear down runtime state that was never loaded.
 func runtimeLoadTracker(loaded *atomic.Bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if info.FullMethod == runtimev0.Runtime_Load_FullMethodName {
+		if info.FullMethod == runtimev1.Runtime_Load_FullMethodName {
 			loaded.Store(true)
 		}
 		return handler(ctx, req)
@@ -393,28 +393,28 @@ func Serve(reg PluginRegistration) {
 	s := grpc.NewServer(serverOptions...)
 
 	if reg.Agent != nil {
-		agentv0.RegisterAgentServer(s, reg.Agent)
+		agentv1.RegisterAgentServer(s, reg.Agent)
 	}
 	if reg.Runtime != nil {
-		runtimev0.RegisterRuntimeServer(s, reg.Runtime)
+		runtimev1.RegisterRuntimeServer(s, reg.Runtime)
 	}
 	if reg.Builder != nil {
-		builderv0.RegisterBuilderServer(s, reg.Builder)
+		builderv1.RegisterBuilderServer(s, reg.Builder)
 	}
 	if reg.Code != nil {
-		codev0.RegisterCodeServer(s, reg.Code)
+		codev1.RegisterCodeServer(s, reg.Code)
 	}
 	if reg.ExecutionExporter != nil {
 		executionv1.RegisterExecutionExporterServer(s, reg.ExecutionExporter)
 	}
 	if reg.Tooling != nil {
-		toolingv0.RegisterToolingServer(s, reg.Tooling)
+		toolingv1.RegisterToolingServer(s, reg.Tooling)
 	}
 	if reg.Provider != nil {
-		providerv0.RegisterProviderServer(s, reg.Provider)
+		providerv1.RegisterProviderServer(s, reg.Provider)
 	}
 	if reg.Solution != nil {
-		solutionv0.RegisterSolutionServer(s, reg.Solution)
+		solutionv1.RegisterSolutionServer(s, reg.Solution)
 	}
 	if reg.Toolbox != nil {
 		// Wrap with policyguard.Guard when a PDP is configured. The
@@ -452,10 +452,10 @@ func Serve(reg PluginRegistration) {
 						"before flipping to enforce.\n",
 					policy.EnvPDPMode)
 			}
-			toolboxv0.RegisterToolboxServer(s, reg.Toolbox)
+			toolboxv1.RegisterToolboxServer(s, reg.Toolbox)
 		} else {
 			guarded := policyguard.New(reg.Toolbox, reg.PDP, reg.PDPToolboxName)
-			toolboxv0.RegisterToolboxServer(s, guarded)
+			toolboxv1.RegisterToolboxServer(s, guarded)
 		}
 	}
 
@@ -527,7 +527,7 @@ func Serve(reg PluginRegistration) {
 		}()
 		if reg.Runtime != nil && runtimeLoaded.Load() {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, _ = reg.Runtime.Stop(stopCtx, &runtimev0.StopRequest{})
+			_, _ = reg.Runtime.Stop(stopCtx, &runtimev1.StopRequest{})
 			cancel()
 		}
 		if abandoned {
@@ -568,7 +568,7 @@ func Serve(reg PluginRegistration) {
 
 // ServeToolbox is the one-capability startup path for toolbox plugins.
 // Service plugins should continue to use Serve with PluginRegistration.
-func ServeToolbox(server toolboxv0.ToolboxServer) {
+func ServeToolbox(server toolboxv1.ToolboxServer) {
 	Serve(toolboxRegistration(server))
 }
 
@@ -577,7 +577,7 @@ func ServeToolbox(server toolboxv0.ToolboxServer) {
 // gets a callback-backed Guard automatically; an enforce-mode process without
 // that wiring reaches Serve with PDP=nil and is rejected at startup. With no
 // security env, local development mode keeps the raw server explicit.
-func toolboxRegistration(server toolboxv0.ToolboxServer) PluginRegistration {
+func toolboxRegistration(server toolboxv1.ToolboxServer) PluginRegistration {
 	hasCallback := os.Getenv(policy.EnvPermissionsSocket) != ""
 	hasScopedAuth := os.Getenv("CODEFLY_SCOPED_AUTHZ_SECRET") != ""
 	if !hasCallback && !hasScopedAuth {

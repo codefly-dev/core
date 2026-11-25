@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/standards"
 )
 
@@ -81,11 +81,11 @@ type Health struct {
 // success and redirects, but never a 4xx or 5xx. It is built per call because
 // it is handed to callers, who must not be able to edit the default for every
 // probe in the process.
-func defaultHTTPStatuses() []*basev0.HttpStatusRange {
-	return []*basev0.HttpStatusRange{{Min: 200, Max: 399}}
+func defaultHTTPStatuses() []*basev1.HttpStatusRange {
+	return []*basev1.HttpStatusRange{{Min: 200, Max: 399}}
 }
 
-func parseStatusRange(raw string) (*basev0.HttpStatusRange, error) {
+func parseStatusRange(raw string) (*basev1.HttpStatusRange, error) {
 	bounds := strings.SplitN(strings.TrimSpace(raw), "-", 2)
 	codes := make([]uint32, 0, 2)
 	for _, bound := range bounds {
@@ -99,12 +99,12 @@ func parseStatusRange(raw string) (*basev0.HttpStatusRange, error) {
 		codes = append(codes, uint32(code))
 	}
 	if len(codes) == 1 {
-		return &basev0.HttpStatusRange{Min: codes[0], Max: codes[0]}, nil
+		return &basev1.HttpStatusRange{Min: codes[0], Max: codes[0]}, nil
 	}
 	if codes[0] > codes[1] {
 		return nil, fmt.Errorf("status range %q is inverted", raw)
 	}
-	return &basev0.HttpStatusRange{Min: codes[0], Max: codes[1]}, nil
+	return &basev1.HttpStatusRange{Min: codes[0], Max: codes[1]}, nil
 }
 
 func parseProbeDuration(field, raw string) (*durationpb.Duration, error) {
@@ -121,7 +121,7 @@ func parseProbeDuration(field, raw string) (*durationpb.Duration, error) {
 	return durationpb.New(d), nil
 }
 
-func (probe *Probe) timing() (*basev0.ProbeTiming, error) {
+func (probe *Probe) timing() (*basev1.ProbeTiming, error) {
 	initialDelay, err := parseProbeDuration("initial-delay", probe.InitialDelay)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (probe *Probe) timing() (*basev0.ProbeTiming, error) {
 	if initialDelay == nil && period == nil && timeout == nil && probe.FailureThreshold == 0 && probe.SuccessThreshold == 0 {
 		return nil, nil
 	}
-	return &basev0.ProbeTiming{
+	return &basev1.ProbeTiming{
 		InitialDelay:     initialDelay,
 		Period:           period,
 		Timeout:          timeout,
@@ -173,7 +173,7 @@ func (probe *Probe) misplacedFields() []string {
 
 // Proto converts a declared probe into its wire form, validating it against the
 // API of the endpoint that carries it.
-func (probe *Probe) Proto(api string) (*basev0.Probe, error) {
+func (probe *Probe) Proto(api string) (*basev1.Probe, error) {
 	if probe == nil {
 		return nil, nil
 	}
@@ -190,19 +190,19 @@ func (probe *Probe) Proto(api string) (*basev0.Probe, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &basev0.Probe{Timing: timing}
+	out := &basev1.Probe{Timing: timing}
 	switch probe.Kind {
 	case ProbeKindTransport:
-		out.Predicate = &basev0.Probe_Transport{Transport: &basev0.TransportProbe{}}
+		out.Predicate = &basev1.Probe_Transport{Transport: &basev1.TransportProbe{}}
 	case ProbeKindAgent:
-		out.Predicate = &basev0.Probe_Agent{Agent: &basev0.AgentProbe{}}
+		out.Predicate = &basev1.Probe_Agent{Agent: &basev1.AgentProbe{}}
 	case ProbeKindCompletion:
 		return nil, fmt.Errorf("probe kind %q is only valid for a dependency that exposes no endpoint, not for an %s endpoint", probe.Kind, api)
 	case ProbeKindGRPCHealth:
 		if api != standards.GRPC {
 			return nil, fmt.Errorf("probe kind %q requires a %s endpoint, not %s", probe.Kind, standards.GRPC, api)
 		}
-		out.Predicate = &basev0.Probe_GrpcHealth{GrpcHealth: &basev0.GrpcHealthProbe{Service: probe.Service}}
+		out.Predicate = &basev1.Probe_GrpcHealth{GrpcHealth: &basev1.GrpcHealthProbe{Service: probe.Service}}
 	case ProbeKindHTTP:
 		if !standards.IsHTTPBasedAPI(api) {
 			return nil, fmt.Errorf("probe kind %q requires an HTTP-based endpoint, not %s", probe.Kind, api)
@@ -213,7 +213,7 @@ func (probe *Probe) Proto(api string) (*basev0.Probe, error) {
 		if !strings.HasPrefix(probe.Path, "/") {
 			return nil, fmt.Errorf("probe path %q must start with %q", probe.Path, "/")
 		}
-		http := &basev0.HttpProbe{Path: probe.Path, BodyContains: probe.BodyContains}
+		http := &basev1.HttpProbe{Path: probe.Path, BodyContains: probe.BodyContains}
 		for _, raw := range probe.Statuses {
 			status, err := parseStatusRange(raw)
 			if err != nil {
@@ -221,7 +221,7 @@ func (probe *Probe) Proto(api string) (*basev0.Probe, error) {
 			}
 			http.Statuses = append(http.Statuses, status)
 		}
-		out.Predicate = &basev0.Probe_Http{Http: http}
+		out.Predicate = &basev1.Probe_Http{Http: http}
 	}
 	return out, nil
 }
@@ -234,7 +234,7 @@ func probeDurationString(d *durationpb.Duration) string {
 }
 
 // ProbeFromProto converts a wire probe back to its authored form.
-func ProbeFromProto(probe *basev0.Probe) *Probe {
+func ProbeFromProto(probe *basev1.Probe) *Probe {
 	if probe == nil || probe.GetPredicate() == nil {
 		return nil
 	}
@@ -246,16 +246,16 @@ func ProbeFromProto(probe *basev0.Probe) *Probe {
 		SuccessThreshold: probe.GetTiming().GetSuccessThreshold(),
 	}
 	switch predicate := probe.GetPredicate().(type) {
-	case *basev0.Probe_Transport:
+	case *basev1.Probe_Transport:
 		out.Kind = ProbeKindTransport
-	case *basev0.Probe_Agent:
+	case *basev1.Probe_Agent:
 		out.Kind = ProbeKindAgent
-	case *basev0.Probe_Completion:
+	case *basev1.Probe_Completion:
 		out.Kind = ProbeKindCompletion
-	case *basev0.Probe_GrpcHealth:
+	case *basev1.Probe_GrpcHealth:
 		out.Kind = ProbeKindGRPCHealth
 		out.Service = predicate.GrpcHealth.GetService()
-	case *basev0.Probe_Http:
+	case *basev1.Probe_Http:
 		out.Kind = ProbeKindHTTP
 		out.Path = predicate.Http.GetPath()
 		out.BodyContains = predicate.Http.GetBodyContains()
@@ -272,19 +272,19 @@ func ProbeFromProto(probe *basev0.Probe) *Probe {
 
 // Proto converts a declared health block into its wire form, naming the intent
 // whose probe is invalid.
-func (health *Health) Proto(api string) (*basev0.Health, error) {
+func (health *Health) Proto(api string) (*basev1.Health, error) {
 	if health == nil {
 		return nil, nil
 	}
-	out := &basev0.Health{}
+	out := &basev1.Health{}
 	for _, intent := range []struct {
 		name  string
 		probe *Probe
-		set   func(*basev0.Probe)
+		set   func(*basev1.Probe)
 	}{
-		{"readiness", health.Readiness, func(p *basev0.Probe) { out.Readiness = p }},
-		{"liveness", health.Liveness, func(p *basev0.Probe) { out.Liveness = p }},
-		{"startup", health.Startup, func(p *basev0.Probe) { out.Startup = p }},
+		{"readiness", health.Readiness, func(p *basev1.Probe) { out.Readiness = p }},
+		{"liveness", health.Liveness, func(p *basev1.Probe) { out.Liveness = p }},
+		{"startup", health.Startup, func(p *basev1.Probe) { out.Startup = p }},
 	} {
 		probe, err := intent.probe.Proto(api)
 		if err != nil {
@@ -299,7 +299,7 @@ func (health *Health) Proto(api string) (*basev0.Health, error) {
 }
 
 // HealthFromProto converts a wire health block back to its authored form.
-func HealthFromProto(health *basev0.Health) *Health {
+func HealthFromProto(health *basev1.Health) *Health {
 	if health == nil {
 		return nil
 	}
@@ -337,14 +337,14 @@ func validateEndpointHealth(endpoints []*Endpoint) error {
 // can return any Endpoint it likes from Load; without this a contradiction such
 // as a gRPC health probe on an HTTP endpoint is accepted at ingestion and only
 // fails much later, when the service manifest is written back to disk.
-func ValidateEndpointHealth(endpoint *basev0.Endpoint) error {
+func ValidateEndpointHealth(endpoint *basev1.Endpoint) error {
 	health := endpoint.GetHealth()
 	if health == nil {
 		return nil
 	}
 	for _, intent := range []struct {
 		name  string
-		probe *basev0.Probe
+		probe *basev1.Probe
 	}{
 		{"readiness", health.GetReadiness()},
 		{"liveness", health.GetLiveness()},
@@ -364,39 +364,39 @@ func ValidateEndpointHealth(endpoint *basev0.Endpoint) error {
 }
 
 // ProbeKindOf labels a wire probe with its predicate family.
-func ProbeKindOf(probe *basev0.Probe) basev0.ProbeKind {
+func ProbeKindOf(probe *basev1.Probe) basev1.ProbeKind {
 	switch probe.GetPredicate().(type) {
-	case *basev0.Probe_Transport:
-		return basev0.ProbeKind_PROBE_KIND_TRANSPORT
-	case *basev0.Probe_GrpcHealth:
-		return basev0.ProbeKind_PROBE_KIND_GRPC_HEALTH
-	case *basev0.Probe_Http:
-		return basev0.ProbeKind_PROBE_KIND_HTTP
-	case *basev0.Probe_Agent:
-		return basev0.ProbeKind_PROBE_KIND_AGENT
-	case *basev0.Probe_Completion:
-		return basev0.ProbeKind_PROBE_KIND_COMPLETION
+	case *basev1.Probe_Transport:
+		return basev1.ProbeKind_PROBE_KIND_TRANSPORT
+	case *basev1.Probe_GrpcHealth:
+		return basev1.ProbeKind_PROBE_KIND_GRPC_HEALTH
+	case *basev1.Probe_Http:
+		return basev1.ProbeKind_PROBE_KIND_HTTP
+	case *basev1.Probe_Agent:
+		return basev1.ProbeKind_PROBE_KIND_AGENT
+	case *basev1.Probe_Completion:
+		return basev1.ProbeKind_PROBE_KIND_COMPLETION
 	default:
-		return basev0.ProbeKind_PROBE_KIND_UNSPECIFIED
+		return basev1.ProbeKind_PROBE_KIND_UNSPECIFIED
 	}
 }
 
 // DescribeProbe renders the predicate a probe requires, for the message a
 // consumer shows when readiness does not hold.
-func DescribeProbe(probe *basev0.Probe) string {
+func DescribeProbe(probe *basev1.Probe) string {
 	switch predicate := probe.GetPredicate().(type) {
-	case *basev0.Probe_Transport:
+	case *basev1.Probe_Transport:
 		return "transport connect"
-	case *basev0.Probe_Agent:
+	case *basev1.Probe_Agent:
 		return "agent-reported readiness"
-	case *basev0.Probe_Completion:
+	case *basev1.Probe_Completion:
 		return "successful completion"
-	case *basev0.Probe_GrpcHealth:
+	case *basev1.Probe_GrpcHealth:
 		if service := predicate.GrpcHealth.GetService(); service != "" {
 			return fmt.Sprintf("grpc health SERVING for %q", service)
 		}
 		return "grpc health SERVING"
-	case *basev0.Probe_Http:
+	case *basev1.Probe_Http:
 		statuses := AcceptedHTTPStatuses(predicate.Http)
 		rendered := make([]string, 0, len(statuses))
 		for _, status := range statuses {
@@ -419,7 +419,7 @@ func DescribeProbe(probe *basev0.Probe) string {
 // AcceptedHTTPStatuses returns the status ranges an HTTP probe accepts, with
 // the default applied. A probe that declares none still rejects 4xx and 5xx —
 // the point of the audit finding, where any reachable HTTP server passed.
-func AcceptedHTTPStatuses(probe *basev0.HttpProbe) []*basev0.HttpStatusRange {
+func AcceptedHTTPStatuses(probe *basev1.HttpProbe) []*basev1.HttpStatusRange {
 	if len(probe.GetStatuses()) == 0 {
 		return defaultHTTPStatuses()
 	}
@@ -427,7 +427,7 @@ func AcceptedHTTPStatuses(probe *basev0.HttpProbe) []*basev0.HttpStatusRange {
 }
 
 // HTTPStatusAccepted reports whether status satisfies the probe's predicate.
-func HTTPStatusAccepted(probe *basev0.HttpProbe, status int) bool {
+func HTTPStatusAccepted(probe *basev1.HttpProbe, status int) bool {
 	for _, accepted := range AcceptedHTTPStatuses(probe) {
 		if uint32(status) >= accepted.GetMin() && uint32(status) <= accepted.GetMax() {
 			return true

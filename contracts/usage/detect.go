@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // The two kinds of finding, one per detect clause field.
@@ -71,14 +71,14 @@ type Finding struct {
 //
 // A file matching one of the rule's except-paths is skipped for that rule.
 // Findings are sorted by path, position, rule and symbol.
-func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
+func (contract *Contract) Detect(index *basev1.SemanticIndex) []Finding {
 	if contract == nil || index == nil {
 		return nil
 	}
 	// A call is on the function or method it sits in, or, outside every one
 	// of them, on its file: a module's top-level statements and a
 	// package-level initializer are read like any other code.
-	calls := map[string][]*basev0.SemanticUse{}
+	calls := map[string][]*basev1.SemanticUse{}
 	for _, symbol := range index.GetSymbols() {
 		for _, call := range symbol.GetCalls() {
 			if path := call.GetLocation().GetPath(); path != "" {
@@ -171,7 +171,7 @@ func (contract *Contract) Detect(index *basev0.SemanticIndex) []Finding {
 // methods (SemanticIndex.file_calls_projected) leaves module and package
 // initializers unread. That matters only to a contract with a forbid-call
 // clause for a language the index holds, and is reported only then.
-func (contract *Contract) Unread(index *basev0.SemanticIndex) []string {
+func (contract *Contract) Unread(index *basev1.SemanticIndex) []string {
 	if contract == nil || index == nil || index.GetFileCallsProjected() {
 		return nil
 	}
@@ -206,7 +206,7 @@ func beneath(imported, forbidden string) bool {
 	return false
 }
 
-func imports(file *basev0.SemanticFile, forbidden string) bool {
+func imports(file *basev1.SemanticFile, forbidden string) bool {
 	for _, imported := range file.GetImports() {
 		if beneath(imported, forbidden) {
 			return true
@@ -218,7 +218,7 @@ func imports(file *basev0.SemanticFile, forbidden string) bool {
 // reaches is whether a file imports what owns a function: the owner itself,
 // or a parent module through which a dotted call reaches it (import asyncpg,
 // then asyncpg.pool.create_pool).
-func reaches(file *basev0.SemanticFile, owner string) bool {
+func reaches(file *basev1.SemanticFile, owner string) bool {
 	for _, imported := range file.GetImports() {
 		if imported == owner || strings.HasPrefix(owner, imported+".") {
 			return true

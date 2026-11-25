@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -30,7 +30,7 @@ func (h *harness) operationSession(aud string) (string, *workcontext.Verified) {
 		OrganizationID:     organization,
 		TaskID:             taskID,
 		Audience:           aud,
-		AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		AuthorityScopes:    []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		TTL:                time.Hour,
 	})
 	require.NoError(h.t, err)
@@ -194,7 +194,7 @@ func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	foreign := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	foreign := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	foreign.Issuer = "https://authority.elsewhere.test"
 	token := h.resign(foreign)
 
@@ -210,7 +210,7 @@ func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
 	_, _, err = h.authority.Child(context.Background(), verified, workcontext.ChildInput{
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-foreign",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
@@ -314,7 +314,7 @@ func TestVerify_RefusesAnUnsealedCapability(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	unsealed := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	unsealed := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	unsealed.Seal = nil
 
 	_, err := h.verify(audience, h.resign(unsealed))
@@ -454,7 +454,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 				PrincipalKind: "agent",
 				AgentID:       "fixture.test/agent:1.0.0",
 				DelegationID:  "d-1",
-				GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+				GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 				Audience:      audience,
 				TTL:           time.Minute,
 			})
@@ -479,7 +479,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           time.Minute,
 	})
@@ -524,7 +524,7 @@ func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           time.Minute,
 	})
@@ -555,7 +555,7 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 		PrincipalKind:      "agent",
 		AgentID:            "fixture.test/agent:1.0.0",
 		DelegationID:       "d-1",
-		GrantedScopes:      []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes:      []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:           audience,
 		OperationBindingID: "binding:alpha:read",
 		TTL:                time.Minute,
@@ -846,7 +846,7 @@ func TestVerify_RefusesARevisionAheadOfTheIssuer(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	forged := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	forged := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	forged.AuthorizationRevision = h.revision + 5
 	_, err := h.verify(audience, h.resign(forged))
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
@@ -964,7 +964,7 @@ func TestAHeldVerifiedCannotBeEditedIntoValidity(t *testing.T) {
 	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-immutable",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
@@ -1009,7 +1009,7 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           30 * time.Minute,
 	}
@@ -1138,7 +1138,7 @@ func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
 	actor := agent.Actor()
 	require.NotNil(t, actor)
 	actor.PrincipalId = "someone-else"
-	actor.GrantedScopes = []*basev0.WorkScopeV1{scope("repo", []string{"read", "write", "admin"}, nil)}
+	actor.GrantedScopes = []*basev1.WorkScopeV1{scope("repo", []string{"read", "write", "admin"}, nil)}
 
 	require.Equal(t, agentID, agent.Actor().GetPrincipalId(),
 		"a held Actor() is a copy; editing it changes nothing the verifier or the minter will read")
@@ -1150,7 +1150,7 @@ func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
 		DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
 		// Exactly what the parent holds: the point is the aliasing, so the
 		// derivation must not fail attenuation for an unrelated reason.
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 	})
 	require.NoError(t, err)
 	for _, hop := range claims.GetActorChain() {
@@ -1172,7 +1172,7 @@ func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
 // bound that was only checked on the way in.
 func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
 	h := newHarness(t)
-	var scopes []*basev0.WorkScopeV1
+	var scopes []*basev1.WorkScopeV1
 	for index := 0; index < 400; index++ {
 		scopes = append(scopes, scope("repo", []string{"read"},
 			[]string{strings.Repeat("r", 100) + string(rune('a'+index%26))}))
@@ -1237,7 +1237,7 @@ func TestADerivationRefusesAParentItsIssuerDidNotSign(t *testing.T) {
 	child := workcontext.ChildInput{
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 	}
 
 	// The issuer ROTATES its signing key. The parent is still a valid
@@ -1321,14 +1321,14 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 	raw, err := proto.Marshal(sound)
 	require.NoError(t, err)
 	raw = append(raw, 0xF8, 0x3F, 0x01) // field 1023, varint: unknown to this Core
-	polluted := &basev0.WorkScopeV1{}
+	polluted := &basev1.WorkScopeV1{}
 	require.NoError(t, proto.Unmarshal(raw, polluted))
 	require.NotEmpty(t, polluted.ProtoReflect().GetUnknown(), "the scope really does carry an unknown field")
 
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
-		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{polluted}, TTL: time.Minute,
+		Audience: audience, AuthorityScopes: []*basev1.WorkScopeV1{polluted}, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "does not decode under this Core's own rules")
@@ -1338,7 +1338,7 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
-		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{sound}, TTL: time.Minute,
+		Audience: audience, AuthorityScopes: []*basev1.WorkScopeV1{sound}, TTL: time.Minute,
 	})
 	require.NoError(t, err)
 }

@@ -4,18 +4,18 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/actions/service"
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCommandRendersAgentWithoutPanicOnUnregisteredKind(t *testing.T) {
 	action := &service.AddServiceAction{
-		AddService: &actionsv0.AddService{
+		AddService: &actionsv1.AddService{
 			Name: "my-service",
 			// Kind is left UNKNOWN: rendering the equivalent CLI command must not
 			// depend on a registered/validatable agent kind, and must never panic.
-			Agent: &basev0.Agent{Publisher: "codefly.dev", Name: "go-grpc", Version: "1.2.3"},
+			Agent: &basev1.Agent{Publisher: "codefly.dev", Name: "go-grpc", Version: "1.2.3"},
 		},
 	}
 	require.NotPanics(t, func() {

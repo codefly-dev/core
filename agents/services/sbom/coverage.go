@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // ResolvedImage is one image a completed build produced: the recipe that built
@@ -27,12 +27,12 @@ type ResolvedImage struct {
 // A recipe names a tag, so what the caller resolved from its build is what pins
 // each subject. Without it a subject names a floating tag and its evidence
 // describes whatever that tag happens to serve.
-func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, resolved []ResolvedImage) ([]*builderv0.ImageSubject, error) {
+func ExpectedFromBuildPlan(service string, plan *builderv1.DockerBuildPlan, resolved []ResolvedImage) ([]*builderv1.ImageSubject, error) {
 	built := make(map[string]ResolvedImage, len(resolved))
 	for _, image := range resolved {
 		built[image.Recipe+"|"+image.Platform] = image
 	}
-	var subjects []*builderv0.ImageSubject
+	var subjects []*builderv1.ImageSubject
 	for _, recipe := range plan.GetRecipes() {
 		platforms := recipe.GetPlatforms()
 		if len(platforms) == 0 {
@@ -47,7 +47,7 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, reso
 				}
 				return nil, fmt.Errorf("the build resolved no digest for %s: a subject carrying only a tag binds evidence to whatever that tag serves, not to the image that was built", where)
 			}
-			subject := &builderv0.ImageSubject{
+			subject := &builderv1.ImageSubject{
 				Platform: platform,
 				Role:     recipe.GetName(),
 				Service:  service,
@@ -77,10 +77,10 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, reso
 // ExpectedFromBuildResult derives the image subjects an agent-owned build
 // produced. A build result names images without roles, so the reference carries
 // the subject's identity.
-func ExpectedFromBuildResult(service string, result *builderv0.DockerBuildResult) []*builderv0.ImageSubject {
-	var subjects []*builderv0.ImageSubject
+func ExpectedFromBuildResult(service string, result *builderv1.DockerBuildResult) []*builderv1.ImageSubject {
+	var subjects []*builderv1.ImageSubject
 	for _, image := range result.GetImages() {
-		subjects = append(subjects, &builderv0.ImageSubject{
+		subjects = append(subjects, &builderv1.ImageSubject{
 			Reference: image,
 			Digest:    referenceDigest(image),
 			Service:   service,
@@ -121,7 +121,7 @@ type PublishedImage struct {
 // The reference carries the pin, as it does for any pushed image: each
 // platform's scan resolves a child manifest out of it, so evidence is derived
 // from that identity rather than compared against it.
-func ExpectedFromImageReference(image PublishedImage) ([]*builderv0.ImageSubject, error) {
+func ExpectedFromImageReference(image PublishedImage) ([]*builderv1.ImageSubject, error) {
 	// ValidateCoverage takes the service it is validating, but consults it only
 	// for evidence an agent enumerated: an expectation is trusted to carry its
 	// own identity, because a digest shared by several services is validated
@@ -139,9 +139,9 @@ func ExpectedFromImageReference(image PublishedImage) ([]*builderv0.ImageSubject
 	if len(platforms) == 0 {
 		platforms = []string{""}
 	}
-	var subjects []*builderv0.ImageSubject
+	var subjects []*builderv1.ImageSubject
 	for _, platform := range platforms {
-		subjects = append(subjects, &builderv0.ImageSubject{
+		subjects = append(subjects, &builderv1.ImageSubject{
 			Reference: image.Reference,
 			Platform:  platform,
 			Role:      image.Role,
@@ -159,13 +159,13 @@ func ExpectedFromImageReference(image PublishedImage) ([]*builderv0.ImageSubject
 // service is the service under evaluation. A derived expectation carries that
 // identity in its own subjects, but evidence an agent enumerates for itself is
 // anchored to nothing the caller derived, so the identity has to be supplied.
-func ValidateCoverage(service string, expected []*builderv0.ImageSubject, resp *builderv0.SBOMResponse) error {
+func ValidateCoverage(service string, expected []*builderv1.ImageSubject, resp *builderv1.SBOMResponse) error {
 	// State is checked before scope: a failed response carries the real cause in
 	// its message, and reporting it as a scope problem would hide that.
-	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_COMPLETE {
+	if state := resp.GetState().GetState(); state != builderv1.SBOMStatus_COMPLETE {
 		return fmt.Errorf("image SBOM is %s: %s", state, resp.GetState().GetMessage())
 	}
-	if resp.GetScope() != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+	if resp.GetScope() != builderv1.SBOMScope_SBOM_SCOPE_IMAGE {
 		return fmt.Errorf("response scope is %s: a source inventory is not image coverage", resp.GetScope())
 	}
 	if len(expected) == 0 {
@@ -175,17 +175,17 @@ func ValidateCoverage(service string, expected []*builderv0.ImageSubject, resp *
 		// itself is real coverage and is validated rather than refused, because
 		// refusing it leaves a no-image claim as the only answer it can give.
 		if len(resp.GetImages()) > 0 {
-			if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+			if reason := resp.GetNoImageReason(); reason != builderv1.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
 				return fmt.Errorf("response declares no-image reason %s but carries %d inventories", reason, len(resp.GetImages()))
 			}
 			return validateEnumeratedCoverage(service, resp.GetImages())
 		}
 		return ValidateNoImageReason(resp.GetNoImageReason(), resp.GetState().GetMessage())
 	}
-	if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+	if reason := resp.GetNoImageReason(); reason != builderv1.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
 		return fmt.Errorf("response declares no-image reason %s but %d images are expected", reason, len(expected))
 	}
-	covered := map[string]*builderv0.ImageSBOM{}
+	covered := map[string]*builderv1.ImageSBOM{}
 	for _, evidence := range resp.GetImages() {
 		if err := validateEvidence(evidence); err != nil {
 			return err
@@ -232,7 +232,7 @@ func ValidateCoverage(service string, expected []*builderv0.ImageSubject, resp *
 // belonging to the service under evaluation: evidence for some other service is
 // not this service's coverage, and without that anchor any well-formed
 // inventory at all would read as a pass.
-func validateEnumeratedCoverage(service string, images []*builderv0.ImageSBOM) error {
+func validateEnumeratedCoverage(service string, images []*builderv1.ImageSBOM) error {
 	if service == "" {
 		return fmt.Errorf("enumerated image evidence cannot be accepted without the identity of the service it covers")
 	}
@@ -247,7 +247,7 @@ func validateEnumeratedCoverage(service string, images []*builderv0.ImageSBOM) e
 	return nil
 }
 
-func coversService(evidence *builderv0.ImageSBOM, service string) bool {
+func coversService(evidence *builderv1.ImageSBOM, service string) bool {
 	for _, subject := range evidence.GetSubjects() {
 		if subject.GetService() == service {
 			return true
@@ -263,13 +263,13 @@ func coversService(evidence *builderv0.ImageSBOM, service string) bool {
 // response has to say which — a vendor image the service pins and deploys is
 // its own shipped image and owes evidence instead. A reason this contract does
 // not define is refused rather than trusted.
-func ValidateNoImageReason(reason builderv0.NoImageReason, message string) error {
+func ValidateNoImageReason(reason builderv1.NoImageReason, message string) error {
 	switch reason {
-	case builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED:
+	case builderv1.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED:
 		return fmt.Errorf("a complete image SBOM covering no images must declare a no-image reason")
-	case builderv0.NoImageReason_NO_IMAGE_REASON_NO_IMAGE:
+	case builderv1.NoImageReason_NO_IMAGE_REASON_NO_IMAGE:
 		return nil
-	case builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED:
+	case builderv1.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED:
 		if message == "" {
 			return fmt.Errorf("an externally managed claim must name the runtime that owns the image: a vendor image this service pins and deploys is its own shipped image and owes evidence")
 		}
@@ -290,7 +290,7 @@ func ValidateNoImageReason(reason builderv0.NoImageReason, message string) error
 // scan succeeds, evidence binds to the ID the daemon returned, and no field is
 // left holding the identity that was asked for. A local subject therefore has
 // to carry its digest, which is the value the scan is checked against.
-func RequirePinned(subject *builderv0.ImageSubject) error {
+func RequirePinned(subject *builderv1.ImageSubject) error {
 	if strings.HasPrefix(subject.GetDigest(), "sha256:") {
 		return nil
 	}
@@ -303,7 +303,7 @@ func RequirePinned(subject *builderv0.ImageSubject) error {
 	return fmt.Errorf("%s is not pinned to a sha256 digest: evidence for a floating tag is not coverage of the image that was built", subjectLabel(subject))
 }
 
-func validateEvidence(evidence *builderv0.ImageSBOM) error {
+func validateEvidence(evidence *builderv1.ImageSBOM) error {
 	if !strings.HasPrefix(evidence.GetDigest(), "sha256:") {
 		return fmt.Errorf("image evidence %q is not bound to a sha256 digest", evidence.GetDigest())
 	}
@@ -322,7 +322,7 @@ func validateEvidence(evidence *builderv0.ImageSBOM) error {
 // subjectKey matches an expectation to evidence by identity rather than by the
 // exact reference string, so a plan naming a tag and evidence naming the digest
 // it resolved to are the same subject.
-func subjectKey(subject *builderv0.ImageSubject) string {
+func subjectKey(subject *builderv1.ImageSubject) string {
 	return strings.Join([]string{
 		subject.GetService(),
 		subject.GetRole(),
@@ -331,7 +331,7 @@ func subjectKey(subject *builderv0.ImageSubject) string {
 	}, "|")
 }
 
-func subjectLabel(subject *builderv0.ImageSubject) string {
+func subjectLabel(subject *builderv1.ImageSubject) string {
 	label := subject.GetReference()
 	if role := subject.GetRole(); role != "" {
 		label = fmt.Sprintf("%s image %s", role, label)

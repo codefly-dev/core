@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/manifest"
@@ -23,22 +23,22 @@ type OwnershipIndex struct {
 
 type ownershipRecord struct {
 	bindingKey string
-	binding    *providerv0.BindingAddress
+	binding    *providerv1.BindingAddress
 }
 
-func WrapV1(providerState *providerv0.ProviderStateV1) *providerv0.ProviderState {
+func WrapV1(providerState *providerv1.ProviderStateV1) *providerv1.ProviderState {
 	if providerState == nil {
 		return nil
 	}
-	return &providerv0.ProviderState{
+	return &providerv1.ProviderState{
 		SchemaVersion: manifest.StateSchemaVersionV1,
-		Schema: &providerv0.ProviderState_V1{
-			V1: proto.Clone(providerState).(*providerv0.ProviderStateV1),
+		Schema: &providerv1.ProviderState_V1{
+			V1: proto.Clone(providerState).(*providerv1.ProviderStateV1),
 		},
 	}
 }
 
-func Encode(providerState *providerv0.ProviderState) ([]byte, error) {
+func Encode(providerState *providerv1.ProviderState) ([]byte, error) {
 	if err := ValidateVersioned(providerState, manifest.StateSchemaVersionV1); err != nil {
 		return nil, err
 	}
@@ -48,11 +48,11 @@ func Encode(providerState *providerv0.ProviderState) ([]byte, error) {
 	return (proto.MarshalOptions{Deterministic: true}).Marshal(providerState)
 }
 
-func Decode(data []byte, maxSupportedVersion uint32) (*providerv0.ProviderState, error) {
+func Decode(data []byte, maxSupportedVersion uint32) (*providerv1.ProviderState, error) {
 	if maxSupportedVersion == 0 {
 		return nil, fmt.Errorf("maximum supported state version is required")
 	}
-	var providerState providerv0.ProviderState
+	var providerState providerv1.ProviderState
 	if err := (proto.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(data, &providerState); err != nil {
 		return nil, fmt.Errorf("decode provider state: %w", err)
 	}
@@ -65,7 +65,7 @@ func Decode(data []byte, maxSupportedVersion uint32) (*providerv0.ProviderState,
 	return &providerState, nil
 }
 
-func ValidateVersioned(providerState *providerv0.ProviderState, maxSupportedVersion uint32) error {
+func ValidateVersioned(providerState *providerv1.ProviderState, maxSupportedVersion uint32) error {
 	if providerState == nil {
 		return fmt.Errorf("provider state is required")
 	}
@@ -76,7 +76,7 @@ func ValidateVersioned(providerState *providerv0.ProviderState, maxSupportedVers
 		return fmt.Errorf("provider state version %d is newer than supported version %d", providerState.GetSchemaVersion(), maxSupportedVersion)
 	}
 	switch schema := providerState.GetSchema().(type) {
-	case *providerv0.ProviderState_V1:
+	case *providerv1.ProviderState_V1:
 		if providerState.GetSchemaVersion() != manifest.StateSchemaVersionV1 {
 			return fmt.Errorf("provider state schema version %d does not match v1 payload", providerState.GetSchemaVersion())
 		}
@@ -86,7 +86,7 @@ func ValidateVersioned(providerState *providerv0.ProviderState, maxSupportedVers
 	}
 }
 
-func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uint32) error {
+func Validate(providerState *providerv1.ProviderStateV1, maxSupportedVersion uint32) error {
 	if providerState == nil {
 		return fmt.Errorf("provider state is required")
 	}
@@ -125,13 +125,13 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 		}
 	}
 	switch providerState.GetOwnership() {
-	case providerv0.Ownership_OWNERSHIP_OBSERVED, providerv0.Ownership_OWNERSHIP_OWNED,
-		providerv0.Ownership_OWNERSHIP_ADOPTED, providerv0.Ownership_OWNERSHIP_UNMANAGED:
+	case providerv1.Ownership_OWNERSHIP_OBSERVED, providerv1.Ownership_OWNERSHIP_OWNED,
+		providerv1.Ownership_OWNERSHIP_ADOPTED, providerv1.Ownership_OWNERSHIP_UNMANAGED:
 	default:
 		return fmt.Errorf("provider state ownership is required")
 	}
-	if providerState.GetOwnership() == providerv0.Ownership_OWNERSHIP_OWNED ||
-		providerState.GetOwnership() == providerv0.Ownership_OWNERSHIP_ADOPTED {
+	if providerState.GetOwnership() == providerv1.Ownership_OWNERSHIP_OWNED ||
+		providerState.GetOwnership() == providerv1.Ownership_OWNERSHIP_ADOPTED {
 		identity := providerState.GetRemoteIdentity()
 		if identity.GetProvider() == "" || identity.GetAccountId() == "" || identity.GetResourceType() == "" || identity.GetRemoteId() == "" {
 			return fmt.Errorf("owned or adopted provider state requires exact remote identity")
@@ -142,13 +142,13 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 	}
 	if checkpoint := providerState.GetCheckpoint(); checkpoint != nil {
 		switch checkpoint.GetDelivery() {
-		case providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
-			providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
-			providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
+		case providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
+			providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+			providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
 		default:
 			return fmt.Errorf("provider state checkpoint delivery is unknown")
 		}
-		if checkpoint.GetDelivery() != providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT && checkpoint.GetIdempotencyKey() == "" {
+		if checkpoint.GetDelivery() != providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT && checkpoint.GetIdempotencyKey() == "" {
 			return fmt.Errorf("sent provider state checkpoint requires idempotency key")
 		}
 	}
@@ -157,16 +157,16 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 			return fmt.Errorf("provider state receipt artifact digest mismatch")
 		}
 		switch receipt.GetDelivery() {
-		case providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
-			providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
-			providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
+		case providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
+			providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+			providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
 		default:
 			return fmt.Errorf("provider state receipt delivery is unknown")
 		}
 		switch receipt.GetCertainty() {
-		case providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-			providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_PARTIAL,
-			providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN:
+		case providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+			providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_PARTIAL,
+			providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN:
 		default:
 			return fmt.Errorf("provider state receipt certainty is unknown")
 		}
@@ -186,7 +186,7 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 	}
 	for _, group := range []struct {
 		name   string
-		values map[string]*providerv0.PublicValue
+		values map[string]*providerv1.PublicValue
 	}{
 		{"safe_observed_fields", providerState.GetSafeObservedFields()},
 		{"provider_owned_fields", providerState.GetProviderOwnedFields()},
@@ -204,7 +204,7 @@ func Validate(providerState *providerv0.ProviderStateV1, maxSupportedVersion uin
 	return nil
 }
 
-func validateOpaqueReference(reference *providerv0.OpaqueReference, requireFingerprint bool) error {
+func validateOpaqueReference(reference *providerv1.OpaqueReference, requireFingerprint bool) error {
 	if reference == nil {
 		return fmt.Errorf("opaque reference is required")
 	}
@@ -212,10 +212,10 @@ func validateOpaqueReference(reference *providerv0.OpaqueReference, requireFinge
 		return err
 	}
 	switch reference.GetPurpose() {
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 	default:
 		return fmt.Errorf("opaque reference has unknown purpose")
 	}
@@ -225,7 +225,7 @@ func validateOpaqueReference(reference *providerv0.OpaqueReference, requireFinge
 	return nil
 }
 
-func validateSafeValues(field string, values map[string]*providerv0.PublicValue) error {
+func validateSafeValues(field string, values map[string]*providerv1.PublicValue) error {
 	for key, value := range values {
 		normalized := strings.ToUpper(key)
 		for _, marker := range []string{"PASSWORD", "SECRET", "TOKEN", "PRIVATE_KEY", "CREDENTIAL"} {
@@ -240,34 +240,34 @@ func validateSafeValues(field string, values map[string]*providerv0.PublicValue)
 	return nil
 }
 
-func validateSafeValue(field string, value *providerv0.PublicValue) error {
+func validateSafeValue(field string, value *providerv1.PublicValue) error {
 	if value == nil {
 		return fmt.Errorf("provider state %s is nil", field)
 	}
 	switch kind := value.Kind.(type) {
-	case *providerv0.PublicValue_StringValue:
+	case *providerv1.PublicValue_StringValue:
 		if configuration.LooksSecret(kind.StringValue) {
 			return fmt.Errorf("provider state %s contains a secret-shaped value", field)
 		}
-	case *providerv0.PublicValue_ListValue:
+	case *providerv1.PublicValue_ListValue:
 		for index, entry := range kind.ListValue.GetValues() {
 			if err := validateSafeValue(fmt.Sprintf("%s[%d]", field, index), entry); err != nil {
 				return err
 			}
 		}
-	case *providerv0.PublicValue_ObjectValue:
+	case *providerv1.PublicValue_ObjectValue:
 		if err := validateSafeValues(field, kind.ObjectValue.GetFields()); err != nil {
 			return err
 		}
-	case *providerv0.PublicValue_BoolValue, *providerv0.PublicValue_IntegerValue,
-		*providerv0.PublicValue_DecimalValue, *providerv0.PublicValue_NullValue:
+	case *providerv1.PublicValue_BoolValue, *providerv1.PublicValue_IntegerValue,
+		*providerv1.PublicValue_DecimalValue, *providerv1.PublicValue_NullValue:
 	default:
 		return fmt.Errorf("provider state %s has no public value kind", field)
 	}
 	return nil
 }
 
-func ValidateUpgradeRecord(record *providerv0.UpgradeRecord) error {
+func ValidateUpgradeRecord(record *providerv1.UpgradeRecord) error {
 	if record == nil {
 		return fmt.Errorf("upgrade record is required")
 	}
@@ -284,7 +284,7 @@ func ValidateUpgradeRecord(record *providerv0.UpgradeRecord) error {
 	return nil
 }
 
-func NewOwnershipIndex(states ...*providerv0.ProviderStateV1) (*OwnershipIndex, error) {
+func NewOwnershipIndex(states ...*providerv1.ProviderStateV1) (*OwnershipIndex, error) {
 	index := &OwnershipIndex{owners: make(map[string]ownershipRecord)}
 	for _, providerState := range states {
 		if err := index.Add(providerState); err != nil {
@@ -294,15 +294,15 @@ func NewOwnershipIndex(states ...*providerv0.ProviderStateV1) (*OwnershipIndex, 
 	return index, nil
 }
 
-func (i *OwnershipIndex) Add(providerState *providerv0.ProviderStateV1) error {
+func (i *OwnershipIndex) Add(providerState *providerv1.ProviderStateV1) error {
 	if i == nil {
 		return fmt.Errorf("ownership index is required")
 	}
 	if err := Validate(providerState, manifest.StateSchemaVersionV1); err != nil {
 		return err
 	}
-	if providerState.GetOwnership() != providerv0.Ownership_OWNERSHIP_OWNED &&
-		providerState.GetOwnership() != providerv0.Ownership_OWNERSHIP_ADOPTED {
+	if providerState.GetOwnership() != providerv1.Ownership_OWNERSHIP_OWNED &&
+		providerState.GetOwnership() != providerv1.Ownership_OWNERSHIP_ADOPTED {
 		return nil
 	}
 	i.mu.Lock()
@@ -311,7 +311,7 @@ func (i *OwnershipIndex) Add(providerState *providerv0.ProviderStateV1) error {
 		i.owners = make(map[string]ownershipRecord)
 	}
 	key := remoteOwnershipKey(providerState.GetBinding().GetWorkspaceId(), providerState.GetRemoteIdentity())
-	binding := proto.Clone(providerState.GetBinding()).(*providerv0.BindingAddress)
+	binding := proto.Clone(providerState.GetBinding()).(*providerv1.BindingAddress)
 	bindingIdentity := bindingKey(binding)
 	if owner, exists := i.owners[key]; exists && owner.bindingKey != bindingIdentity {
 		return fmt.Errorf("remote identity is already owned by binding %q in workspace", bindingLabel(owner.binding))
@@ -320,7 +320,7 @@ func (i *OwnershipIndex) Add(providerState *providerv0.ProviderStateV1) error {
 	return nil
 }
 
-func (i *OwnershipIndex) Owner(workspaceID string, identity *providerv0.RemoteIdentity) (*providerv0.BindingAddress, bool) {
+func (i *OwnershipIndex) Owner(workspaceID string, identity *providerv1.RemoteIdentity) (*providerv1.BindingAddress, bool) {
 	if i == nil {
 		return nil, false
 	}
@@ -330,24 +330,24 @@ func (i *OwnershipIndex) Owner(workspaceID string, identity *providerv0.RemoteId
 	if !ok {
 		return nil, false
 	}
-	return proto.Clone(owner.binding).(*providerv0.BindingAddress), true
+	return proto.Clone(owner.binding).(*providerv1.BindingAddress), true
 }
 
-func remoteOwnershipKey(workspace string, identity *providerv0.RemoteIdentity) string {
+func remoteOwnershipKey(workspace string, identity *providerv1.RemoteIdentity) string {
 	if identity == nil {
 		return tupleKey(workspace)
 	}
 	return tupleKey(workspace, identity.GetProvider(), identity.GetAccountId(), identity.GetResourceType(), identity.GetRemoteId())
 }
 
-func bindingKey(binding *providerv0.BindingAddress) string {
+func bindingKey(binding *providerv1.BindingAddress) string {
 	if binding == nil {
 		return ""
 	}
 	return tupleKey(binding.GetEnvironmentId(), binding.GetBindingId())
 }
 
-func bindingLabel(binding *providerv0.BindingAddress) string {
+func bindingLabel(binding *providerv1.BindingAddress) string {
 	if binding == nil {
 		return ""
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -125,7 +125,7 @@ func TestVerify_RefusesAnIssuedAtPastAnExpiryThatIsStillInsideTheSkew(t *testing
 		OrganizationID:     organization,
 		TaskID:             taskID,
 		Audience:           audience,
-		AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		AuthorityScopes:    []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		TTL:                10 * time.Second,
 	})
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestEveryMintFillsTheIssuedAtWithItsOwnMintInstant(t *testing.T) {
 	granted := h.mustVerify(mergeTool, grantToken)
 
 	for name, tc := range map[string]struct {
-		claims *basev0.WorkContextV1
+		claims *basev1.WorkContextV1
 		at     time.Time
 	}{
 		"Start": {claims: owner.Context(), at: started},

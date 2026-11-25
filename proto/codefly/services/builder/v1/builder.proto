@@ -1,0 +1,1055 @@
+syntax = "proto3";
+
+package codefly.services.builder.v1;
+
+import "codefly/base/v1/service.proto";
+import "codefly/base/v1/artifact_execution.proto";
+import "codefly/base/v1/failure.proto";
+import "codefly/base/v1/network.proto";
+import "codefly/base/v1/runnable.proto";
+import "codefly/base/v1/endpoint.proto";
+import "codefly/base/v1/environment.proto";
+import "codefly/base/v1/configuration.proto";
+import "codefly/services/agent/v1/communicate.proto";
+import "codefly/services/agent/v1/cyclonedx.proto";
+import "codefly/services/builder/v1/docker.proto";
+import "codefly/services/builder/v1/deployment.proto";
+
+
+// LoadStatus reports the state and message for the load lifecycle phase.
+message LoadStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // READY means the phase completed and the agent can continue.
+    READY = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// LoadRequest starts a builder agent and asks it to read service metadata.
+message LoadRequest {
+  // developer_debug enables agent-side debug behavior.
+  bool developer_debug = 1;
+  // disable_catch disables agent panic/error catching for debugging.
+  bool disable_catch = 2;
+
+  // Identity of the service
+  codefly.base.v1.ServiceIdentity identity = 3;
+
+  // creation_mode configures interactive scaffolding behavior.
+  CreationMode creation_mode = 4;
+
+  // sync_mode configures interactive synchronization behavior.
+  SyncMode sync_mode = 5;
+
+  // runnable is the runnable a RUNNABLE-kind agent loads, set instead of
+  // identity. The kind of the agent the caller started decides which of the
+  // two is populated, so no consumer switches on the agent's language.
+  codefly.base.v1.RunnableLocation runnable = 6;
+
+}
+
+// CreationMode configures Builder.Create behavior.
+message CreationMode {
+  // communicate enables interactive agent questions during this mode.
+  bool communicate = 1;
+}
+
+// SyncMode configures Builder.Sync behavior.
+message SyncMode {
+  // communicate enables interactive agent questions during this mode.
+  bool communicate = 1;
+}
+
+
+// LoadResponse returns builder metadata discovered during Load.
+message LoadResponse {
+  // state is the machine-readable lifecycle state.
+  LoadStatus state = 1;
+  // version is the semantic or service-specific version for this resource.
+  codefly.base.v1.Version version = 2;
+
+  // endpoints are logical endpoints the builder knows the service will expose.
+  repeated codefly.base.v1.Endpoint endpoints = 3;
+
+  // getting_started is human-facing guidance printed after scaffolding or loading.
+  string getting_started = 4;
+
+}
+
+/*
+
+Creation
+
+ */
+
+// CreateRequest asks the builder to scaffold service code.
+message CreateRequest {
+}
+
+
+// CreateStatus reports the state and message for the create lifecycle phase.
+message CreateStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // CREATED means the builder generated the requested service files.
+    CREATED = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// CreateResponse reports generated endpoints and creation status.
+message CreateResponse {
+  // state is the machine-readable lifecycle state.
+  CreateStatus state = 1;
+  // endpoints are logical APIs created by the scaffolded service.
+  repeated codefly.base.v1.Endpoint endpoints = 2; // The endpoints of the created service
+}
+
+/*
+
+Init
+
+*/
+message InitStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// InitRequest provides dependency metadata needed before build/deploy operations.
+message InitRequest {
+  // dependencies_endpoints are logical endpoints exposed by upstream services.
+  repeated codefly.base.v1.Endpoint dependencies_endpoints = 1;
+}
+
+// InitResponse reports whether builder initialization succeeded.
+message InitResponse {
+  // state is the machine-readable lifecycle state.
+  InitStatus state = 1;
+}
+
+
+/*
+
+Update
+
+*/
+
+// UpdateStatus reports the state and message for the update lifecycle phase.
+message UpdateStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// UpdateRequest asks the builder to update an existing service from its template or agent rules.
+message UpdateRequest {
+}
+
+// UpdateResponse reports whether the update completed.
+message UpdateResponse {
+  // state is the machine-readable lifecycle state.
+  UpdateStatus state = 1;
+}
+
+
+/*
+
+Sync re-generate what needs to be re-generated
+
+ */
+
+// SyncRequest asks the builder to resynchronize generated or configuration-derived files.
+message SyncRequest {
+  // dry_run asks the agent to compute generated/configuration-derived output
+  // without modifying the service tree. Agents that cannot guarantee a
+  // non-mutating check must return UNSUPPORTED.
+  bool dry_run = 1;
+}
+
+// SyncStatus reports the state and message for the sync lifecycle phase.
+message SyncStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means the requested sync mode is not implemented. In
+    // particular, an agent must not silently ignore dry_run.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// SyncResponse reports whether synchronization completed.
+message SyncResponse {
+  // state is the machine-readable lifecycle state.
+  SyncStatus state = 1;
+  // changed_files lists workspace-relative paths whose canonical generated
+  // content differs. It is populated by dry_run and sorted deterministically.
+  repeated string changed_files = 2;
+}
+
+/*
+
+Build is the first stage of Deployment
+
+*/
+
+// BuildContext selects the concrete packaging/build system for this service.
+message BuildContext {
+  // kind selects one build-context implementation.
+  oneof kind {
+    // docker_build_context carries the DockerBuildContext variant for BuildContext.
+    DockerBuildContext docker_build_context = 1;
+  }
+}
+
+// BuildRequest provides the container/package build context for a service.
+message BuildRequest {
+  // build_context is the container build context supplied to the builder.
+  BuildContext build_context = 1;
+  // output_directory is an absolute destination owned by the caller where the
+  // builder writes reproducible build recipes. Required for application image
+  // builds; managed-image and runtime-only agents may omit it.
+  string output_directory = 2;
+  // execution supplies authoritative composition artifact bindings when present.
+  codefly.base.v1.ArtifactExecution execution = 3;
+}
+
+// BuildResult captures the outcome of build.
+message BuildResult {
+  // version is the semantic or service-specific version for this resource.
+  string version = 1;
+  // running_hash identifies the runtime artifact built for execution.
+  string running_hash = 2;
+  // api_hash identifies the API surface used to detect contract changes.
+  string api_hash = 3;
+  // kind selects one build-result implementation.
+  oneof kind {
+    // docker_build_result carries the DockerBuildResult variant for BuildResult.
+    DockerBuildResult docker_build_result = 4;
+    // docker_build_plan carries the reproducible recipe set the caller builds.
+    DockerBuildPlan docker_build_plan = 5;
+  }
+}
+
+
+// BuildStatus reports the state and message for the build lifecycle phase.
+message BuildStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+    // NOOP means no lifecycle transition is currently requested.
+    NOOP = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// BuildResponse returns the structured build outcome.
+message BuildResponse {
+  // state is the machine-readable lifecycle state.
+  BuildStatus state = 1;
+  // result is the structured operation outcome.
+  BuildResult result = 2;
+  // cache_contract_version acknowledges applied cache semantics; absent on older agents.
+  string cache_contract_version = 3;
+  // buildx_builder acknowledges the executor used for an in-agent image build.
+  string buildx_builder = 4;
+  // execution acknowledges the exact applied selection and emitted output bytes.
+  codefly.base.v1.ArtifactExecutionReceipt execution = 5;
+}
+
+/*
+Deployment
+*/
+
+// CompositionMember identifies a member under its resolved, composed name.
+message CompositionMember {
+  // Role is the member's declared relationship to the composition.
+  enum Role {
+    // ROLE_UNSPECIFIED is invalid for a supplied member.
+    ROLE_UNSPECIFIED = 0;
+    // ROLE_MODULE identifies a host module.
+    ROLE_MODULE = 1;
+    // ROLE_SOLUTION identifies a solution, including through imports.
+    ROLE_SOLUTION = 2;
+  }
+  // name is the composed name, not the repository-local module name.
+  string name = 1;
+  // role is preserved from the workspace that declared this member.
+  Role role = 2;
+  // workspace names the owning workspace, preserved through imports.
+  string workspace = 3;
+}
+
+// CompositionProvenance carries the CLI's complete resolved composition.
+message CompositionProvenance {
+  // members includes every member, including imports under composed names.
+  // Names must be unique; names and owning workspaces must be nonempty.
+  repeated CompositionMember members = 1;
+}
+
+// DeploymentRequest provides target environment, build output, and dependency data for deploy.
+message DeploymentRequest {
+  // environment is the target Codefly environment such as local, staging, or production.
+  codefly.base.v1.Environment environment = 1;
+  // deployment is the deployment target and payload handled by the builder.
+  codefly.services.builder.v1.Deployment deployment = 2;
+  // configuration is the service or workspace configuration payload.
+  codefly.base.v1.Configuration configuration = 3;
+  // dependencies_configurations are configuration values exposed by upstream services.
+  repeated codefly.base.v1.Configuration dependencies_configurations = 4;
+  // network_mappings map logical endpoints to concrete network instances.
+  repeated codefly.base.v1.NetworkMapping network_mappings = 5;
+  // dependencies_network_mappings are reachable addresses for upstream services.
+  repeated codefly.base.v1.NetworkMapping dependencies_network_mappings = 6;
+  // execution supplies authoritative composition inputs for manifest rendering.
+  codefly.base.v1.ArtifactExecution execution = 7;
+  // output_directory is an absolute caller-owned staging directory, required
+  // when execution is present. Bound Deploy renders only; it must not apply.
+  string output_directory = 8;
+  // composition_provenance is the composition used by the CLI's own judge.
+  // When present it alone judges dependency edges, even if empty or invalid.
+  // Only absence falls back to workspace discovery above the service directory,
+  // which is correct only for a checkout inside the rendering composition.
+  CompositionProvenance composition_provenance = 9;
+}
+
+// DeploymentStatus reports the state and message for the deployment lifecycle phase.
+message DeploymentStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 2;
+    // NOOP means no lifecycle transition is currently requested.
+    NOOP = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// DeploymentResponse returns deployment status and any configuration produced by deployment.
+message DeploymentResponse {
+  // state is the machine-readable lifecycle state.
+  DeploymentStatus state = 1;
+  // configuration is the service or workspace configuration payload.
+  codefly.base.v1.Configuration configuration = 2;
+  // deployment is the deployment target and payload handled by the builder.
+  DeploymentOutput deployment = 3;
+  // execution acknowledges the exact applied selection and emitted output bytes.
+  codefly.base.v1.ArtifactExecutionReceipt execution = 4;
+}
+
+
+/*
+
+Audit — security + outdated-dep scan. Per-language under the hood
+(govulncheck/go list -u for Go, npm audit/outdated for Node,
+uv/pip-audit for Python, OSV for Rust, trivy for Docker images). Pure read-only.
+
+*/
+
+// AuditRequest asks the builder agent to scan dependencies and artifacts for risk.
+message AuditRequest {
+  // include_outdated reports patch+minor "available" upgrades alongside
+  // CVEs. Default true. Set false for a vuln-only scan.
+  bool include_outdated = 1;
+  // fail_on_vuln makes the agent return state=ERROR if any finding has
+  // severity HIGH or above. Default false (report-only).
+  bool fail_on_vuln = 2;
+  // include_dev_dependencies includes development/test-only dependencies.
+  // The default false scopes release gates to shipped runtime dependencies;
+  // callers can opt into a broader supply-chain review.
+  bool include_dev_dependencies = 3;
+}
+
+// AuditFinding is one vulnerability or security finding produced by an audit tool.
+message AuditFinding {
+  // Severity enumerates diagnostic severity levels.
+  enum Severity {
+    // UNKNOWN is the default value when severity is not specified.
+    UNKNOWN = 0;
+    // LOW is an informational or low-impact finding.
+    LOW = 1;
+    // MEDIUM is a moderate-impact finding.
+    MEDIUM = 2;
+    // HIGH is a high-impact finding.
+    HIGH = 3;
+    // CRITICAL is an urgent finding that should normally fail release gates.
+    CRITICAL = 4;
+  }
+  // severity is the diagnostic level such as error, warning, information, or hint.
+  Severity severity = 1;
+  // id is the stable identifier for this record.
+  string id = 2;              // CVE-2025-xxxx, GHSA-xxxx-xxxx, OSV id
+  // package is the package, dependency, or artifact name.
+  string package = 3;
+  // current_version is the vulnerable or outdated version currently installed.
+  string current_version = 4;
+  // fixed_version is the version that resolves the reported finding.
+  string fixed_version = 5;
+  // summary is the compact natural-language result or state description.
+  string summary = 6;
+  // url links to advisory, package, or documentation details for the item.
+  string url = 7;
+}
+
+// OutdatedDep reports an installed dependency with newer versions available.
+message OutdatedDep {
+  // package is the package, dependency, or artifact name.
+  string package = 1;
+  // current is the currently installed dependency version.
+  string current = 2;
+  // latest_safe is the newest compatible version that should not require a breaking upgrade.
+  string latest_safe = 3;     // newest patch+minor without crossing major
+  // latest_major is the newest major version discovered by the audit.
+  string latest_major = 4;    // newest including major bump
+}
+
+// AuditStatus reports the state and message for the audit lifecycle phase.
+message AuditStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // CLEAN means the audit found no actionable issues.
+    CLEAN = 1;     // no findings
+    // FINDINGS means the audit completed and returned issues to review.
+    FINDINGS = 2;  // findings present (still a successful scan)
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 3;     // tool failed or fail_on_vuln tripped
+    // UNSUPPORTED means this agent has no authoritative scanner for its subject.
+    UNSUPPORTED = 4;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// AuditResponse returns vulnerability findings, outdated dependencies, and tool metadata.
+message AuditResponse {
+  // state is the machine-readable lifecycle state.
+  AuditStatus state = 1;
+  // findings are vulnerability or security findings returned by the audit.
+  repeated AuditFinding findings = 2;
+  // outdated are dependency update opportunities returned by the audit.
+  repeated OutdatedDep outdated = 3;
+  // tool identifies what produced the report, e.g. "govulncheck+go-list-u",
+  // "npm-audit+outdated", "uv-export+pip-audit", "osv-scanner", or "trivy".
+  string tool = 4;
+  // language is the source language the agent audited (matches
+  // core/languages constants: GO, PYTHON, TYPESCRIPT, RUST, DOCKER).
+  string language = 5;
+}
+
+/*
+
+SBOM — deterministic CycloneDX component inventory and dependency graph.
+The agent owns ecosystem-specific lockfile/module interpretation; callers do
+not shell out to language tools or attempt to infer dependency semantics.
+
+*/
+
+// SBOMScope selects which subject class an SBOM covers. Source inventories and
+// image inventories are separate evidence: a lockfile SBOM says nothing about
+// the OS packages in a shipped image, so neither substitutes for the other.
+enum SBOMScope {
+  // SBOM_SCOPE_UNSPECIFIED means source, preserving callers written before
+  // image scope existed.
+  SBOM_SCOPE_UNSPECIFIED = 0;
+  // SBOM_SCOPE_SOURCE inventories the loaded service source and lockfiles.
+  SBOM_SCOPE_SOURCE = 1;
+  // SBOM_SCOPE_IMAGE inventories the contents of built runtime images.
+  SBOM_SCOPE_IMAGE = 2;
+}
+
+// NoImageReason explains why a service legitimately ships no image. It is the
+// only way a COMPLETE image-scope response may carry no inventories, and it is
+// distinct from UNSUPPORTED, which means the agent has no implementation.
+enum NoImageReason {
+  // NO_IMAGE_REASON_UNSPECIFIED does not authorize an empty COMPLETE response.
+  NO_IMAGE_REASON_UNSPECIFIED = 0;
+  // NO_IMAGE_REASON_NO_IMAGE means the agent emits no image at all, such as a
+  // passive toolbox or a source-only generator.
+  NO_IMAGE_REASON_NO_IMAGE = 1;
+  // NO_IMAGE_REASON_EXTERNALLY_MANAGED means an external provider owns the
+  // runtime this service points at, so there is no image this service selects.
+  // It is not the reason for a service that deploys a stock image: a vendor
+  // image the service pins and ships is still its own image and owes evidence,
+  // which the agent enumerates as subjects rather than claiming it ships none.
+  // A response carrying this reason must name the external runtime in its
+  // status message.
+  NO_IMAGE_REASON_EXTERNALLY_MANAGED = 2;
+}
+
+// ImageSourceKind says where an image lives, and so how a scan must reach it.
+// Nothing in a reference or a digest distinguishes the two: a local image ID
+// and a registry manifest digest are both "sha256:<hex>", and an image loaded
+// with --load commonly carries the same tag a pushed one would. Only the party
+// that produced the image knows which it is.
+enum ImageSourceKind {
+  // IMAGE_SOURCE_KIND_UNSPECIFIED means registry, preserving subjects written
+  // before this selector existed.
+  IMAGE_SOURCE_KIND_UNSPECIFIED = 0;
+  // IMAGE_SOURCE_KIND_REGISTRY resolves and scans the image through its
+  // registry.
+  IMAGE_SOURCE_KIND_REGISTRY = 1;
+  // IMAGE_SOURCE_KIND_DOCKER_DAEMON scans an image the local Docker daemon
+  // holds, which is the only way to reach an image a build loaded and never
+  // pushed.
+  IMAGE_SOURCE_KIND_DOCKER_DAEMON = 2;
+}
+
+// ImageSubject names one service-owned image that image evidence must cover.
+message ImageSubject {
+  // reference is the image reference, digest pinned whenever it is known.
+  string reference = 1;
+  // digest is the immutable manifest digest, formatted as "sha256:<hex>". For
+  // an image built locally and never pushed it is the local image ID, which is
+  // the only immutable identity such an image has.
+  string digest = 2;
+  // platform is the OCI platform this subject covers, in "os/arch" form. Each
+  // shipped platform of a multi-architecture image is its own subject.
+  string platform = 3;
+  // role is the image's purpose within the service, such as "runtime", "init",
+  // "migration", or "sidecar". It matches the build recipe name when one exists.
+  string role = 4;
+  // service is the Codefly service identity the image belongs to, so evidence
+  // deduplicated by digest still reports every service it covers.
+  string service = 5;
+  // source says where this image lives, so the scan reaches the image the
+  // caller means rather than one that happens to answer to the same name. It
+  // is per subject: a request may mix a pushed runtime image with a locally
+  // built migration image.
+  ImageSourceKind source = 6;
+}
+
+// ImageSBOM is one image inventory bound to the exact digest and platform that
+// was scanned.
+message ImageSBOM {
+  // digest is the immutable digest actually scanned, formatted as "sha256:<hex>".
+  string digest = 1;
+  // platform is the OCI platform the inventory covers, in "os/arch" form.
+  string platform = 2;
+  // subjects are every service-owned image this single scan satisfies. One
+  // digest is scanned and reported once, listing each subject it covers, so
+  // deduplication never drops a service association.
+  repeated ImageSubject subjects = 3;
+  // bom is the CycloneDX inventory of OS packages and installed application
+  // dependencies found in the image.
+  codefly.services.agent.v1.Bom bom = 4;
+  // tool identifies the scanner that produced the inventory.
+  string tool = 5;
+  // sha256 is the lowercase digest of the deterministic protobuf document.
+  string sha256 = 6;
+}
+
+// SBOMRequest asks the builder agent to inventory the loaded service source.
+message SBOMRequest {
+  // include_dev_dependencies includes development/test-only dependencies when
+  // the ecosystem lockfile distinguishes them.
+  bool include_dev_dependencies = 1;
+  // scope selects source or image inventory. Unspecified means source.
+  SBOMScope scope = 2;
+  // subjects are the images the caller requires evidence for when scope is
+  // SBOM_SCOPE_IMAGE. Empty asks the agent to enumerate its own images.
+  repeated ImageSubject subjects = 3;
+}
+
+// SBOMStatus reports whether the inventory completed.
+message SBOMStatus {
+  // Status enumerates SBOM lifecycle states.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // COMPLETE means the returned CycloneDX document is authoritative for the
+    // requested source subject.
+    COMPLETE = 1;
+    // ERROR means generation failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this agent does not yet provide an authoritative SBOM.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// SBOMResponse returns a typed CycloneDX inventory plus provenance metadata.
+message SBOMResponse {
+  // state reports complete, unsupported, or failed generation.
+  SBOMStatus state = 1;
+  // bom is the CycloneDX inventory and direct dependency graph.
+  codefly.services.agent.v1.Bom bom = 2;
+  // tool identifies the ecosystem resolver used to create the inventory.
+  string tool = 3;
+  // language is the source ecosystem (GO, TYPESCRIPT, PYTHON, and so on).
+  string language = 4;
+  // sha256 is the lowercase digest of the deterministic protobuf document.
+  string sha256 = 5;
+  // images are per-image inventories, present only when scope is
+  // SBOM_SCOPE_IMAGE. Each entry is bound to the digest it was scanned from.
+  repeated ImageSBOM images = 6;
+  // scope echoes the subject class this response covers, so a caller can never
+  // mistake a source inventory for image coverage.
+  SBOMScope scope = 7;
+  // no_image_reason is required when an image-scope response is COMPLETE and
+  // carries no inventories. Without it such a response is not valid coverage.
+  NoImageReason no_image_reason = 8;
+}
+
+/*
+
+Package — create portable release artifacts from the loaded source resource.
+Unlike Runtime.Build, this operation emits files. Unlike Builder.Build, it has
+no container/deployment semantics. The owning language plugin chooses the
+native toolchain invocation.
+
+*/
+
+// PackageTarget identifies one requested operating-system/architecture pair.
+message PackageTarget {
+  // os is the target operating system, such as darwin or linux.
+  string os = 1;
+  // architecture is the target architecture, such as arm64 or amd64.
+  string architecture = 2;
+}
+
+// PackageSubject supplies release identity independent of the source wrapper's
+// service name.
+message PackageSubject {
+  // publisher is the namespace releasing the artifact.
+  string publisher = 1;
+  // name is the logical release artifact name.
+  string name = 2;
+  // version is the release version.
+  string version = 3;
+}
+
+// PackageRequest asks the builder plugin to emit release artifacts.
+message PackageRequest {
+  // targets lists the requested target platforms. Empty means the host target.
+  repeated PackageTarget targets = 1;
+  // output_directory is an absolute destination owned by the caller.
+  string output_directory = 2;
+  // artifact_name is the portable base filename. Empty uses the resource name.
+  string artifact_name = 3;
+  // include_sbom asks the plugin to emit an SBOM artifact alongside packages.
+  bool include_sbom = 4;
+  // subject is the release identity attached to package evidence.
+  PackageSubject subject = 5;
+}
+
+// PackageArtifact is one content-addressed file emitted by Package.
+message PackageArtifact {
+  // Kind identifies the artifact's semantic purpose.
+  enum Kind {
+    // KIND_UNSPECIFIED means the plugin did not classify the artifact.
+    KIND_UNSPECIFIED = 0;
+    // EXECUTABLE is a directly executable binary.
+    EXECUTABLE = 1;
+    // ARCHIVE is a portable source or binary archive.
+    ARCHIVE = 2;
+    // SBOM is a software bill of materials associated with a package.
+    SBOM = 3;
+  }
+  // kind is the normalized artifact classification.
+  Kind kind = 1;
+  // path is the absolute path of the emitted artifact.
+  string path = 2;
+  // target identifies the artifact platform when applicable.
+  PackageTarget target = 3;
+  // sha256 is the lowercase hexadecimal content digest.
+  string sha256 = 4;
+  // media_type identifies the artifact representation.
+  string media_type = 5;
+  // command is how the artifact is launched, relative to its unpacked root.
+  // Only the agent knows it: deriving it from the toolchain or from a
+  // template name is the language-specific shortcut a runnable's NATIVE
+  // artifact exists to avoid. Empty when the artifact carries its own
+  // entrypoint or is not launched at all.
+  repeated string command = 6;
+}
+
+// PackageStatus reports whether portable packaging completed.
+message PackageStatus {
+  // Status enumerates package lifecycle states.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means every requested artifact was emitted.
+    SUCCESS = 1;
+    // ERROR means packaging failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this plugin cannot package its loaded source resource.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// PackageResponse returns all portable artifacts emitted by the plugin.
+message PackageResponse {
+  // state reports successful, unsupported, or failed packaging.
+  PackageStatus state = 1;
+  // artifacts are sorted deterministically by target and path.
+  repeated PackageArtifact artifacts = 2;
+}
+
+/*
+
+RunnableBuildInputs — generate the harness and report everything the loaded
+runnable's package bytes depend on. The agent is the only side that can pin the
+harness it just generated and the toolchain it resolved, and it is the side
+that knows which declared inputs it actually consumed, so it returns the whole
+RunnableBuild rather than half of one. Without it no RunnablePackage descriptor
+can be assembled. Artifacts stay with the existing operations: Build emits the
+image recipe the CLI builds, Package emits the native artifact.
+
+*/
+
+// RunnableBuildInputsRequest asks the agent to generate the harness and report
+// what the package bytes depend on.
+message RunnableBuildInputsRequest {
+  // output_directory is an absolute destination owned by the caller where the
+  // agent writes the generated harness.
+  string output_directory = 1;
+}
+
+// RunnableBuildInputsStatus reports whether the agent could report build inputs.
+message RunnableBuildInputsStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the agent reported every build input.
+    SUCCESS = 1;
+    // ERROR means the operation failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this agent does not implement runnables.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// RunnableBuildInputsResponse returns the pinned build inputs of the loaded
+// runnable.
+message RunnableBuildInputsResponse {
+  // state reports successful, unsupported, or failed reporting.
+  RunnableBuildInputsStatus state = 1;
+  // build pins the handler, declared inputs, generated harness, toolchain and
+  // effective configuration the artifacts are built from.
+  codefly.base.v1.RunnableBuild build = 2;
+}
+
+/*
+
+Upgrade — apply dependency bumps. Defaults to patch+minor (semver-safe).
+include_major opts in to breaking bumps. dry_run reports the changes
+without writing the lockfile.
+
+*/
+
+// UpgradeRequest asks the builder agent to apply or preview dependency upgrades.
+message UpgradeRequest {
+  // include_major also bumps across major-version boundaries. Default false.
+  bool include_major = 1;
+  // dry_run reports the changes that would be made without modifying
+  // any files. The response still has fully-populated `changes`.
+  bool dry_run = 2;
+  // only restricts upgrades to the named packages. Empty = all eligible.
+  repeated string only = 3;
+}
+
+// UpgradeChange describes one dependency version change.
+message UpgradeChange {
+  // package is the package, dependency, or artifact name.
+  string package = 1;
+  // from is the currently installed version.
+  string from = 2;
+  // to is the version selected by the upgrade.
+  string to = 3;
+}
+
+// UpgradeStatus reports the state and message for the upgrade lifecycle phase.
+message UpgradeStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the operation completed successfully.
+    SUCCESS = 1;  // changes applied (or would be, in dry_run)
+    // NOOP means no action was required.
+    NOOP = 2;     // nothing to upgrade
+    // ERROR means the phase failed and message carries diagnostics.
+    ERROR = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// UpgradeResponse reports dependency changes applied or proposed by the upgrade.
+message UpgradeResponse {
+  // state is the machine-readable lifecycle state.
+  UpgradeStatus state = 1;
+  // changes are dependency updates applied or proposed by the upgrade.
+  repeated UpgradeChange changes = 2;
+  // lockfile_diff is a free-form summary (e.g. truncated `git diff`)
+  // for the human-facing CLI output. Optional.
+  string lockfile_diff = 3;
+}
+
+// ConfigChange sets, appends, or removes an explicit value at a dotted path in
+// the service config (service.codefly.yaml). Removing an explicit value lets
+// the owning plugin's project-derived default become effective again. The
+// paths + valid values are those the plugin advertises in
+// GetAgentInformation's configuration_details.
+message ConfigChange {
+  // Op selects how the value is applied at path.
+  enum Op {
+    // UNKNOWN is the default value when op is not specified.
+    UNKNOWN = 0;
+    // SET replaces the value at path.
+    SET = 1;
+    // APPEND adds the value to a comma-separated / list field at path.
+    APPEND = 2;
+    // UNSET removes the persisted value at path. The plugin may then derive an
+    // effective value from project declarations or its own defaults.
+    UNSET = 3;
+  }
+  // path is a dotted config path, e.g. "test.provisioning.with".
+  string path = 1;
+  // value is the value to set or append. It is ignored for UNSET.
+  string value = 2;
+  // op is how to apply value at path.
+  Op op = 3;
+}
+
+// ConfigureRequest applies structured config changes and persists them.
+message ConfigureRequest {
+  // changes are applied in order, then the config is written to disk.
+  repeated ConfigChange changes = 1;
+}
+
+// ConfigureStatus reports the state and message for the configure operation.
+message ConfigureStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the changes were applied and persisted.
+    SUCCESS = 1;
+    // ERROR means the change was rejected (carried in message).
+    ERROR = 2;
+  }
+  // state is the machine-readable status.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR.
+  codefly.base.v1.Failure failure = 3;
+}
+
+// ConfigureResponse reports whether the configuration was applied.
+message ConfigureResponse {
+  // state is the machine-readable status.
+  ConfigureStatus state = 1;
+  // effective_yaml is the resulting service config after applying the changes,
+  // so the caller sees exactly what was persisted.
+  string effective_yaml = 2;
+}
+
+// BuildCapabilitiesRequest queries execution support without running a build.
+message BuildCapabilitiesRequest {
+  // environment names the environment the caller is about to render, so an
+  // agent whose requirements differ per environment answers for that one. It
+  // is read from the loaded service's own settings, never from a cluster: this
+  // probe reaches nothing. Empty asks for what holds in every environment,
+  // which is what a caller that is not rendering asks.
+  string environment = 1;
+}
+
+// RequiredSecretConfiguration is one secret configuration group the loaded
+// service must declare before a render of the requested environment can emit
+// its manifests, and every key that group must carry.
+//
+// The agent is what names these: a host reads a service's declared secret
+// configurations but cannot derive which ones the agent's own manifests
+// reference, so a host that renders without asking first learns of a missing
+// group from the agent's refusal — after every image is built and pushed.
+message RequiredSecretConfiguration {
+  // configuration is the group's name, as the service's
+  // configurations/<environment>/<configuration>.secret.env spells it.
+  string configuration = 1;
+  // keys are the keys the group must carry, in the agent's own spelling.
+  repeated string keys = 2;
+  // profiles are the output profiles that require the group; empty means every
+  // profile. A credential a secret-free render references through a
+  // secretKeyRef is required by RESTRICTED_PORTABLE_V1 and not by a local
+  // apply, which carries the value inline.
+  repeated KubernetesOutputProfile profiles = 3;
+}
+
+// BuildCapabilitiesResponse advertises guarantees of the agent's Build implementation.
+message BuildCapabilitiesResponse {
+  // buildx_selection means every in-agent build honors DockerBuildContext.buildx_builder.
+  // Recipe-only agents may also advertise this because the caller owns execution.
+  // Agents must opt in explicitly; upgrading the transport alone is insufficient.
+  bool buildx_selection = 1;
+  // execution_contracts lists artifact bindings honored by Build and Deploy.
+  repeated string execution_contracts = 2;
+  // image_inputs declares the loaded service's external image roles and
+  // supported recipe variants. Meaningful only with base-image-bindings/v1;
+  // it must reflect service settings, including native-library requirements.
+  repeated BuildImageInput image_inputs = 3;
+  // required_secret_configurations declares the secret configuration groups the
+  // loaded service must carry for the requested environment. Meaningful only
+  // with secret-requirements/v1: without that contract the field is empty
+  // because the agent cannot answer, which a host must never read as "this
+  // service requires none".
+  repeated RequiredSecretConfiguration required_secret_configurations = 4;
+}
+
+// Builder is responsible for:
+// - creation
+// - Docker build
+// - Deployment manifests
+// - Dependency audit / upgrade
+// - Configuration (persisting LLM/tooling-loop fixes to service.codefly.yaml)
+service Builder {
+
+  // Load reads service metadata and prepares the builder agent.
+  rpc Load (LoadRequest) returns (LoadResponse) {}
+
+  // Init prepares dependency metadata and builder state.
+  rpc Init (InitRequest) returns (InitResponse) {}
+
+  // Create scaffolds service source code.
+  rpc Create (CreateRequest) returns (CreateResponse) {}
+  // Update refreshes an existing service from agent rules or templates.
+  rpc Update (UpdateRequest) returns (UpdateResponse) {}
+
+  // Sync regenerates configuration-derived or template-derived service files.
+  rpc Sync (SyncRequest) returns (SyncResponse) {}
+
+  // Build creates the deployable service artifact, usually a container image.
+  rpc Build (BuildRequest) returns (BuildResponse) {}
+
+  // BuildCapabilities is read-only and must not prepare inputs or execute builds.
+  rpc BuildCapabilities (BuildCapabilitiesRequest) returns (BuildCapabilitiesResponse) {}
+  // Deploy emits or applies deployment artifacts for the target environment.
+  rpc Deploy (DeploymentRequest) returns (DeploymentResponse) {}
+
+  // Audit runs dependency and image vulnerability checks.
+  rpc Audit (AuditRequest) returns (AuditResponse) {}
+  // SBOM returns an authoritative CycloneDX inventory for the loaded service.
+  rpc SBOM (SBOMRequest) returns (SBOMResponse) {}
+  // Package emits portable source release artifacts through the owning plugin.
+  rpc Package (PackageRequest) returns (PackageResponse) {}
+  // RunnableBuildInputs generates the harness and reports the build inputs of
+  // the loaded runnable.
+  rpc RunnableBuildInputs (RunnableBuildInputsRequest) returns (RunnableBuildInputsResponse) {}
+  // Upgrade applies or previews dependency version bumps.
+  rpc Upgrade (UpgradeRequest) returns (UpgradeResponse) {}
+
+  // Configure applies structured config changes to the service and PERSISTS them
+  // to service.codefly.yaml. The plugin owns its config file: it validates the
+  // changes against the schema it advertises via GetAgentInformation and writes
+  // the file. This is the write-action half of the learn-and-fix loop — the LLM /
+  // tooling inner loop reads the plugin's knowledge, decides a fix (e.g. add a
+  // dependency pin to test.provisioning.with), and calls Configure to persist it.
+  rpc Configure (ConfigureRequest) returns (ConfigureResponse) {}
+
+  // Bidirectional streaming for interactive Q&A (e.g. during Create/Sync).
+  // Plugin streams Questions, CLI streams Answers.
+  rpc Communicate(stream codefly.services.agent.v1.Answer) returns (stream codefly.services.agent.v1.Question) {}
+}

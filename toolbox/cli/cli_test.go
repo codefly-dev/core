@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	runners "github.com/codefly-dev/core/runners/base"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestIdentityAndTools(t *testing.T) {
 	tb := New(nil, "terraform", "test")
-	id, err := tb.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	id, err := tb.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestRunThroughNativeEnv(t *testing.T) {
 	}
 
 	tb := New(env, "echo", "test")
-	resp := tb.run(ctx, &toolboxv0.CallToolRequest{
+	resp := tb.run(ctx, &toolboxv1.CallToolRequest{
 		Arguments: mustArgs(t, map[string]any{"args": []any{"hello", "from", "gortk"}}),
 	})
 	if resp.Error != "" {
@@ -60,7 +60,7 @@ func mustArgs(t *testing.T, m map[string]any) *structpb.Struct {
 	return s
 }
 
-func textOf(resp *toolboxv0.CallToolResponse) string {
+func textOf(resp *toolboxv1.CallToolResponse) string {
 	for _, c := range resp.GetContent() {
 		if txt := c.GetText(); txt != "" {
 			return txt

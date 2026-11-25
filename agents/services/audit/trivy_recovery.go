@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
-type builderAuditFunc func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error)
+type builderAuditFunc func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error)
 
 var sharedTrivyAuditRecovery = newTrivyAuditRecoveryCoordinator()
 
@@ -21,9 +21,9 @@ var sharedTrivyAuditRecovery = newTrivyAuditRecoveryCoordinator()
 // wait for that reset instead of deleting a database another caller repaired.
 func AuditWithTrivyDatabaseRecovery(
 	ctx context.Context,
-	request *builderv0.AuditRequest,
-	audit func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error),
-) (*builderv0.AuditResponse, error) {
+	request *builderv1.AuditRequest,
+	audit func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error),
+) (*builderv1.AuditResponse, error) {
 	return sharedTrivyAuditRecovery.audit(ctx, request, builderAuditFunc(audit), resetTrivyDatabases)
 }
 
@@ -53,10 +53,10 @@ func newTrivyAuditEpoch() *trivyAuditEpoch {
 
 func (c *trivyAuditRecoveryCoordinator) audit(
 	ctx context.Context,
-	request *builderv0.AuditRequest,
+	request *builderv1.AuditRequest,
 	audit builderAuditFunc,
 	reset func(context.Context) error,
-) (*builderv0.AuditResponse, error) {
+) (*builderv1.AuditResponse, error) {
 	response, auditErr, epoch := c.run(ctx, request, audit)
 	if auditErr == nil || !isCorruptTrivyDatabaseError(auditErr) {
 		return response, auditErr
@@ -87,9 +87,9 @@ func (c *trivyAuditRecoveryCoordinator) audit(
 
 func (c *trivyAuditRecoveryCoordinator) run(
 	ctx context.Context,
-	request *builderv0.AuditRequest,
+	request *builderv1.AuditRequest,
 	audit builderAuditFunc,
-) (*builderv0.AuditResponse, error, *trivyAuditEpoch) {
+) (*builderv1.AuditResponse, error, *trivyAuditEpoch) {
 	epoch, err := c.begin(ctx)
 	if err != nil {
 		return nil, err, nil

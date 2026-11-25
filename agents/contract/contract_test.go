@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -36,19 +36,19 @@ func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
 func TestCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		advertised *agentv0.AgentContract
+		advertised *agentv1.AgentContract
 		required   []string
 		wantError  string
 	}{
 		{name: "undeclared", wantError: "does not declare"},
-		{name: "zero", advertised: &agentv0.AgentContract{}, wantError: "does not declare"},
-		{name: "future protocol", advertised: &agentv0.AgentContract{ProtocolVersion: 2}, wantError: "version 2; host requires version 1"},
-		{name: "undeclared startup", advertised: &agentv0.AgentContract{ProtocolVersion: 1}, wantError: "startup protocol version 0; host requires version 1"},
-		{name: "incompatible startup", advertised: &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 3}, wantError: "startup protocol version 3; host requires version 1"},
-		{name: "baseline needs no optional features", advertised: &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}},
+		{name: "zero", advertised: &agentv1.AgentContract{}, wantError: "does not declare"},
+		{name: "future protocol", advertised: &agentv1.AgentContract{ProtocolVersion: 2}, wantError: "version 2; host requires version 1"},
+		{name: "undeclared startup", advertised: &agentv1.AgentContract{ProtocolVersion: 1}, wantError: "startup protocol version 0; host requires version 1"},
+		{name: "incompatible startup", advertised: &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 3}, wantError: "startup protocol version 3; host requires version 1"},
+		{name: "baseline needs no optional features", advertised: &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}},
 		{name: "recovery", advertised: Current(), required: []string{ContainerRecoveryScope}},
-		{name: "missing recovery", advertised: &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}, required: []string{ContainerRecoveryScope}, wantError: "does not implement required capability \"container-recovery-scope/v1\""},
-		{name: "unknown extra feature", advertised: &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1, Capabilities: []string{"future-feature/v1"}}},
+		{name: "missing recovery", advertised: &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}, required: []string{ContainerRecoveryScope}, wantError: "does not implement required capability \"container-recovery-scope/v1\""},
+		{name: "unknown extra feature", advertised: &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1, Capabilities: []string{"future-feature/v1"}}},
 		{name: "unknown required feature", advertised: Current(), required: []string{"future-feature/v1"}, wantError: "future-feature/v1"},
 		{name: "every requirement checked", advertised: Current(), required: []string{ContainerRecoveryScope, "future-feature/v1"}, wantError: "future-feature/v1"},
 	} {
@@ -77,7 +77,7 @@ func TestCurrentIsIndependent(t *testing.T) {
 func TestPythonContractWire(t *testing.T) {
 	wire, err := hex.DecodeString("62210801121b636f6e7461696e65722d7265636f766572792d73636f70652f76311801")
 	require.NoError(t, err)
-	var info agentv0.AgentInformation
+	var info agentv1.AgentInformation
 	require.NoError(t, proto.Unmarshal(wire, &info))
 	require.True(t, proto.Equal(Current(), info.Contract))
 	encoded, err := proto.Marshal(&info)

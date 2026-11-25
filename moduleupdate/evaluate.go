@@ -5,24 +5,24 @@ import (
 	"slices"
 	"strings"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/runnable"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func EvaluateJSON(release, consumer []byte) *updatev0.UpdateResult {
-	pin := new(updatev0.ConsumerPin)
+func EvaluateJSON(release, consumer []byte) *updatev1.UpdateResult {
+	pin := new(updatev1.ConsumerPin)
 	if err := protojson.Unmarshal(consumer, pin); err != nil {
-		return undetermined(new(updatev0.UpdateResult), fmt.Errorf("decode consumer pin: %w", err))
+		return undetermined(new(updatev1.UpdateResult), fmt.Errorf("decode consumer pin: %w", err))
 	}
-	diff := new(updatev0.ReleaseDiff)
+	diff := new(updatev1.ReleaseDiff)
 	if err := protojson.Unmarshal(release, diff); err != nil {
 		return undetermined(resultFor(nil, pin), err)
 	}
 	return Evaluate(diff, pin)
 }
 
-func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+func Evaluate(diff *updatev1.ReleaseDiff, pin *updatev1.ConsumerPin) *updatev1.UpdateResult {
 	prepared, err := PrepareReleaseDiff(diff)
 	if err != nil {
 		return undetermined(resultFor(diff, pin), err)
@@ -30,7 +30,7 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 	return prepared.Evaluate(pin)
 }
 
-func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+func (prepared *PreparedRelease) Evaluate(pin *updatev1.ConsumerPin) *updatev1.UpdateResult {
 	if prepared == nil || prepared.diff == nil {
 		return undetermined(resultFor(nil, pin), fmt.Errorf("prepared release is required"))
 	}
@@ -49,12 +49,12 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 		return undetermined(result, fmt.Errorf("consumer module/version/snapshot digest does not match the release baseline"))
 	}
 	before, after := prepared.before, prepared.after
-	used := make(map[string][]*updatev0.AffectedItem)
-	checkUses := func(uses []*updatev0.ContractUse, client, version string, checkClosure bool) {
+	used := make(map[string][]*updatev1.AffectedItem)
+	checkUses := func(uses []*updatev1.ContractUse, client, version string, checkClosure bool) {
 		declared := make(map[string]bool)
 		for _, use := range uses {
 			id := use.GetItem()
-			affected := &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version}
+			affected := &updatev1.AffectedItem{Item: id, Client: client, ClientVersion: version}
 			incompatible := false
 			old := before[id]
 			next := after[id]
@@ -82,7 +82,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 				case ChangeMajor:
 					affected.Reason, incompatible = change.reason, true
 				case ChangeMinor:
-					result.Capabilities = append(result.Capabilities, &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version, Reason: change.reason})
+					result.Capabilities = append(result.Capabilities, &updatev1.AffectedItem{Item: id, Client: client, ClientVersion: version, Reason: change.reason})
 				case ChangePatch:
 				default:
 					affected.Reason = "could not determine: " + change.reason
@@ -112,7 +112,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 			if item := after[use.GetItem()]; item != nil {
 				for _, dependency := range item.Dependencies {
 					if !declared[dependency] {
-						result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
+						result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{
 							Item: dependency, Client: client, ClientVersion: version,
 							Reason: fmt.Sprintf("could not determine: usage of %s omits dependency", item.Id),
 						})
@@ -126,7 +126,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 	for _, client := range pin.Clients {
 		key := client.GetName() + "\x00" + client.GetVersion()
 		if client == nil || strings.TrimSpace(client.Name) == "" || !exactVersion(client.Version) || clients[key] {
-			result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
+			result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{
 				Client: client.GetName(), ClientVersion: client.GetVersion(),
 				Reason: "could not determine: client requires a unique identity and exact version",
 			})
@@ -157,37 +157,37 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 		if len(used[id]) == 0 {
 			item := before[id]
 			// The module baseline supplies expectations for implicit universal uses.
-			checkUses([]*updatev0.ContractUse{{Item: id, Digest: item.Digest, Dependencies: item.Dependencies}}, "", "", false)
+			checkUses([]*updatev1.ContractUse{{Item: id, Digest: item.Digest, Dependencies: item.Dependencies}}, "", "", false)
 		}
 	}
 	for _, change := range diff.Changes {
 		old, next := before[change.Item], after[change.Item]
 		if next != nil && next.RequiredByAll && (old == nil || !old.RequiredByAll) && len(used[change.Item]) == 0 {
-			result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
+			result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{
 				Item: next.Id, Documentation: next.Documentation,
 				Reason: "could not determine: release introduces a requirement for every consumer",
 			})
 			continue
 		}
-		if change.Kind == updatev0.ChangeKind_CHANGE_KIND_ADDED && len(used[change.Item]) == 0 {
-			result.Capabilities = append(result.Capabilities, &updatev0.AffectedItem{
+		if change.Kind == updatev1.ChangeKind_CHANGE_KIND_ADDED && len(used[change.Item]) == 0 {
+			result.Capabilities = append(result.Capabilities, &updatev1.AffectedItem{
 				Item: next.Id, Documentation: next.Documentation, Reason: "new optional contract",
 			})
 			continue
 		}
 	}
-	result.Verdict = updatev0.Verdict_VERDICT_SAFE
+	result.Verdict = updatev1.Verdict_VERDICT_SAFE
 	if len(result.Capabilities) > 0 {
-		result.Verdict = updatev0.Verdict_VERDICT_NEW_CAPABILITY
+		result.Verdict = updatev1.Verdict_VERDICT_NEW_CAPABILITY
 	}
 	if len(result.Undetermined) > 0 {
-		result.Verdict = updatev0.Verdict_VERDICT_UNDETERMINED
+		result.Verdict = updatev1.Verdict_VERDICT_UNDETERMINED
 	}
 	if len(result.Breaking) > 0 {
-		result.Verdict = updatev0.Verdict_VERDICT_BREAKING
+		result.Verdict = updatev1.Verdict_VERDICT_BREAKING
 	}
-	for _, items := range [][]*updatev0.AffectedItem{result.Breaking, result.Capabilities, result.Undetermined} {
-		slices.SortFunc(items, func(a, b *updatev0.AffectedItem) int {
+	for _, items := range [][]*updatev1.AffectedItem{result.Breaking, result.Capabilities, result.Undetermined} {
+		slices.SortFunc(items, func(a, b *updatev1.AffectedItem) int {
 			for _, pair := range [][2]string{{a.Item, b.Item}, {a.Client, b.Client}, {a.ClientVersion, b.ClientVersion}, {a.Reason, b.Reason}} {
 				if order := strings.Compare(pair[0], pair[1]); order != 0 {
 					return order
@@ -199,15 +199,15 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 	return result
 }
 
-func resultFor(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
-	return &updatev0.UpdateResult{
+func resultFor(diff *updatev1.ReleaseDiff, pin *updatev1.ConsumerPin) *updatev1.UpdateResult {
+	return &updatev1.UpdateResult{
 		Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
 		ToVersion: diff.GetAfter().GetVersion(),
 	}
 }
 
-func undetermined(result *updatev0.UpdateResult, err error) *updatev0.UpdateResult {
-	result.Verdict = updatev0.Verdict_VERDICT_UNDETERMINED
-	result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Reason: "could not determine: " + err.Error()})
+func undetermined(result *updatev1.UpdateResult, err error) *updatev1.UpdateResult {
+	result.Verdict = updatev1.Verdict_VERDICT_UNDETERMINED
+	result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{Reason: "could not determine: " + err.Error()})
 	return result
 }

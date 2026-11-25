@@ -7,27 +7,27 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
-func routedBinding(verb, path string) *runnablev0.PreparedBinding {
-	return &runnablev0.PreparedBinding{
-		Operation: &runnablev0.PreparedOperation{Module: "releases", Service: "backend", Endpoint: "http", Spelling: runnable.Route(verb, path)},
-		Call: &runnablev0.PreparedCall{
+func routedBinding(verb, path string) *runnablev1.PreparedBinding {
+	return &runnablev1.PreparedBinding{
+		Operation: &runnablev1.PreparedOperation{Module: "releases", Service: "backend", Endpoint: "http", Spelling: runnable.Route(verb, path)},
+		Call: &runnablev1.PreparedCall{
 			Address: "http://localhost:36201",
-			Route:   &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: verb, Path: path}},
+			Route:   &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: verb, Path: path}},
 		},
 	}
 }
 
-func procedureBinding(procedure string) *runnablev0.PreparedBinding {
-	return &runnablev0.PreparedBinding{
-		Operation: &runnablev0.PreparedOperation{Module: "documents", Service: "documents", Endpoint: "connect", Spelling: procedure},
-		Call: &runnablev0.PreparedCall{
+func procedureBinding(procedure string) *runnablev1.PreparedBinding {
+	return &runnablev1.PreparedBinding{
+		Operation: &runnablev1.PreparedOperation{Module: "documents", Service: "documents", Endpoint: "connect", Spelling: procedure},
+		Call: &runnablev1.PreparedCall{
 			Address: "http://localhost:36202",
-			Route:   &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: procedure}},
+			Route:   &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: procedure}},
 		},
 	}
 }
@@ -212,9 +212,9 @@ func TestARouteThatIsNotAnAbsolutePathIsRefused(t *testing.T) {
 // A binding with no route arm reaches nothing, and says so naming the
 // operation an operator is looking for.
 func TestABindingWithNoRouteIsRefusedNamingItsOperation(t *testing.T) {
-	binding := &runnablev0.PreparedBinding{
-		Operation: &runnablev0.PreparedOperation{Module: "releases", Service: "backend", Endpoint: "http", Spelling: "GET /v1/releases/history"},
-		Call:      &runnablev0.PreparedCall{Address: "http://localhost:36201"},
+	binding := &runnablev1.PreparedBinding{
+		Operation: &runnablev1.PreparedOperation{Module: "releases", Service: "backend", Endpoint: "http", Spelling: "GET /v1/releases/history"},
+		Call:      &runnablev1.PreparedCall{Address: "http://localhost:36201"},
 	}
 	_, err := runnable.CallRequestFor(binding, []byte(`{}`))
 	if err == nil {
@@ -229,8 +229,8 @@ func TestCallRequestPreservesRootAndTrailingSlashRoutes(t *testing.T) {
 	for _, path := range []string{"/", "/v1/releases/"} {
 		binding := restBinding()
 		binding.Operation.Spelling = runnable.Route(http.MethodGet, path)
-		binding.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: http.MethodGet, Path: path}}
-		binding.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+		binding.Call.Route = &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: http.MethodGet, Path: path}}
+		binding.Policy.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
 		binding.Policy.InvokeScopes[0].Actions = []string{"read"}
 		binding.Policy.LookupScopes = nil
 		decoded, err := runnable.DecodePrepared(encoded(t, binding))

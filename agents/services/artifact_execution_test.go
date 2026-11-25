@@ -13,9 +13,9 @@ import (
 
 	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/solution"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -63,8 +63,8 @@ func TestArtifactExecutionOverIndependentProcess(t *testing.T) {
 					continue
 				}
 				digest := "sha256:" + strings.Repeat("a", 64)
-				request := &basev0.ArtifactExecution{ContractVersion: artifactexecution.Contract, SelectionIdentity: digest, Target: "modules/app", Service: "api", Protocol: protocol, ExecutorDigest: executorDigest, ConfigurationIdentity: "hmac-" + digest, BindingIdentity: digest,
-					Inputs: []*basev0.ArtifactExecutionInput{{Name: "runtime", Target: "modules/app", Artifact: "runtime", Uri: "https://artifacts.example.test/runtime", MediaType: "application/octet-stream", Digest: digest}}, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "bundle", MediaType: "application/json"}}}
+				request := &basev1.ArtifactExecution{ContractVersion: artifactexecution.Contract, SelectionIdentity: digest, Target: "modules/app", Service: "api", Protocol: protocol, ExecutorDigest: executorDigest, ConfigurationIdentity: "hmac-" + digest, BindingIdentity: digest,
+					Inputs: []*basev1.ArtifactExecutionInput{{Name: "runtime", Target: "modules/app", Artifact: "runtime", Uri: "https://artifacts.example.test/runtime", MediaType: "application/octet-stream", Digest: digest}}, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "bundle", MediaType: "application/json"}}}
 				if mode == "wrong-executor" {
 					request.ExecutorDigest = digest
 				}
@@ -81,16 +81,16 @@ func TestArtifactExecutionOverIndependentProcess(t *testing.T) {
 				if mode == "no-staging" {
 					staging = ""
 				}
-				var receipt *basev0.ArtifactExecutionReceipt
+				var receipt *basev1.ArtifactExecutionReceipt
 				switch protocol {
 				case artifactexecution.BuilderBuild:
-					response, callErr := builder.Build(ctx, &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+					response, callErr := builder.Build(ctx, &builderv1.BuildRequest{Execution: request, OutputDirectory: staging})
 					err, receipt = callErr, response.GetExecution()
 				case artifactexecution.BuilderRender:
-					response, callErr := builder.Deploy(ctx, &builderv0.DeploymentRequest{Execution: request, OutputDirectory: staging})
+					response, callErr := builder.Deploy(ctx, &builderv1.DeploymentRequest{Execution: request, OutputDirectory: staging})
 					err, receipt = callErr, response.GetExecution()
 				case artifactexecution.SolutionRender:
-					render := &solutionv0.RenderRequest{Context: &solutionv0.SolutionContext{Artifact: &solutionv0.SolutionArtifact{Publisher: "example", Name: "executor", Version: "999.0.0", ArtifactDigest: executorDigest}}, Execution: request, Destination: staging}
+					render := &solutionv1.RenderRequest{Context: &solutionv1.SolutionContext{Artifact: &solutionv1.SolutionArtifact{Publisher: "example", Name: "executor", Version: "999.0.0", ArtifactDigest: executorDigest}}, Execution: request, Destination: staging}
 					if mode == "ambiguous-solution-input" {
 						render.ArtifactReference = "oci://other.example.test/image"
 					}

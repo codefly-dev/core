@@ -5,7 +5,7 @@ import (
 	"os"
 	"slices"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 const (
@@ -32,7 +32,7 @@ func RuntimeContexts() []string {
 	return []string{RuntimeContextNative, RuntimeContextNix, RuntimeContextContainer, RuntimeContextFree}
 }
 
-func NewRuntimeContext(runtimeContext string) (*basev0.RuntimeContext, error) {
+func NewRuntimeContext(runtimeContext string) (*basev1.RuntimeContext, error) {
 	switch runtimeContext {
 	case RuntimeContextNative:
 		return NewRuntimeContextNative(), nil
@@ -48,7 +48,7 @@ func NewRuntimeContext(runtimeContext string) (*basev0.RuntimeContext, error) {
 }
 
 // RuntimeContextFromInstance returns a runtime context from a network instance.
-func RuntimeContextFromInstance(instance *basev0.NetworkInstance) *basev0.RuntimeContext {
+func RuntimeContextFromInstance(instance *basev1.NetworkInstance) *basev1.RuntimeContext {
 	switch instance.Access.Kind {
 	case NetworkAccessNative:
 		return NewRuntimeContextNative()
@@ -60,7 +60,7 @@ func RuntimeContextFromInstance(instance *basev0.NetworkInstance) *basev0.Runtim
 }
 
 // RuntimeContextFromEnv returns a runtime context from the environment variable.
-func RuntimeContextFromEnv() *basev0.RuntimeContext {
+func RuntimeContextFromEnv() *basev1.RuntimeContext {
 	env := os.Getenv("CODEFLY__RUNTIME_CONTEXT")
 	switch env {
 	case RuntimeContextNative:
@@ -78,7 +78,7 @@ func RuntimeContextFromEnv() *basev0.RuntimeContext {
 
 // NetworkAccessFromRuntimeContext returns a NetworkAccess from a runtime context.
 // Both native and nix run on the host, so they map to native network access.
-func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.NetworkAccess {
+func NetworkAccessFromRuntimeContext(runtimeContext *basev1.RuntimeContext) *basev1.NetworkAccess {
 	if runtimeContext == nil {
 		return NewNativeNetworkAccess()
 	}
@@ -90,32 +90,32 @@ func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *bas
 	}
 }
 
-func NewRuntimeContextNative() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextNative}
+func NewRuntimeContextNative() *basev1.RuntimeContext {
+	return &basev1.RuntimeContext{Kind: RuntimeContextNative}
 }
 
-func NewRuntimeContextNix() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextNix}
+func NewRuntimeContextNix() *basev1.RuntimeContext {
+	return &basev1.RuntimeContext{Kind: RuntimeContextNix}
 }
 
-func NewRuntimeContextContainer() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextContainer}
+func NewRuntimeContextContainer() *basev1.RuntimeContext {
+	return &basev1.RuntimeContext{Kind: RuntimeContextContainer}
 }
 
 // NewRuntimeContextKubernetes is the context of a workload rendered for
 // Kubernetes. See RuntimeContextKubernetes.
-func NewRuntimeContextKubernetes() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextKubernetes}
+func NewRuntimeContextKubernetes() *basev1.RuntimeContext {
+	return &basev1.RuntimeContext{Kind: RuntimeContextKubernetes}
 }
 
 // IsKubernetesRuntimeContext reports whether a runtime context is a deployed
 // Kubernetes workload.
-func IsKubernetesRuntimeContext(runtimeContext *basev0.RuntimeContext) bool {
+func IsKubernetesRuntimeContext(runtimeContext *basev1.RuntimeContext) bool {
 	return runtimeContext.GetKind() == RuntimeContextKubernetes
 }
 
-func NewRuntimeContextFree() *basev0.RuntimeContext {
-	return &basev0.RuntimeContext{Kind: RuntimeContextFree}
+func NewRuntimeContextFree() *basev1.RuntimeContext {
+	return &basev1.RuntimeContext{Kind: RuntimeContextFree}
 }
 
 func ValidateRuntimeContext(rc string) error {

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
@@ -159,7 +159,7 @@ agent:
 	require.NoError(t, err)
 	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
 
-	var conf *basev0.Configuration
+	var conf *basev1.Configuration
 	for _, candidate := range loader.Configurations() {
 		if candidate.Origin == "test-workspace/store" {
 			conf = candidate
@@ -1330,7 +1330,7 @@ agent:
 	require.NoError(t, err)
 	require.Equal(t, "module-legal", url)
 
-	var store *basev0.Configuration
+	var store *basev1.Configuration
 	for _, conf := range confs {
 		if conf.Origin == "saas/store" {
 			store = conf
@@ -1388,15 +1388,15 @@ func TestEnvironmentProfileChainValidation(t *testing.T) {
 // endpoints of one producer are two references, because they are two things the
 // consumer waits for, and the same reference written twice is one.
 func TestEndpointProducersNamesEachGroupsReferencesOnce(t *testing.T) {
-	infos := []*basev0.ConfigurationInformation{
-		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
+	infos := []*basev1.ConfigurationInformation{
+		{Name: "platform", ConfigurationValues: []*basev1.ConfigurationValue{
 			{Key: "accounts-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
 			{Key: "accounts-internal-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
 			{Key: "accounts-rpc", Value: "${endpoint:saas/accounts/grpc}"},
 			{Key: "gateway-endpoint", Value: "${endpoint:saas/auth-gateway/rest}"},
 			{Key: "no-service", Value: "${endpoint:saas}"},
 		}},
-		{Name: "legal", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "URL", Value: "https://example.com"}}},
+		{Name: "legal", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "URL", Value: "https://example.com"}}},
 	}
 	require.Equal(t,
 		map[string][]string{"platform": {"saas/accounts/rest", "saas/accounts/grpc", "saas/auth-gateway/rest"}},

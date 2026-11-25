@@ -2,7 +2,7 @@
 
 **One rule: a wire contract has exactly one implementation, in the repository
 that owns the type.** The Work Context is a core proto
-(`codefly.base.v0.WorkContextV1`), so this package — the deterministic proto
+(`codefly.base.v1.WorkContextV1`), so this package — the deterministic proto
 marshal, Ed25519 over those bytes — is the only mint and the only verify.
 Nothing else may sign, verify or re-encode one.
 

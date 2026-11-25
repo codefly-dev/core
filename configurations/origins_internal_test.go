@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -14,12 +14,12 @@ import (
 func TestWorkspaceOverlayDoesNotInventAnUnrecordedOrigin(t *testing.T) {
 	trace, err := newConfigurationOrigins(t.TempDir())
 	require.NoError(t, err)
-	base := &basev0.ConfigurationInformation{Name: "app", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "RETAINED", Value: "private"}}}
-	override := &basev0.ConfigurationInformation{Name: "app"}
+	base := &basev1.ConfigurationInformation{Name: "app", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "RETAINED", Value: "private"}}}
+	override := &basev1.ConfigurationInformation{Name: "app"}
 	result, err := overlayWorkspaceConfigurationOverride(base, override, "host")
 	require.NoError(t, err)
 	trace.workspaceOverlay(base, override, result, "host")
-	require.Empty(t, trace.project([]*basev0.ConfigurationInformation{result}), "an unrecorded parent must not become an empty-path origin")
+	require.Empty(t, trace.project([]*basev1.ConfigurationInformation{result}), "an unrecorded parent must not become an empty-path origin")
 }
 
 func TestWorkspaceResolutionWithoutEvidenceMatchesDiagnosticRead(t *testing.T) {

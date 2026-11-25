@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func TestStartGenerationSeparatesLifecyclesAndDropsStaleHealth(t *testing.T) {
@@ -19,14 +19,14 @@ func TestStartGenerationSeparatesLifecyclesAndDropsStaleHealth(t *testing.T) {
 
 	// A plugin keeps its own message; stamping the generation must not be
 	// written back into it, nor into a copy already handed out over the wire.
-	submitted := &basev0.HealthReport{Ready: true}
+	submitted := &basev1.HealthReport{Ready: true}
 	wrapper.ReportHealth(submitted)
 	if submitted.GetGeneration() != 0 {
 		t.Fatalf("ReportHealth mutated the caller's report: generation = %d", submitted.GetGeneration())
 	}
 	submitted.Ready = false
 
-	information, err := wrapper.InformationResponse(context.Background(), &runtimev0.InformationRequest{})
+	information, err := wrapper.InformationResponse(context.Background(), &runtimev1.InformationRequest{})
 	if err != nil {
 		t.Fatalf("InformationResponse: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestStartGenerationSeparatesLifecyclesAndDropsStaleHealth(t *testing.T) {
 	if generation, reported := StartGeneration(first.GetStatus()); generation != 1 || !reported {
 		t.Fatalf("StartGeneration(first) = (%d, %v), want (1, true)", generation, reported)
 	}
-	if generation, reported := StartGeneration(&runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED}); generation != 0 || reported {
+	if generation, reported := StartGeneration(&runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED}); generation != 0 || reported {
 		t.Fatalf("StartGeneration(legacy agent) = (%d, %v), want (0, false)", generation, reported)
 	}
 	if _, reported := StartGeneration(nil); reported {
@@ -52,7 +52,7 @@ func TestStartGenerationSeparatesLifecyclesAndDropsStaleHealth(t *testing.T) {
 	if second.GetStatus().GetGeneration() != 2 {
 		t.Fatalf("second start generation = %d, want 2", second.GetStatus().GetGeneration())
 	}
-	information, _ = wrapper.InformationResponse(context.Background(), &runtimev0.InformationRequest{})
+	information, _ = wrapper.InformationResponse(context.Background(), &runtimev1.InformationRequest{})
 	if information.GetHealth() != nil {
 		t.Fatalf("health survived a restart: %+v", information.GetHealth())
 	}
@@ -60,8 +60,8 @@ func TestStartGenerationSeparatesLifecyclesAndDropsStaleHealth(t *testing.T) {
 	// A death after Start keeps the generation so a consumer can tell which
 	// process failed, while the state flips to ERROR.
 	wrapper.MarkRunnerExited(errors.New("runner exited"))
-	information, _ = wrapper.InformationResponse(context.Background(), &runtimev0.InformationRequest{})
-	if information.GetStartStatus().GetState() != runtimev0.StartStatus_ERROR ||
+	information, _ = wrapper.InformationResponse(context.Background(), &runtimev1.InformationRequest{})
+	if information.GetStartStatus().GetState() != runtimev1.StartStatus_ERROR ||
 		information.GetStartStatus().GetGeneration() != 2 {
 		t.Fatalf("start status = %+v, want ERROR at generation 2", information.GetStartStatus())
 	}

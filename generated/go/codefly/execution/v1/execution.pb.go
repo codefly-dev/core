@@ -12,7 +12,7 @@ import (
 	unsafe "unsafe"
 
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -178,7 +178,7 @@ type ExecutionReceiptV1 struct {
 	// assurance states which boundary directly observed the effect.
 	Assurance ExecutionAssurance `protobuf:"varint,8,opt,name=assurance,proto3,enum=codefly.execution.v1.ExecutionAssurance" json:"assurance,omitempty"`
 	// work_context is a verified claims snapshot, not the signed bearer token.
-	WorkContext *v0.WorkContextV1 `protobuf:"bytes,9,opt,name=work_context,json=workContext,proto3" json:"work_context,omitempty"`
+	WorkContext *v1.WorkContextV1 `protobuf:"bytes,9,opt,name=work_context,json=workContext,proto3" json:"work_context,omitempty"`
 	// work_context_sha256 binds the snapshot to the admitted signed token.
 	WorkContextSha256 string `protobuf:"bytes,10,opt,name=work_context_sha256,json=workContextSha256,proto3" json:"work_context_sha256,omitempty"`
 	// target identifies the Codefly workspace/service boundary.
@@ -287,7 +287,7 @@ func (x *ExecutionReceiptV1) GetAssurance() ExecutionAssurance {
 	return ExecutionAssurance_EXECUTION_ASSURANCE_UNSPECIFIED
 }
 
-func (x *ExecutionReceiptV1) GetWorkContext() *v0.WorkContextV1 {
+func (x *ExecutionReceiptV1) GetWorkContext() *v1.WorkContextV1 {
 	if x != nil {
 		return x.WorkContext
 	}
@@ -865,7 +865,7 @@ var File_codefly_execution_v1_execution_proto protoreflect.FileDescriptor
 
 const file_codefly_execution_v1_execution_proto_rawDesc = "" +
 	"\n" +
-	"$codefly/execution/v1/execution.proto\x12\x14codefly.execution.v1\x1a\x1bbuf/validate/validate.proto\x1a\"codefly/base/v0/work_context.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd1\t\n" +
+	"$codefly/execution/v1/execution.proto\x12\x14codefly.execution.v1\x1a\x1bbuf/validate/validate.proto\x1a\"codefly/base/v1/work_context.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd1\t\n" +
 	"\x12ExecutionReceiptV1\x12;\n" +
 	"\x06schema\x18\x01 \x01(\tB#\xbaH r\x1e\n" +
 	"\x1ccodefly.execution-receipt/v1R\x06schema\x12)\n" +
@@ -882,7 +882,7 @@ const file_codefly_execution_v1_execution_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x03\x18\x80\x01R\roperationKind\x12M\n" +
 	"\bproducer\x18\a \x01(\v2).codefly.execution.v1.ExecutionProducerV1B\x06\xbaH\x03\xc8\x01\x01R\bproducer\x12P\n" +
 	"\tassurance\x18\b \x01(\x0e2(.codefly.execution.v1.ExecutionAssuranceB\b\xbaH\x05\x82\x01\x02\x10\x01R\tassurance\x12I\n" +
-	"\fwork_context\x18\t \x01(\v2\x1e.codefly.base.v0.WorkContextV1B\x06\xbaH\x03\xc8\x01\x01R\vworkContext\x12E\n" +
+	"\fwork_context\x18\t \x01(\v2\x1e.codefly.base.v1.WorkContextV1B\x06\xbaH\x03\xc8\x01\x01R\vworkContext\x12E\n" +
 	"\x13work_context_sha256\x18\n" +
 	" \x01(\tB\x15\xbaH\x12r\x102\x0e^[0-9a-f]{64}$R\x11workContextSha256\x12G\n" +
 	"\x06target\x18\v \x01(\v2'.codefly.execution.v1.ExecutionTargetV1B\x06\xbaH\x03\xc8\x01\x01R\x06target\x12A\n" +
@@ -1001,14 +1001,14 @@ var file_codefly_execution_v1_execution_proto_goTypes = []any{
 	(*ExecutionAttestationV1)(nil),  // 7: codefly.execution.v1.ExecutionAttestationV1
 	(*ExportExecutionRequest)(nil),  // 8: codefly.execution.v1.ExportExecutionRequest
 	(*ExportExecutionResponse)(nil), // 9: codefly.execution.v1.ExportExecutionResponse
-	(*v0.WorkContextV1)(nil),        // 10: codefly.base.v0.WorkContextV1
+	(*v1.WorkContextV1)(nil),        // 10: codefly.base.v1.WorkContextV1
 	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
 }
 var file_codefly_execution_v1_execution_proto_depIdxs = []int32{
 	0,  // 0: codefly.execution.v1.ExecutionReceiptV1.stage:type_name -> codefly.execution.v1.ExecutionStage
 	3,  // 1: codefly.execution.v1.ExecutionReceiptV1.producer:type_name -> codefly.execution.v1.ExecutionProducerV1
 	1,  // 2: codefly.execution.v1.ExecutionReceiptV1.assurance:type_name -> codefly.execution.v1.ExecutionAssurance
-	10, // 3: codefly.execution.v1.ExecutionReceiptV1.work_context:type_name -> codefly.base.v0.WorkContextV1
+	10, // 3: codefly.execution.v1.ExecutionReceiptV1.work_context:type_name -> codefly.base.v1.WorkContextV1
 	4,  // 4: codefly.execution.v1.ExecutionReceiptV1.target:type_name -> codefly.execution.v1.ExecutionTargetV1
 	11, // 5: codefly.execution.v1.ExecutionReceiptV1.started_at:type_name -> google.protobuf.Timestamp
 	11, // 6: codefly.execution.v1.ExecutionReceiptV1.completed_at:type_name -> google.protobuf.Timestamp

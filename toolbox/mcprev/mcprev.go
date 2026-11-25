@@ -31,7 +31,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 )
 
@@ -178,7 +178,7 @@ func (r *ReverseTranscoder) Tools() []*registry.ToolDefinition {
 // callTool is the Handler bound on every ToolDefinition we generate
 // from the MCP server's tool list. Translates a CallToolRequest
 // into MCP's tools/call shape, sends, and converts the reply back.
-func (r *ReverseTranscoder) callTool(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (r *ReverseTranscoder) callTool(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	args := map[string]any{}
 	if req.GetArguments() != nil {
 		args = req.GetArguments().AsMap()
@@ -189,7 +189,7 @@ func (r *ReverseTranscoder) callTool(ctx context.Context, req *toolboxv0.CallToo
 	}
 	result, err := r.call(ctx, "tools/call", params)
 	if err != nil {
-		return &toolboxv0.CallToolResponse{Error: fmt.Sprintf("mcp tools/call: %v", err)}
+		return &toolboxv1.CallToolResponse{Error: fmt.Sprintf("mcp tools/call: %v", err)}
 	}
 	return mcpResultToCallResponse(result)
 }
@@ -409,7 +409,7 @@ func (r *ReverseTranscoder) parseServerInfo(raw json.RawMessage) {
 // MCP shape: `{ "tools": [ {name, description, inputSchema}, ... ] }`
 // where inputSchema is a JSON Schema object. We surface the same
 // shape in registry.ToolDefinition.
-func parseMCPToolList(raw json.RawMessage, handler func(context.Context, *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse) []*registry.ToolDefinition {
+func parseMCPToolList(raw json.RawMessage, handler func(context.Context, *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse) []*registry.ToolDefinition {
 	var parsed struct {
 		Tools []struct {
 			Name        string          `json:"name"`
@@ -498,7 +498,7 @@ const MaxMCPErrorBytes = 4 * 1024
 //
 // These are not paranoid; they're table stakes once we host
 // arbitrary third-party MCP servers (the JIRA case).
-func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
+func mcpResultToCallResponse(raw json.RawMessage) *toolboxv1.CallToolResponse {
 	var parsed struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -507,7 +507,7 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return &toolboxv0.CallToolResponse{Error: "mcp result decode: " + err.Error()}
+		return &toolboxv1.CallToolResponse{Error: "mcp result decode: " + err.Error()}
 	}
 	if parsed.IsError {
 		// MCP carries error text in the same content array. Collapse
@@ -523,11 +523,11 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 		if msg == "" {
 			msg = "mcp tool returned isError=true with no text content"
 		}
-		return &toolboxv0.CallToolResponse{
+		return &toolboxv1.CallToolResponse{
 			Error: sanitizeMCPText(msg, MaxMCPErrorBytes),
 		}
 	}
-	out := make([]*toolboxv0.Content, 0, len(parsed.Content))
+	out := make([]*toolboxv1.Content, 0, len(parsed.Content))
 	for _, c := range parsed.Content {
 		if c.Type == "text" {
 			text := sanitizeMCPText(c.Text, MaxMCPTextBytes)
@@ -535,8 +535,8 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 			// foreign content. Same shape as XML-style tags the model
 			// already handles.
 			wrapped := "<mcp-server-content>\n" + text + "\n</mcp-server-content>"
-			out = append(out, &toolboxv0.Content{
-				Body: &toolboxv0.Content_Text{Text: wrapped},
+			out = append(out, &toolboxv1.Content{
+				Body: &toolboxv1.Content_Text{Text: wrapped},
 			})
 		}
 		// Non-text MCP content (image, resource) is dropped for now.
@@ -545,7 +545,7 @@ func mcpResultToCallResponse(raw json.RawMessage) *toolboxv0.CallToolResponse {
 		// sanitization story has to apply (binary content has its
 		// own attack surface).
 	}
-	return &toolboxv0.CallToolResponse{Content: out}
+	return &toolboxv1.CallToolResponse{Content: out}
 }
 
 // sanitizeMCPText caps length and strips characters known to be

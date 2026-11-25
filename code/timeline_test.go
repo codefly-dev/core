@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 var refDate = time.Date(2026, 2, 19, 0, 0, 0, 0, time.UTC)
 
 func TestBuildFileTimeline_ChunkGrouping(t *testing.T) {
-	lines := []*codev0.GitBlameLine{
+	lines := []*codev1.GitBlameLine{
 		{Hash: "aaa", Author: "Alice", Date: "1700000000", Line: 1, Content: "package main"},
 		{Hash: "aaa", Author: "Alice", Date: "1700000000", Line: 2, Content: ""},
 		{Hash: "aaa", Author: "Alice", Date: "1700000000", Line: 3, Content: "import \"fmt\""},
@@ -58,7 +58,7 @@ func TestBuildFileTimeline_ChunkGrouping(t *testing.T) {
 }
 
 func TestBuildFileTimeline_SkipsBraces(t *testing.T) {
-	lines := []*codev0.GitBlameLine{
+	lines := []*codev1.GitBlameLine{
 		{Hash: "aaa", Author: "A", Date: "1700000000", Line: 1, Content: "{"},
 		{Hash: "aaa", Author: "A", Date: "1700000000", Line: 2, Content: "}"},
 		{Hash: "aaa", Author: "A", Date: "1700000000", Line: 3, Content: "real code"},

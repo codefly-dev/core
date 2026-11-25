@@ -22,14 +22,14 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 )
 
 // Args extracts a CallToolRequest's structured arguments as a Go
 // map. Returns an empty map (not nil) when no arguments are
 // supplied — callers can read keys with a comma-ok idiom without
 // nil-checking.
-func Args(req *toolboxv0.CallToolRequest) map[string]any {
+func Args(req *toolboxv1.CallToolRequest) map[string]any {
 	if req == nil || req.Arguments == nil {
 		return map[string]any{}
 	}
@@ -41,8 +41,8 @@ func Args(req *toolboxv0.CallToolRequest) map[string]any {
 // failures (open repo failed, unknown method, validation fail) —
 // canonical-routing decisions live on the bash side, not inside a
 // toolbox's own dispatch.
-func Error(format string, args ...any) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{Error: fmt.Sprintf(format, args...)}
+func Error(format string, args ...any) *toolboxv1.CallToolResponse {
+	return &toolboxv1.CallToolResponse{Error: fmt.Sprintf(format, args...)}
 }
 
 // Struct wraps a Go map as a single structured Content block.
@@ -50,14 +50,14 @@ func Error(format string, args ...any) *toolboxv0.CallToolResponse {
 // marshaled to a proto Struct — that's a programmer-error path
 // (channels, functions, etc. in the payload), but a runtime fault
 // shouldn't be a panic at the host level.
-func Struct(payload map[string]any) *toolboxv0.CallToolResponse {
+func Struct(payload map[string]any) *toolboxv1.CallToolResponse {
 	s, err := structpb.NewStruct(payload)
 	if err != nil {
 		return Error("internal: cannot marshal response: %v", err)
 	}
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Structured{Structured: s}},
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Structured{Structured: s}},
 		},
 	}
 }
@@ -65,10 +65,10 @@ func Struct(payload map[string]any) *toolboxv0.CallToolResponse {
 // Text wraps a string as a single text Content block. Useful for
 // tools whose natural output is unstructured (man pages, README
 // excerpts, raw command stdout).
-func Text(text string) *toolboxv0.CallToolResponse {
-	return &toolboxv0.CallToolResponse{
-		Content: []*toolboxv0.Content{
-			{Body: &toolboxv0.Content_Text{Text: text}},
+func Text(text string) *toolboxv1.CallToolResponse {
+	return &toolboxv1.CallToolResponse{
+		Content: []*toolboxv1.Content{
+			{Body: &toolboxv1.Content_Text{Text: text}},
 		},
 	}
 }

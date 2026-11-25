@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/toolbox/conformance"
 	"github.com/codefly-dev/core/toolbox/session"
@@ -24,9 +24,9 @@ func (approvableDecider) Evaluate(_ context.Context, request *policy.PDPRequest)
 		Allow:           false,
 		RequireApproval: true,
 		Reason:          "effects need an approver",
-		Approval: &basev0.ApprovalRequiredV1{
+		Approval: &basev1.ApprovalRequiredV1{
 			RequestId:      "ar-1",
-			RequestedScope: &basev0.WorkScopeV1{ResourceKind: "counter", Actions: []string{"increment"}, ResourceIds: []string{"fixture"}},
+			RequestedScope: &basev1.WorkScopeV1{ResourceKind: "counter", Actions: []string{"increment"}, ResourceIds: []string{"fixture"}},
 			Subject:        "counter:fixture",
 			RequestDigest:  "sha256:fixture",
 			Audience:       "codefly.dev/conformance",

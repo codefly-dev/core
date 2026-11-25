@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,15 +162,15 @@ func TestPinnedReferenceReplacesTagAndDigest(t *testing.T) {
 }
 
 func TestBindImageDigestMakesTheImageTheSubject(t *testing.T) {
-	root := &agentv0.Component{Name: "redis", Type: agentv0.ComponentType_MODULE, BomRef: "root"}
-	packages := []*agentv0.Component{{Name: "openssl", Version: "3.0", BomRef: "pkg:deb/openssl@3.0"}}
+	root := &agentv1.Component{Name: "redis", Type: agentv1.ComponentType_MODULE, BomRef: "root"}
+	packages := []*agentv1.Component{{Name: "openssl", Version: "3.0", BomRef: "pkg:deb/openssl@3.0"}}
 	base, err := finish(root, packages, nil, "syft", "DOCKER")
 	require.NoError(t, err)
 
 	bound, err := bindImageDigest(base, "sha256:ABCDEF")
 	require.NoError(t, err)
 	subject := bound.Bom.GetMetadata().GetComponent()
-	require.Equal(t, agentv0.ComponentType_CONTAINER, subject.GetType())
+	require.Equal(t, agentv1.ComponentType_CONTAINER, subject.GetType())
 	require.Equal(t, "SHA-256", subject.GetHashes()[0].GetAlgorithm())
 	require.Equal(t, "abcdef", subject.GetHashes()[0].GetContent())
 	require.Len(t, bound.Bom.GetComponents(), 1)
@@ -179,8 +179,8 @@ func TestBindImageDigestMakesTheImageTheSubject(t *testing.T) {
 // Binding must not mutate the caller's document: a second bind would otherwise
 // accumulate hashes and silently change the digest.
 func TestBindImageDigestDoesNotMutateItsInput(t *testing.T) {
-	root := &agentv0.Component{Name: "redis", Type: agentv0.ComponentType_MODULE, BomRef: "root"}
-	base, err := finish(root, []*agentv0.Component{{Name: "openssl", BomRef: "pkg:deb/openssl"}}, nil, "syft", "DOCKER")
+	root := &agentv1.Component{Name: "redis", Type: agentv1.ComponentType_MODULE, BomRef: "root"}
+	base, err := finish(root, []*agentv1.Component{{Name: "openssl", BomRef: "pkg:deb/openssl"}}, nil, "syft", "DOCKER")
 	require.NoError(t, err)
 
 	first, err := bindImageDigest(base, "sha256:abcdef")
@@ -189,7 +189,7 @@ func TestBindImageDigestDoesNotMutateItsInput(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Empty(t, base.Bom.GetMetadata().GetComponent().GetHashes(), "input document was mutated")
-	require.Equal(t, agentv0.ComponentType_MODULE, base.Bom.GetMetadata().GetComponent().GetType())
+	require.Equal(t, agentv1.ComponentType_MODULE, base.Bom.GetMetadata().GetComponent().GetType())
 	require.Len(t, first.Bom.GetMetadata().GetComponent().GetHashes(), 1)
 	require.Equal(t, first.SHA256, second.SHA256)
 }
@@ -208,12 +208,12 @@ func TestManagedSyftArgsForKeepHardeningOnEveryTarget(t *testing.T) {
 // stale local image answering to the same tag would bind evidence to an image
 // nothing deployed.
 func TestSourceOfDefaultsToRegistry(t *testing.T) {
-	require.Equal(t, SourceRegistry, SourceOf(&builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0"}))
-	require.Equal(t, SourceRegistry, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY}))
-	require.Equal(t, SourceDockerDaemon, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON}))
+	require.Equal(t, SourceRegistry, SourceOf(&builderv1.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0"}))
+	require.Equal(t, SourceRegistry, SourceOf(&builderv1.ImageSubject{Source: builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY}))
+	require.Equal(t, SourceDockerDaemon, SourceOf(&builderv1.ImageSubject{Source: builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON}))
 
-	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, sourceKind(SourceRegistry))
-	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, sourceKind(SourceDockerDaemon))
+	require.Equal(t, builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, sourceKind(SourceRegistry))
+	require.Equal(t, builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, sourceKind(SourceDockerDaemon))
 }
 
 func TestImageIdentitiesRefuseMalformedDigests(t *testing.T) {

@@ -3,13 +3,13 @@ package resources
 import (
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEnvironmentVariableManagerExposesNamingScopeAsRuntimeIdentity(t *testing.T) {
 	holder := NewEnvironmentVariableManager()
-	holder.SetEnvironment(&basev0.Environment{
+	holder.SetEnvironment(&basev1.Environment{
 		Name:        "production",
 		NamingScope: "stable-eu",
 		Fixture:     "dev-admin",
@@ -24,7 +24,7 @@ func TestEnvironmentVariableManagerExposesNamingScopeAsRuntimeIdentity(t *testin
 
 func TestEnvironmentVariableManagerOmitsEmptyNamingScope(t *testing.T) {
 	holder := NewEnvironmentVariableManager()
-	holder.SetEnvironment(&basev0.Environment{Name: "local"})
+	holder.SetEnvironment(&basev1.Environment{Name: "local"})
 
 	variables, err := holder.getBase()
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestEnvironmentVariableManagerOmitsEmptyNamingScope(t *testing.T) {
 
 func TestEnvironmentVariableManagerExplicitFixtureOverridesEnvironmentFixture(t *testing.T) {
 	holder := NewEnvironmentVariableManager()
-	holder.SetEnvironment(&basev0.Environment{Name: "local", Fixture: "workspace-fixture"})
+	holder.SetEnvironment(&basev1.Environment{Name: "local", Fixture: "workspace-fixture"})
 	holder.SetFixture("invocation-fixture")
 
 	variables, err := holder.getBase()

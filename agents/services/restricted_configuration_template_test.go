@@ -8,31 +8,31 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 )
 
-func templatedDeploymentRequest() *builderv0.DeploymentRequest {
-	return &builderv0.DeploymentRequest{
-		Configuration: &basev0.Configuration{
+func templatedDeploymentRequest() *builderv1.DeploymentRequest {
+	return &builderv1.DeploymentRequest{
+		Configuration: &basev1.Configuration{
 			Origin: "mod/store",
-			Infos: []*basev0.ConfigurationInformation{{
+			Infos: []*basev1.ConfigurationInformation{{
 				Name: "postgres",
-				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "CONNECTION", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-						Segments: []*basev0.ConfigurationValueTemplateSegment{
-							{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "postgresql://reader:"}},
-							{Content: &basev0.ConfigurationValueTemplateSegment_Reference{
-								Reference: &basev0.ConfigurationValueReference{
+				ConfigurationValues: []*basev1.ConfigurationValue{
+					{Key: "CONNECTION", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+						Segments: []*basev1.ConfigurationValueTemplateSegment{
+							{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "postgresql://reader:"}},
+							{Content: &basev1.ConfigurationValueTemplateSegment_Reference{
+								Reference: &basev1.ConfigurationValueReference{
 									Configuration: "postgres",
 									Key:           "POSTGRES_PASSWORD",
-									Escape:        basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO,
+									Escape:        basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO,
 								},
 							}},
-							{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "@store:5432/app"}},
+							{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "@store:5432/app"}},
 						},
 					}},
 				},
@@ -63,7 +63,7 @@ func TestRestrictedDeploymentRequestRequiresAReferenceForATemplatedValue(t *test
 // With the reference declared, the assembly is delivered by the environment's
 // secret store and the request is admitted.
 func TestRestrictedDeploymentRequestAdmitsATemplatedValueDeliveredByReference(t *testing.T) {
-	references := map[string]*builderv0.KubernetesSecretKeyReference{
+	references := map[string]*builderv1.KubernetesSecretKeyReference{
 		templatedCarrier: {Name: "example-service-secrets", Key: "connection"},
 	}
 	if err := validateRestrictedDeploymentRequest(templatedDeploymentRequest(), references); err != nil {
@@ -75,7 +75,7 @@ func TestRestrictedDeploymentRequestAdmitsATemplatedValueDeliveredByReference(t 
 func TestRestrictedDeploymentRequestRefusesAMalformedTemplate(t *testing.T) {
 	req := templatedDeploymentRequest()
 	req.Configuration.Infos[0].ConfigurationValues[0].Secret = false
-	references := map[string]*builderv0.KubernetesSecretKeyReference{
+	references := map[string]*builderv1.KubernetesSecretKeyReference{
 		"CODEFLY__SERVICE_CONFIGURATION__MOD__STORE__POSTGRES__CONNECTION": {Name: "s", Key: "k"},
 	}
 	if err := validateRestrictedDeploymentRequest(req, references); err == nil {
@@ -124,14 +124,14 @@ func TestDeployKustomizeRendersATemplatedValueByReference(t *testing.T) {
 	destination := t.TempDir()
 
 	conf := templatedDeploymentRequest().GetConfiguration()
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-				SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+				SecretReferences: map[string]*builderv1.KubernetesSecretKeyReference{
 					templatedCarrier: {Name: "service-secrets", Key: "connection"},
 				},
 			},
@@ -144,7 +144,7 @@ func TestDeployKustomizeRendersATemplatedValueByReference(t *testing.T) {
 		Parameters:           struct{ Name string }{Name: "gitops"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	require.True(t, response.GetDeployment().GetKubernetes().GetValidation().GetRestricted())
 
 	deploymentManifest, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))

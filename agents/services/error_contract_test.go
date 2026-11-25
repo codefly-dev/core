@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func TestRuntimeErrorHelperReturnsStructuredResponseWithoutTransportError(t *testing.T) {
@@ -14,7 +14,7 @@ func TestRuntimeErrorHelperReturnsStructuredResponseWithoutTransportError(t *tes
 	if err != nil {
 		t.Fatalf("InitError returned transport error: %v", err)
 	}
-	if response.GetStatus().GetState() != runtimev0.InitStatus_ERROR || response.GetStatus().GetMessage() != "compiler unavailable" {
+	if response.GetStatus().GetState() != runtimev1.InitStatus_ERROR || response.GetStatus().GetMessage() != "compiler unavailable" {
 		t.Fatalf("InitError response = %+v", response)
 	}
 	if response.GetStatus().GetFailure().GetOperation() != "runtime.init" || response.GetStatus().GetFailure().GetMessage() != "compiler unavailable" {
@@ -28,8 +28,8 @@ func TestRuntimeTestErrorIsTypedTerminalResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestError returned transport error: %v", err)
 	}
-	if response.GetStatus().GetState() != runtimev0.TestStatus_ERROR ||
-		response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED ||
+	if response.GetStatus().GetState() != runtimev1.TestStatus_ERROR ||
+		response.GetResult().GetState() != runtimev1.TestRunResult_ERRORED ||
 		response.GetResult().GetMessage() != "module preparation failed" || response.GetCounts() == nil {
 		t.Fatalf("TestError response = %+v, want ERROR/ERRORED with explicit zero counts", response)
 	}
@@ -44,7 +44,7 @@ func TestRuntimeLintErrorPreservesFailureOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LintErrorf returned transport error: %v", err)
 	}
-	if response.GetStatus().GetState() != runtimev0.LintStatus_ERROR {
+	if response.GetStatus().GetState() != runtimev1.LintStatus_ERROR {
 		t.Fatalf("LintErrorf status = %+v", response.GetStatus())
 	}
 	if response.GetOutput() != "lint failed: main.go:4:2: undefined: value" {
@@ -61,7 +61,7 @@ func TestBuilderErrorHelperReturnsStructuredResponseWithoutTransportError(t *tes
 	if err != nil {
 		t.Fatalf("BuildError returned transport error: %v", err)
 	}
-	if response.GetState().GetState() != builderv0.BuildStatus_ERROR || response.GetState().GetMessage() != "image build failed" {
+	if response.GetState().GetState() != builderv1.BuildStatus_ERROR || response.GetState().GetMessage() != "image build failed" {
 		t.Fatalf("BuildError response = %+v", response)
 	}
 	if response.GetState().GetFailure().GetOperation() != "builder.build" || response.GetState().GetFailure().GetMessage() != "image build failed" {

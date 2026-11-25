@@ -9,9 +9,9 @@ import (
 
 	"github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/code/semanticcontract"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -67,12 +67,12 @@ pub type Key = String;
 	}
 
 	server := newSemanticServer(root)
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	index := response.GetGetSemanticIndex()
-	if index == nil || index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+	if index == nil || index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
 		encoded, _ := protojson.Marshal(index)
 		t.Fatalf("semantic index = %s, failure = %#v", encoded, response.GetFailure())
 	}
@@ -155,12 +155,12 @@ type Alias[T any] = Value[T]
 		}
 	}
 
-	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	index := response.GetGetSemanticIndex()
-	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+	if index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
 		encoded, _ := protojson.Marshal(index)
 		t.Fatalf("semantic index = %s, want current language syntax to parse completely", encoded)
 	}
@@ -187,12 +187,12 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "broken.py"), []byte("def broken(:\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+		response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		index := response.GetGetSemanticIndex()
-		if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED || len(index.GetIssues()) != 1 || len(index.GetFiles()) != 1 {
+		if index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED || len(index.GetIssues()) != 1 || len(index.GetFiles()) != 1 {
 			t.Fatalf("index = %#v", index)
 		}
 		if got := index.GetIssues()[0].GetMessage(); !strings.Contains(got, " at 1:") {
@@ -205,12 +205,12 @@ func TestSemanticIndexReportsDegradedAndNotAttemptedCoverage(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "main.rb"), []byte("puts 'hello'\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+		response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		index := response.GetGetSemanticIndex()
-		if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED || index.GetIssues()[0].GetCode() != "unsupported_source" {
+		if index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED || index.GetIssues()[0].GetCode() != "unsupported_source" {
 			t.Fatalf("index = %#v", index)
 		}
 	})
@@ -234,12 +234,12 @@ func TestSemanticIndexTraversesLocalDirectorySymlinkRoot(t *testing.T) {
 	if server.SourceDir != physicalRoot {
 		t.Fatalf("source root = %q, want physical root %q", server.SourceDir, physicalRoot)
 	}
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	index := response.GetGetSemanticIndex()
-	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
+	if index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(index.GetFiles()) != 1 || index.GetFiles()[0].GetPath() != "app.py" {
 		t.Fatalf("semantic index = %#v, want one root-relative Python file", index)
 	}
 	if index.GetAnalyzerVersion() != semanticcontract.Version {
@@ -272,12 +272,12 @@ func second() {
 	if err := os.WriteFile(filepath.Join(root, "nested.py"), []byte(python), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	index := response.GetGetSemanticIndex()
-	if index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+	if index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
 		t.Fatalf("index = %#v", index)
 	}
 	if hasSemanticQualifiedName(index, "main.output") || hasSemanticQualifiedName(index, "nested.local") {
@@ -296,16 +296,16 @@ func TestSourceToolingDelegatesSemanticIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	response, err := code.NewSourceTooling(newSemanticServer(root)).GetSemanticIndex(t.Context(), &toolingv0.GetSemanticIndexRequest{})
+	response, err := code.NewSourceTooling(newSemanticServer(root)).GetSemanticIndex(t.Context(), &toolingv1.GetSemanticIndexRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.GetFailure() != nil || response.GetIndex().GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || !hasSemanticQualifiedName(response.GetIndex(), "main.main") {
+	if response.GetFailure() != nil || response.GetIndex().GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || !hasSemanticQualifiedName(response.GetIndex(), "main.main") {
 		t.Fatalf("tooling response = %#v", response)
 	}
 }
 
-func semanticFile(index *basev0.SemanticIndex, path string) *basev0.SemanticFile {
+func semanticFile(index *basev1.SemanticIndex, path string) *basev1.SemanticFile {
 	for _, file := range index.GetFiles() {
 		if file.GetPath() == path {
 			return file
@@ -314,7 +314,7 @@ func semanticFile(index *basev0.SemanticIndex, path string) *basev0.SemanticFile
 	return nil
 }
 
-func hasSemanticQualifiedName(index *basev0.SemanticIndex, name string) bool {
+func hasSemanticQualifiedName(index *basev1.SemanticIndex, name string) bool {
 	for _, symbol := range index.GetSymbols() {
 		if symbol.GetQualifiedName() == name {
 			return true
@@ -323,7 +323,7 @@ func hasSemanticQualifiedName(index *basev0.SemanticIndex, name string) bool {
 	return false
 }
 
-func semanticQualifiedNames(index *basev0.SemanticIndex) []string {
+func semanticQualifiedNames(index *basev1.SemanticIndex) []string {
 	result := make([]string, 0, len(index.GetSymbols()))
 	for _, symbol := range index.GetSymbols() {
 		result = append(result, symbol.GetQualifiedName())
@@ -331,7 +331,7 @@ func semanticQualifiedNames(index *basev0.SemanticIndex) []string {
 	return result
 }
 
-func semanticSymbolHasCall(index *basev0.SemanticIndex, qualifiedName, call string) bool {
+func semanticSymbolHasCall(index *basev1.SemanticIndex, qualifiedName, call string) bool {
 	for _, symbol := range index.GetSymbols() {
 		if symbol.GetQualifiedName() != qualifiedName {
 			continue

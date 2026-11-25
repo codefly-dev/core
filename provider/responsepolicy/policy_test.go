@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/provider/responsepolicy"
@@ -22,12 +22,12 @@ type memorySink struct {
 	fail   bool
 }
 
-func (s *memorySink) Put(_ context.Context, target responsepolicy.SinkTarget, secret string) (*providerv0.OpaqueReference, error) {
+func (s *memorySink) Put(_ context.Context, target responsepolicy.SinkTarget, secret string) (*providerv1.OpaqueReference, error) {
 	if s.fail {
 		return nil, fmt.Errorf("sink offline")
 	}
 	s.stored = append(s.stored, secret)
-	return &providerv0.OpaqueReference{
+	return &providerv1.OpaqueReference{
 		Reference: fmt.Sprintf("capture://%s/%d", target.Key, len(s.stored)),
 		Purpose:   target.Purpose,
 	}, nil
@@ -45,7 +45,7 @@ func capture(path string, required bool) responsepolicy.Field {
 	return responsepolicy.Field{
 		Selector:    sel(path),
 		Disposition: manifest.ResponseCaptureToSink,
-		Purpose:     providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		Purpose:     providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
 		Required:    required,
 		SinkKey:     "binding/secret",
 	}

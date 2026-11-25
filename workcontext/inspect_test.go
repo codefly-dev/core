@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -204,7 +204,7 @@ func TestInspect_RefusesAnEmptyRouteTarget(t *testing.T) {
 func TestInspect_RefusesACapabilityAddressedToNoAudience(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
-	claims := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	claims := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	claims.Audience = ""
 	token := h.resign(claims)
 
@@ -226,7 +226,7 @@ func TestInspect_RefusesAForgery(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "signature does not verify")
 
-	tampered := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	tampered := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	tampered.TenantId = "t-someone-else"
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(tampered)
 	require.NoError(t, err)
@@ -296,19 +296,19 @@ func TestInspect_ChecksTheSealShape(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 
-	unsealed := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	unsealed := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	unsealed.Seal = nil
 	_, err := h.inspector().Inspect(h.resign(unsealed), audience)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "seal")
 
-	noInstallation := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	noInstallation := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	noInstallation.Seal.InstallationId = ""
 	_, err = h.inspector().Inspect(h.resign(noInstallation), audience)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "installation_id")
 
-	noEpoch := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
+	noEpoch := proto.Clone(agent.Context()).(*basev1.WorkContextV1)
 	noEpoch.ActorChain[0].PrincipalEpoch = 0
 	_, err = h.inspector().Inspect(h.resign(noEpoch), audience)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
@@ -316,8 +316,8 @@ func TestInspect_ChecksTheSealShape(t *testing.T) {
 
 	// And a widening hop, which the schema cannot state and checkStructure
 	// does: a hop refuses it on the same body the callee uses.
-	widened := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
-	widened.ActorChain[0].GrantedScopes = []*basev0.WorkScopeV1{scope("repo", []string{"read", "write", "admin"}, nil)}
+	widened := proto.Clone(agent.Context()).(*basev1.WorkContextV1)
+	widened.ActorChain[0].GrantedScopes = []*basev1.WorkScopeV1{scope("repo", []string{"read", "write", "admin"}, nil)}
 	_, err = h.inspector().Inspect(h.resign(widened), audience)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "widens authority")

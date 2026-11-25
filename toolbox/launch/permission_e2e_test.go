@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/policy/testharness"
 	"github.com/codefly-dev/core/resources"
@@ -87,7 +87,7 @@ func TestE2E_Principal_FlowsToHandler(t *testing.T) {
 	defer plugin.Close()
 
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestE2E_Principal_DelegationChain_Preserved(t *testing.T) {
 	defer plugin.Close()
 
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestE2E_Principal_Absent_HandlerSeesNil(t *testing.T) {
 	defer plugin.Close()
 
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestE2E_Authorizer_AllowsViaCallback(t *testing.T) {
 		"action":   "github.read_pr",
 		"resource": "repo:codefly/x",
 	})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "check.action", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -348,7 +348,7 @@ func TestE2E_Authorizer_DenyReasonReachesPlugin(t *testing.T) {
 		"action":   "github.force_push",
 		"resource": "repo:codefly/x",
 	})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "check.action", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -394,7 +394,7 @@ func TestE2E_Authorizer_NoCallback_FailsClosed(t *testing.T) {
 		"action":   "anything",
 		"resource": "any",
 	})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "check.action", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -472,7 +472,7 @@ func TestE2E_Authorizer_PluginCannotImpersonate(t *testing.T) {
 		"resource": "repo:codefly/x",
 	})
 	for i := 0; i < 5; i++ {
-		resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+		resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 			Name: "check.action", Arguments: args,
 		})
 		require.NoError(t, err)
@@ -577,7 +577,7 @@ func TestE2E_ScopedAuth_FastPathSkipsPDP(t *testing.T) {
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -641,7 +641,7 @@ func TestE2E_ScopedAuth_DefensePathFallsBackToPDP(t *testing.T) {
 
 	// NO scoped-auth metadata — Guard takes the defense path.
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -695,7 +695,7 @@ func TestE2E_ScopedAuth_InvalidTokenFailsClosed(t *testing.T) {
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	args, _ := structpb.NewStruct(map[string]any{})
-	resp, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -818,7 +818,7 @@ func TestE2E_M7_Escalation_HostRetriesAfterDeny(t *testing.T) {
 	args, _ := structpb.NewStruct(map[string]any{})
 
 	// --- Call #1: defense path → PDP denies ---
-	resp1, err := plugin.Client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp1, err := plugin.Client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err, "transport call always succeeds; the deny is in resp.Error")
@@ -847,7 +847,7 @@ func TestE2E_M7_Escalation_HostRetriesAfterDeny(t *testing.T) {
 	require.Equal(t, "who.am.i", sa.Action)
 
 	// --- Call #2: fast path → token verifies → handler runs ---
-	resp2, err := plugin.Client.CallTool(elevatedCtx, &toolboxv0.CallToolRequest{
+	resp2, err := plugin.Client.CallTool(elevatedCtx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -978,7 +978,7 @@ func TestE2E_ScopedAuth_ReplayProtection(t *testing.T) {
 	args, _ := structpb.NewStruct(map[string]any{})
 
 	// First use — succeeds.
-	resp1, err := plugin.Client.CallTool(callCtx, &toolboxv0.CallToolRequest{
+	resp1, err := plugin.Client.CallTool(callCtx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -986,7 +986,7 @@ func TestE2E_ScopedAuth_ReplayProtection(t *testing.T) {
 		"first use: fast path proceeds")
 
 	// Second use — replay tracker rejects.
-	resp2, err := plugin.Client.CallTool(callCtx, &toolboxv0.CallToolRequest{
+	resp2, err := plugin.Client.CallTool(callCtx, &toolboxv1.CallToolRequest{
 		Name: "who.am.i", Arguments: args,
 	})
 	require.NoError(t, err)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
@@ -95,7 +95,7 @@ func TestLoadEndpointsPrefersDependencyContract(t *testing.T) {
 	require.Equal(t, "current.v1", resources.IsGRPC(ctx, endpoints[0]).Package)
 }
 
-func loadMultipleGRPCEndpoints(t *testing.T) []*basev0.Endpoint {
+func loadMultipleGRPCEndpoints(t *testing.T) []*basev1.Endpoint {
 	t.Helper()
 	ctx := context.Background()
 	service, err := resources.LoadServiceFromDir(ctx, "testdata/workspaces/named-same-api-dependency/modules/saas/services/accounts")
@@ -364,16 +364,16 @@ func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
 		require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "conversion refuses %s", name)
 		require.ErrorContains(t, err, "authors allow-modules")
 	}
-	descriptor := (&basev0.Endpoint{}).ProtoReflect().Descriptor()
+	descriptor := (&basev1.Endpoint{}).ProtoReflect().Descriptor()
 	require.Nil(t, descriptor.Fields().ByName("allow_modules"), "the wire model carries no allow-list")
 	require.True(t, descriptor.ReservedNames().Has("allow_modules"), "the name is reserved")
 	require.True(t, descriptor.ReservedRanges().Has(9), "the number is reserved")
-	require.Error(t, resources.Validate(&basev0.Endpoint{Name: "http", Service: "vault", Module: "infra", Api: "http", Visibility: resources.VisibilityPublic, Exposure: "ingress"}), "the schema refuses an exposure outside the model's list")
+	require.Error(t, resources.Validate(&basev1.Endpoint{Name: "http", Service: "vault", Module: "infra", Api: "http", Visibility: resources.VisibilityPublic, Exposure: "ingress"}), "the schema refuses an exposure outside the model's list")
 	exposed := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Exposure: resources.ExposurePublic}
 	exposedProto, err := exposed.Proto()
 	require.NoError(t, err)
 	require.True(t, resources.IsExposedEndpoint(exposedProto))
-	require.False(t, resources.IsExposedEndpoint(&basev0.Endpoint{Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}), "a visibility never allocates an address")
+	require.False(t, resources.IsExposedEndpoint(&basev1.Endpoint{Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}), "a visibility never allocates an address")
 	endpoint.Location = resources.LocationExternal
 	proto, err := endpoint.Proto()
 	require.NoError(t, err)

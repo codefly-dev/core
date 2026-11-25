@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // CodeExecutor is the interface every code server (Default, Go, …) satisfies.
 type CodeExecutor interface {
-	Execute(context.Context, *codev0.CodeRequest) (*codev0.CodeResponse, error)
+	Execute(context.Context, *codev1.CodeRequest) (*codev1.CodeResponse, error)
 }
 
 // VFSProvider is implemented by servers that expose their underlying VFS and
@@ -26,7 +26,7 @@ type VFSProvider interface {
 type CodebaseContext struct {
 	Module    string
 	Language  string
-	Packages  []*codev0.PackageInfo
+	Packages  []*codev1.PackageInfo
 	DepGraph  *DepGraph
 	Timelines []*FileTimeline
 	Stats     TimelineStats
@@ -37,8 +37,8 @@ type CodebaseContext struct {
 func BuildCodebaseContext(ctx context.Context, server CodeExecutor) (*CodebaseContext, error) {
 	cc := &CodebaseContext{}
 
-	infoResp, err := server.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	infoResp, err := server.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get project info: %w", err)

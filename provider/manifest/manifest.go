@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"gopkg.in/yaml.v3"
@@ -682,7 +682,7 @@ func (m *Manifest) ValidateCatalog(catalog *Catalog) error {
 	return nil
 }
 
-func (m *Manifest) AdmitRuntimeCatalog(runtime *providerv0.RuntimeCatalog) (*Catalog, error) {
+func (m *Manifest) AdmitRuntimeCatalog(runtime *providerv1.RuntimeCatalog) (*Catalog, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime catalog is required")
 	}

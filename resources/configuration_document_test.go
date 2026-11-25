@@ -6,21 +6,21 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
-func documentConfiguration(kind, content string, secret bool) *basev0.Configuration {
-	return &basev0.Configuration{Origin: "app/api", Infos: []*basev0.ConfigurationInformation{{
-		Name: "settings", Data: &basev0.ConfigurationData{Kind: kind, Content: []byte(content), Secret: secret},
+func documentConfiguration(kind, content string, secret bool) *basev1.Configuration {
+	return &basev1.Configuration{Origin: "app/api", Infos: []*basev1.ConfigurationInformation{{
+		Name: "settings", Data: &basev1.ConfigurationData{Kind: kind, Content: []byte(content), Secret: secret},
 	}}}
 }
 
 func TestEnvironmentManagerPreservesStructuredConfiguration(t *testing.T) {
 	ctx := context.Background()
 	manager := resources.NewEnvironmentVariableManager()
-	manager.SetEnvironment(&basev0.Environment{Name: "staging"})
+	manager.SetEnvironment(&basev1.Environment{Name: "staging"})
 	public := `{"nested":{"list":[null,true,9007199254740993,"00123"]}}`
 	secret := `{"credentials":{"token":"private-sentinel"}}`
 	require.NoError(t, manager.AddConfigurations(ctx, documentConfiguration("json", public, false), documentConfiguration("json", secret, true)))
@@ -124,8 +124,8 @@ func TestRawConfigurationRefusesStructuredData(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, values)
 
-	flat := &basev0.Configuration{Infos: []*basev0.ConfigurationInformation{{
-		ConfigurationValues: []*basev0.ConfigurationValue{{Key: "EXACT_key", Value: "value"}},
+	flat := &basev1.Configuration{Infos: []*basev1.ConfigurationInformation{{
+		ConfigurationValues: []*basev1.ConfigurationValue{{Key: "EXACT_key", Value: "value"}},
 	}}}
 	values, err = resources.ConfigurationAsRawEnvironmentVariables(flat)
 	require.NoError(t, err)

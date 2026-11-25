@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 	multierror "github.com/hashicorp/go-multierror"
 
@@ -45,12 +45,12 @@ type RestRoute struct {
 	Method HTTPMethod
 }
 
-func (route *RestRoute) Proto() (*basev0.RestRoute, error) {
+func (route *RestRoute) Proto() (*basev1.RestRoute, error) {
 	method, err := ConvertHTTPMethodToProto(route.Method)
 	if err != nil {
 		return nil, err
 	}
-	proto := &basev0.RestRoute{
+	proto := &basev1.RestRoute{
 		Path:   route.Path,
 		Method: method,
 	}
@@ -462,47 +462,47 @@ func LoadExtendedRestRouteGroup[T any](ctx context.Context, p string) (*Extended
 // ErrUnknownHTTPMethod is returned when an HTTP method cannot be converted
 var ErrUnknownHTTPMethod = fmt.Errorf("unknown HTTP method")
 
-func ConvertHTTPMethodToProto(m HTTPMethod) (basev0.HTTPMethod, error) {
+func ConvertHTTPMethodToProto(m HTTPMethod) (basev1.HTTPMethod, error) {
 	switch m {
 	case HTTPMethodGet:
-		return basev0.HTTPMethod_GET, nil
+		return basev1.HTTPMethod_GET, nil
 	case HTTPMethodPost:
-		return basev0.HTTPMethod_POST, nil
+		return basev1.HTTPMethod_POST, nil
 	case HTTPMethodPut:
-		return basev0.HTTPMethod_PUT, nil
+		return basev1.HTTPMethod_PUT, nil
 	case HTTPMethodDelete:
-		return basev0.HTTPMethod_DELETE, nil
+		return basev1.HTTPMethod_DELETE, nil
 	case HTTPMethodPatch:
-		return basev0.HTTPMethod_PATCH, nil
+		return basev1.HTTPMethod_PATCH, nil
 	case HTTPMethodOptions:
-		return basev0.HTTPMethod_OPTIONS, nil
+		return basev1.HTTPMethod_OPTIONS, nil
 	case HTTPMethodHead:
-		return basev0.HTTPMethod_HEAD, nil
+		return basev1.HTTPMethod_HEAD, nil
 	}
 	return 0, fmt.Errorf("%w: %v", ErrUnknownHTTPMethod, m)
 }
 
-func ConvertHTTPMethodFromProto(m basev0.HTTPMethod) (HTTPMethod, error) {
+func ConvertHTTPMethodFromProto(m basev1.HTTPMethod) (HTTPMethod, error) {
 	switch m {
-	case basev0.HTTPMethod_GET:
+	case basev1.HTTPMethod_GET:
 		return HTTPMethodGet, nil
-	case basev0.HTTPMethod_POST:
+	case basev1.HTTPMethod_POST:
 		return HTTPMethodPost, nil
-	case basev0.HTTPMethod_PUT:
+	case basev1.HTTPMethod_PUT:
 		return HTTPMethodPut, nil
-	case basev0.HTTPMethod_DELETE:
+	case basev1.HTTPMethod_DELETE:
 		return HTTPMethodDelete, nil
-	case basev0.HTTPMethod_PATCH:
+	case basev1.HTTPMethod_PATCH:
 		return HTTPMethodPatch, nil
-	case basev0.HTTPMethod_OPTIONS:
+	case basev1.HTTPMethod_OPTIONS:
 		return HTTPMethodOptions, nil
-	case basev0.HTTPMethod_HEAD:
+	case basev1.HTTPMethod_HEAD:
 		return HTTPMethodHead, nil
 	}
 	return "", fmt.Errorf("%w: %v", ErrUnknownHTTPMethod, m)
 }
 
-func RestRouteFromProto(r *basev0.RestRoute) (*RestRoute, error) {
+func RestRouteFromProto(r *basev1.RestRoute) (*RestRoute, error) {
 	method, err := ConvertHTTPMethodFromProto(r.Method)
 	if err != nil {
 		return nil, err
@@ -513,7 +513,7 @@ func RestRouteFromProto(r *basev0.RestRoute) (*RestRoute, error) {
 	}, nil
 }
 
-func GRPCRouteFromProto(e *basev0.Endpoint, grpc *basev0.GrpcAPI, rpc *basev0.RPC) *GRPCRoute {
+func GRPCRouteFromProto(e *basev1.Endpoint, grpc *basev1.GrpcAPI, rpc *basev1.RPC) *GRPCRoute {
 	return &GRPCRoute{
 		Name:        rpc.Name,
 		Package:     grpc.Package,
@@ -534,11 +534,11 @@ func (r RouteUnique) String() string {
 	return fmt.Sprintf("%s/%s%s[%s]", r.module, r.service, r.path, r.method)
 }
 
-func GroupKey(endpoint *basev0.Endpoint, group *basev0.RestRouteGroup) string {
+func GroupKey(endpoint *basev1.Endpoint, group *basev1.RestRouteGroup) string {
 	return fmt.Sprintf("%s_%s_%s_%s", endpoint.Module, endpoint.Service, endpoint.Name, group.Path)
 }
 
-func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*RestRouteGroup) ([]*RestRouteGroup, error) {
+func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev1.Endpoint, known []*RestRouteGroup) ([]*RestRouteGroup, error) {
 	w := wool.Get(ctx).In("DetectNewRoutes")
 	w.Debug("processing endpoints", wool.SliceCountField(endpoints))
 	knownRoutes := make(map[string]bool)
@@ -607,7 +607,7 @@ func DetectNewRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpo
 	return output, nil
 }
 
-func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.Endpoint, known []*GRPCRoute) []*GRPCRoute {
+func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev1.Endpoint, known []*GRPCRoute) []*GRPCRoute {
 	w := wool.Get(ctx).In("DetectNewGRPCRoutes")
 	knownRoutes := make(map[string]bool)
 	for _, k := range known {
@@ -629,7 +629,7 @@ func DetectNewGRPCRoutesFromEndpoints(ctx context.Context, endpoints []*basev0.E
 }
 
 // FindEndpointForRestRoute finds the info that matches the route rpcs
-func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *RestRouteGroup) *basev0.Endpoint {
+func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev1.Endpoint, route *RestRouteGroup) *basev1.Endpoint {
 	for _, e := range endpoints {
 		if e.Module == route.Module && e.Service == route.Service && IsRest(ctx, e) != nil {
 			return e
@@ -639,7 +639,7 @@ func FindEndpointForRestRoute(ctx context.Context, endpoints []*basev0.Endpoint,
 }
 
 // FindEndpointForGRPCRoute finds the info that matches the route rpcs
-func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev0.Endpoint, route *GRPCRoute) *basev0.Endpoint {
+func FindEndpointForGRPCRoute(ctx context.Context, endpoints []*basev1.Endpoint, route *GRPCRoute) *basev1.Endpoint {
 	for _, e := range endpoints {
 		if e.Module == route.Module && e.Service == route.Service && IsGRPC(ctx, e) != nil {
 			return e

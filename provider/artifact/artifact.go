@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/resources"
 )
@@ -48,7 +48,7 @@ type Verified struct {
 	BinaryPath string
 }
 
-func (v *Verified) AdmitRuntimeCatalog(runtime *providerv0.RuntimeCatalog) (*manifest.Catalog, error) {
+func (v *Verified) AdmitRuntimeCatalog(runtime *providerv1.RuntimeCatalog) (*manifest.Catalog, error) {
 	if v == nil || v.Manifest == nil || v.Descriptor == nil {
 		return nil, fmt.Errorf("verified provider artifact is required")
 	}

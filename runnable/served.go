@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -70,13 +70,13 @@ const (
 	// harness's own service rather than a generated proto service, because
 	// there is no proto service here: the body is the bounded contract's own
 	// JSON, not a protobuf message.
-	ServedInvokeProcedure = "/codefly.runnable.v0.Runnable/Invoke"
+	ServedInvokeProcedure = "/codefly.runnable.v1.Runnable/Invoke"
 	// ServedLookupProcedure is the receipt route: the same bounded input
 	// document as the call, the effect identified by EffectHeader, and the
 	// operation's own output document as the answer. A package declaring
 	// RECOVERY_RECEIPT serves it, and an absent receipt answers "not found"
 	// without that being an error — absent is "not yet known", never "no".
-	ServedLookupProcedure = "/codefly.runnable.v0.Runnable/Lookup"
+	ServedLookupProcedure = "/codefly.runnable.v1.Runnable/Lookup"
 )
 
 // Call is what a caller saw of one call to a served operation. It is raw
@@ -117,7 +117,7 @@ type Call struct {
 // is an outcome, because a caller told "this was not a real call" may issue the
 // effect a second time. It errors only on a Call it cannot record at all, the
 // same line validateObservation drew for a process.
-func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, observed Call) (*basev0.RunnableServedCompletion, error) {
+func ClassifyServed(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, observed Call) (*basev1.RunnableServedCompletion, error) {
 	if err := validateInvocation(inv, pkg); err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 		return nil, fmt.Errorf("%w: call is answered at %s, before it was sent at %s",
 			ErrInvalid, observed.AnsweredAt, observed.CalledAt)
 	}
-	completion := &basev0.RunnableServedCompletion{
+	completion := &basev1.RunnableServedCompletion{
 		Runnable:     proto.CloneOf(pkg.GetIdentity()),
 		InvocationId: inv.GetInvocationId(),
 		CalledAt:     timestamppb.New(observed.CalledAt),
@@ -142,7 +142,7 @@ func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 		// Nothing was sent, so the effect did not happen. This is the only
 		// certainty a caller reaches on its own; every other proof is the
 		// owner's own assertion.
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE
 		if completion.GetMessage() == "" {
 			completion.Message = "no Work Context was resolved for the call, so it was never sent"
 		}
@@ -151,18 +151,18 @@ func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 		// The call did not complete. A container that exited without answering
 		// is here too, and so is a reply that was lost: the receipt is the only
 		// evidence in every one of those cases.
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE
 		return completion, nil
 	case observed.FailureCode != "":
 		// The owner's own typed assertion that it completed without its effect.
 		// The code is carried verbatim: it is the evidence the outcome rests on.
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_OWNER_FAILED
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_OWNER_FAILED
 		completion.FailureCode = observed.FailureCode
-		completion.Result = &basev0.RunnableResult{
+		completion.Result = &basev1.RunnableResult{
 			Protocol:     inv.GetProtocol(),
 			InvocationId: inv.GetInvocationId(),
-			Status:       basev0.RunnableResult_FAILED,
-			Error:        &basev0.RunnableError{Code: observed.FailureCode, Message: completion.GetMessage()},
+			Status:       basev1.RunnableResult_FAILED,
+			Error:        &basev1.RunnableError{Code: observed.FailureCode, Message: completion.GetMessage()},
 		}
 		return completion, nil
 	}
@@ -171,23 +171,23 @@ func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 		// The owner answered with something that is not this invocation's valid
 		// response. The effect may have committed before the answer was spoiled,
 		// so this is unproven rather than a failure.
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
 		completion.Message = appendServedMessage(completion.GetMessage(), err.Error())
 		return completion, nil
 	}
 	completion.Result = result
 	switch result.GetStatus() {
-	case basev0.RunnableResult_SUCCEEDED:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_SUCCEEDED
-	case basev0.RunnableResult_FAILED:
+	case basev1.RunnableResult_SUCCEEDED:
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_SUCCEEDED
+	case basev1.RunnableResult_FAILED:
 		// ParseResult already refused a FAILED result carrying no code, so the
 		// owner's assertion is present by the time we are here.
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_OWNER_FAILED
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_OWNER_FAILED
 		completion.FailureCode = result.GetError().GetCode()
-	case basev0.RunnableResult_INTERRUPTED:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN
+	case basev1.RunnableResult_INTERRUPTED:
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN
 	default:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
 	}
 	return completion, nil
 }
@@ -201,11 +201,11 @@ func ClassifyServed(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 // SERVED_OWNER_FAILED is certain because the owner asserted it in its own
 // vocabulary — which is why ClassifyServed refuses to reach it from a status
 // class. Everything else, including an interrupted invocation, is unproven.
-func ServedOutcomeIsCertain(outcome basev0.RunnableServedOutcome) bool {
+func ServedOutcomeIsCertain(outcome basev1.RunnableServedOutcome) bool {
 	switch outcome {
-	case basev0.RunnableServedOutcome_SERVED_SUCCEEDED,
-		basev0.RunnableServedOutcome_SERVED_OWNER_FAILED,
-		basev0.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE:
+	case basev1.RunnableServedOutcome_SERVED_SUCCEEDED,
+		basev1.RunnableServedOutcome_SERVED_OWNER_FAILED,
+		basev1.RunnableServedOutcome_SERVED_AUTHORITY_UNAVAILABLE:
 		return true
 	default:
 		return false

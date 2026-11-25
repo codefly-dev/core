@@ -13,9 +13,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -218,8 +218,8 @@ func (mod *Module) Unique() string {
 	return mod.Name
 }
 
-func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
-	proto := &basev0.Module{
+func (mod *Module) Proto(_ context.Context) (*basev1.Module, error) {
+	proto := &basev1.Module{
 		Name:         mod.Name,
 		Description:  mod.Description,
 		ServiceEntry: mod.ServiceEntry,
@@ -227,7 +227,7 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 
 	// Convert interface
 	if mod.Interface != nil {
-		protoInterface := &basev0.ModuleInterface{}
+		protoInterface := &basev1.ModuleInterface{}
 		for _, ie := range mod.Interface.Endpoints {
 			// Judged here as the loader judges it: a module built in memory
 			// must not publish an export declaration a manifest could not
@@ -235,7 +235,7 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 			if err := ie.validate(); err != nil {
 				return nil, err
 			}
-			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev0.InterfaceEndpoint{
+			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev1.InterfaceEndpoint{
 				Service:    ie.Service,
 				Endpoint:   ie.Endpoint,
 				Visibility: ie.exportedVisibility(),
@@ -360,7 +360,7 @@ type NewModuleInput struct {
 }
 
 // NewModule creates an module in a workspace
-func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.NewModule) (createdModule *Module, result error) {
+func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv1.NewModule) (createdModule *Module, result error) {
 	if action == nil {
 		return nil, wool.Get(ctx).In("configurations.NewModule").NewError("module action is nil")
 	}
@@ -871,12 +871,12 @@ func (mod *Module) DeleteService(ctx context.Context, name string) error {
 // visibility is not private. Reach is the question — internal and public both
 // cross module lines — never whether an outward address exists, which is
 // exposure.
-func (mod *Module) ExportedEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+func (mod *Module) ExportedEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
 	if mod.HasInterface() {
 		return mod.InterfaceEndpoints(ctx)
 	}
 	w := wool.Get(ctx).In("Module::ExportedEndpoints", wool.ThisField(mod))
-	var exported []*basev0.Endpoint
+	var exported []*basev1.Endpoint
 	services, err := mod.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
@@ -899,13 +899,13 @@ func (mod *Module) ExportedEndpoints(ctx context.Context) ([]*basev0.Endpoint, e
 
 // InterfaceEndpoints returns the endpoints declared in the module interface:
 // the formally declared exports, and nothing a service merely declares.
-func (mod *Module) InterfaceEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+func (mod *Module) InterfaceEndpoints(ctx context.Context) ([]*basev1.Endpoint, error) {
 	w := wool.Get(ctx).In("Module::InterfaceEndpoints", wool.ThisField(mod))
 	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
 		return nil, nil
 	}
 
-	var exposed []*basev0.Endpoint
+	var exposed []*basev1.Endpoint
 	for _, ie := range mod.Interface.Endpoints {
 		service, err := mod.LoadServiceFromName(ctx, ie.Service)
 		if err != nil {
@@ -935,7 +935,7 @@ func (mod *Module) InterfaceEndpoints(ctx context.Context) ([]*basev0.Endpoint, 
 // contracts. It is InterfaceEndpoints guarded by a declared interface: a module
 // without one cannot publish contracts by accident. A module whose interface
 // declares only capabilities has declared one, and exports no endpoint.
-func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.Endpoint, error) {
+func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev1.Endpoint, error) {
 	if mod.Interface == nil || (len(mod.Interface.Endpoints) == 0 && len(mod.Interface.Capabilities) == 0) {
 		return nil, wool.Get(ctx).In("Module::ExportedEndpointsForPackage", wool.ThisField(mod)).
 			NewError("module %s declares no interface; an interface is required to export API contracts", mod.Name)
@@ -1115,7 +1115,7 @@ func (mod *Module) validateImplementation(ctx context.Context, provider *Interfa
 // module emits for its consumers against every capability interface the module
 // declares that service provides. Definitions come from the resolver attached
 // to ctx.
-func (mod *Module) ValidateProvidedConfiguration(ctx context.Context, service string, configuration *basev0.Configuration) error {
+func (mod *Module) ValidateProvidedConfiguration(ctx context.Context, service string, configuration *basev1.Configuration) error {
 	providers, err := mod.InterfaceProviders()
 	if err != nil {
 		return err
@@ -1290,7 +1290,7 @@ func (mod *Module) DeleteApplication(ctx context.Context, name string) error {
 }
 
 // NewApplication creates an application in a module
-func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddApplication) (createdApplication *Application, result error) {
+func (mod *Module) NewApplication(ctx context.Context, action *actionsv1.AddApplication) (createdApplication *Application, result error) {
 	if action == nil {
 		return nil, wool.Get(ctx).In("mod.NewApplication").NewError("application action is nil")
 	}

@@ -5,23 +5,23 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // templatedStoreConfiguration is a producer that hands out an assembled
 // connection string: the password is the only thing in the secret store.
-func templatedStoreConfiguration() *basev0.Configuration {
-	return &basev0.Configuration{
+func templatedStoreConfiguration() *basev1.Configuration {
+	return &basev1.Configuration{
 		Origin: "mod/store",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "postgres",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "POSTGRES_PASSWORD", Value: "p@ss/w:rd", Secret: true},
-				{Key: "CONNECTION", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-					Segments: []*basev0.ConfigurationValueTemplateSegment{
+				{Key: "CONNECTION", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+					Segments: []*basev1.ConfigurationValueTemplateSegment{
 						templateLiteral("postgresql://reader:"),
 						templateReference("postgres", "POSTGRES_PASSWORD",
-							basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
+							basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
 						templateLiteral("@store:5432/app"),
 					},
 				}},
@@ -99,7 +99,7 @@ func TestConfigurationAsEnvironmentVariablesFailsOnAMalformedTemplate(t *testing
 func TestManagerDeliversTemplatesByReferenceWhenAsked(t *testing.T) {
 	build := func() *EnvironmentVariableManager {
 		manager := NewEnvironmentVariableManager()
-		manager.SetEnvironment(&basev0.Environment{Name: "production"})
+		manager.SetEnvironment(&basev1.Environment{Name: "production"})
 		if err := manager.AddConfigurations(context.Background(), templatedStoreConfiguration()); err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +160,7 @@ func TestConfigurationValueEnvironmentKeyMatchesTheEmittedCarrier(t *testing.T) 
 			t.Errorf("%q is not a carrier the emitter produced: %v", key, EnvironmentVariableAsStrings(envs))
 		}
 	}
-	public := &basev0.ConfigurationValue{Key: "HOST", Value: "store"}
+	public := &basev1.ConfigurationValue{Key: "HOST", Value: "store"}
 	if got := ConfigurationValueEnvironmentKey(conf, "postgres", public); got != "CODEFLY__SERVICE_CONFIGURATION__MOD__STORE__POSTGRES__HOST" {
 		t.Errorf("public carrier = %q", got)
 	}
@@ -207,11 +207,11 @@ func TestConfigurationValueRefusesATemplatedValue(t *testing.T) {
 // references to order a consumer after its producers; missing these starts the
 // service before the address in its connection string exists.
 func TestConfigurationValueEndpointReferencesSeesTemplateLiterals(t *testing.T) {
-	value := &basev0.ConfigurationValue{Key: "CONNECTION", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-		Segments: []*basev0.ConfigurationValueTemplateSegment{
+	value := &basev1.ConfigurationValue{Key: "CONNECTION", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+		Segments: []*basev1.ConfigurationValueTemplateSegment{
 			templateLiteral("postgresql://reader:"),
 			templateReference("postgres", "POSTGRES_PASSWORD",
-				basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
+				basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
 			templateLiteral("@${endpoint:mod/store/postgres}/app"),
 		},
 	}}
@@ -219,7 +219,7 @@ func TestConfigurationValueEndpointReferencesSeesTemplateLiterals(t *testing.T) 
 	if len(got) != 1 || got[0] != "mod/store/postgres" {
 		t.Errorf("references = %v, want [mod/store/postgres]", got)
 	}
-	plain := &basev0.ConfigurationValue{Key: "URL", Value: "${endpoint:mod/other/http}/v1"}
+	plain := &basev1.ConfigurationValue{Key: "URL", Value: "${endpoint:mod/other/http}/v1"}
 	if got := ConfigurationValueEndpointReferences(plain); len(got) != 1 || got[0] != "mod/other/http" {
 		t.Errorf("a plain value must still be read: %v", got)
 	}

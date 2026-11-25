@@ -1,6 +1,6 @@
 // Package git is the codefly Git toolbox: every git operation an
 // agent might want to perform, exposed as typed Tool RPCs through
-// the codefly.services.toolbox.v0 contract.
+// the codefly.services.toolbox.v1 contract.
 //
 // This is the canonical replacement for `bash -c "git ..."` —
 // agents that need to interact with a repository call a Tool here

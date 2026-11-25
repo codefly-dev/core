@@ -3,30 +3,30 @@ package cassette_test
 import (
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/cassette"
 	"github.com/stretchr/testify/require"
 )
 
-func plannedRequest(policyDigest string) *providerv0.PlannedRequest {
-	return &providerv0.PlannedRequest{
+func plannedRequest(policyDigest string) *providerv1.PlannedRequest {
+	return &providerv1.PlannedRequest{
 		RequestDescriptorId:  "account.create",
-		Method:               providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:               providerv1.HTTPMethod_HTTP_METHOD_POST,
 		ResponsePolicyDigest: policyDigest,
 		IdempotencyKey:       "idem-volatile",
 	}
 }
 
-func admittedOrigin() *providerv0.AdmittedOrigin {
-	return &providerv0.AdmittedOrigin{OriginRuleId: "api", Scheme: "https", Host: "api.stripe.com", Port: 443}
+func admittedOrigin() *providerv1.AdmittedOrigin {
+	return &providerv1.AdmittedOrigin{OriginRuleId: "api", Scheme: "https", Host: "api.stripe.com", Port: 443}
 }
 
-func safeResponse() *providerv0.ExecuteRequestResponse {
-	return &providerv0.ExecuteRequestResponse{
+func safeResponse() *providerv1.ExecuteRequestResponse {
+	return &providerv1.ExecuteRequestResponse{
 		StatusCode: 200,
-		Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		Forwarded: []*providerv0.FilteredField{
-			{Selector: "$.id", Value: &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "acct_1"}}},
+		Certainty:  providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Forwarded: []*providerv1.FilteredField{
+			{Selector: "$.id", Value: &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: "acct_1"}}},
 		},
 	}
 }
@@ -122,11 +122,11 @@ func TestReplay_ProviderVersionMismatchRejected(t *testing.T) {
 }
 
 func TestRecord_PoisonSecretHardFailure(t *testing.T) {
-	poison := &providerv0.ExecuteRequestResponse{
+	poison := &providerv1.ExecuteRequestResponse{
 		StatusCode: 200,
-		Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		Forwarded: []*providerv0.FilteredField{
-			{Selector: "$.token", Value: &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: "sk_live_1234567890abcdef"}}},
+		Certainty:  providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Forwarded: []*providerv1.FilteredField{
+			{Selector: "$.token", Value: &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: "sk_live_1234567890abcdef"}}},
 		},
 	}
 	recorder := cassette.New(cassette.ModeRecord, "1.2.3")

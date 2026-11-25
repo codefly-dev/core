@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/stretchr/testify/require"
 )
@@ -388,7 +388,7 @@ func TestProductAnalyticsOutputProposalsRemainConsumerScoped(t *testing.T) {
 	require.NoError(t, registry.ValidateProposal(productAnalyticsBrowserProposal()))
 
 	browser := productAnalyticsBrowserProposal()
-	browser.Values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"] = outputOpaque("secret://analytics/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)
+	browser.Values["PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY"] = outputOpaque("secret://analytics/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)
 	require.ErrorContains(t, registry.ValidateProposal(browser), "undeclared key")
 }
 
@@ -473,23 +473,23 @@ func validBillingRuntimeValues() map[string]configuration.Value {
 	}
 }
 
-func productAnalyticsServerProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func productAnalyticsServerProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: configuration.ProductAnalyticsContract,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"PRODUCT_ANALYTICS_MODE":                  outputString("posthog"),
 			"PRODUCT_ANALYTICS_PROJECT_ID":            outputString("12345"),
 			"PRODUCT_ANALYTICS_ENVIRONMENT":           outputString("production"),
 			"PRODUCT_ANALYTICS_SERVER_CAPTURE_ORIGIN": outputString("endpoint://analytics/server"),
-			"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY":    outputOpaque("secret://analytics/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"PRODUCT_ANALYTICS_SERVER_CAPTURE_KEY":    outputOpaque("secret://analytics/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
 		},
 	}
 }
 
-func productAnalyticsBrowserProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func productAnalyticsBrowserProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: configuration.ProductAnalyticsBrowserContract,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"PRODUCT_ANALYTICS_MODE":                   outputString("posthog"),
 			"PRODUCT_ANALYTICS_PROJECT_ID":             outputString("12345"),
 			"PRODUCT_ANALYTICS_ENVIRONMENT":            outputString("production"),
@@ -499,14 +499,14 @@ func productAnalyticsBrowserProposal() *providerv0.OutputProposal {
 	}
 }
 
-func outputString(value string) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: &providerv0.PublicValue{
-		Kind: &providerv0.PublicValue_StringValue{StringValue: value},
+func outputString(value string) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_PublicValue{PublicValue: &providerv1.PublicValue{
+		Kind: &providerv1.PublicValue_StringValue{StringValue: value},
 	}}}
 }
 
-func outputOpaque(reference string, purpose providerv0.CredentialPurpose) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+func outputOpaque(reference string, purpose providerv1.CredentialPurpose) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_OpaqueReference{OpaqueReference: &providerv1.OpaqueReference{
 		Reference: reference, Purpose: purpose, SafeFingerprint: fingerprint(reference),
 	}}}
 }
@@ -594,14 +594,14 @@ func opaqueValue(reference string, purpose configuration.CredentialPurpose, cons
 
 func validHostAttestations() configuration.HostAttestations {
 	return configuration.HostAttestations{
-		OpaqueReferences: []*providerv0.OpaqueReference{
-			opaqueAttestation("secret://stripe/runtime", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			opaqueAttestation("secret://stripe/webhook", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
-			opaqueAttestation("secret://sentry/build", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD),
-			opaqueAttestation("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			opaqueAttestation("secret://feature-flags/browser", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			opaqueAttestation("secret://analytics/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			opaqueAttestation("secret://analytics/management", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT),
+		OpaqueReferences: []*providerv1.OpaqueReference{
+			opaqueAttestation("secret://stripe/runtime", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			opaqueAttestation("secret://stripe/webhook", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
+			opaqueAttestation("secret://sentry/build", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD),
+			opaqueAttestation("secret://feature-flags/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			opaqueAttestation("secret://feature-flags/browser", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			opaqueAttestation("secret://analytics/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			opaqueAttestation("secret://analytics/management", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT),
 		},
 	}
 }
@@ -610,8 +610,8 @@ func validationContext(consumer configuration.ConsumerClass) configuration.Valid
 	return configuration.ValidationContext{Consumer: consumer, Attestations: validHostAttestations()}
 }
 
-func opaqueAttestation(reference string, purpose providerv0.CredentialPurpose) *providerv0.OpaqueReference {
-	return &providerv0.OpaqueReference{Reference: reference, Purpose: purpose, SafeFingerprint: fingerprint(reference)}
+func opaqueAttestation(reference string, purpose providerv1.CredentialPurpose) *providerv1.OpaqueReference {
+	return &providerv1.OpaqueReference{Reference: reference, Purpose: purpose, SafeFingerprint: fingerprint(reference)}
 }
 
 func fingerprint(value string) string {

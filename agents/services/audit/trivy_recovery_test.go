@@ -7,15 +7,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAuditWithTrivyDatabaseRecoveryCoordinatesParallelCallers(t *testing.T) {
 	coordinator := newTrivyAuditRecoveryCoordinator()
-	request := &builderv0.AuditRequest{}
-	clean := &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_CLEAN},
+	request := &builderv1.AuditRequest{}
+	clean := &builderv1.AuditResponse{
+		State: &builderv1.AuditStatus{State: builderv1.AuditStatus_CLEAN},
 		Tool:  "trivy",
 	}
 
@@ -35,7 +35,7 @@ func TestAuditWithTrivyDatabaseRecoveryCoordinatesParallelCallers(t *testing.T) 
 		go func() {
 			defer group.Done()
 			calls := 0
-			audit := func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+			audit := func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 				calls++
 				if calls == 1 {
 					initialCalls <- struct{}{}
@@ -74,16 +74,16 @@ func TestAuditWithTrivyDatabaseRecoveryMatchesOwnedDatabaseFailures(t *testing.T
 		t.Run(message, func(t *testing.T) {
 			coordinator := newTrivyAuditRecoveryCoordinator()
 			calls := 0
-			audit := func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+			audit := func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 				calls++
 				if calls == 1 {
 					return nil, errors.New(message)
 				}
-				return &builderv0.AuditResponse{Tool: "trivy"}, nil
+				return &builderv1.AuditResponse{Tool: "trivy"}, nil
 			}
 			resets := 0
 
-			response, err := coordinator.audit(context.Background(), &builderv0.AuditRequest{}, audit, func(context.Context) error {
+			response, err := coordinator.audit(context.Background(), &builderv1.AuditRequest{}, audit, func(context.Context) error {
 				resets++
 				return nil
 			})
@@ -108,13 +108,13 @@ func TestAuditWithTrivyDatabaseRecoveryLeavesUnownedFailuresUntouched(t *testing
 			coordinator := newTrivyAuditRecoveryCoordinator()
 			auditErr := errors.New(message)
 			calls := 0
-			audit := func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+			audit := func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 				calls++
 				return nil, auditErr
 			}
 			resets := 0
 
-			_, err := coordinator.audit(context.Background(), &builderv0.AuditRequest{}, audit, func(context.Context) error {
+			_, err := coordinator.audit(context.Background(), &builderv1.AuditRequest{}, audit, func(context.Context) error {
 				resets++
 				return nil
 			})
@@ -134,8 +134,8 @@ func TestAuditWithTrivyDatabaseRecoveryPreservesResetFailure(t *testing.T) {
 
 	_, err := coordinator.audit(
 		context.Background(),
-		&builderv0.AuditRequest{},
-		func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+		&builderv1.AuditRequest{},
+		func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 			calls++
 			return nil, auditErr
 		},
@@ -155,8 +155,8 @@ func TestAuditWithTrivyDatabaseRecoveryCleansCorruptRetry(t *testing.T) {
 
 	_, err := coordinator.audit(
 		context.Background(),
-		&builderv0.AuditRequest{},
-		func(context.Context, *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+		&builderv1.AuditRequest{},
+		func(context.Context, *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 			calls++
 			return nil, auditErr
 		},

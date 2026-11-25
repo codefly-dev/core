@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/code"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // newPythonProject materializes a fixture Python project on disk and
@@ -44,8 +44,8 @@ remote-wheel @ https://example.test/remote.whl; python_version >= '3.11'
 		"requirements/base.txt": "pydantic==2.9.0\nRequests==9.9.9\n",
 		"app.py":                "import requests\n",
 	})
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +76,8 @@ func TestPythonProjectInfoReadsRequirementsTxtOnlyProject(t *testing.T) {
 		"requirements.txt": "flask==3.1.2\n",
 		"app.py":           "import flask\n",
 	})
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +93,8 @@ func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude
 		"requirements.in": "requests==2.32.5\n-r requirements/missing.txt\n",
 		"app.py":          "import requests\n",
 	})
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude
 	if info == nil || len(info.GetDependencies()) != 1 || info.GetDependencies()[0].GetName() != "requests" {
 		t.Fatalf("partial project evidence = %+v", info)
 	}
-	if response.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED ||
+	if response.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED ||
 		!strings.Contains(response.GetFailure().GetMessage(), "requirements/missing.txt") {
 		t.Fatalf("typed requirement failure = %+v", response.GetFailure())
 	}
@@ -112,7 +112,7 @@ func TestPythonProjectInfoReturnsTypedPartialFailureForMissingRequirementInclude
 // packagesByPath indexes a GetProjectInfo package list by RelativePath.
 func packagesByPath(t *testing.T, s *code.PythonCodeServer) map[string]pkgView {
 	t.Helper()
-	response, err := s.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}}})
+	response, err := s.Execute(context.Background(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}}})
 	if err != nil {
 		t.Fatalf("GetProjectInfo: %v", err)
 	}

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // DependencyKind classifies WHY a service depends on another one. The kind
@@ -255,7 +255,7 @@ const (
 // Legacy dependencies are exempt. Endpointless producers under an undeclared
 // kind are how existing workspaces express one-shot work, and failing them
 // would reject configurations that work today.
-func ValidateDependencyPrerequisite(dependency *ServiceDependency, producerEndpoints []*basev0.Endpoint) error {
+func ValidateDependencyPrerequisite(dependency *ServiceDependency, producerEndpoints []*basev1.Endpoint) error {
 	if dependency.Kind != DependencyKindRuntime {
 		return nil
 	}

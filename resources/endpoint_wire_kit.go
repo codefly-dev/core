@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // WireFixture is one encoded message of the wire kit and the verdict every
@@ -52,12 +52,12 @@ func wireFixtures(valid proto.Message, cases []wireFixtureCase, kind string) ([]
 	return result, nil
 }
 
-// EndpointWireFixtures is the wire kit for codefly.base.v0.Endpoint: a valid
+// EndpointWireFixtures is the wire kit for codefly.base.v1.Endpoint: a valid
 // internal endpoint, the same bytes with the reserved allow_modules field (9)
 // carrying a module, with the reserved field carrying the wildcard, and with
 // a field no schema version ever defined.
 func EndpointWireFixtures() ([]WireFixture, error) {
-	valid := &basev0.Endpoint{Name: "grpc", Service: "accounts", Module: "saas", Api: "grpc", Visibility: VisibilityInternal}
+	valid := &basev1.Endpoint{Name: "grpc", Service: "accounts", Module: "saas", Api: "grpc", Visibility: VisibilityInternal}
 	return wireFixtures(valid, []wireFixtureCase{
 		{name: "valid", outcome: EndpointDeclarationAccepted},
 		{name: "allow-modules-field-9", outcome: EndpointDeclarationRefused, rule: ruleWireFieldsKnown, message: "carries unknown wire fields [9]",

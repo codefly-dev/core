@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -43,7 +43,7 @@ const (
 	tMessage  = descriptorpb.FieldDescriptorProto_TYPE_MESSAGE
 )
 
-func projected(t *testing.T, spec fileSpec, name string) (*basev0.RunnableSchema, error) {
+func projected(t *testing.T, spec fileSpec, name string) (*basev1.RunnableSchema, error) {
 	t.Helper()
 	file := compile(t, spec)
 	md := file.Messages().ByName(protoreflect.Name(name))
@@ -74,32 +74,32 @@ func TestProjectMessageCoversTheBoundedProfile(t *testing.T) {
 	schema, err := projected(t, fileSpec{name: "fixture.proto", pkg: "fixture", messages: []*descriptorpb.DescriptorProto{inner, root}}, "Root")
 	require.NoError(t, err)
 
-	object := &basev0.RunnableField{Name: "nested", Type: basev0.RunnableField_OBJECT, Optional: true,
-		Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING, Optional: true}}}
-	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-		{Name: "text", Type: basev0.RunnableField_STRING, Optional: true},
-		{Name: "flag", Type: basev0.RunnableField_BOOLEAN, Optional: true},
-		{Name: "i32", Type: basev0.RunnableField_INTEGER, Optional: true},
-		{Name: "i64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
-		{Name: "s32", Type: basev0.RunnableField_INTEGER, Optional: true},
-		{Name: "s64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
-		{Name: "sf32", Type: basev0.RunnableField_INTEGER, Optional: true},
-		{Name: "sf64", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
-		{Name: "u32", Type: basev0.RunnableField_INTEGER, Optional: true},
-		{Name: "f32", Type: basev0.RunnableField_INTEGER, Optional: true},
+	object := &basev1.RunnableField{Name: "nested", Type: basev1.RunnableField_OBJECT, Optional: true,
+		Fields: []*basev1.RunnableField{{Name: "label", Type: basev1.RunnableField_STRING, Optional: true}}}
+	require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+		{Name: "text", Type: basev1.RunnableField_STRING, Optional: true},
+		{Name: "flag", Type: basev1.RunnableField_BOOLEAN, Optional: true},
+		{Name: "i32", Type: basev1.RunnableField_INTEGER, Optional: true},
+		{Name: "i64", Type: basev1.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "s32", Type: basev1.RunnableField_INTEGER, Optional: true},
+		{Name: "s64", Type: basev1.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "sf32", Type: basev1.RunnableField_INTEGER, Optional: true},
+		{Name: "sf64", Type: basev1.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+		{Name: "u32", Type: basev1.RunnableField_INTEGER, Optional: true},
+		{Name: "f32", Type: basev1.RunnableField_INTEGER, Optional: true},
 		object,
 		// Every key but a required field's may be absent (proto3 JSON omits
 		// defaults); an array's items carry neither the field's name nor its
 		// optionality.
-		{Name: "tags", Type: basev0.RunnableField_ARRAY, Optional: true, Items: &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
-		{Name: "many", Type: basev0.RunnableField_ARRAY, Optional: true, Items: &basev0.RunnableField{Type: basev0.RunnableField_OBJECT,
-			Fields: []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING, Optional: true}}}},
-		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
+		{Name: "tags", Type: basev1.RunnableField_ARRAY, Optional: true, Items: &basev1.RunnableField{Type: basev1.RunnableField_STRING}},
+		{Name: "many", Type: basev1.RunnableField_ARRAY, Optional: true, Items: &basev1.RunnableField{Type: basev1.RunnableField_OBJECT,
+			Fields: []*basev1.RunnableField{{Name: "label", Type: basev1.RunnableField_STRING, Optional: true}}}},
+		{Name: "note", Type: basev1.RunnableField_STRING, Optional: true},
 	}}, schema), "projected %v", schema)
 
 	// A projection is only useful if the contract it lands in loads, so the
 	// profile's own rules are applied to it rather than assumed.
-	contract, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
+	contract, err := resources.RunnableContractFromProto(&basev1.RunnableContract{
 		Protocol: resources.RunnableServiceProtocolV1, Input: schema, Output: schema})
 	require.NoError(t, err)
 	require.NoError(t, contract.Validate())
@@ -135,37 +135,37 @@ func TestProjectMessageProjectsByProtoJSON(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		spec fileSpec
-		want *basev0.RunnableField
+		want *basev1.RunnableField
 	}{
 		{"uint64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tUint64))}},
-			&basev0.RunnableField{Name: "count", Type: basev0.RunnableField_STRING, Format: "uint64"}},
+			&basev1.RunnableField{Name: "count", Type: basev1.RunnableField_STRING, Format: "uint64"}},
 		{"fixed64", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("count", 1, tFixed64))}},
-			&basev0.RunnableField{Name: "count", Type: basev0.RunnableField_STRING, Format: "uint64"}},
+			&basev1.RunnableField{Name: "count", Type: basev1.RunnableField_STRING, Format: "uint64"}},
 		{"bytes", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("blob", 1, tBytes))}},
-			&basev0.RunnableField{Name: "blob", Type: basev0.RunnableField_STRING, Format: "byte"}},
+			&basev1.RunnableField{Name: "blob", Type: basev1.RunnableField_STRING, Format: "byte"}},
 		{"float", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tFloat))}},
-			&basev0.RunnableField{Name: "ratio", Type: basev0.RunnableField_NUMBER}},
+			&basev1.RunnableField{Name: "ratio", Type: basev1.RunnableField_NUMBER}},
 		{"double", fileSpec{messages: []*descriptorpb.DescriptorProto{message("Root", scalar("ratio", 1, tDouble))}},
-			&basev0.RunnableField{Name: "ratio", Type: basev0.RunnableField_NUMBER}},
+			&basev1.RunnableField{Name: "ratio", Type: basev1.RunnableField_NUMBER}},
 		{"enum", fileSpec{enums: []*descriptorpb.EnumDescriptorProto{enum}, messages: []*descriptorpb.DescriptorProto{message("Root", named("colour", 1, tEnum, ".fixture.Colour"))}},
-			&basev0.RunnableField{Name: "colour", Type: basev0.RunnableField_STRING, Values: []string{"COLOUR_UNKNOWN", "COLOUR_RED"}}},
+			&basev1.RunnableField{Name: "colour", Type: basev1.RunnableField_STRING, Values: []string{"COLOUR_UNKNOWN", "COLOUR_RED"}}},
 		{"map", fileSpec{messages: []*descriptorpb.DescriptorProto{mapped}},
-			&basev0.RunnableField{Name: "labels", Type: basev0.RunnableField_JSON, Format: "object", Optional: true}},
+			&basev1.RunnableField{Name: "labels", Type: basev1.RunnableField_JSON, Format: "object", Optional: true}},
 		// A oneof member is its own key, and at most one is present.
 		{"oneof", fileSpec{messages: []*descriptorpb.DescriptorProto{oneof}},
-			&basev0.RunnableField{Name: "choice", Type: basev0.RunnableField_STRING, Optional: true}},
+			&basev1.RunnableField{Name: "choice", Type: basev1.RunnableField_STRING, Optional: true}},
 		{"timestamp", wkt("at", ".google.protobuf.Timestamp"),
-			&basev0.RunnableField{Name: "at", Type: basev0.RunnableField_STRING, Format: "date-time", Optional: true}},
+			&basev1.RunnableField{Name: "at", Type: basev1.RunnableField_STRING, Format: "date-time", Optional: true}},
 		{"duration", wkt("wait", ".google.protobuf.Duration"),
-			&basev0.RunnableField{Name: "wait", Type: basev0.RunnableField_STRING, Format: runnable.FormatProtobufDuration, Optional: true}},
+			&basev1.RunnableField{Name: "wait", Type: basev1.RunnableField_STRING, Format: runnable.FormatProtobufDuration, Optional: true}},
 		{"field mask", wkt("mask", ".google.protobuf.FieldMask"),
-			&basev0.RunnableField{Name: "mask", Type: basev0.RunnableField_STRING, Format: runnable.FormatFieldMask, Optional: true}},
+			&basev1.RunnableField{Name: "mask", Type: basev1.RunnableField_STRING, Format: runnable.FormatFieldMask, Optional: true}},
 		{"struct", wkt("payload", ".google.protobuf.Struct"),
-			&basev0.RunnableField{Name: "payload", Type: basev0.RunnableField_JSON, Format: "object", Optional: true}},
+			&basev1.RunnableField{Name: "payload", Type: basev1.RunnableField_JSON, Format: "object", Optional: true}},
 		{"value", wkt("payload", ".google.protobuf.Value"),
-			&basev0.RunnableField{Name: "payload", Type: basev0.RunnableField_JSON, Nullable: true, Optional: true}},
+			&basev1.RunnableField{Name: "payload", Type: basev1.RunnableField_JSON, Nullable: true, Optional: true}},
 		{"wrapper", wkt("label", ".google.protobuf.StringValue"),
-			&basev0.RunnableField{Name: "label", Type: basev0.RunnableField_STRING, Nullable: true, Optional: true}},
+			&basev1.RunnableField{Name: "label", Type: basev1.RunnableField_STRING, Nullable: true, Optional: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := test.spec
@@ -174,9 +174,9 @@ func TestProjectMessageProjectsByProtoJSON(t *testing.T) {
 			require.NoError(t, err)
 			// Every key may be absent: proto3 JSON omits a default value.
 			test.want.Optional = true
-			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{test.want}}, schema), "projected %v", schema)
+			require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{test.want}}, schema), "projected %v", schema)
 			// What projects is a contract that loads.
-			contract, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
+			contract, err := resources.RunnableContractFromProto(&basev1.RunnableContract{
 				Protocol: resources.RunnableServiceProtocolV1, Input: schema, Output: schema})
 			require.NoError(t, err)
 			require.NoError(t, contract.Validate())
@@ -271,10 +271,10 @@ func TestProjectMessageKeepsARequiredKeyPresent(t *testing.T) {
 
 	schema, err := runnable.ProjectMessage(file.Messages().ByName("Root"))
 	require.NoError(t, err)
-	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-		{Name: "id", Type: basev0.RunnableField_STRING},
+	require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+		{Name: "id", Type: basev1.RunnableField_STRING},
 		// proto2 optional does have an absent key.
-		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
+		{Name: "note", Type: basev1.RunnableField_STRING, Optional: true},
 	}}, schema), "projected %v", schema)
 }
 
@@ -301,7 +301,7 @@ func TestTheProjectionDescribesWhatConnectWrites(t *testing.T) {
 	md := file.Messages().ByName("Root")
 	schema, err := runnable.ProjectMessage(md)
 	require.NoError(t, err)
-	contract := &basev0.RunnableField{Type: basev0.RunnableField_OBJECT, Fields: schema.GetFields()}
+	contract := &basev1.RunnableField{Type: basev1.RunnableField_OBJECT, Fields: schema.GetFields()}
 
 	zero, err := protojson.MarshalOptions{}.Marshal(dynamicpb.NewMessage(md))
 	require.NoError(t, err)
@@ -339,10 +339,10 @@ func decodeJSON(t *testing.T, data []byte) any {
 // requireConforms checks a JSON value against its contract field and counts
 // the members it checked: a missing non-optional key, an undeclared key or a
 // value of another type fails.
-func requireConforms(t *testing.T, at string, field *basev0.RunnableField, value any) int {
+func requireConforms(t *testing.T, at string, field *basev1.RunnableField, value any) int {
 	t.Helper()
 	switch field.GetType() {
-	case basev0.RunnableField_OBJECT:
+	case basev1.RunnableField_OBJECT:
 		object, ok := value.(map[string]any)
 		require.Truef(t, ok, "%s is %T, the contract says object", at, value)
 		checked := 0
@@ -357,22 +357,22 @@ func requireConforms(t *testing.T, at string, field *basev0.RunnableField, value
 		}
 		require.Lenf(t, object, checked, "%s carries keys the contract does not declare: %v", at, object)
 		return checked
-	case basev0.RunnableField_ARRAY:
+	case basev1.RunnableField_ARRAY:
 		items, ok := value.([]any)
 		require.Truef(t, ok, "%s is %T, the contract says array", at, value)
 		for i, item := range items {
 			requireConforms(t, fmt.Sprintf("%s[%d]", at, i), field.GetItems(), item)
 		}
-	case basev0.RunnableField_STRING:
+	case basev1.RunnableField_STRING:
 		_, ok := value.(string)
 		require.Truef(t, ok, "%s is %T, the contract says string", at, value)
-	case basev0.RunnableField_INTEGER, basev0.RunnableField_NUMBER:
+	case basev1.RunnableField_INTEGER, basev1.RunnableField_NUMBER:
 		_, ok := value.(float64)
 		require.Truef(t, ok, "%s is %T, the contract says %s", at, value, field.GetType())
-	case basev0.RunnableField_BOOLEAN:
+	case basev1.RunnableField_BOOLEAN:
 		_, ok := value.(bool)
 		require.Truef(t, ok, "%s is %T, the contract says boolean", at, value)
-	case basev0.RunnableField_JSON:
+	case basev1.RunnableField_JSON:
 	default:
 		t.Fatalf("%s has contract type %s", at, field.GetType())
 	}

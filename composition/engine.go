@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/codefly-dev/core/shared"
 	"github.com/gofrs/flock"
@@ -146,12 +146,12 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 		return nil, err
 	}
 	candidate := lockForRelease(descriptor, verified, contracts, compositionDigest)
-	var consumerCompatibility *updatev0.UpdateResult
+	var consumerCompatibility *updatev1.UpdateResult
 	if current != nil && current.Version != candidate.Version {
 		var baselineManifest *PackageManifest
 		consumerCompatibility, baselineManifest = engine.evaluateConsumerUpdate(ctx, current, verified, descriptor.Name, compositionDigest)
 		switch consumerCompatibility.Verdict {
-		case updatev0.Verdict_VERDICT_SAFE, updatev0.Verdict_VERDICT_NEW_CAPABILITY:
+		case updatev1.Verdict_VERDICT_SAFE, updatev1.Verdict_VERDICT_NEW_CAPABILITY:
 		default:
 			diff, err := LockDiff(current, candidate)
 			if err != nil {
@@ -224,13 +224,13 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	return result, nil
 }
 
-func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock, candidate *VerifiedRelease, instance, compositionDigest string) (*updatev0.UpdateResult, *PackageManifest) {
-	var pin *updatev0.ConsumerPin
+func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock, candidate *VerifiedRelease, instance, compositionDigest string) (*updatev1.UpdateResult, *PackageManifest) {
+	var pin *updatev1.ConsumerPin
 	var baselineManifest *PackageManifest
-	unknown := func(err error) (*updatev0.UpdateResult, *PackageManifest) {
-		return &updatev0.UpdateResult{
+	unknown := func(err error) (*updatev1.UpdateResult, *PackageManifest) {
+		return &updatev1.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: current.Package, FromVersion: current.Version, ToVersion: candidate.manifest.Version,
-			Verdict: updatev0.Verdict_VERDICT_UNDETERMINED, Undetermined: []*updatev0.AffectedItem{{Reason: err.Error()}},
+			Verdict: updatev1.Verdict_VERDICT_UNDETERMINED, Undetermined: []*updatev1.AffectedItem{{Reason: err.Error()}},
 		}, baselineManifest
 	}
 	release, err := engine.Resolver.Fetch(ctx, current)

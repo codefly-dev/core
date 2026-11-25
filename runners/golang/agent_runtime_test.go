@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -609,11 +609,11 @@ func TestSetGoRuntimeContext(t *testing.T) {
 	origGo, origNix := goToolchainAvailable, nixBackendAvailable
 	t.Cleanup(func() { goToolchainAvailable, nixBackendAvailable = origGo, origNix })
 
-	rc := func(kind string) *basev0.RuntimeContext { return &basev0.RuntimeContext{Kind: kind} }
+	rc := func(kind string) *basev1.RuntimeContext { return &basev1.RuntimeContext{Kind: kind} }
 
 	cases := []struct {
 		name   string
-		in     *basev0.RuntimeContext
+		in     *basev1.RuntimeContext
 		hasGo  bool
 		hasNix bool
 		want   string

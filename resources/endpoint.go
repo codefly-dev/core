@@ -14,7 +14,7 @@ import (
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 type Visibility = string
@@ -233,7 +233,7 @@ func (endpoint *Endpoint) Declaration() EndpointDeclaration {
 // a field the schema does not define, the reserved allow_modules among them,
 // are carried here as unknown field numbers for the rule to refuse, never
 // dropped by the projection.
-func EndpointDeclarationOf(e *basev0.Endpoint) EndpointDeclaration {
+func EndpointDeclarationOf(e *basev1.Endpoint) EndpointDeclaration {
 	declaration := EndpointDeclaration{
 		Service:    e.GetService(),
 		Name:       e.GetName(),
@@ -282,13 +282,13 @@ func (endpoint *Endpoint) AllowsModule(module string) bool {
 // EndpointSecured reports whether the endpoint expects TLS. Each protocol
 // records it in its own API details, so a caller that needs to dial the
 // endpoint must read it from here rather than assume plaintext.
-func EndpointSecured(e *basev0.Endpoint) bool {
+func EndpointSecured(e *basev1.Endpoint) bool {
 	switch details := e.GetApiDetails().GetValue().(type) {
-	case *basev0.API_Grpc:
+	case *basev1.API_Grpc:
 		return details.Grpc.GetSecured()
-	case *basev0.API_Http:
+	case *basev1.API_Http:
 		return details.Http.GetSecured()
-	case *basev0.API_Rest:
+	case *basev1.API_Rest:
 		return details.Rest.GetSecured()
 	default:
 		return false
@@ -296,7 +296,7 @@ func EndpointSecured(e *basev0.Endpoint) bool {
 }
 
 // IsExternalEndpoint reports whether a proto endpoint lives outside the system.
-func IsExternalEndpoint(e *basev0.Endpoint) bool {
+func IsExternalEndpoint(e *basev1.Endpoint) bool {
 	return e.GetLocation() == LocationExternal
 }
 
@@ -304,7 +304,7 @@ func IsExternalEndpoint(e *basev0.Endpoint) bool {
 // reachable from outside the workspace. It is the condition the runtime
 // manager emits a Public network instance on, and the one a deployment renders
 // an outward address from; a visibility is never that condition.
-func IsExposedEndpoint(e *basev0.Endpoint) bool {
+func IsExposedEndpoint(e *basev1.Endpoint) bool {
 	return e.GetExposure() == ExposurePublic
 }
 
@@ -331,7 +331,7 @@ func (endpoint *Endpoint) ServiceUnique() string {
 	return ServiceUnique(endpoint.Module, endpoint.Service)
 }
 
-func ServiceUniqueFromEndpoint(endpoint *basev0.Endpoint) string {
+func ServiceUniqueFromEndpoint(endpoint *basev1.Endpoint) string {
 	return ServiceUnique(endpoint.Module, endpoint.Service)
 }
 
@@ -362,7 +362,7 @@ type EndpointInformation struct {
 	API     string
 }
 
-func EndpointInformationFromProto(endpoint *basev0.Endpoint) *EndpointInformation {
+func EndpointInformationFromProto(endpoint *basev1.Endpoint) *EndpointInformation {
 	return &EndpointInformation{
 		Module:  endpoint.Module,
 		Service: endpoint.Service,
@@ -406,7 +406,7 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 	}
 }
 
-func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
+func (endpoint *Endpoint) Proto() (*basev1.Endpoint, error) {
 	if err := ValidateEndpointDeclaration(endpoint.Declaration()); err != nil {
 		return nil, err
 	}
@@ -423,7 +423,7 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("endpoint %q health: %w", endpoint.Name, err)
 	}
-	e := &basev0.Endpoint{
+	e := &basev1.Endpoint{
 		Name:        endpoint.Name,
 		Module:      endpoint.Module,
 		Service:     endpoint.Service,
@@ -436,13 +436,13 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 	}
 	switch endpoint.API {
 	case standards.REST:
-		e.ApiDetails = ToRestAPI(&basev0.RestAPI{Secured: endpoint.Secured})
+		e.ApiDetails = ToRestAPI(&basev1.RestAPI{Secured: endpoint.Secured})
 	case standards.GRPC:
-		e.ApiDetails = ToGrpcAPI(&basev0.GrpcAPI{Secured: endpoint.Secured})
+		e.ApiDetails = ToGrpcAPI(&basev1.GrpcAPI{Secured: endpoint.Secured})
 	case standards.HTTP, standards.CONNECT, standards.MCP:
-		e.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: endpoint.Secured})
+		e.ApiDetails = ToHTTPAPI(&basev1.HttpAPI{Secured: endpoint.Secured})
 	case standards.TCP:
-		e.ApiDetails = ToTCPAPI(&basev0.TcpAPI{})
+		e.ApiDetails = ToTCPAPI(&basev1.TcpAPI{})
 	}
 	// Validate
 	if err := Validate(e); err != nil {
@@ -460,7 +460,7 @@ func (endpoint *Endpoint) Information() *EndpointInformation {
 	}
 }
 
-func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
+func EndpointFromProto(e *basev1.Endpoint) *Endpoint {
 	return &Endpoint{
 		Name:        e.Name,
 		Module:      e.Module,
@@ -479,7 +479,7 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 // each declaration whole first — the wire's unknown fields included — so a
 // proto that passed per-field schema validation is still refused here when
 // its declaration contradicts itself or carries a reserved field.
-func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
+func FromProtoEndpoints(es ...*basev1.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
 		if err := ValidateEndpointDeclaration(EndpointDeclarationOf(e)); err != nil {
@@ -493,8 +493,8 @@ func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	return endpoints, nil
 }
 
-func Light(e *basev0.Endpoint) *basev0.Endpoint {
-	return &basev0.Endpoint{
+func Light(e *basev1.Endpoint) *basev1.Endpoint {
+	return &basev1.Endpoint{
 		Name:        e.Name,
 		Visibility:  e.Visibility,
 		Description: e.Description,
@@ -506,7 +506,7 @@ func Light(e *basev0.Endpoint) *basev0.Endpoint {
 	}
 }
 
-func IsRest(_ context.Context, endpoint *basev0.Endpoint) *basev0.RestAPI {
+func IsRest(_ context.Context, endpoint *basev1.Endpoint) *basev1.RestAPI {
 	if endpoint == nil {
 		return nil
 	}
@@ -517,14 +517,14 @@ func IsRest(_ context.Context, endpoint *basev0.Endpoint) *basev0.RestAPI {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {
-	case *basev0.API_Rest:
+	case *basev1.API_Rest:
 		return v.Rest
 	default:
 		return nil
 	}
 }
 
-func IsGRPC(_ context.Context, endpoint *basev0.Endpoint) *basev0.GrpcAPI {
+func IsGRPC(_ context.Context, endpoint *basev1.Endpoint) *basev1.GrpcAPI {
 	if endpoint == nil {
 		return nil
 	}
@@ -535,14 +535,14 @@ func IsGRPC(_ context.Context, endpoint *basev0.Endpoint) *basev0.GrpcAPI {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {
-	case *basev0.API_Grpc:
+	case *basev1.API_Grpc:
 		return v.Grpc
 	default:
 		return nil
 	}
 }
 
-func IsHTTP(_ context.Context, endpoint *basev0.Endpoint) *basev0.HttpAPI {
+func IsHTTP(_ context.Context, endpoint *basev1.Endpoint) *basev1.HttpAPI {
 	if endpoint == nil {
 		return nil
 	}
@@ -553,14 +553,14 @@ func IsHTTP(_ context.Context, endpoint *basev0.Endpoint) *basev0.HttpAPI {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {
-	case *basev0.API_Http:
+	case *basev1.API_Http:
 		return v.Http
 	default:
 		return nil
 	}
 }
 
-func IsTCP(_ context.Context, endpoint *basev0.Endpoint) *basev0.TcpAPI {
+func IsTCP(_ context.Context, endpoint *basev1.Endpoint) *basev1.TcpAPI {
 	if endpoint == nil {
 		return nil
 	}
@@ -571,7 +571,7 @@ func IsTCP(_ context.Context, endpoint *basev0.Endpoint) *basev0.TcpAPI {
 		return nil
 	}
 	switch v := endpoint.ApiDetails.Value.(type) {
-	case *basev0.API_Tcp:
+	case *basev1.API_Tcp:
 		return v.Tcp
 	default:
 		return nil
@@ -583,7 +583,7 @@ type EndpointSummary struct {
 	Uniques []string
 }
 
-func MakeManyEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
+func MakeManyEndpointSummary(endpoints []*basev1.Endpoint) EndpointSummary {
 	sum := EndpointSummary{}
 	sum.Count = len(endpoints)
 	for _, e := range endpoints {
@@ -592,20 +592,20 @@ func MakeManyEndpointSummary(endpoints []*basev0.Endpoint) EndpointSummary {
 	return sum
 }
 
-func MakeEndpointSummary(endpoint *basev0.Endpoint) string {
+func MakeEndpointSummary(endpoint *basev1.Endpoint) string {
 	if endpoint == nil {
 		return "NIL"
 	}
 	return EndpointDestination(endpoint)
 }
 
-func EndpointDestination(e *basev0.Endpoint) string {
+func EndpointDestination(e *basev1.Endpoint) string {
 	return EndpointFromProto(e).Unique()
 }
 
 // Compute "change" of endpoints
 
-func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) {
+func endpointHash(_ context.Context, endpoint *basev1.Endpoint) (string, error) {
 	// w := wool.Get(ctx).In("configurations.EndpointHash")
 	var buf bytes.Buffer
 	buf.WriteString(endpoint.Name)
@@ -632,7 +632,7 @@ func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) 
 	return Hash(buf.Bytes()), nil
 }
 
-func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, error) {
+func EndpointHash(ctx context.Context, endpoints ...*basev1.Endpoint) (string, error) {
 	w := wool.Get(ctx).In("configurations.EndpointsHash")
 	hasher := NewHasher()
 	for _, endpoint := range endpoints {
@@ -645,8 +645,8 @@ func EndpointHash(ctx context.Context, endpoints ...*basev0.Endpoint) (string, e
 	return hasher.Hash(), nil
 }
 
-func FindEndpointsByAPI(_ context.Context, api string, endpoints []*basev0.Endpoint) []*basev0.Endpoint {
-	var matches []*basev0.Endpoint
+func FindEndpointsByAPI(_ context.Context, api string, endpoints []*basev1.Endpoint) []*basev1.Endpoint {
+	var matches []*basev1.Endpoint
 	for _, endpoint := range endpoints {
 		if endpoint != nil && endpoint.Api == api {
 			matches = append(matches, endpoint)
@@ -655,9 +655,9 @@ func FindEndpointsByAPI(_ context.Context, api string, endpoints []*basev0.Endpo
 	return matches
 }
 
-func findTypedEndpointsByAPI(ctx context.Context, api string, endpoints []*basev0.Endpoint) []*basev0.Endpoint {
+func findTypedEndpointsByAPI(ctx context.Context, api string, endpoints []*basev1.Endpoint) []*basev1.Endpoint {
 	matches := FindEndpointsByAPI(ctx, api, endpoints)
-	return slices.DeleteFunc(matches, func(endpoint *basev0.Endpoint) bool {
+	return slices.DeleteFunc(matches, func(endpoint *basev1.Endpoint) bool {
 		switch api {
 		case standards.GRPC:
 			return IsGRPC(ctx, endpoint) == nil
@@ -673,7 +673,7 @@ func findTypedEndpointsByAPI(ctx context.Context, api string, endpoints []*basev
 	})
 }
 
-func findUniqueEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func findUniqueEndpoint(api string, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	switch len(endpoints) {
 	case 0:
 		return nil, fmt.Errorf("no %s endpoint found", api)
@@ -689,7 +689,7 @@ func findUniqueEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpo
 	}
 }
 
-func findConventionalEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func findConventionalEndpoint(api string, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	for _, endpoint := range endpoints {
 		if endpoint.Name == api {
 			return endpoint, nil
@@ -698,17 +698,17 @@ func findConventionalEndpoint(api string, endpoints []*basev0.Endpoint) (*basev0
 	return findUniqueEndpoint(api, endpoints)
 }
 
-func FindEndpoint(ctx context.Context, name, api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindEndpoint(ctx context.Context, name, api string, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	matches := findTypedEndpointsByAPI(ctx, api, endpoints)
 	if name != "" {
-		matches = slices.DeleteFunc(matches, func(endpoint *basev0.Endpoint) bool {
+		matches = slices.DeleteFunc(matches, func(endpoint *basev1.Endpoint) bool {
 			return endpoint.Name != name
 		})
 	}
 	return findUniqueEndpoint(api, matches)
 }
 
-func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, error) {
 	if service == nil {
 		return nil, fmt.Errorf("service dependency cannot be nil")
 	}
@@ -720,7 +720,7 @@ func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0
 		}
 		return nil, fmt.Errorf("service dependency on interface %s is not bound to a provider", service.Interface)
 	}
-	var candidates []*basev0.Endpoint
+	var candidates []*basev1.Endpoint
 	seenNames := make(map[string]struct{})
 	for _, endpoint := range endpoints {
 		if endpoint == nil {
@@ -770,14 +770,14 @@ func validateEndpointReferences(service *ServiceDependency) error {
 	return nil
 }
 
-func endpointReferenceMatches(reference *EndpointReference, endpoint *basev0.Endpoint) bool {
+func endpointReferenceMatches(reference *EndpointReference, endpoint *basev1.Endpoint) bool {
 	if reference.Name != "" && reference.Name != endpoint.Name {
 		return false
 	}
 	return reference.API == "" || reference.API == endpoint.Api
 }
 
-func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint, requireDeclared bool) ([]*basev0.Endpoint, error) {
+func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev1.Endpoint, requireDeclared bool) ([]*basev1.Endpoint, error) {
 	candidates, err := serviceDependencyCandidates(service, endpoints)
 	if err != nil {
 		return nil, err
@@ -796,9 +796,9 @@ func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*
 	}
 
 	selectedNames := make(map[string]struct{}, len(service.Endpoints))
-	var selected []*basev0.Endpoint
+	var selected []*basev1.Endpoint
 	for _, reference := range service.Endpoints {
-		var matches []*basev0.Endpoint
+		var matches []*basev1.Endpoint
 		for _, endpoint := range candidates {
 			if endpointReferenceMatches(reference, endpoint) {
 				matches = append(matches, endpoint)
@@ -828,11 +828,11 @@ func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*
 	return selected, nil
 }
 
-func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func ResolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, error) {
 	return resolveServiceDependencyEndpoints(service, endpoints, true)
 }
 
-func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, error) {
 	return resolveServiceDependencyEndpoints(service, endpoints, false)
 }
 
@@ -842,7 +842,7 @@ func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*b
 // and the reasons the rest were refused. It is the one body behind every "may
 // this consumer depend on this endpoint" answer in the codebase, and the
 // provenance is in its signature so that no reader can ask without it.
-func dependencyEndpointVerdicts(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, []error, error) {
+func dependencyEndpointVerdicts(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, []error, error) {
 	if dependency == nil {
 		return nil, nil, fmt.Errorf("service dependency cannot be nil")
 	}
@@ -859,7 +859,7 @@ func dependencyEndpointVerdicts(provenance Provenance, consumerModule string, de
 	if err != nil {
 		return nil, nil, err
 	}
-	var permitted []*basev0.Endpoint
+	var permitted []*basev1.Endpoint
 	var denials []error
 	for _, endpoint := range resolved {
 		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, EndpointDeclarationOf(endpoint)); err != nil {
@@ -883,7 +883,7 @@ func dependencyEndpointVerdicts(provenance Provenance, consumerModule string, de
 // passes no judgement on the edge itself — ConsumedDependencyEndpoints is the
 // same selection with the verdict attached — so a description of a composition
 // that will not run still says what it would have carried.
-func PermittedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func PermittedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, error) {
 	permitted, _, err := dependencyEndpointVerdicts(provenance, consumerModule, dependency, endpoints)
 	return permitted, err
 }
@@ -908,7 +908,7 @@ func PermittedDependencyEndpoints(provenance Provenance, consumerModule string, 
 // still a violation: the edge is declared and the producer's export boundary
 // grants nothing for it, so resolving it to an empty set would leave the
 // consumer silently unwired.
-func ConsumedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+func ConsumedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev1.Endpoint) ([]*basev1.Endpoint, error) {
 	permitted, denials, err := dependencyEndpointVerdicts(provenance, consumerModule, dependency, endpoints)
 	if err != nil {
 		return nil, err
@@ -930,7 +930,7 @@ func ConsumedDependencyEndpoints(provenance Provenance, consumerModule string, d
 		dependency.Unique(), consumerModule, strings.Join(reasons, "; "))
 }
 
-func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints []*basev0.Endpoint) error {
+func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints []*basev1.Endpoint) error {
 	resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
 	if err != nil {
 		return err
@@ -958,7 +958,7 @@ func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints
 	return nil
 }
 
-func ValidateDependencyEndpoints(dependencies []*ServiceDependency, endpoints []*basev0.Endpoint) error {
+func ValidateDependencyEndpoints(dependencies []*ServiceDependency, endpoints []*basev1.Endpoint) error {
 	for _, dependency := range dependencies {
 		candidates, err := serviceDependencyCandidates(dependency, endpoints)
 		if err != nil {
@@ -974,7 +974,7 @@ func ValidateDependencyEndpoints(dependencies []*ServiceDependency, endpoints []
 	return nil
 }
 
-func findEndpointFromService(ctx context.Context, service *ServiceDependency, api string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func findEndpointFromService(ctx context.Context, service *ServiceDependency, api string, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	resolved, err := ResolveServiceDependencyEndpoints(service, endpoints)
 	if err != nil {
 		return nil, err
@@ -986,46 +986,46 @@ func findEndpointFromService(ctx context.Context, service *ServiceDependency, ap
 	return findUniqueEndpoint(api, matches)
 }
 
-func FindGRPCEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindGRPCEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.GRPC, findTypedEndpointsByAPI(ctx, standards.GRPC, endpoints))
 }
 
-func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindGRPCEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findEndpointFromService(ctx, service, standards.GRPC, endpoints)
 }
 
-func FindRestEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindRestEndpointFromService(ctx context.Context, service *ServiceDependency, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findEndpointFromService(ctx, service, standards.REST, endpoints)
 }
 
-func FindRestEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindRestEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.REST, findTypedEndpointsByAPI(ctx, standards.REST, endpoints))
 }
 
-func FindHTTPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindHTTPEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.HTTP, findTypedEndpointsByAPI(ctx, standards.HTTP, endpoints))
 }
 
-func FindConnectEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindConnectEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.CONNECT, FindEndpointsByAPI(ctx, standards.CONNECT, endpoints))
 }
 
-func FindMCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindMCPEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.MCP, FindEndpointsByAPI(ctx, standards.MCP, endpoints))
 }
 
-func FindTCPEndpoint(ctx context.Context, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindTCPEndpoint(ctx context.Context, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return findConventionalEndpoint(standards.TCP, findTypedEndpointsByAPI(ctx, standards.TCP, endpoints))
 }
 
-func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*basev0.Endpoint) (*basev0.Endpoint, error) {
+func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*basev1.Endpoint) (*basev1.Endpoint, error) {
 	return FindEndpoint(ctx, name, standards.TCP, endpoints)
 }
 
 // HasExposedEndpoints reports whether any endpoint is allocated an address
 // reachable from outside the workspace. It answers an ADDRESSING question — does
 // a deployment have something to route to — never who may call.
-func HasExposedEndpoints(endpoints []*basev0.Endpoint) bool {
+func HasExposedEndpoints(endpoints []*basev1.Endpoint) bool {
 	for _, endpoint := range endpoints {
 		if IsExposedEndpoint(endpoint) {
 			return true

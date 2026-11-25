@@ -13,39 +13,39 @@ import (
 	"os"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 const semanticSymbolPatchStrategy = "semantic-qualified-declaration"
 
 // applySymbolPatch replaces one complete declaration selected by the exact
 // qualified_name emitted by GetSemanticIndex and an exact declaration hash.
-func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.ApplySymbolPatchRequest) (*codev0.CodeResponse, error) {
-	result := &codev0.ApplySymbolPatchResponse{Success: false}
-	failure := func(code basev0.FailureCode, operation, message string) (*codev0.CodeResponse, error) {
-		return codeFailure(&codev0.CodeResponse{Result: &codev0.CodeResponse_ApplySymbolPatch{ApplySymbolPatch: result}}, code, operation, message), nil
+func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev1.ApplySymbolPatchRequest) (*codev1.CodeResponse, error) {
+	result := &codev1.ApplySymbolPatchResponse{Success: false}
+	failure := func(code basev1.FailureCode, operation, message string) (*codev1.CodeResponse, error) {
+		return codeFailure(&codev1.CodeResponse{Result: &codev1.CodeResponse_ApplySymbolPatch{ApplySymbolPatch: result}}, code, operation, message), nil
 	}
 	if req == nil {
-		return failure(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "request is required")
+		return failure(basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "request is required")
 	}
 	file := strings.TrimSpace(req.GetFile())
 	qualifiedName := strings.TrimSpace(req.GetQualifiedName())
 	expected := strings.TrimSpace(req.GetExpectedDeclarationSha256())
 	if file == "" || file != req.GetFile() || qualifiedName == "" || qualifiedName != req.GetQualifiedName() {
-		return failure(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "file and qualified_name are required and must be canonical")
+		return failure(basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "file and qualified_name are required and must be canonical")
 	}
 	if !canonicalSemanticSHA256(expected) || expected != req.GetExpectedDeclarationSha256() {
-		return failure(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "expected_declaration_sha256 must be lowercase SHA-256")
+		return failure(basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "code.apply-symbol-patch", "expected_declaration_sha256 must be lowercase SHA-256")
 	}
 	if s.semantic == nil {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE
-		return failure(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", "semantic symbol mutation requires a source-semantics analyzer")
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE
+		return failure(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", "semantic symbol mutation requires a source-semantics analyzer")
 	}
 	language, ok := s.semantic.Language(file)
 	if !ok {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE
-		return failure(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", fmt.Sprintf("semantic symbol mutation is unsupported for %s", file))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE
+		return failure(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", fmt.Sprintf("semantic symbol mutation is unsupported for %s", file))
 	}
 	absPath, err := resolvePath(s.SourceDir, file)
 	if err != nil {
@@ -54,14 +54,14 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	before, err := s.FS.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND
-			return failure(basev0.FailureCode_FAILURE_CODE_NOT_FOUND, "code.apply-symbol-patch", fmt.Sprintf("file not found: %s", file))
+			result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND
+			return failure(basev1.FailureCode_FAILURE_CODE_NOT_FOUND, "code.apply-symbol-patch", fmt.Sprintf("file not found: %s", file))
 		}
 		return nil, fmt.Errorf("reading %s: %w", file, err)
 	}
 	projections, err := s.semantic.DeclarationSpans(ctx, file, before)
 	if err != nil {
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("inspect current declaration: %v", err))
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("inspect current declaration: %v", err))
 	}
 	qualified := make([]SymbolSpan, 0, len(projections))
 	for _, projection := range projections {
@@ -70,8 +70,8 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 		}
 	}
 	if len(qualified) == 0 {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND
-		return failure(basev0.FailureCode_FAILURE_CODE_NOT_FOUND, "code.apply-symbol-patch", fmt.Sprintf("qualified symbol %q was not found in %s", qualifiedName, file))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND
+		return failure(basev1.FailureCode_FAILURE_CODE_NOT_FOUND, "code.apply-symbol-patch", fmt.Sprintf("qualified symbol %q was not found in %s", qualifiedName, file))
 	}
 	anchored := make([]SymbolSpan, 0, len(qualified))
 	for _, projection := range qualified {
@@ -80,26 +80,26 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 		}
 	}
 	if len(anchored) == 0 {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR
 		if len(qualified) == 1 {
 			result.DeclarationSha256 = qualified[0].Symbol.GetDeclarationSha256()
 		}
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("declaration hash for %q is stale", qualifiedName))
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("declaration hash for %q is stale", qualifiedName))
 	}
 	if len(anchored) != 1 {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("qualified symbol %q and declaration hash are ambiguous", qualifiedName))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("qualified symbol %q and declaration hash are ambiguous", qualifiedName))
 	}
 	target := anchored[0]
 	for _, projection := range projections {
 		if projection.DeclarationKey == target.DeclarationKey && projection.Symbol.GetQualifiedName() != target.Symbol.GetQualifiedName() {
-			result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION
-			return failure(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", fmt.Sprintf("%q shares one declaration with another symbol; use a typed multi-symbol mutation", qualifiedName))
+			result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION
+			return failure(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "code.apply-symbol-patch", fmt.Sprintf("%q shares one declaration with another symbol; use a typed multi-symbol mutation", qualifiedName))
 		}
 	}
 	start, end := int(target.StartByte), int(target.EndByte)
 	if start < 0 || end < start || end > len(before) {
-		return failure(basev0.FailureCode_FAILURE_CODE_INTERNAL, "code.apply-symbol-patch", "semantic analyzer returned an invalid declaration span")
+		return failure(basev1.FailureCode_FAILURE_CODE_INTERNAL, "code.apply-symbol-patch", "semantic analyzer returned an invalid declaration span")
 	}
 	// Tree-sitter declaration spans begin at the first declaration token, not
 	// at the line's outer indentation. Accept both analyzer-relative source and
@@ -118,13 +118,13 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	after = append(after, req.GetNewSource()...)
 	after = append(after, before[end:]...)
 	if err := s.semantic.ValidateSyntax(ctx, file, after); err != nil {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement is not valid %s source: %v", language, err))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement is not valid %s source: %v", language, err))
 	}
 	updated, err := s.semantic.DeclarationSpans(ctx, file, after)
 	if err != nil {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("inspect replacement declaration: %v", err))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("inspect replacement declaration: %v", err))
 	}
 	preservedIdentity := 0
 	for _, projection := range updated {
@@ -133,19 +133,19 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 		}
 	}
 	if preservedIdentity != 1 {
-		result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
-		return failure(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement must preserve exactly one qualified symbol %q", qualifiedName))
+		result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+		return failure(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "code.apply-symbol-patch", fmt.Sprintf("replacement must preserve exactly one qualified symbol %q", qualifiedName))
 	}
 	var actions []string
 	var output string
-	if req.GetFixMode() != basev0.FixMode_FIX_MODE_NONE && s.sourceFixer != nil {
+	if req.GetFixMode() != basev1.FixMode_FIX_MODE_NONE && s.sourceFixer != nil {
 		fixed, fixErr := s.sourceFixer(ctx, FixInput{Path: file, Content: after, Mode: req.GetFixMode()})
 		if fixErr != nil {
-			return failure(basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.apply-symbol-patch.fix", fixErr.Error())
+			return failure(basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.apply-symbol-patch.fix", fixErr.Error())
 		}
 		if err := s.semantic.ValidateSyntax(ctx, file, fixed.Content); err != nil {
-			result.FailureReason = basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
-			return failure(basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.apply-symbol-patch.fix", fmt.Sprintf("fixer returned invalid %s source: %v", language, err))
+			result.FailureReason = basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT
+			return failure(basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.apply-symbol-patch.fix", fmt.Sprintf("fixer returned invalid %s source: %v", language, err))
 		}
 		after, actions, output = fixed.Content, fixed.Actions, boundedFixOutput(fixed.Output)
 	}
@@ -153,7 +153,7 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	wrote := false
 	if !req.GetDryRun() && changed {
 		if err := s.FS.WriteFile(absPath, after, 0o644); err != nil {
-			return failure(basev0.FailureCode_FAILURE_CODE_IO_FAILED, "code.apply-symbol-patch", fmt.Sprintf("write: %v", err))
+			return failure(basev1.FailureCode_FAILURE_CODE_IO_FAILED, "code.apply-symbol-patch", fmt.Sprintf("write: %v", err))
 		}
 		wrote = true
 		s.notifyWrite(ctx, "write", file, "", after)
@@ -170,7 +170,7 @@ func (s *DefaultCodeServer) applySymbolPatch(ctx context.Context, req *codev0.Ap
 	result.DeclarationSha256 = expected
 	result.Wrote = wrote
 	result.Output = output
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplySymbolPatch{ApplySymbolPatch: result}}, nil
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_ApplySymbolPatch{ApplySymbolPatch: result}}, nil
 }
 
 func canonicalSemanticSHA256(value string) bool {

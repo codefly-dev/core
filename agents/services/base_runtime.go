@@ -9,51 +9,51 @@ import (
 
 	"github.com/codefly-dev/core/builders"
 	codeflyfailures "github.com/codefly-dev/core/failures"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 
 	"github.com/codefly-dev/core/wool"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 type InformationStatus struct {
-	Load  *runtimev0.LoadStatus
-	Init  *runtimev0.InitStatus
-	Start *runtimev0.StartStatus
+	Load  *runtimev1.LoadStatus
+	Init  *runtimev1.InitStatus
+	Start *runtimev1.StartStatus
 
-	DesiredState *runtimev0.DesiredState
+	DesiredState *runtimev1.DesiredState
 }
 
 type RuntimeWrapper struct {
 	*Base
 
-	RuntimeContext *basev0.RuntimeContext
+	RuntimeContext *basev1.RuntimeContext
 
-	RuntimeConfigurations []*basev0.Configuration
+	RuntimeConfigurations []*basev1.Configuration
 
-	LoadStatus    *runtimev0.LoadStatus
-	InitStatus    *runtimev0.InitStatus
-	StartStatus   *runtimev0.StartStatus
-	StopStatus    *runtimev0.StopStatus
-	DestroyStatus *runtimev0.DestroyStatus
+	LoadStatus    *runtimev1.LoadStatus
+	InitStatus    *runtimev1.InitStatus
+	StartStatus   *runtimev1.StartStatus
+	StopStatus    *runtimev1.StopStatus
+	DestroyStatus *runtimev1.DestroyStatus
 
-	BuildStatus *runtimev0.BuildStatus
-	TestStatus  *runtimev0.TestStatus
-	LintStatus  *runtimev0.LintStatus
+	BuildStatus *runtimev1.BuildStatus
+	TestStatus  *runtimev1.TestStatus
+	LintStatus  *runtimev1.LintStatus
 
-	DesiredState *runtimev0.DesiredState
+	DesiredState *runtimev1.DesiredState
 
 	// generation counts successful Starts. It is stamped on every StartStatus
 	// and health report so a consumer cannot read a ready result recorded before
 	// a restart as evidence about the process running now.
 	generation uint64
-	health     *basev0.HealthReport
+	health     *basev1.HealthReport
 	// startedArtifact is what this agent reported it started for the start in
 	// flight. StartResponse stamps it on the StartStatus — so a consumer reads
 	// the same answer from Start and from Information — and clears it, because
 	// it describes one process and the next start is another.
-	startedArtifact *runtimev0.StartedArtifact
+	startedArtifact *runtimev1.StartedArtifact
 
 	sync.RWMutex
 }
@@ -64,11 +64,11 @@ type RuntimeWrapper struct {
 type RuntimeLoad struct {
 	Settings         any
 	Requirements     *builders.Dependencies
-	ResolveEndpoints func(context.Context, []*basev0.Endpoint) error
+	ResolveEndpoints func(context.Context, []*basev1.Endpoint) error
 }
 
 // LoadService implements the conventional service runtime Load lifecycle.
-func (s *RuntimeWrapper) LoadService(ctx context.Context, req *runtimev0.LoadRequest, load RuntimeLoad) (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadService(ctx context.Context, req *runtimev1.LoadRequest, load RuntimeLoad) (*runtimev1.LoadResponse, error) {
 	if req == nil || req.GetIdentity() == nil {
 		return s.LoadError(s.Wool.NewError("runtime load requires a service identity"))
 	}
@@ -99,79 +99,79 @@ func (s *RuntimeWrapper) LoadService(ctx context.Context, req *runtimev0.LoadReq
 
 // ── Load ──────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) LoadResponse() (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadResponse() (*runtimev1.LoadResponse, error) {
 	if s.Environment == nil {
 		return s.LoadError(s.Wool.NewError("environment is nil"))
 	}
 	s.Lock()
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_READY}
+	s.LoadStatus = &runtimev1.LoadStatus{State: runtimev1.LoadStatus_READY}
 	s.Unlock()
 	s.Wool.Debug("load response", wool.NullableField("endpoints", resources.MakeManyEndpointSummary(s.Endpoints)))
-	return &runtimev0.LoadResponse{
+	return &runtimev1.LoadResponse{
 		Version:   s.Version(),
 		Endpoints: s.Endpoints,
 		Status:    s.LoadStatus,
 	}, nil
 }
 
-func (s *RuntimeWrapper) LoadError(err error) (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadError(err error) (*runtimev1.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.load", err, err.Error())}
-	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
+	s.LoadStatus = &runtimev1.LoadStatus{State: runtimev1.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.load", err, err.Error())}
+	return &runtimev1.LoadResponse{Status: s.LoadStatus}, nil
 }
 
-func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev0.LoadResponse, error) {
+func (s *RuntimeWrapper) LoadErrorf(err error, msg string, args ...any) (*runtimev1.LoadResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.LoadStatus = &runtimev0.LoadStatus{State: runtimev0.LoadStatus_ERROR, Message: message, Failure: operationFailure("runtime.load", err, message)}
-	return &runtimev0.LoadResponse{Status: s.LoadStatus}, nil
+	s.LoadStatus = &runtimev1.LoadStatus{State: runtimev1.LoadStatus_ERROR, Message: message, Failure: operationFailure("runtime.load", err, message)}
+	return &runtimev1.LoadResponse{Status: s.LoadStatus}, nil
 }
 
 // ── Init ──────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) InitResponse() (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitResponse() (*runtimev1.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_READY}
-	return &runtimev0.InitResponse{
+	s.InitStatus = &runtimev1.InitStatus{State: runtimev1.InitStatus_READY}
+	return &runtimev1.InitResponse{
 		Status:                s.InitStatus,
 		NetworkMappings:       s.NetworkMappings,
 		RuntimeConfigurations: s.RuntimeConfigurations,
 	}, nil
 }
 
-func (s *RuntimeWrapper) InitError(err error) (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitError(err error) (*runtimev1.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.init", err, err.Error())}
-	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
+	s.InitStatus = &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.init", err, err.Error())}
+	return &runtimev1.InitResponse{Status: s.InitStatus}, nil
 }
 
-func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev0.InitResponse, error) {
+func (s *RuntimeWrapper) InitErrorf(err error, msg string, args ...any) (*runtimev1.InitResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.InitStatus = &runtimev0.InitStatus{State: runtimev0.InitStatus_ERROR, Message: message, Failure: operationFailure("runtime.init", err, message)}
-	return &runtimev0.InitResponse{Status: s.InitStatus}, nil
+	s.InitStatus = &runtimev1.InitStatus{State: runtimev1.InitStatus_ERROR, Message: message, Failure: operationFailure("runtime.init", err, message)}
+	return &runtimev1.InitResponse{Status: s.InitStatus}, nil
 }
 
 // ── Start ─────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
+func (s *RuntimeWrapper) StartResponse() (*runtimev1.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	s.generation++
 	s.health = nil
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED, Generation: s.generation, StartedArtifact: s.startedArtifact}
+	s.StartStatus = &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED, Generation: s.generation, StartedArtifact: s.startedArtifact}
 	// Consumed, like the health report this clears beside it. What was started
 	// is a fact about one process, and the next Start is a different one: an
 	// agent that does not say what it ran this time must report nothing, not
 	// the previous process's answer. The status keeps the pointer, so
 	// Information still answers for the process that is running.
 	s.startedArtifact = nil
-	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
+	return &runtimev1.StartResponse{Status: s.StartStatus}, nil
 }
 
 // ReportStartedArtifact records what this agent started — the program it ran
@@ -189,7 +189,7 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 // for the restart, which is a refusal downstream rather than the previous
 // process's answer approved for this one. Passing nil withdraws a report not
 // yet stamped.
-func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev0.StartedArtifact) {
+func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev1.StartedArtifact) {
 	s.Lock()
 	defer s.Unlock()
 	if artifact == nil {
@@ -198,13 +198,13 @@ func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev0.StartedArtifa
 	}
 	// The caller keeps its message: the artifact it holds must not be mutated
 	// underneath it by a later stamp, as ReportHealth's clone exists for.
-	s.startedArtifact, _ = proto.Clone(artifact).(*runtimev0.StartedArtifact)
+	s.startedArtifact, _ = proto.Clone(artifact).(*runtimev1.StartedArtifact)
 }
 
 // ReportHealth records the agent's latest evaluation of the declared health
 // predicates. The report is stamped with the current lifecycle generation, so a
 // report produced for a previous process is not mistaken for this one's.
-func (s *RuntimeWrapper) ReportHealth(report *basev0.HealthReport) {
+func (s *RuntimeWrapper) ReportHealth(report *basev1.HealthReport) {
 	s.Lock()
 	defer s.Unlock()
 	if report == nil {
@@ -214,29 +214,29 @@ func (s *RuntimeWrapper) ReportHealth(report *basev0.HealthReport) {
 	// The caller keeps its message: a plugin that re-submits one cached report
 	// would otherwise have its Generation rewritten underneath a marshal of the
 	// same pointer already handed out by InformationResponse.
-	stamped, _ := proto.Clone(report).(*basev0.HealthReport)
+	stamped, _ := proto.Clone(report).(*basev1.HealthReport)
 	stamped.Generation = s.generation
 	s.health = stamped
 }
 
-func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
+func (s *RuntimeWrapper) StartError(err error) (*runtimev1.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	// The attempt is over, so its report is too: an artifact named for a
 	// process that never started must not be stamped on the retry that does.
 	s.startedArtifact = nil
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error()), Generation: s.generation}
-	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
+	s.StartStatus = &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error()), Generation: s.generation}
+	return &runtimev1.StartResponse{Status: s.StartStatus}, nil
 }
 
-func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
+func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev1.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	// See StartError: a failed attempt's report does not outlive it.
 	s.startedArtifact = nil
 	message := ErrorMessage(err, msg, args...)
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message), Generation: s.generation}
-	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
+	s.StartStatus = &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message), Generation: s.generation}
+	return &runtimev1.StartResponse{Status: s.StartStatus}, nil
 }
 
 // MarkRunnerExited records that the underlying runner process exited
@@ -255,36 +255,36 @@ func (s *RuntimeWrapper) MarkRunnerExited(err error) {
 	if err != nil {
 		msg = err.Error()
 	}
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: msg, Failure: operationFailure("runtime.start", err, msg), Generation: s.generation}
+	s.StartStatus = &runtimev1.StartStatus{State: runtimev1.StartStatus_ERROR, Message: msg, Failure: operationFailure("runtime.start", err, msg), Generation: s.generation}
 }
 
 // ── Test ──────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) TestResponse() (*runtimev0.TestResponse, error) {
+func (s *RuntimeWrapper) TestResponse() (*runtimev1.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_SUCCESS}
-	return &runtimev0.TestResponse{Status: s.TestStatus}, nil
+	s.TestStatus = &runtimev1.TestStatus{State: runtimev1.TestStatus_SUCCESS}
+	return &runtimev1.TestResponse{Status: s.TestStatus}, nil
 }
 
-func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped int32, coverage float32, failures []string, err error) (*runtimev0.TestResponse, error) {
+func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped int32, coverage float32, failures []string, err error) (*runtimev1.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	if err != nil || failed > 0 {
 		msg := ""
-		var failure *basev0.Failure
+		var failure *basev1.Failure
 		if err != nil {
 			msg = err.Error()
 			failure = operationFailure("runtime.test", err, msg)
 		} else {
 			msg = "one or more tests failed"
-			failure = codeflyfailures.New(basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "runtime.test", msg)
+			failure = codeflyfailures.New(basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED, "runtime.test", msg)
 		}
-		s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure}
+		s.TestStatus = &runtimev1.TestStatus{State: runtimev1.TestStatus_ERROR, Message: msg, Failure: failure}
 	} else {
-		s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_SUCCESS}
+		s.TestStatus = &runtimev1.TestStatus{State: runtimev1.TestStatus_SUCCESS}
 	}
-	return &runtimev0.TestResponse{
+	return &runtimev1.TestResponse{
 		Status:       s.TestStatus,
 		TestsRun:     run,
 		TestsPassed:  passed,
@@ -295,119 +295,119 @@ func (s *RuntimeWrapper) TestResponseWithResults(run, passed, failed, skipped in
 	}, nil
 }
 
-func (s *RuntimeWrapper) TestError(err error) (*runtimev0.TestResponse, error) {
+func (s *RuntimeWrapper) TestError(err error) (*runtimev1.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := err.Error()
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
+	s.TestStatus = &runtimev1.TestStatus{State: runtimev1.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
 	return typedTestErrorResponse(s.TestStatus, message), nil
 }
 
-func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev0.TestResponse, error) {
+func (s *RuntimeWrapper) TestErrorf(err error, msg string, args ...any) (*runtimev1.TestResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.TestStatus = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
+	s.TestStatus = &runtimev1.TestStatus{State: runtimev1.TestStatus_ERROR, Message: message, Failure: operationFailure("runtime.test", err, message)}
 	return typedTestErrorResponse(s.TestStatus, message), nil
 }
 
 // typedTestErrorResponse makes pre-execution failures terminal and explicit.
 // A status-only response decodes as TestRunResult_UNKNOWN and loses the
 // distinction between a failed test and an environment that never ran tests.
-func typedTestErrorResponse(status *runtimev0.TestStatus, message string) *runtimev0.TestResponse {
-	return &runtimev0.TestResponse{
+func typedTestErrorResponse(status *runtimev1.TestStatus, message string) *runtimev1.TestResponse {
+	return &runtimev1.TestResponse{
 		Status: status,
-		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: message},
-		Counts: &runtimev0.TestCounts{},
+		Result: &runtimev1.TestRunResult{State: runtimev1.TestRunResult_ERRORED, Message: message},
+		Counts: &runtimev1.TestCounts{},
 	}
 }
 
 // ── Build ─────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) BuildResponse(output string) (*runtimev0.BuildResponse, error) {
+func (s *RuntimeWrapper) BuildResponse(output string) (*runtimev1.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_SUCCESS}
-	return &runtimev0.BuildResponse{Status: s.BuildStatus, Output: output}, nil
+	s.BuildStatus = &runtimev1.BuildStatus{State: runtimev1.BuildStatus_SUCCESS}
+	return &runtimev1.BuildResponse{Status: s.BuildStatus, Output: output}, nil
 }
 
-func (s *RuntimeWrapper) BuildError(err error) (*runtimev0.BuildResponse, error) {
+func (s *RuntimeWrapper) BuildError(err error) (*runtimev1.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.compile", err, err.Error())}
-	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
+	s.BuildStatus = &runtimev1.BuildStatus{State: runtimev1.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.compile", err, err.Error())}
+	return &runtimev1.BuildResponse{Status: s.BuildStatus}, nil
 }
 
-func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runtimev0.BuildResponse, error) {
+func (s *RuntimeWrapper) BuildErrorf(err error, msg string, args ...any) (*runtimev1.BuildResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.BuildStatus = &runtimev0.BuildStatus{State: runtimev0.BuildStatus_ERROR, Message: message, Failure: operationFailure("runtime.compile", err, message)}
-	return &runtimev0.BuildResponse{Status: s.BuildStatus}, nil
+	s.BuildStatus = &runtimev1.BuildStatus{State: runtimev1.BuildStatus_ERROR, Message: message, Failure: operationFailure("runtime.compile", err, message)}
+	return &runtimev1.BuildResponse{Status: s.BuildStatus}, nil
 }
 
 // ── Lint ──────────────────────────────────────────────────
 
-func (s *RuntimeWrapper) LintResponse(output string) (*runtimev0.LintResponse, error) {
+func (s *RuntimeWrapper) LintResponse(output string) (*runtimev1.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_SUCCESS}
-	return &runtimev0.LintResponse{Status: s.LintStatus, Output: output}, nil
+	s.LintStatus = &runtimev1.LintStatus{State: runtimev1.LintStatus_SUCCESS}
+	return &runtimev1.LintResponse{Status: s.LintStatus, Output: output}, nil
 }
 
-func (s *RuntimeWrapper) LintError(err error) (*runtimev0.LintResponse, error) {
+func (s *RuntimeWrapper) LintError(err error) (*runtimev1.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.lint", err, err.Error())}
-	return &runtimev0.LintResponse{Status: s.LintStatus, Output: err.Error()}, nil
+	s.LintStatus = &runtimev1.LintStatus{State: runtimev1.LintStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.lint", err, err.Error())}
+	return &runtimev1.LintResponse{Status: s.LintStatus, Output: err.Error()}, nil
 }
 
-func (s *RuntimeWrapper) LintErrorf(err error, msg string, args ...any) (*runtimev0.LintResponse, error) {
+func (s *RuntimeWrapper) LintErrorf(err error, msg string, args ...any) (*runtimev1.LintResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 	message := ErrorMessage(err, msg, args...)
-	s.LintStatus = &runtimev0.LintStatus{State: runtimev0.LintStatus_ERROR, Message: message, Failure: operationFailure("runtime.lint", err, message)}
-	return &runtimev0.LintResponse{Status: s.LintStatus, Output: message}, nil
+	s.LintStatus = &runtimev1.LintStatus{State: runtimev1.LintStatus_ERROR, Message: message, Failure: operationFailure("runtime.lint", err, message)}
+	return &runtimev1.LintResponse{Status: s.LintStatus, Output: message}, nil
 }
 
 // ── Stop / Destroy ────────────────────────────────────────
 
-func (s *RuntimeWrapper) StopResponse() (*runtimev0.StopResponse, error) {
-	return &runtimev0.StopResponse{Status: &runtimev0.StopStatus{State: runtimev0.StopStatus_SUCCESS}}, nil
+func (s *RuntimeWrapper) StopResponse() (*runtimev1.StopResponse, error) {
+	return &runtimev1.StopResponse{Status: &runtimev1.StopStatus{State: runtimev1.StopStatus_SUCCESS}}, nil
 }
 
-func (s *RuntimeWrapper) StopError(err error) (*runtimev0.StopResponse, error) {
+func (s *RuntimeWrapper) StopError(err error) (*runtimev1.StopResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.StopStatus = &runtimev0.StopStatus{State: runtimev0.StopStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.stop", err, err.Error())}
-	return &runtimev0.StopResponse{Status: s.StopStatus}, nil
+	s.StopStatus = &runtimev1.StopStatus{State: runtimev1.StopStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.stop", err, err.Error())}
+	return &runtimev1.StopResponse{Status: s.StopStatus}, nil
 }
 
-func (s *RuntimeWrapper) DestroyResponse() (*runtimev0.DestroyResponse, error) {
-	return &runtimev0.DestroyResponse{Status: &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_SUCCESS}}, nil
+func (s *RuntimeWrapper) DestroyResponse() (*runtimev1.DestroyResponse, error) {
+	return &runtimev1.DestroyResponse{Status: &runtimev1.DestroyStatus{State: runtimev1.DestroyStatus_SUCCESS}}, nil
 }
 
-func (s *RuntimeWrapper) DestroyError(err error) (*runtimev0.DestroyResponse, error) {
+func (s *RuntimeWrapper) DestroyError(err error) (*runtimev1.DestroyResponse, error) {
 	s.Lock()
 	defer s.Unlock()
-	s.DestroyStatus = &runtimev0.DestroyStatus{State: runtimev0.DestroyStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.destroy", err, err.Error())}
-	return &runtimev0.DestroyResponse{Status: s.DestroyStatus}, nil
+	s.DestroyStatus = &runtimev1.DestroyStatus{State: runtimev1.DestroyStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.destroy", err, err.Error())}
+	return &runtimev1.DestroyResponse{Status: s.DestroyStatus}, nil
 }
 
 // ── Information ───────────────────────────────────────────
 
-func NOOP() *runtimev0.DesiredState {
-	return &runtimev0.DesiredState{Stage: runtimev0.DesiredState_NOOP}
+func NOOP() *runtimev1.DesiredState {
+	return &runtimev1.DesiredState{Stage: runtimev1.DesiredState_NOOP}
 }
 
-func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
 	s.Lock()
 	defer s.Unlock()
 
 	if s.DesiredState == nil {
 		s.DesiredState = NOOP()
 	}
-	resp := &runtimev0.InformationResponse{
+	resp := &runtimev1.InformationResponse{
 		LoadStatus:    s.LoadStatus,
 		InitStatus:    s.InitStatus,
 		StartStatus:   s.StartStatus,
@@ -428,30 +428,30 @@ func (s *RuntimeWrapper) InformationResponse(_ context.Context, _ *runtimev0.Inf
 func (s *RuntimeWrapper) DesiredLoad() {
 	s.Lock()
 	defer s.Unlock()
-	s.DesiredState = &runtimev0.DesiredState{Stage: runtimev0.DesiredState_LOAD}
+	s.DesiredState = &runtimev1.DesiredState{Stage: runtimev1.DesiredState_LOAD}
 }
 
 func (s *RuntimeWrapper) DesiredInit() {
 	s.Lock()
 	defer s.Unlock()
-	s.DesiredState = &runtimev0.DesiredState{Stage: runtimev0.DesiredState_INIT}
+	s.DesiredState = &runtimev1.DesiredState{Stage: runtimev1.DesiredState_INIT}
 }
 
 func (s *RuntimeWrapper) DesiredStart() {
 	s.Lock()
 	defer s.Unlock()
-	s.DesiredState = &runtimev0.DesiredState{Stage: runtimev0.DesiredState_START}
+	s.DesiredState = &runtimev1.DesiredState{Stage: runtimev1.DesiredState_START}
 }
 
 // ── Logging ───────────────────────────────────────────────
 
-func (s *RuntimeWrapper) LogLoadRequest(req *runtimev0.LoadRequest) {
+func (s *RuntimeWrapper) LogLoadRequest(req *runtimev1.LoadRequest) {
 	s.Wool.In("runtime::load").Debug("input",
 		wool.Field("environment", req.GetEnvironment()),
 		wool.Field("identity", req.GetIdentity()))
 }
 
-func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
+func (s *RuntimeWrapper) LogInitRequest(req *runtimev1.InitRequest) {
 	s.Wool.In("runtime::init").Debug("input",
 		wool.Field("runtime-context", req.GetRuntimeContext().GetKind()),
 		wool.Field("configurations", resources.MakeConfigurationSummary(req.GetConfiguration())),
@@ -460,7 +460,7 @@ func (s *RuntimeWrapper) LogInitRequest(req *runtimev0.InitRequest) {
 		wool.Field("network mapping", resources.MakeManyNetworkMappingSummary(req.GetProposedNetworkMappings())))
 }
 
-func (s *RuntimeWrapper) LogStartRequest(req *runtimev0.StartRequest) {
+func (s *RuntimeWrapper) LogStartRequest(req *runtimev1.StartRequest) {
 	s.Wool.In("runtime::start").Debug("input",
 		wool.Field("other network mappings", resources.MakeManyNetworkMappingSummary(req.GetDependenciesNetworkMappings())))
 }
@@ -487,7 +487,7 @@ func (s *RuntimeWrapper) IsNativeRuntime() bool {
 // NetworkAccess returns the address family appropriate for the runtime selected
 // by the orchestrator. Native and Nix processes use host-native addresses;
 // container runtimes use container-network addresses.
-func (s *RuntimeWrapper) NetworkAccess() *basev0.NetworkAccess {
+func (s *RuntimeWrapper) NetworkAccess() *basev1.NetworkAccess {
 	return resources.NetworkAccessFromRuntimeContext(s.RuntimeContext)
 }
 
@@ -504,11 +504,11 @@ func (s *RuntimeWrapper) AddSelfEndpoints(ctx context.Context) error {
 	return s.EnvironmentVariables.AddSelfEndpoints(ctx, s.NetworkMappings, s.NetworkAccess())
 }
 
-func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {
+func (s *RuntimeWrapper) WithContext(runtimeContext *basev1.RuntimeContext) {
 	s.RuntimeContext = runtimeContext
 }
 
-func (s *RuntimeWrapper) SetEnvironment(environment *basev0.Environment) {
+func (s *RuntimeWrapper) SetEnvironment(environment *basev1.Environment) {
 	s.Environment = environment
 	s.EnvironmentVariables.SetEnvironment(environment)
 }

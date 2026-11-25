@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // newShellExecServer returns a DefaultCodeServer rooted at a fresh temp
@@ -28,7 +28,7 @@ func newShellExecServer(t *testing.T) (*DefaultCodeServer, string) {
 
 // extractShellExec pulls the ShellExecResponse out of a CodeResponse
 // envelope and fails the test loudly if it's missing.
-func extractShellExec(t *testing.T, resp *codev0.CodeResponse) *codev0.ShellExecResponse {
+func extractShellExec(t *testing.T, resp *codev1.CodeResponse) *codev1.ShellExecResponse {
 	t.Helper()
 	if resp == nil {
 		t.Fatal("nil CodeResponse")
@@ -48,9 +48,9 @@ func TestShellExec_EchoHello(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, err := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{Command: "echo hello"},
+	resp, err := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{Command: "echo hello"},
 		},
 	})
 	if err != nil {
@@ -80,9 +80,9 @@ func TestShellExec_CwdIsSourceDir(t *testing.T) {
 	s, dir := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{Command: "cat marker.txt"},
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{Command: "cat marker.txt"},
 		},
 	})
 	r := extractShellExec(t, resp)
@@ -108,9 +108,9 @@ func TestShellExec_WorkDir_Subdir(t *testing.T) {
 	os.WriteFile(filepath.Join(subdir, "inner.txt"), []byte("inside\n"), 0o644)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "cat inner.txt",
 				WorkDir: "pkg/sub",
 			},
@@ -134,9 +134,9 @@ func TestShellExec_WorkDir_AbsoluteRejected(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "echo hi",
 				WorkDir: "/etc",
 			},
@@ -147,7 +147,7 @@ func TestShellExec_WorkDir_AbsoluteRejected(t *testing.T) {
 	if r.ExitCode != -1 {
 		t.Errorf("expected exit -1, got %d", r.ExitCode)
 	}
-	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "absolute work_dir not allowed") {
+	if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "absolute work_dir not allowed") {
 		t.Errorf("expected typed absolute-path failure, got %v", resp.GetFailure())
 	}
 }
@@ -156,9 +156,9 @@ func TestShellExec_WorkDir_TraversalRejected(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "echo hi",
 				WorkDir: "../../..",
 			},
@@ -169,7 +169,7 @@ func TestShellExec_WorkDir_TraversalRejected(t *testing.T) {
 	if r.ExitCode != -1 {
 		t.Errorf("expected exit -1, got %d", r.ExitCode)
 	}
-	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "escapes source root") {
+	if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT || !strings.Contains(resp.GetFailure().GetMessage(), "escapes source root") {
 		t.Errorf("expected typed traversal failure, got %v", resp.GetFailure())
 	}
 }
@@ -181,9 +181,9 @@ func TestShellExec_WorkDir_EscapingSymlinkCannotRunOutsideRoot(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	resp, _ := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "touch escaped.txt",
 				WorkDir: "escape",
 			},
@@ -208,9 +208,9 @@ func TestShellExec_ArgsMode(t *testing.T) {
 
 	// Args mode should pass the literal string — no glob expansion,
 	// no variable substitution.
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Args: []string{"echo", "literal *", "$HOME"},
 			},
 		},
@@ -236,9 +236,9 @@ func TestShellExec_NonZeroExitCode(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{Command: "exit 42"},
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{Command: "exit 42"},
 		},
 	})
 	r := extractShellExec(t, resp)
@@ -249,7 +249,7 @@ func TestShellExec_NonZeroExitCode(t *testing.T) {
 	if r.TimedOut {
 		t.Errorf("unexpected TimedOut=true")
 	}
-	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED || resp.GetFailure().GetProcess().GetExitCode() != 42 {
+	if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED || resp.GetFailure().GetProcess().GetExitCode() != 42 {
 		t.Fatalf("non-zero exit failure = %v, want process failure with exit 42", resp.GetFailure())
 	}
 }
@@ -262,9 +262,9 @@ func TestShellExec_StderrSeparate(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "echo to-out; echo to-err >&2",
 			},
 		},
@@ -291,9 +291,9 @@ func TestShellExec_Timeout(t *testing.T) {
 	ctx := context.Background()
 
 	start := time.Now()
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command:        "sleep 30",
 				TimeoutSeconds: 1,
 			},
@@ -305,7 +305,7 @@ func TestShellExec_Timeout(t *testing.T) {
 	if !r.TimedOut {
 		t.Errorf("expected TimedOut=true, got false")
 	}
-	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_TIMEOUT {
+	if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_TIMEOUT {
 		t.Fatalf("timeout failure = %v, want timeout", resp.GetFailure())
 	}
 	// Should finish well before the sleep would (30s) — within ~4s
@@ -324,9 +324,9 @@ func TestShellExec_TimeoutKillsGroup(t *testing.T) {
 	ctx := context.Background()
 	pidFile := filepath.Join(dir, "childpid")
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				// Spawn a backgrounded sleep, record its PID to a file,
 				// then sleep ourselves. On timeout, both must die.
 				Command:        "sleep 30 & echo $! > childpid; sleep 30",
@@ -371,9 +371,9 @@ func TestShellExec_OutputBounded(t *testing.T) {
 	ctx := context.Background()
 
 	// Produce ~8 MiB of stdout; we should see only ~2 MiB + truncation.
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				// yes, head -c 8M => exactly 8,388,608 bytes
 				Command:        "yes | head -c 8388608",
 				TimeoutSeconds: 10,
@@ -401,9 +401,9 @@ func TestShellExec_EnvOverride(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "echo $MIND_TEST_VAR",
 				Env:     []string{"MIND_TEST_VAR=xyzzy"},
 			},
@@ -424,9 +424,9 @@ func TestShellExec_StdinSingleShot(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command: "cat",
 				Stdin:   []byte("line-one\nline-two\n"),
 			},
@@ -449,9 +449,9 @@ func TestShellExec_StdinEmptyClosesImmediately(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Command:        "cat",
 				TimeoutSeconds: 5,
 			},
@@ -477,11 +477,11 @@ func TestShellExec_Stdin_GitCatFileBatch(t *testing.T) {
 	ctx := context.Background()
 
 	// Build a tiny fixture repo with two committed files.
-	run := func(command string) *codev0.ShellExecResponse {
+	run := func(command string) *codev1.ShellExecResponse {
 		t.Helper()
-		resp, err := s.Execute(ctx, &codev0.CodeRequest{
-			Operation: &codev0.CodeRequest_ShellExec{
-				ShellExec: &codev0.ShellExecRequest{
+		resp, err := s.Execute(ctx, &codev1.CodeRequest{
+			Operation: &codev1.CodeRequest_ShellExec{
+				ShellExec: &codev1.ShellExecRequest{
 					Command: command,
 					Env: []string{
 						"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
@@ -514,9 +514,9 @@ func TestShellExec_Stdin_GitCatFileBatch(t *testing.T) {
 	run("git commit -q -m fixture")
 
 	// The batch request: one object name per line, written upfront.
-	resp, err := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{
+	resp, err := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{
 				Args:  []string{"git", "cat-file", "--batch"},
 				Stdin: []byte("HEAD:a.txt\nHEAD:sub/b.txt\nHEAD:missing.txt\n"),
 			},
@@ -554,12 +554,12 @@ func TestShellExec_EmptyCommandAndArgs(t *testing.T) {
 	s, _ := newShellExecServer(t)
 	ctx := context.Background()
 
-	resp, _ := s.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ShellExec{
-			ShellExec: &codev0.ShellExecRequest{},
+	resp, _ := s.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ShellExec{
+			ShellExec: &codev1.ShellExecRequest{},
 		},
 	})
-	if resp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT {
+	if resp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT {
 		t.Fatalf("expected invalid-argument failure for empty command+args, got %v", resp.GetFailure())
 	}
 }

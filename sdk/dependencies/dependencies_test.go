@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/resources"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -77,15 +77,15 @@ func TestWithDependencies_KillsProcessGroupOnCancellation(t *testing.T) {
 func TestReadinessTimeoutNamesTheStalledDependency(t *testing.T) {
 	err := &ReadinessTimeout{
 		Timeout: 25 * time.Second,
-		Services: []*v0.ServiceReadiness{
+		Services: []*v1.ServiceReadiness{
 			{
 				Service:   "infra/postgres",
-				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+				Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
 				EnteredAt: timestamppb.New(time.Now().Add(-30 * time.Second)),
 				Message:   "pulling postgres:16",
 			},
-			{Service: "store/redis", Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY},
-			{Service: "app/api", Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING},
+			{Service: "store/redis", Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_READY},
+			{Service: "app/api", Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING},
 		},
 	}
 
@@ -123,9 +123,9 @@ func TestReadinessTimeoutNamesTheStalledDependency(t *testing.T) {
 // this attribution exists to produce.
 func TestReadinessTimeoutElapsedIsFixedAtTheTimeout(t *testing.T) {
 	deps := &Dependencies{}
-	deps.recordReadiness([]*v0.ServiceReadiness{{
+	deps.recordReadiness([]*v1.ServiceReadiness{{
 		Service:   "infra/postgres",
-		Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+		Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
 		EnteredAt: timestamppb.New(time.Now().Add(-10 * time.Second)),
 	}})
 	err := deps.readinessTimeout(10 * time.Second)
@@ -145,17 +145,17 @@ func TestReadinessTimeoutElapsedIsFixedAtTheTimeout(t *testing.T) {
 // back into the snapshot the session keeps.
 func TestReadinessSnapshotDoesNotAliasTheSessionState(t *testing.T) {
 	deps := &Dependencies{}
-	deps.recordReadiness([]*v0.ServiceReadiness{{
+	deps.recordReadiness([]*v1.ServiceReadiness{{
 		Service:   "infra/postgres",
-		Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
+		Lifecycle: v1.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
 	}})
 
 	handed := deps.Readiness()
 	handed[0].Service = "rewritten"
-	handed[0].Lifecycle = v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY
+	handed[0].Lifecycle = v1.ServiceLifecycle_SERVICE_LIFECYCLE_READY
 
 	if got := deps.Readiness(); got[0].GetService() != "infra/postgres" ||
-		got[0].GetLifecycle() != v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING {
+		got[0].GetLifecycle() != v1.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING {
 		t.Fatalf("session snapshot = %v, want it untouched by an edit to the returned copy", got[0])
 	}
 }

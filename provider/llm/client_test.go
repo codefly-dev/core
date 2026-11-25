@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/cassette"
 	"github.com/codefly-dev/core/provider/llm"
 	"github.com/stretchr/testify/require"
@@ -52,7 +52,7 @@ func jsonServer(t *testing.T, contentType, body string) *httptest.Server {
 	return server
 }
 
-func chatRequest(t *testing.T, stream bool, key string) *providerv0.PlannedRequest {
+func chatRequest(t *testing.T, stream bool, key string) *providerv1.PlannedRequest {
 	t.Helper()
 	m, err := llm.Manifest(testOrigin(), llm.VendorAnthropic)
 	require.NoError(t, err)
@@ -436,7 +436,7 @@ func TestChat_LiveDeltasThroughCallback(t *testing.T) {
 	server := jsonServer(t, "text/event-stream", anthropicStream)
 	h := newHarness(t, llm.VendorAnthropic, req)
 	var live strings.Builder
-	h.onStreamEvent = func(event *providerv0.FilteredEvent) error {
+	h.onStreamEvent = func(event *providerv1.FilteredEvent) error {
 		live.WriteString(llm.DecodeEvent(event).Text)
 		return nil
 	}
@@ -445,7 +445,7 @@ func TestChat_LiveDeltasThroughCallback(t *testing.T) {
 	require.Equal(t, "Hello world", live.String())
 }
 
-func decodeStream(t *testing.T, req *providerv0.PlannedRequest, body string) *llm.ChatStream {
+func decodeStream(t *testing.T, req *providerv1.PlannedRequest, body string) *llm.ChatStream {
 	t.Helper()
 	server := jsonServer(t, "text/event-stream", body)
 	h := newHarness(t, llm.VendorAnthropic, req)

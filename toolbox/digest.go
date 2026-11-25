@@ -10,15 +10,15 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 )
 
 // CatalogSnapshot is the immutable first phase of toolbox discovery: identity
 // plus lightweight summaries. Full descriptions are deliberately excluded so
 // hosts can fetch and approve only the selected tool immediately before use.
 type CatalogSnapshot struct {
-	Identity  *toolboxv0.IdentityResponse
-	Summaries *toolboxv0.ListToolSummariesResponse
+	Identity  *toolboxv1.IdentityResponse
+	Summaries *toolboxv1.ListToolSummariesResponse
 	Digest    string
 }
 
@@ -35,8 +35,8 @@ const (
 // ApprovedTool is the second discovery phase. Digest binds the toolbox
 // identity, complete summary catalog, and this exact full descriptor.
 type ApprovedTool struct {
-	Summary     *toolboxv0.ToolSummary
-	Description *toolboxv0.DescribeToolResponse
+	Summary     *toolboxv1.ToolSummary
+	Description *toolboxv1.DescribeToolResponse
 	Digest      string
 	Idempotency IdempotencyClass
 }
@@ -44,15 +44,15 @@ type ApprovedTool struct {
 // SnapshotServer discovers only identity and summaries. Plugin guards and
 // external hosts both call ApproveTool for the selected action, preventing the
 // legacy eager ListTools behavior from creeping back into the host contract.
-func SnapshotServer(ctx context.Context, server toolboxv0.ToolboxServer) (*CatalogSnapshot, error) {
+func SnapshotServer(ctx context.Context, server toolboxv1.ToolboxServer) (*CatalogSnapshot, error) {
 	if server == nil {
 		return nil, fmt.Errorf("toolbox catalog: nil server")
 	}
-	identity, err := server.Identity(ctx, &toolboxv0.IdentityRequest{})
+	identity, err := server.Identity(ctx, &toolboxv1.IdentityRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox catalog: identity: %w", err)
 	}
-	summaries, err := server.ListToolSummaries(ctx, &toolboxv0.ListToolSummariesRequest{})
+	summaries, err := server.ListToolSummaries(ctx, &toolboxv1.ListToolSummariesRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox catalog: list summaries: %w", err)
 	}
@@ -62,8 +62,8 @@ func SnapshotServer(ctx context.Context, server toolboxv0.ToolboxServer) (*Catal
 // NewCatalogSnapshot validates, canonicalizes, clones, and hashes first-phase
 // discovery. Wire ordering does not affect the digest.
 func NewCatalogSnapshot(
-	identity *toolboxv0.IdentityResponse,
-	summaries *toolboxv0.ListToolSummariesResponse,
+	identity *toolboxv1.IdentityResponse,
+	summaries *toolboxv1.ListToolSummariesResponse,
 ) (*CatalogSnapshot, error) {
 	if identity == nil || identity.GetName() == "" || identity.GetVersion() == "" {
 		return nil, fmt.Errorf("toolbox catalog: identity name and version are required")
@@ -71,7 +71,7 @@ func NewCatalogSnapshot(
 	if summaries == nil {
 		return nil, fmt.Errorf("toolbox catalog: summaries are required")
 	}
-	summaryByName := make(map[string]*toolboxv0.ToolSummary, len(summaries.GetTools()))
+	summaryByName := make(map[string]*toolboxv1.ToolSummary, len(summaries.GetTools()))
 	for i, summary := range summaries.GetTools() {
 		if summary == nil || summary.GetName() == "" {
 			return nil, fmt.Errorf("toolbox catalog: summary %d has no name", i)
@@ -86,14 +86,14 @@ func NewCatalogSnapshot(
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	canonicalSummaries := &toolboxv0.ListToolSummariesResponse{
-		Tools: make([]*toolboxv0.ToolSummary, 0, len(names)),
+	canonicalSummaries := &toolboxv1.ListToolSummariesResponse{
+		Tools: make([]*toolboxv1.ToolSummary, 0, len(names)),
 	}
 	for _, name := range names {
 		canonicalSummaries.Tools = append(canonicalSummaries.Tools,
-			proto.Clone(summaryByName[name]).(*toolboxv0.ToolSummary))
+			proto.Clone(summaryByName[name]).(*toolboxv1.ToolSummary))
 	}
-	identityClone := proto.Clone(identity).(*toolboxv0.IdentityResponse)
+	identityClone := proto.Clone(identity).(*toolboxv1.IdentityResponse)
 	digest, err := digestMessages(identityClone, canonicalSummaries, nil)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func NewCatalogSnapshot(
 
 // ApproveTool validates a phase-two descriptor against the phase-one catalog
 // and returns the digest the host must bind into scoped authorization.
-func (s *CatalogSnapshot) ApproveTool(name string, description *toolboxv0.DescribeToolResponse) (*ApprovedTool, error) {
+func (s *CatalogSnapshot) ApproveTool(name string, description *toolboxv1.DescribeToolResponse) (*ApprovedTool, error) {
 	if s == nil || s.Identity == nil || s.Summaries == nil {
 		return nil, fmt.Errorf("toolbox catalog: incomplete snapshot")
 	}
@@ -122,7 +122,7 @@ func (s *CatalogSnapshot) ApproveTool(name string, description *toolboxv0.Descri
 	if spec.GetName() != name {
 		return nil, fmt.Errorf("toolbox catalog: requested tool %q returned descriptor %q", name, spec.GetName())
 	}
-	var summary *toolboxv0.ToolSummary
+	var summary *toolboxv1.ToolSummary
 	for _, candidate := range s.Summaries.GetTools() {
 		if candidate.GetName() == spec.GetName() {
 			summary = candidate
@@ -148,13 +148,13 @@ func (s *CatalogSnapshot) ApproveTool(name string, description *toolboxv0.Descri
 	if err != nil {
 		return nil, fmt.Errorf("toolbox catalog: description %q: %w", spec.GetName(), err)
 	}
-	clone := proto.Clone(description).(*toolboxv0.DescribeToolResponse)
-	digest, err := digestMessages(s.Identity, s.Summaries, []*toolboxv0.DescribeToolResponse{clone})
+	clone := proto.Clone(description).(*toolboxv1.DescribeToolResponse)
+	digest, err := digestMessages(s.Identity, s.Summaries, []*toolboxv1.DescribeToolResponse{clone})
 	if err != nil {
 		return nil, err
 	}
 	return &ApprovedTool{
-		Summary:     proto.Clone(summary).(*toolboxv0.ToolSummary),
+		Summary:     proto.Clone(summary).(*toolboxv1.ToolSummary),
 		Description: clone,
 		Digest:      digest,
 		Idempotency: idempotency,
@@ -207,8 +207,8 @@ func (s *CatalogSnapshot) Clone() *CatalogSnapshot {
 		return nil
 	}
 	return &CatalogSnapshot{
-		Identity:  proto.Clone(s.Identity).(*toolboxv0.IdentityResponse),
-		Summaries: proto.Clone(s.Summaries).(*toolboxv0.ListToolSummariesResponse),
+		Identity:  proto.Clone(s.Identity).(*toolboxv1.IdentityResponse),
+		Summaries: proto.Clone(s.Summaries).(*toolboxv1.ListToolSummariesResponse),
 		Digest:    s.Digest,
 	}
 }
@@ -231,7 +231,7 @@ func sameStrings(left, right []string) bool {
 
 // DigestCallToolRequest returns a deterministic digest of the exact protobuf
 // request (tool name, structured arguments, and roots).
-func DigestCallToolRequest(request *toolboxv0.CallToolRequest) (string, error) {
+func DigestCallToolRequest(request *toolboxv1.CallToolRequest) (string, error) {
 	if request == nil || request.GetName() == "" {
 		return "", fmt.Errorf("toolbox request digest: request and tool name are required")
 	}
@@ -244,9 +244,9 @@ func DigestCallToolRequest(request *toolboxv0.CallToolRequest) (string, error) {
 }
 
 func digestMessages(
-	identity *toolboxv0.IdentityResponse,
-	summaries *toolboxv0.ListToolSummariesResponse,
-	descriptions []*toolboxv0.DescribeToolResponse,
+	identity *toolboxv1.IdentityResponse,
+	summaries *toolboxv1.ListToolSummariesResponse,
+	descriptions []*toolboxv1.DescribeToolResponse,
 ) (string, error) {
 	hash := sha256.New()
 	messages := make([]proto.Message, 0, 2+len(descriptions))

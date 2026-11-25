@@ -3,7 +3,7 @@ package workcontext_test
 import (
 	"testing"
 
-	base "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	base "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 

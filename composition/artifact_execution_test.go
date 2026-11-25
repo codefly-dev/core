@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +24,7 @@ func (f *nestedFixture) executedInputs(t *testing.T, resolved *ResolvedCompositi
 	for _, prepared := range batch {
 		target := prepared.Request().Target
 		content := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: " + strings.TrimPrefix(target, "modules/") + "\n"
-		receipt := &basev0.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("manifests", ArtifactRuntime, content).Digest}}}
+		receipt := &basev1.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("manifests", ArtifactRuntime, content).Digest}}}
 		verified, err := VerifyArtifactExecution(t.Context(), prepared, receipt, []ExecutionOutputInput{{Name: "manifests", Content: strings.NewReader(content)}})
 		require.NoError(t, err)
 		inputs.Executions = append(inputs.Executions, verified)
@@ -61,7 +61,7 @@ func TestArtifactExecutionRequiresExactReceiptsAndActualBytes(t *testing.T) {
 	require.NotEqual(t, request, prepared.Request(), "callers cannot mutate prepared evidence")
 	for _, scenario := range []string{"valid", "missing acknowledgement", "wrong identity", "wrong bytes", "missing bytes", "extra output", "wrong media", "duplicate output"} {
 		t.Run(scenario, func(t *testing.T) {
-			receipt := &basev0.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "rendered manifests").Digest}}}
+			receipt := &basev1.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "rendered manifests").Digest}}}
 			outputs := []ExecutionOutputInput{{Name: "manifests", Content: strings.NewReader("rendered manifests")}}
 			switch scenario {
 			case "missing acknowledgement":
@@ -113,7 +113,7 @@ func TestDeploymentQualificationBindsRenderedOutputs(t *testing.T) {
 			case "different output":
 				prepared, err := f.registry.engine.PrepareArtifactExecution(t.Context(), resolved, "modules/saas", "store", "render", runtimeInputs())
 				require.NoError(t, err)
-				receipt := &basev0.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "changed").Digest}}}
+				receipt := &basev1.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "changed").Digest}}}
 				index := slices.IndexFunc(candidate.Executions, func(execution *VerifiedArtifactExecution) bool { return execution.record.Target == "modules/saas" })
 				candidate.Executions[index], err = VerifyArtifactExecution(t.Context(), prepared, receipt, []ExecutionOutputInput{{Name: "manifests", Content: strings.NewReader("changed")}})
 				require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestExecutionFilesAreConfinedAndHashed(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "manifests.yaml")
-			receipt := &basev0.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "rendered").Digest}}}
+			receipt := &basev1.ArtifactExecutionReceipt{Identity: prepared.Request().Identity, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", Path: "manifests.yaml", MediaType: "application/yaml", Digest: fixtureArtifact("out", ArtifactRuntime, "rendered").Digest}}}
 			switch scenario {
 			case "valid":
 				writeFile(t, path, "rendered")

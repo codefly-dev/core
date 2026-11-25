@@ -3,7 +3,7 @@ package resources
 import (
 	"fmt"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ReadinessRequirement is one predicate that must hold before a consumer may be
@@ -16,7 +16,7 @@ type ReadinessRequirement struct {
 	// API is the probed endpoint's API, empty for an endpointless dependency.
 	API string
 	// Probe is the predicate to evaluate, with defaults already applied.
-	Probe *basev0.Probe
+	Probe *basev1.Probe
 	// Secured is the endpoint's declared transport security. It travels with the
 	// requirement because it is recorded in the endpoint's API details, which the
 	// requirement does not carry: an evaluator that had to look it up separately
@@ -47,12 +47,12 @@ func (r *ReadinessRequirement) String() string {
 
 // Result stamps an evaluation of this requirement, carrying the predicate that
 // was required so a failure names it instead of reporting "not ready".
-func (r *ReadinessRequirement) Result(outcome basev0.ProbeOutcome, failure basev0.ProbeFailureKind, message string) *basev0.ProbeResult {
-	return &basev0.ProbeResult{
+func (r *ReadinessRequirement) Result(outcome basev1.ProbeOutcome, failure basev1.ProbeFailureKind, message string) *basev1.ProbeResult {
+	return &basev1.ProbeResult{
 		Dependency:  r.Dependency,
 		Endpoint:    r.Endpoint,
 		Api:         r.API,
-		Intent:      basev0.ProbeIntent_PROBE_INTENT_READINESS,
+		Intent:      basev1.ProbeIntent_PROBE_INTENT_READINESS,
 		Kind:        ProbeKindOf(r.Probe),
 		Outcome:     outcome,
 		FailureKind: failure,
@@ -65,26 +65,26 @@ func (r *ReadinessRequirement) Result(outcome basev0.ProbeOutcome, failure basev
 // endpoint, and whether the producer declared one. Absence resolves to a
 // transport check — the legacy semantics — rather than to nothing, so an
 // undeclared endpoint is still checked and still reported as unverified health.
-func EndpointReadinessProbe(endpoint *basev0.Endpoint) (*basev0.Probe, bool) {
+func EndpointReadinessProbe(endpoint *basev1.Endpoint) (*basev1.Probe, bool) {
 	if probe := endpoint.GetHealth().GetReadiness(); probe.GetPredicate() != nil {
 		return probe, true
 	}
-	return &basev0.Probe{Predicate: &basev0.Probe_Transport{Transport: &basev0.TransportProbe{}}}, false
+	return &basev1.Probe{Predicate: &basev1.Probe_Transport{Transport: &basev1.TransportProbe{}}}, false
 }
 
 // EndpointProbePlan is the producing side of the contract: the probes a runtime
 // or a deployment renderer emits for one endpoint. Liveness and startup stay
 // nil when undeclared — a restart policy is not something to infer.
 type EndpointProbePlan struct {
-	Readiness *basev0.Probe
-	Liveness  *basev0.Probe
-	Startup   *basev0.Probe
+	Readiness *basev1.Probe
+	Liveness  *basev1.Probe
+	Startup   *basev1.Probe
 	// ReadinessDeclared is false when Readiness is the legacy transport fallback.
 	ReadinessDeclared bool
 }
 
 // PlanEndpointProbes resolves the probes declared for one endpoint.
-func PlanEndpointProbes(endpoint *basev0.Endpoint) *EndpointProbePlan {
+func PlanEndpointProbes(endpoint *basev1.Endpoint) *EndpointProbePlan {
 	readiness, declared := EndpointReadinessProbe(endpoint)
 	return &EndpointProbePlan{
 		Readiness:         readiness,
@@ -99,12 +99,12 @@ func PlanEndpointProbes(endpoint *basev0.Endpoint) *EndpointProbePlan {
 // with nothing to health-check falls back to the owning agent's lifecycle: that
 // is what a legacy endpointless dependency has always meant.
 func endpointlessRequirement(unique string, prerequisite Prerequisite) *ReadinessRequirement {
-	var probe *basev0.Probe
+	var probe *basev1.Probe
 	switch prerequisite {
 	case PrerequisiteCompletion:
-		probe = &basev0.Probe{Predicate: &basev0.Probe_Completion{Completion: &basev0.CompletionProbe{}}}
+		probe = &basev1.Probe{Predicate: &basev1.Probe_Completion{Completion: &basev1.CompletionProbe{}}}
 	default:
-		probe = &basev0.Probe{Predicate: &basev0.Probe_Agent{Agent: &basev0.AgentProbe{}}}
+		probe = &basev1.Probe{Predicate: &basev1.Probe_Agent{Agent: &basev1.AgentProbe{}}}
 	}
 	return &ReadinessRequirement{Dependency: unique, Probe: probe, Declared: true}
 }
@@ -113,7 +113,7 @@ func endpointlessRequirement(unique string, prerequisite Prerequisite) *Readines
 // satisfy for one dependency. A dependency that resolves to endpoints yields
 // one requirement per required endpoint; one that resolves to none yields the
 // single lifecycle-or-completion requirement its readiness mode selects.
-func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*ReadinessRequirement, error) {
+func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*basev1.Endpoint) ([]*ReadinessRequirement, error) {
 	// The kind decides what the consumer waits for, and rejects the declarations
 	// it contradicts — one-shot work asked to serve endpoints, an unknown kind.
 	if err := dependency.Validate(); err != nil {
@@ -131,7 +131,7 @@ func PlanServiceDependencyReadiness(dependency *ServiceDependency, endpoints []*
 	if dependency.Prerequisite() == PrerequisiteNone {
 		return nil, nil
 	}
-	var required []*basev0.Endpoint
+	var required []*basev1.Endpoint
 	for _, endpoint := range resolved {
 		if dependency.RequiresEndpoint(endpoint.Name, endpoint.Api) {
 			required = append(required, endpoint)
@@ -175,7 +175,7 @@ func PlanJobDependencyReadiness(dependency *JobDependency) (*ReadinessRequiremen
 // PlanReadiness returns every predicate a consumer must satisfy across all of
 // its service dependencies. They combine conjunctively: readiness holds only
 // when all of them do.
-func PlanReadiness(dependencies []*ServiceDependency, endpoints []*basev0.Endpoint) ([]*ReadinessRequirement, error) {
+func PlanReadiness(dependencies []*ServiceDependency, endpoints []*basev1.Endpoint) ([]*ReadinessRequirement, error) {
 	var requirements []*ReadinessRequirement
 	for _, dependency := range dependencies {
 		planned, err := PlanServiceDependencyReadiness(dependency, endpoints)
@@ -191,17 +191,17 @@ func PlanReadiness(dependencies []*ServiceDependency, endpoints []*basev0.Endpoi
 // across a consumer's dependencies: an unsupported mode, an endpoint reference
 // the producer does not declare, or a mode that contradicts the endpoints it
 // requires.
-func ValidateReadiness(dependencies []*ServiceDependency, endpoints []*basev0.Endpoint) error {
+func ValidateReadiness(dependencies []*ServiceDependency, endpoints []*basev1.Endpoint) error {
 	_, err := PlanReadiness(dependencies, endpoints)
 	return err
 }
 
 // FailingPredicates names the predicates that did not hold in a report, so a
 // consumer can say which check failed rather than that something did.
-func FailingPredicates(report *basev0.HealthReport) []string {
+func FailingPredicates(report *basev1.HealthReport) []string {
 	var failing []string
 	for _, result := range report.GetResults() {
-		if result.GetOutcome() != basev0.ProbeOutcome_PROBE_OUTCOME_FAILED {
+		if result.GetOutcome() != basev1.ProbeOutcome_PROBE_OUTCOME_FAILED {
 			continue
 		}
 		target := result.GetDependency()

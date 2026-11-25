@@ -16,8 +16,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // AuthorityPolicyExtension is the method option an owner declares what a call
@@ -55,7 +55,7 @@ var DefaultReadRetryableCodes = []string{"UNAVAILABLE"}
 // Authority is the authority policy one method declares: the actions on each
 // resource kind a call must hold, or that any checked caller may call it.
 type Authority struct {
-	Requires         []*basev0.WorkScopeV1
+	Requires         []*basev1.WorkScopeV1
 	AnyCheckedCaller bool
 }
 
@@ -100,7 +100,7 @@ func AuthorityFromMethod(files *protoregistry.Files, method protoreflect.MethodD
 	}
 	for i := 0; i < requirements.Len(); i++ {
 		requirement := requirements.Get(i).Message()
-		scope := &basev0.WorkScopeV1{ResourceKind: requirement.Get(kindField).String()}
+		scope := &basev1.WorkScopeV1{ResourceKind: requirement.Get(kindField).String()}
 		actions := requirement.Get(actionsField).List()
 		for j := 0; j < actions.Len(); j++ {
 			scope.Actions = append(scope.Actions, actions.Get(j).String())
@@ -115,12 +115,12 @@ func AuthorityFromMethod(files *protoregistry.Files, method protoreflect.MethodD
 	return authority, nil
 }
 
-// excluded reports the codefly.runnable.v0.exclude option.
+// excluded reports the codefly.runnable.v1.exclude option.
 func excluded(options *descriptorpb.MethodOptions) bool {
-	if options == nil || !proto.HasExtension(options, runnablev0.E_Exclude) {
+	if options == nil || !proto.HasExtension(options, runnablev1.E_Exclude) {
 		return false
 	}
-	exclude, isBool := proto.GetExtension(options, runnablev0.E_Exclude).(bool)
+	exclude, isBool := proto.GetExtension(options, runnablev1.E_Exclude).(bool)
 	return isBool && exclude
 }
 
@@ -186,15 +186,15 @@ func DefaultOperation(method protoreflect.MethodDescriptor, authority *Authority
 		TotalTimeout:   DefaultTotalTimeout,
 		Backoff:        DefaultBackoff,
 		Audience:       audience,
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 	}
 	if authority.ReadOnly() {
-		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+		spec.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
 		spec.MaxAttempts = DefaultReadAttempts
 		spec.RetryableCodes = slices.Clone(DefaultReadRetryableCodes)
 		spec.InvokeScopes = clonedScopes(authority.Requires)
 	} else {
-		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+		spec.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
 		spec.MaxAttempts = DefaultMutationAttempts
 		spec.InvokeScopes = clonedScopes(authority.Requires)
 	}
@@ -210,16 +210,16 @@ func DefaultOperation(method protoreflect.MethodDescriptor, authority *Authority
 // operation is read-only; otherwise the authority policy decides, and an
 // operation whose policy is not read-only — or that declares none — is a
 // mutation, because omission is never read-only.
-func DefaultTool(method protoreflect.MethodDescriptor, recovery basev0.RunnableExecution_Recovery, authority *Authority) *runnablev0.ToolExposure {
-	effect := runnablev0.ToolExposure_EFFECT_MUTATION
-	if recovery == basev0.RunnableExecution_RECOVERY_RECOMPUTE || authority.ReadOnly() {
-		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
+func DefaultTool(method protoreflect.MethodDescriptor, recovery basev1.RunnableExecution_Recovery, authority *Authority) *runnablev1.ToolExposure {
+	effect := runnablev1.ToolExposure_EFFECT_MUTATION
+	if recovery == basev1.RunnableExecution_RECOVERY_RECOMPUTE || authority.ReadOnly() {
+		effect = runnablev1.ToolExposure_EFFECT_READ_ONLY
 	}
 	description := toolDescription(method.ParentFile().SourceLocations().ByDescriptor(method).LeadingComments)
 	if description == "" {
 		description = fmt.Sprintf("Calls %s on %s.", method.Name(), method.Parent().FullName())
 	}
-	return &runnablev0.ToolExposure{Name: toolName(string(method.Name())), Description: description, Effect: effect}
+	return &runnablev1.ToolExposure{Name: toolName(string(method.Name())), Description: description, Effect: effect}
 }
 
 // toolDescription normalises a doc comment into the bounded description a
@@ -293,15 +293,15 @@ func BoundedName(name string, limit int, separator string) string {
 // PreparedTool presents a delivered binding whose policy names no tool, as
 // one delivered before every operation carried its presentation: named after
 // its operation, read-only exactly when it recomputes.
-func preparedTool(binding *runnablev0.PreparedBinding) *runnablev0.ToolExposure {
+func preparedTool(binding *runnablev1.PreparedBinding) *runnablev1.ToolExposure {
 	spelling := binding.GetOperation().GetSpelling()
 	name := spelling
 	if cut := strings.LastIndex(spelling, "/"); cut >= 0 && strings.HasPrefix(spelling, "/") {
 		name = spelling[cut+1:]
 	}
-	effect := runnablev0.ToolExposure_EFFECT_MUTATION
-	if binding.GetPolicy().GetRecovery() == basev0.RunnableExecution_RECOVERY_RECOMPUTE {
-		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
+	effect := runnablev1.ToolExposure_EFFECT_MUTATION
+	if binding.GetPolicy().GetRecovery() == basev1.RunnableExecution_RECOVERY_RECOMPUTE {
+		effect = runnablev1.ToolExposure_EFFECT_READ_ONLY
 	}
-	return &runnablev0.ToolExposure{Name: toolName(name), Description: "Calls " + spelling + ".", Effect: effect}
+	return &runnablev1.ToolExposure{Name: toolName(name), Description: "Calls " + spelling + ".", Effect: effect}
 }

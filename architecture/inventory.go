@@ -8,10 +8,10 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
-func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0.Workspace, error) {
+func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev1.Workspace, error) {
 	w := wool.Get(ctx).In("overview.LoadWorkspace")
 	out, err := workspace.Proto(ctx)
 	if err != nil {
@@ -31,7 +31,7 @@ func LoadWorkspace(ctx context.Context, workspace *resources.Workspace) (*basev0
 	return out, nil
 }
 
-func LoadModule(ctx context.Context, workspace *resources.Workspace, module *resources.Module) (*basev0.Module, error) {
+func LoadModule(ctx context.Context, workspace *resources.Workspace, module *resources.Module) (*basev1.Module, error) {
 	w := wool.Get(ctx).In("overview.LoadModule")
 	out, err := module.Proto(ctx)
 	if err != nil {
@@ -51,7 +51,7 @@ func LoadModule(ctx context.Context, workspace *resources.Workspace, module *res
 	return out, nil
 }
 
-func LoadService(ctx context.Context, workspace *resources.Workspace, module *resources.Module, service *resources.Service) (*basev0.Service, error) {
+func LoadService(ctx context.Context, workspace *resources.Workspace, module *resources.Module, service *resources.Service) (*basev1.Service, error) {
 	w := wool.Get(ctx).In("overview.LoadService")
 	out, err := service.Proto(ctx)
 	if err != nil {
@@ -83,7 +83,7 @@ func LoadService(ctx context.Context, workspace *resources.Workspace, module *re
 		if dep.Unbound() {
 			continue
 		}
-		out.ServiceDependencies = append(out.ServiceDependencies, &basev0.ServiceReference{Name: dep.Name, Module: dep.Module})
+		out.ServiceDependencies = append(out.ServiceDependencies, &basev1.ServiceReference{Name: dep.Name, Module: dep.Module})
 	}
 
 	return out, nil

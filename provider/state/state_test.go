@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/state"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -31,9 +31,9 @@ func TestOwnershipIndexIsSafeForConcurrentAddAndOwner(t *testing.T) {
 
 func TestStateV1EncodeDecodeAndProspectiveIdentityRecovery(t *testing.T) {
 	original := validState("binding-a")
-	original.Checkpoint = &providerv0.ActionCheckpoint{
+	original.Checkpoint = &providerv1.ActionCheckpoint{
 		CheckpointId:        "checkpoint-1",
-		Delivery:            providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+		Delivery:            providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
 		IdempotencyKey:      "binding-a/create/account",
 		ProspectiveRemoteId: "prospective-account-123",
 	}
@@ -46,7 +46,7 @@ func TestStateV1EncodeDecodeAndProspectiveIdentityRecovery(t *testing.T) {
 }
 
 func TestStateV1FailsClosedOnNewerOrUnknownState(t *testing.T) {
-	newer := &providerv0.ProviderState{SchemaVersion: 2}
+	newer := &providerv1.ProviderState{SchemaVersion: 2}
 	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(newer)
 	require.NoError(t, err)
 	_, err = state.Decode(encoded, 1)
@@ -59,12 +59,12 @@ func TestStateV1FailsClosedOnNewerOrUnknownState(t *testing.T) {
 	require.ErrorContains(t, err, "unknown fields")
 
 	unknownOwnership := validState("binding-a")
-	unknownOwnership.Ownership = providerv0.Ownership(99)
+	unknownOwnership.Ownership = providerv1.Ownership(99)
 	_, err = state.Encode(state.WrapV1(unknownOwnership))
 	require.ErrorContains(t, err, "ownership")
 
 	unknownPurpose := validState("binding-a")
-	unknownPurpose.SecretReferences[0].Purpose = providerv0.CredentialPurpose(99)
+	unknownPurpose.SecretReferences[0].Purpose = providerv1.CredentialPurpose(99)
 	_, err = state.Encode(state.WrapV1(unknownPurpose))
 	require.ErrorContains(t, err, "unknown purpose")
 }
@@ -103,7 +103,7 @@ func TestWorkspaceOwnershipIndexUsesUnambiguousComponentKeys(t *testing.T) {
 }
 
 func TestStateSchemaCannotRepresentRawSecretsOrBodies(t *testing.T) {
-	descriptor := (&providerv0.ProviderStateV1{}).ProtoReflect().Descriptor()
+	descriptor := (&providerv1.ProviderStateV1{}).ProtoReflect().Descriptor()
 	for i := 0; i < descriptor.Fields().Len(); i++ {
 		field := descriptor.Fields().Get(i)
 		name := string(field.Name())
@@ -114,8 +114,8 @@ func TestStateSchemaCannotRepresentRawSecretsOrBodies(t *testing.T) {
 	}
 
 	providerState := validState("binding-a")
-	providerState.SafeObservedFields = map[string]*providerv0.PublicValue{
-		"api_token": {Kind: &providerv0.PublicValue_StringValue{StringValue: "sk_live_1234567890abcdef"}},
+	providerState.SafeObservedFields = map[string]*providerv1.PublicValue{
+		"api_token": {Kind: &providerv1.PublicValue_StringValue{StringValue: "sk_live_1234567890abcdef"}},
 	}
 	_, err := state.Encode(state.WrapV1(providerState))
 	require.ErrorContains(t, err, "secret-shaped")
@@ -133,12 +133,12 @@ func TestStateSchemaCannotRepresentRawSecretsOrBodies(t *testing.T) {
 
 func TestStateReceiptRejectsUnknownDeliveryState(t *testing.T) {
 	providerState := validState("binding-a")
-	providerState.Receipt = &providerv0.ActionReceipt{
+	providerState.Receipt = &providerv1.ActionReceipt{
 		ArtifactDigest: providerState.ArtifactDigest,
-		Delivery:       providerv0.DeliveryState(99),
-		Certainty:      providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		Action: &providerv0.PlanAction{
-			ActionId: "noop", Type: providerv0.ActionType_ACTION_TYPE_NO_OP, ResourceType: "account",
+		Delivery:       providerv1.DeliveryState(99),
+		Certainty:      providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Action: &providerv1.PlanAction{
+			ActionId: "noop", Type: providerv1.ActionType_ACTION_TYPE_NO_OP, ResourceType: "account",
 		},
 	}
 	_, err := state.Encode(state.WrapV1(providerState))
@@ -153,11 +153,11 @@ func TestStateRejectsMalformedObservationPlanAndOutputDigests(t *testing.T) {
 	valid := "sha256:" + strings.Repeat("1", 64)
 	for _, mutate := range []struct {
 		name  string
-		apply func(*providerv0.ProviderStateV1)
+		apply func(*providerv1.ProviderStateV1)
 	}{
-		{"material_observation_digest", func(s *providerv0.ProviderStateV1) { s.MaterialObservationDigest = "not-a-digest" }},
-		{"plan_digest", func(s *providerv0.ProviderStateV1) { s.PlanDigest = "sha256:short" }},
-		{"output_digest", func(s *providerv0.ProviderStateV1) { s.OutputDigest = "md5:" + strings.Repeat("1", 64) }},
+		{"material_observation_digest", func(s *providerv1.ProviderStateV1) { s.MaterialObservationDigest = "not-a-digest" }},
+		{"plan_digest", func(s *providerv1.ProviderStateV1) { s.PlanDigest = "sha256:short" }},
+		{"output_digest", func(s *providerv1.ProviderStateV1) { s.OutputDigest = "md5:" + strings.Repeat("1", 64) }},
 	} {
 		t.Run(mutate.name, func(t *testing.T) {
 			providerState := validState("binding-a")
@@ -175,24 +175,24 @@ func TestStateRejectsMalformedObservationPlanAndOutputDigests(t *testing.T) {
 	}
 }
 
-func validState(bindingID string) *providerv0.ProviderStateV1 {
+func validState(bindingID string) *providerv1.ProviderStateV1 {
 	digest := "sha256:" + strings.Repeat("1", 64)
-	return &providerv0.ProviderStateV1{
+	return &providerv1.ProviderStateV1{
 		StateSchemaVersion:    1,
 		Generation:            1,
-		Binding:               &providerv0.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: bindingID},
+		Binding:               &providerv1.BindingAddress{WorkspaceId: "workspace", EnvironmentId: "environment", BindingId: bindingID},
 		ProviderId:            "codefly.dev/fixture",
 		ProviderVersion:       "1.2.3",
 		ManifestSchemaVersion: "codefly.provider-manifest/v0",
 		ManifestDigest:        digest,
 		ArtifactDigest:        digest,
-		RemoteIdentity: &providerv0.RemoteIdentity{
+		RemoteIdentity: &providerv1.RemoteIdentity{
 			Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "remote-123",
 		},
-		Ownership:      providerv0.Ownership_OWNERSHIP_OWNED,
+		Ownership:      providerv1.Ownership_OWNERSHIP_OWNED,
 		OwnershipStamp: "host-stamp",
-		SecretReferences: []*providerv0.OpaqueReference{{
-			Reference: "secret://runtime", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		SecretReferences: []*providerv1.OpaqueReference{{
+			Reference: "secret://runtime", Purpose: providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 			SafeFingerprint: digest,
 		}},
 	}

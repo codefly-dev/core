@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // unittest-text is a FORMAT parser, not a framework. Python's unittest
@@ -41,18 +41,18 @@ var (
 )
 
 // unittestState maps a raw unittest result token to a structured case state.
-func unittestState(raw string) (runtimev0.TestCaseState, bool) {
+func unittestState(raw string) (runtimev1.TestCaseState, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "ok", "expected failure":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, true
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, true
 	case "fail":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, true
+		return runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, true
 	case "error":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED, true
+		return runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED, true
 	case "skipped":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED, true
+		return runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED, true
 	default:
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, false
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, false
 	}
 }
 
@@ -61,7 +61,7 @@ type utCase struct {
 	method string
 	class  string // dotted, e.g. "pkg.mod.Class"
 	doc    string // docstring key, when present (unittest prints it inline)
-	state  runtimev0.TestCaseState
+	state  runtimev1.TestCaseState
 	detail string
 	order  int
 }
@@ -85,7 +85,7 @@ func ParseUnittestText(output string) *StructuredTestRun {
 		key := class + "." + method
 		c, ok := cases[key]
 		if !ok {
-			c = &utCase{method: method, class: class, order: order, state: runtimev0.TestCaseState_TEST_CASE_STATE_PASSED}
+			c = &utCase{method: method, class: class, order: order, state: runtimev1.TestCaseState_TEST_CASE_STATE_PASSED}
 			cases[key] = c
 			order++
 		}
@@ -120,9 +120,9 @@ func ParseUnittestText(output string) *StructuredTestRun {
 			continue
 		}
 		kind, method, class := m[1], m[2], m[3]
-		st := runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED
+		st := runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED
 		if kind == "FAIL" {
-			st = runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+			st = runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 		}
 		c := get(method, class)
 		c.state = st
@@ -145,9 +145,9 @@ func ParseUnittestText(output string) *StructuredTestRun {
 			failed, errored := 0, 0
 			for _, c := range cases {
 				switch c.state {
-				case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+				case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 					failed++
-				case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+				case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 					errored++
 				}
 			}
@@ -200,7 +200,7 @@ func completeSelectedUnittestCases(run *StructuredTestRun, selectors []string) {
 		identities = append(identities, id)
 	}
 
-	known := make(map[string]runtimev0.TestCaseState, len(selectors))
+	known := make(map[string]runtimev1.TestCaseState, len(selectors))
 	for _, suite := range run.Suites {
 		for _, testCase := range suite.Cases {
 			if _, requested := selected[testCase.FullName]; !requested {
@@ -213,11 +213,11 @@ func completeSelectedUnittestCases(run *StructuredTestRun, selectors []string) {
 		return
 	}
 
-	remaining := map[runtimev0.TestCaseState]int{
-		runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:  run.Summary.Passed,
-		runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:  run.Summary.Failed,
-		runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED: run.Summary.Errored,
-		runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED: run.Summary.Skipped,
+	remaining := map[runtimev1.TestCaseState]int{
+		runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:  run.Summary.Passed,
+		runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:  run.Summary.Failed,
+		runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED: run.Summary.Errored,
+		runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED: run.Summary.Skipped,
 	}
 	for _, state := range known {
 		remaining[state]--
@@ -227,7 +227,7 @@ func completeSelectedUnittestCases(run *StructuredTestRun, selectors []string) {
 	}
 
 	missing := len(identities) - len(known)
-	var inferred runtimev0.TestCaseState
+	var inferred runtimev1.TestCaseState
 	nonzero := 0
 	total := 0
 	for state, count := range remaining {
@@ -347,12 +347,12 @@ func buildUnittestSuites(cases map[string]*utCase) []*StructuredSuite {
 				State:    c.state,
 				Output:   c.detail,
 			}
-			if c.state == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-				c.state == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if c.state == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+				c.state == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				sc.Failure = &StructuredFailure{
 					Message: strings.SplitN(c.detail, "\n", 2)[0],
 					Detail:  c.detail,
-					Kind:    runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION,
+					Kind:    runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION,
 				}
 			}
 			suite.Cases = append(suite.Cases, sc)

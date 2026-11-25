@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 const (
@@ -24,8 +24,8 @@ const (
 // CycloneDX document, built the way Image builds it from a scanner's output.
 func scanned(t *testing.T, reference, platform, digest string) *ImageResult {
 	t.Helper()
-	root := &agentv0.Component{Name: "service-warehouse", Type: agentv0.ComponentType_MODULE, BomRef: "root"}
-	packages := []*agentv0.Component{{Name: "openssl", Version: "3.0", BomRef: "pkg:deb/openssl@3.0"}}
+	root := &agentv1.Component{Name: "service-warehouse", Type: agentv1.ComponentType_MODULE, BomRef: "root"}
+	packages := []*agentv1.Component{{Name: "openssl", Version: "3.0", BomRef: "pkg:deb/openssl@3.0"}}
 	base, err := finish(root, packages, nil, "syft", "DOCKER")
 	require.NoError(t, err)
 	bound, err := bindImageDigest(base, digest)
@@ -105,7 +105,7 @@ func TestCollectImageEvidenceRefusesNoSubjects(t *testing.T) {
 // or without a scanner installed.
 func TestCollectImageEvidenceFailsWholeOnOneUnscannableSubject(t *testing.T) {
 	dir := t.TempDir()
-	_, err := CollectImageEvidence(context.Background(), dir, []*builderv0.ImageSubject{
+	_, err := CollectImageEvidence(context.Background(), dir, []*builderv1.ImageSubject{
 		{Reference: "", Digest: digestARM64, Platform: "linux/arm64"},
 	})
 	require.ErrorContains(t, err, "inventory  on linux/arm64")
@@ -147,14 +147,14 @@ func TestImageSubjectsRefuseALocalImageForNoService(t *testing.T) {
 
 // No scanner or registry is consulted for a subject whose identity is absent.
 func TestCollectImageEvidenceRequiresAnImmutableSubject(t *testing.T) {
-	for name, subject := range map[string]*builderv0.ImageSubject{
+	for name, subject := range map[string]*builderv1.ImageSubject{
 		"nil":                      nil,
 		"floating registry tag":    {Reference: "example.com/app:latest"},
-		"local reference pin only": {Reference: pinned, Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON},
+		"local reference pin only": {Reference: pinned, Source: builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			documents, err := CollectImageEvidence(context.Background(), dir, []*builderv0.ImageSubject{subject})
+			documents, err := CollectImageEvidence(context.Background(), dir, []*builderv1.ImageSubject{subject})
 			require.ErrorContains(t, err, "sha256 digest")
 			require.Nil(t, documents)
 			entries, err := os.ReadDir(dir)

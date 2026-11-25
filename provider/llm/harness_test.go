@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/canonical"
@@ -50,14 +50,14 @@ func loadManifest(t *testing.T, vendor llm.Vendor) *manifest.Manifest {
 	return m
 }
 
-func admittedOrigin(t *testing.T) *providerv0.AdmittedOrigin {
+func admittedOrigin(t *testing.T) *providerv1.AdmittedOrigin {
 	t.Helper()
-	origin := &providerv0.AdmittedOrigin{
+	origin := &providerv1.AdmittedOrigin{
 		OriginRuleId:        "api",
 		Scheme:              "http",
 		Host:                "localhost",
 		Port:                8080,
-		PrivateNetworkClass: providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK,
+		PrivateNetworkClass: providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK,
 	}
 	digest, err := canonical.AdmittedOriginDigest(origin)
 	require.NoError(t, err)
@@ -65,29 +65,29 @@ func admittedOrigin(t *testing.T) *providerv0.AdmittedOrigin {
 	return origin
 }
 
-func binding() *providerv0.BindingAddress {
-	return &providerv0.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
+func binding() *providerv1.BindingAddress {
+	return &providerv1.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
 }
 
-func operation() *providerv0.OperationIdentity {
-	return &providerv0.OperationIdentity{OperationId: "op1", AttemptId: "att1", ActionId: "a1", PlanId: "plan1"}
+func operation() *providerv1.OperationIdentity {
+	return &providerv1.OperationIdentity{OperationId: "op1", AttemptId: "att1", ActionId: "a1", PlanId: "plan1"}
 }
 
-func budget() *providerv0.RequestBudget {
-	return &providerv0.RequestBudget{RequestCount: 4, RequestBytes: 262144, ResponseBytes: 1048576}
+func budget() *providerv1.RequestBudget {
+	return &providerv1.RequestBudget{RequestCount: 4, RequestBytes: 262144, ResponseBytes: 1048576}
 }
 
-type fakeCheckpointer struct{ checkpoint *providerv0.ActionCheckpoint }
+type fakeCheckpointer struct{ checkpoint *providerv1.ActionCheckpoint }
 
-func (c *fakeCheckpointer) Latest(context.Context, *providerv0.OperationIdentity) (*providerv0.ActionCheckpoint, error) {
+func (c *fakeCheckpointer) Latest(context.Context, *providerv1.OperationIdentity) (*providerv1.ActionCheckpoint, error) {
 	return c.checkpoint, nil
 }
 
-func checkpoint(id, idempotencyKey string) *providerv0.ActionCheckpoint {
-	return &providerv0.ActionCheckpoint{
+func checkpoint(id, idempotencyKey string) *providerv1.ActionCheckpoint {
+	return &providerv1.ActionCheckpoint{
 		CheckpointId:   id,
 		Operation:      operation(),
-		Delivery:       providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
+		Delivery:       providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
 		IdempotencyKey: idempotencyKey,
 	}
 }
@@ -96,7 +96,7 @@ func checkpoint(id, idempotencyKey string) *providerv0.ActionCheckpoint {
 // captures, so it is never called.
 type nopSink struct{}
 
-func (nopSink) Put(context.Context, responsepolicy.SinkTarget, string) (*providerv0.OpaqueReference, error) {
+func (nopSink) Put(context.Context, responsepolicy.SinkTarget, string) (*providerv1.OpaqueReference, error) {
 	return nil, nil
 }
 
@@ -137,13 +137,13 @@ func reservedClosedAddr(t *testing.T) string {
 // harness wires an admitted broker session for a single planned LLM request.
 type harness struct {
 	manifest      *manifest.Manifest
-	origin        *providerv0.AdmittedOrigin
-	planned       *providerv0.PlannedRequest
+	origin        *providerv1.AdmittedOrigin
+	planned       *providerv1.PlannedRequest
 	vault         *credentials.Vault
-	onStreamEvent func(*providerv0.FilteredEvent) error
+	onStreamEvent func(*providerv1.FilteredEvent) error
 }
 
-func newHarness(t *testing.T, vendor llm.Vendor, planned *providerv0.PlannedRequest) *harness {
+func newHarness(t *testing.T, vendor llm.Vendor, planned *providerv1.PlannedRequest) *harness {
 	t.Helper()
 	return &harness{
 		manifest: loadManifest(t, vendor),
@@ -153,21 +153,21 @@ func newHarness(t *testing.T, vendor llm.Vendor, planned *providerv0.PlannedRequ
 	}
 }
 
-func (h *harness) action(t *testing.T) *providerv0.PlanAction {
+func (h *harness) action(t *testing.T) *providerv1.PlanAction {
 	t.Helper()
-	action := &providerv0.PlanAction{
+	action := &providerv1.PlanAction{
 		ActionId:            "a1",
-		Type:                providerv0.ActionType_ACTION_TYPE_CREATE,
+		Type:                providerv1.ActionType_ACTION_TYPE_CREATE,
 		ResourceType:        "model",
 		ProspectiveRemoteId: "messages",
-		Ownership:           providerv0.Ownership_OWNERSHIP_OWNED,
-		Requests:            []*providerv0.PlannedRequest{h.planned},
+		Ownership:           providerv1.Ownership_OWNERSHIP_OWNED,
+		Requests:            []*providerv1.PlannedRequest{h.planned},
 	}
 	require.NoError(t, canonical.ValidatePlanAction(action))
 	return action
 }
 
-func (h *harness) handle(t *testing.T) *providerv0.CredentialHandle {
+func (h *harness) handle(t *testing.T) *providerv1.CredentialHandle {
 	t.Helper()
 	handle, err := h.vault.Mint(apiKey, credentials.Scope{
 		Principal:      "user",
@@ -177,9 +177,9 @@ func (h *harness) handle(t *testing.T) *providerv0.CredentialHandle {
 		PlanID:         "plan1",
 		ActionID:       "a1",
 		RequestDigest:  h.planned.GetRequestDigest(),
-		Purpose:        providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		Purpose:        providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 		Origin:         urlguardOrigin(),
-		Method:         providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:         providerv1.HTTPMethod_HTTP_METHOD_POST,
 		Injection:      credentials.Injection{Kind: credentials.InjectHeader, Name: "x-api-key"},
 		MaxUses:        1,
 		TTL:            time.Minute,
@@ -188,20 +188,20 @@ func (h *harness) handle(t *testing.T) *providerv0.CredentialHandle {
 	return handle
 }
 
-func (h *harness) request(t *testing.T) *providerv0.ExecuteRequestRequest {
+func (h *harness) request(t *testing.T) *providerv1.ExecuteRequestRequest {
 	t.Helper()
 	handle := h.handle(t)
-	return &providerv0.ExecuteRequestRequest{
-		Context: &providerv0.ProviderContext{
-			Offline:     &providerv0.OfflineProviderContext{Binding: binding()},
-			Credentials: []*providerv0.CredentialHandle{handle},
+	return &providerv1.ExecuteRequestRequest{
+		Context: &providerv1.ProviderContext{
+			Offline:     &providerv1.OfflineProviderContext{Binding: binding()},
+			Credentials: []*providerv1.CredentialHandle{handle},
 			Operation:   operation(),
 			Budget:      budget(),
 		},
 		RequestId:         "req-1",
 		Request:           h.planned,
 		Origin:            h.origin,
-		CredentialHandles: []*providerv0.CredentialHandle{handle},
+		CredentialHandles: []*providerv1.CredentialHandle{handle},
 	}
 }
 

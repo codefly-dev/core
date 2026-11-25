@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/provider/responsepolicy"
 )
@@ -28,7 +28,7 @@ func isEventStream(contentType string) bool {
 // secret-bearing or undeclared field past filtering. The running byte total is
 // bounded by the response-bytes budget, and any drift — an unfilterable event,
 // an over-budget stream — fails closed, forwarding nothing further.
-func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http.Response) (*providerv0.ExecuteRequestResponse, error) {
+func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http.Response) (*providerv1.ExecuteRequestResponse, error) {
 	policy, err := s.streamPolicyFor(descriptor)
 	if err != nil {
 		return nil, err
@@ -39,9 +39,9 @@ func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http
 	limit := s.limits.MaxCompressedBytes
 	reader := bufio.NewReader(io.LimitReader(resp.Body, limit+1))
 
-	response := &providerv0.ExecuteRequestResponse{
+	response := &providerv1.ExecuteRequestResponse{
 		StatusCode: uint32(resp.StatusCode),
-		Certainty:  providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		Certainty:  providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
 	}
 	var (
 		builder sseBuilder
@@ -52,7 +52,7 @@ func (s *Session) handleStream(descriptor manifest.RequestDescriptor, resp *http
 		if !ok {
 			return nil
 		}
-		event := &providerv0.FilteredEvent{EventType: frame.event}
+		event := &providerv1.FilteredEvent{EventType: frame.event}
 		if !frame.done {
 			if err := s.filterFrame(ctx, policy, frame, event); err != nil {
 				return err
@@ -102,14 +102,14 @@ func (s *Session) filterFrame(
 	ctx context.Context,
 	policy responsepolicy.Policy,
 	frame sseFrame,
-	event *providerv0.FilteredEvent,
+	event *providerv1.FilteredEvent,
 ) error {
 	result, err := policy.Filter(ctx, frame.data, "", "application/json", s.sink)
 	if err != nil {
 		return fmt.Errorf("filter stream event: %w", err)
 	}
 	for _, forwarded := range result.Forwarded {
-		event.Forwarded = append(event.Forwarded, &providerv0.FilteredField{
+		event.Forwarded = append(event.Forwarded, &providerv1.FilteredField{
 			Selector: forwarded.Selector,
 			Value:    forwarded.Value,
 		})
@@ -119,7 +119,7 @@ func (s *Session) filterFrame(
 		if capture.Outcome != responsepolicy.OutcomeCaptured {
 			continue
 		}
-		event.Captures = append(event.Captures, &providerv0.CaptureResult{
+		event.Captures = append(event.Captures, &providerv1.CaptureResult{
 			CaptureId:     capture.Selector,
 			Selector:      capture.Selector,
 			SinkReference: capture.Reference,
@@ -130,7 +130,7 @@ func (s *Session) filterFrame(
 }
 
 // emitStreamEvent surfaces one filtered event to the caller's live callback.
-func (s *Session) emitStreamEvent(event *providerv0.FilteredEvent) error {
+func (s *Session) emitStreamEvent(event *providerv1.FilteredEvent) error {
 	if s.onStreamEvent == nil {
 		return nil
 	}
@@ -139,7 +139,7 @@ func (s *Session) emitStreamEvent(event *providerv0.FilteredEvent) error {
 
 // emitStreamEvents surfaces an ordered set of already-filtered events to the
 // live callback, used on the replay path where events arrive as a block.
-func (s *Session) emitStreamEvents(events []*providerv0.FilteredEvent) error {
+func (s *Session) emitStreamEvents(events []*providerv1.FilteredEvent) error {
 	for _, event := range events {
 		if err := s.emitStreamEvent(event); err != nil {
 			return err
@@ -150,7 +150,7 @@ func (s *Session) emitStreamEvents(events []*providerv0.FilteredEvent) error {
 
 // responseHasCaptures reports whether a response captured any secret, on either
 // the non-streaming top-level fields or a streamed event.
-func responseHasCaptures(response *providerv0.ExecuteRequestResponse) bool {
+func responseHasCaptures(response *providerv1.ExecuteRequestResponse) bool {
 	if len(response.GetCaptures()) > 0 {
 		return true
 	}

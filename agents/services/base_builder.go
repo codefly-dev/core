@@ -16,21 +16,21 @@ import (
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/shared"
 )
 
 type BuilderWrapper struct {
 	*Base
 
-	BuildResult *builderv0.BuildResult
+	BuildResult *builderv1.BuildResult
 
 	GettingStarted string
 
-	CreationMode *builderv0.CreationMode
-	SyncMode     *builderv0.SyncMode
+	CreationMode *builderv1.CreationMode
+	SyncMode     *builderv1.SyncMode
 }
 
 // BuilderLoad describes the small set of choices in a conventional plugin
@@ -41,11 +41,11 @@ type BuilderLoad struct {
 	Settings         any
 	Requirements     *builders.Dependencies
 	FactoryTemplates fs.FS
-	ResolveEndpoints func(context.Context, []*basev0.Endpoint) error
+	ResolveEndpoints func(context.Context, []*basev1.Endpoint) error
 }
 
 // LoadService implements the conventional service builder Load lifecycle.
-func (s *BuilderWrapper) LoadService(ctx context.Context, req *builderv0.LoadRequest, load BuilderLoad) (*builderv0.LoadResponse, error) {
+func (s *BuilderWrapper) LoadService(ctx context.Context, req *builderv1.LoadRequest, load BuilderLoad) (*builderv1.LoadResponse, error) {
 	if req == nil || req.GetIdentity() == nil {
 		return s.LoadError(fmt.Errorf("builder load requires a service identity"))
 	}
@@ -89,10 +89,10 @@ func ErrorMessage(err error, msg string, args ...any) string {
 	return fmt.Sprintf("%s: %s", msg, err)
 }
 
-func operationFailure(operation string, err error, message string) *basev0.Failure {
+func operationFailure(operation string, err error, message string) *basev1.Failure {
 	failure := failures.FromError(operation, err)
 	if failure == nil && message != "" {
-		failure = failures.New(basev0.FailureCode_FAILURE_CODE_INTERNAL, operation, message)
+		failure = failures.New(basev1.FailureCode_FAILURE_CODE_INTERNAL, operation, message)
 	}
 	if failure != nil && message != "" {
 		failure.Message = message
@@ -100,7 +100,7 @@ func operationFailure(operation string, err error, message string) *basev0.Failu
 	return failure
 }
 
-func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
+func (s *BuilderWrapper) LoadResponse() (*builderv1.LoadResponse, error) {
 	if !s.loaded {
 		return s.LoadError(fmt.Errorf("not loaded"))
 	}
@@ -108,28 +108,28 @@ func (s *BuilderWrapper) LoadResponse() (*builderv0.LoadResponse, error) {
 		e.Module = s.Identity.Module
 		e.Service = s.Identity.Name
 	}
-	return &builderv0.LoadResponse{
+	return &builderv1.LoadResponse{
 		Version:        s.Version(),
 		Endpoints:      s.Endpoints,
 		GettingStarted: s.GettingStarted,
-		State:          &builderv0.LoadStatus{State: builderv0.LoadStatus_READY},
+		State:          &builderv1.LoadStatus{State: builderv1.LoadStatus_READY},
 	}, nil
 }
 
-func (s *BuilderWrapper) LoadError(err error) (*builderv0.LoadResponse, error) {
-	return &builderv0.LoadResponse{
-		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.load", err, err.Error())},
+func (s *BuilderWrapper) LoadError(err error) (*builderv1.LoadResponse, error) {
+	return &builderv1.LoadResponse{
+		State: &builderv1.LoadStatus{State: builderv1.LoadStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.load", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) LoadErrorf(err error, msg string, args ...any) (*builderv0.LoadResponse, error) {
+func (s *BuilderWrapper) LoadErrorf(err error, msg string, args ...any) (*builderv1.LoadResponse, error) {
 	message := ErrorMessage(err, msg, args...)
-	return &builderv0.LoadResponse{
-		State: &builderv0.LoadStatus{State: builderv0.LoadStatus_ERROR, Message: message, Failure: operationFailure("builder.load", err, message)},
+	return &builderv1.LoadResponse{
+		State: &builderv1.LoadStatus{State: builderv1.LoadStatus_ERROR, Message: message, Failure: operationFailure("builder.load", err, message)},
 	}, nil
 }
 
-func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
+func (s *BuilderWrapper) InitResponse() (*builderv1.InitResponse, error) {
 	if !s.loaded {
 		return s.InitError(fmt.Errorf("not loaded"))
 	}
@@ -138,25 +138,25 @@ func (s *BuilderWrapper) InitResponse() (*builderv0.InitResponse, error) {
 			return s.InitError(err)
 		}
 	}
-	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_SUCCESS},
+	return &builderv1.InitResponse{
+		State: &builderv1.InitStatus{State: builderv1.InitStatus_SUCCESS},
 	}, nil
 }
 
-func (s *BuilderWrapper) InitError(err error) (*builderv0.InitResponse, error) {
-	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.init", err, err.Error())},
+func (s *BuilderWrapper) InitError(err error) (*builderv1.InitResponse, error) {
+	return &builderv1.InitResponse{
+		State: &builderv1.InitStatus{State: builderv1.InitStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.init", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) InitErrorf(err error, msg string, args ...any) (*builderv0.InitResponse, error) {
+func (s *BuilderWrapper) InitErrorf(err error, msg string, args ...any) (*builderv1.InitResponse, error) {
 	message := ErrorMessage(err, msg, args...)
-	return &builderv0.InitResponse{
-		State: &builderv0.InitStatus{State: builderv0.InitStatus_ERROR, Message: message, Failure: operationFailure("builder.init", err, message)},
+	return &builderv1.InitResponse{
+		State: &builderv1.InitStatus{State: builderv1.InitStatus_ERROR, Message: message, Failure: operationFailure("builder.init", err, message)},
 	}, nil
 }
 
-func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*builderv0.CreateResponse, error) {
+func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*builderv1.CreateResponse, error) {
 	if !s.loaded {
 		return s.CreateError(fmt.Errorf("not loaded"))
 	}
@@ -176,60 +176,60 @@ func (s *BuilderWrapper) CreateResponse(ctx context.Context, settings any) (*bui
 	if err != nil {
 		return s.CreateErrorf(err, "base: cannot save configuration")
 	}
-	return &builderv0.CreateResponse{
+	return &builderv1.CreateResponse{
 		Endpoints: s.Endpoints,
-		State:     &builderv0.CreateStatus{State: builderv0.CreateStatus_CREATED},
+		State:     &builderv1.CreateStatus{State: builderv1.CreateStatus_CREATED},
 	}, nil
 }
 
-func (s *BuilderWrapper) CreateError(err error) (*builderv0.CreateResponse, error) {
-	return &builderv0.CreateResponse{
-		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.create", err, err.Error())},
+func (s *BuilderWrapper) CreateError(err error) (*builderv1.CreateResponse, error) {
+	return &builderv1.CreateResponse{
+		State: &builderv1.CreateStatus{State: builderv1.CreateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.create", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) CreateErrorf(err error, msg string, args ...any) (*builderv0.CreateResponse, error) {
+func (s *BuilderWrapper) CreateErrorf(err error, msg string, args ...any) (*builderv1.CreateResponse, error) {
 	message := ErrorMessage(err, msg, args...)
-	return &builderv0.CreateResponse{
-		State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: message, Failure: operationFailure("builder.create", err, message)},
+	return &builderv1.CreateResponse{
+		State: &builderv1.CreateStatus{State: builderv1.CreateStatus_ERROR, Message: message, Failure: operationFailure("builder.create", err, message)},
 	}, nil
 }
 
-func (s *BuilderWrapper) UpdateResponse() (*builderv0.UpdateResponse, error) {
+func (s *BuilderWrapper) UpdateResponse() (*builderv1.UpdateResponse, error) {
 	if !s.loaded {
 		return s.UpdateError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.UpdateResponse{
-		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_SUCCESS},
+	return &builderv1.UpdateResponse{
+		State: &builderv1.UpdateStatus{State: builderv1.UpdateStatus_SUCCESS},
 	}, nil
 
 }
 
-func (s *BuilderWrapper) UpdateError(err error) (*builderv0.UpdateResponse, error) {
-	return &builderv0.UpdateResponse{
-		State: &builderv0.UpdateStatus{State: builderv0.UpdateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.update", err, err.Error())},
+func (s *BuilderWrapper) UpdateError(err error) (*builderv1.UpdateResponse, error) {
+	return &builderv1.UpdateResponse{
+		State: &builderv1.UpdateStatus{State: builderv1.UpdateStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.update", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) SyncResponse() (*builderv0.SyncResponse, error) {
+func (s *BuilderWrapper) SyncResponse() (*builderv1.SyncResponse, error) {
 	if !s.loaded {
 		return s.SyncError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_SUCCESS}}, nil
+	return &builderv1.SyncResponse{
+		State: &builderv1.SyncStatus{State: builderv1.SyncStatus_SUCCESS}}, nil
 }
 
-func (s *BuilderWrapper) SyncError(err error) (*builderv0.SyncResponse, error) {
-	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sync", err, err.Error())}}, nil
+func (s *BuilderWrapper) SyncError(err error) (*builderv1.SyncResponse, error) {
+	return &builderv1.SyncResponse{
+		State: &builderv1.SyncStatus{State: builderv1.SyncStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sync", err, err.Error())}}, nil
 }
 
 // SyncUnsupported reports that the requested synchronization mode cannot be
 // performed authoritatively. CI dry-run callers must never infer "no drift"
 // from an agent that only implements mutating Sync.
-func (s *BuilderWrapper) SyncUnsupported(message string) (*builderv0.SyncResponse, error) {
-	return &builderv0.SyncResponse{
-		State: &builderv0.SyncStatus{State: builderv0.SyncStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sync", message)}}, nil
+func (s *BuilderWrapper) SyncUnsupported(message string) (*builderv1.SyncResponse, error) {
+	return &builderv1.SyncResponse{
+		State: &builderv1.SyncStatus{State: builderv1.SyncStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sync", message)}}, nil
 }
 
 func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
@@ -238,9 +238,9 @@ func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
 		imgs = append(imgs, im.FullName())
 
 	}
-	s.Builder.BuildResult = &builderv0.BuildResult{
-		Kind: &builderv0.BuildResult_DockerBuildResult{
-			DockerBuildResult: &builderv0.DockerBuildResult{
+	s.Builder.BuildResult = &builderv1.BuildResult{
+		Kind: &builderv1.BuildResult_DockerBuildResult{
+			DockerBuildResult: &builderv1.DockerBuildResult{
 				Images: imgs,
 			},
 		},
@@ -251,9 +251,9 @@ func (s *BuilderWrapper) WithDockerImages(ims ...*resources.DockerImage) {
 // Agents that emit recipes to the caller's output_directory return this instead
 // of WithDockerImages: the caller (the CLI) owns running docker buildx from the
 // recipes, so the build recipe becomes a durable, first-class artifact.
-func (s *BuilderWrapper) WithBuildPlan(plan *builderv0.DockerBuildPlan) {
-	s.Builder.BuildResult = &builderv0.BuildResult{
-		Kind: &builderv0.BuildResult_DockerBuildPlan{
+func (s *BuilderWrapper) WithBuildPlan(plan *builderv1.DockerBuildPlan) {
+	s.Builder.BuildResult = &builderv1.BuildResult{
+		Kind: &builderv1.BuildResult_DockerBuildPlan{
 			DockerBuildPlan: plan,
 		},
 	}
@@ -265,7 +265,7 @@ func (s *BuilderWrapper) WithBuildPlan(plan *builderv0.DockerBuildPlan) {
 // it scopes the plan's inventory to the files this build wrote and decides whether
 // the recipe references a dockerignore at all. options add declarations to the
 // recipe, as for SingleImageBuildPlan.
-func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, image string, emitted []string, options ...RecipeOption) (*builderv0.BuildResponse, error) {
+func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv1.BuildRequest, image string, emitted []string, options ...RecipeOption) (*builderv1.BuildResponse, error) {
 	plan, err := SingleImageBuildPlan(req.GetOutputDirectory(), image, RecipeBuildPlatforms(), emitted, options...)
 	if err != nil {
 		return s.BuildError(err)
@@ -274,43 +274,43 @@ func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, i
 	return s.BuildResponse()
 }
 
-func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {
+func (s *BuilderWrapper) BuildResponse() (*builderv1.BuildResponse, error) {
 	if !s.loaded {
 		return s.BuildError(fmt.Errorf("not loaded"))
 	}
-	resp := &builderv0.BuildResponse{State: &builderv0.BuildStatus{State: builderv0.BuildStatus_SUCCESS}}
+	resp := &builderv1.BuildResponse{State: &builderv1.BuildStatus{State: builderv1.BuildStatus_SUCCESS}}
 	if s.BuildResult != nil {
 		resp.Result = s.BuildResult
 	}
 	return resp, nil
 }
 
-func (s *BuilderWrapper) BuildError(err error) (*builderv0.BuildResponse, error) {
-	return &builderv0.BuildResponse{
-		State: &builderv0.BuildStatus{State: builderv0.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.build", err, err.Error())}}, nil
+func (s *BuilderWrapper) BuildError(err error) (*builderv1.BuildResponse, error) {
+	return &builderv1.BuildResponse{
+		State: &builderv1.BuildStatus{State: builderv1.BuildStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.build", err, err.Error())}}, nil
 }
 
 func (s *BuilderWrapper) DeployResponse(
-	configuration *basev0.Configuration,
-	deployment *builderv0.DeploymentOutput,
-) (*builderv0.DeploymentResponse, error) {
+	configuration *basev1.Configuration,
+	deployment *builderv1.DeploymentOutput,
+) (*builderv1.DeploymentResponse, error) {
 	if !s.loaded {
 		return s.deployError(fmt.Errorf("not loaded"), deployment)
 	}
-	return &builderv0.DeploymentResponse{
+	return &builderv1.DeploymentResponse{
 		Configuration: configuration,
 		Deployment:    deployment,
-		State:         &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_SUCCESS},
+		State:         &builderv1.DeploymentStatus{State: builderv1.DeploymentStatus_SUCCESS},
 	}, nil
 }
 
-func (s *BuilderWrapper) DeployError(err error) (*builderv0.DeploymentResponse, error) {
+func (s *BuilderWrapper) DeployError(err error) (*builderv1.DeploymentResponse, error) {
 	return s.deployError(err, nil)
 }
 
-func (s *BuilderWrapper) deployError(err error, deployment *builderv0.DeploymentOutput) (*builderv0.DeploymentResponse, error) {
-	return &builderv0.DeploymentResponse{
-		State:      &builderv0.DeploymentStatus{State: builderv0.DeploymentStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.deploy", err, err.Error())},
+func (s *BuilderWrapper) deployError(err error, deployment *builderv1.DeploymentOutput) (*builderv1.DeploymentResponse, error) {
+	return &builderv1.DeploymentResponse{
+		State:      &builderv1.DeploymentStatus{State: builderv1.DeploymentStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.deploy", err, err.Error())},
 		Deployment: deployment,
 	}, nil
 }
@@ -319,25 +319,25 @@ func (s *BuilderWrapper) deployError(err error, deployment *builderv0.Deployment
 // findings is empty, FINDINGS otherwise. Tool/language identify the
 // scanner used so the CLI can render "[govulncheck+go list -u] go-grpc/api"
 // in mixed-workspace audits.
-func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*builderv0.AuditFinding, outdated []*builderv0.OutdatedDep, tool, language string) (*builderv0.AuditResponse, error) {
-	state := builderv0.AuditStatus_CLEAN
+func (s *BuilderWrapper) AuditResponse(req *builderv1.AuditRequest, findings []*builderv1.AuditFinding, outdated []*builderv1.OutdatedDep, tool, language string) (*builderv1.AuditResponse, error) {
+	state := builderv1.AuditStatus_CLEAN
 	message := ""
-	var failure *basev0.Failure
+	var failure *basev1.Failure
 	if len(findings) > 0 {
-		state = builderv0.AuditStatus_FINDINGS
+		state = builderv1.AuditStatus_FINDINGS
 	}
 	if req.GetFailOnVuln() {
 		for _, finding := range findings {
-			if finding.GetSeverity() >= builderv0.AuditFinding_HIGH {
-				state = builderv0.AuditStatus_ERROR
+			if finding.GetSeverity() >= builderv1.AuditFinding_HIGH {
+				state = builderv1.AuditStatus_ERROR
 				message = "audit found HIGH or CRITICAL vulnerabilities"
-				failure = failures.New(basev0.FailureCode_FAILURE_CODE_SECURITY_POLICY_FAILED, "builder.audit", message)
+				failure = failures.New(basev1.FailureCode_FAILURE_CODE_SECURITY_POLICY_FAILED, "builder.audit", message)
 				break
 			}
 		}
 	}
-	return &builderv0.AuditResponse{
-		State:    &builderv0.AuditStatus{State: state, Message: message, Failure: failure},
+	return &builderv1.AuditResponse{
+		State:    &builderv1.AuditStatus{State: state, Message: message, Failure: failure},
 		Findings: findings,
 		Outdated: outdated,
 		Tool:     tool,
@@ -345,28 +345,28 @@ func (s *BuilderWrapper) AuditResponse(req *builderv0.AuditRequest, findings []*
 	}, nil
 }
 
-func (s *BuilderWrapper) AuditError(err error) (*builderv0.AuditResponse, error) {
-	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.audit", err, err.Error())},
+func (s *BuilderWrapper) AuditError(err error) (*builderv1.AuditResponse, error) {
+	return &builderv1.AuditResponse{
+		State: &builderv1.AuditStatus{State: builderv1.AuditStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.audit", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*builderv0.AuditResponse, error) {
+func (s *BuilderWrapper) AuditErrorf(err error, msg string, args ...any) (*builderv1.AuditResponse, error) {
 	message := ErrorMessage(err, msg, args...)
-	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_ERROR, Message: message, Failure: operationFailure("builder.audit", err, message)},
+	return &builderv1.AuditResponse{
+		State: &builderv1.AuditStatus{State: builderv1.AuditStatus_ERROR, Message: message, Failure: operationFailure("builder.audit", err, message)},
 	}, nil
 }
 
 // AuditUnsupported reports that this agent has no authoritative scanner.
-func (s *BuilderWrapper) AuditUnsupported(message string) (*builderv0.AuditResponse, error) {
-	return &builderv0.AuditResponse{
-		State: &builderv0.AuditStatus{State: builderv0.AuditStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.audit", message)},
+func (s *BuilderWrapper) AuditUnsupported(message string) (*builderv1.AuditResponse, error) {
+	return &builderv1.AuditResponse{
+		State: &builderv1.AuditStatus{State: builderv1.AuditStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.audit", message)},
 	}, nil
 }
 
 // AuditContainer is the shared implementation for stock-image service agents.
-func (s *BuilderWrapper) AuditContainer(ctx context.Context, req *builderv0.AuditRequest, image string) (*builderv0.AuditResponse, error) {
+func (s *BuilderWrapper) AuditContainer(ctx context.Context, req *builderv1.AuditRequest, image string) (*builderv1.AuditResponse, error) {
 	result, err := serviceaudit.Docker(ctx, image)
 	if err != nil {
 		return s.AuditError(err)
@@ -375,10 +375,10 @@ func (s *BuilderWrapper) AuditContainer(ctx context.Context, req *builderv0.Audi
 }
 
 // SBOMResponse builds a complete, authoritative CycloneDX response.
-func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 string) (*builderv0.SBOMResponse, error) {
-	return &builderv0.SBOMResponse{
-		State:    &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE},
-		Scope:    builderv0.SBOMScope_SBOM_SCOPE_SOURCE,
+func (s *BuilderWrapper) SBOMResponse(bom *agentv1.Bom, tool, language, sha256 string) (*builderv1.SBOMResponse, error) {
+	return &builderv1.SBOMResponse{
+		State:    &builderv1.SBOMStatus{State: builderv1.SBOMStatus_COMPLETE},
+		Scope:    builderv1.SBOMScope_SBOM_SCOPE_SOURCE,
 		Bom:      bom,
 		Tool:     tool,
 		Language: language,
@@ -388,31 +388,31 @@ func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 s
 
 // SBOMError reports a failed inventory. It never returns an empty COMPLETE
 // response because incomplete inventories are unsafe release evidence.
-func (s *BuilderWrapper) SBOMError(err error) (*builderv0.SBOMResponse, error) {
-	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
+func (s *BuilderWrapper) SBOMError(err error) (*builderv1.SBOMResponse, error) {
+	return &builderv1.SBOMResponse{
+		State: &builderv1.SBOMStatus{State: builderv1.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
 	}, nil
 }
 
 // SBOMImageError reports a failed image inventory. It carries image scope so a
 // caller can tell which request failed instead of reading the absent scope as a
 // source inventory.
-func (s *BuilderWrapper) SBOMImageError(err error) (*builderv0.SBOMResponse, error) {
-	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
-		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+func (s *BuilderWrapper) SBOMImageError(err error) (*builderv1.SBOMResponse, error) {
+	return &builderv1.SBOMResponse{
+		State: &builderv1.SBOMStatus{State: builderv1.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
+		Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
 	}, nil
 }
 
 // SBOMUnsupported reports that this plugin has no authoritative generator.
-func (s *BuilderWrapper) SBOMUnsupported(message string) (*builderv0.SBOMResponse, error) {
-	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sbom", message)},
+func (s *BuilderWrapper) SBOMUnsupported(message string) (*builderv1.SBOMResponse, error) {
+	return &builderv1.SBOMResponse{
+		State: &builderv1.SBOMStatus{State: builderv1.SBOMStatus_UNSUPPORTED, Message: message, Failure: failures.New(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.sbom", message)},
 	}, nil
 }
 
 // SBOMContainer is the shared implementation for stock-image service agents.
-func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*builderv0.SBOMResponse, error) {
+func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*builderv1.SBOMResponse, error) {
 	result, err := servicesbom.Container(ctx, image)
 	if err != nil {
 		return s.SBOMError(err)
@@ -422,10 +422,10 @@ func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*buil
 
 // SBOMImageResponse builds a complete image-scope response from evidence that
 // is already bound to the digest each image was scanned from.
-func (s *BuilderWrapper) SBOMImageResponse(images []*builderv0.ImageSBOM) (*builderv0.SBOMResponse, error) {
-	return &builderv0.SBOMResponse{
-		State:  &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE},
-		Scope:  builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+func (s *BuilderWrapper) SBOMImageResponse(images []*builderv1.ImageSBOM) (*builderv1.SBOMResponse, error) {
+	return &builderv1.SBOMResponse{
+		State:  &builderv1.SBOMStatus{State: builderv1.SBOMStatus_COMPLETE},
+		Scope:  builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
 		Images: images,
 	}, nil
 }
@@ -433,13 +433,13 @@ func (s *BuilderWrapper) SBOMImageResponse(images []*builderv0.ImageSBOM) (*buil
 // SBOMNoImage reports that the service legitimately ships no image. It is the
 // only complete image-scope response carrying no inventories, and it is
 // distinct from SBOMUnsupported, which means this agent has no implementation.
-func (s *BuilderWrapper) SBOMNoImage(reason builderv0.NoImageReason, message string) (*builderv0.SBOMResponse, error) {
+func (s *BuilderWrapper) SBOMNoImage(reason builderv1.NoImageReason, message string) (*builderv1.SBOMResponse, error) {
 	if err := servicesbom.ValidateNoImageReason(reason, message); err != nil {
 		return s.SBOMImageError(err)
 	}
-	return &builderv0.SBOMResponse{
-		State:         &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE, Message: message},
-		Scope:         builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+	return &builderv1.SBOMResponse{
+		State:         &builderv1.SBOMStatus{State: builderv1.SBOMStatus_COMPLETE, Message: message},
+		Scope:         builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
 		NoImageReason: reason,
 	}, nil
 }
@@ -448,15 +448,15 @@ func (s *BuilderWrapper) SBOMNoImage(reason builderv0.NoImageReason, message str
 // build, so the agent has no digest of its own to inventory. The service does
 // ship an image, which is why this is a precondition failure rather than
 // unsupported or a no-image reason.
-func (s *BuilderWrapper) SBOMImageSubjectsRequired() (*builderv0.SBOMResponse, error) {
+func (s *BuilderWrapper) SBOMImageSubjectsRequired() (*builderv1.SBOMResponse, error) {
 	message := "this agent does not build its own images; supply image subjects resolved from the build"
-	return &builderv0.SBOMResponse{
-		State: &builderv0.SBOMStatus{
-			State:   builderv0.SBOMStatus_ERROR,
+	return &builderv1.SBOMResponse{
+		State: &builderv1.SBOMStatus{
+			State:   builderv1.SBOMStatus_ERROR,
 			Message: message,
-			Failure: failures.New(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "builder.sbom", message),
+			Failure: failures.New(basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "builder.sbom", message),
 		},
-		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+		Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
 	}, nil
 }
 
@@ -467,12 +467,12 @@ func (s *BuilderWrapper) SBOMImageSubjectsRequired() (*builderv0.SBOMResponse, e
 //
 // Each subject says where its own image lives, so one request may mix a pushed
 // runtime image with a migration image that was only loaded into the daemon.
-func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.ImageSubject) (*builderv0.SBOMResponse, error) {
+func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv1.ImageSubject) (*builderv1.SBOMResponse, error) {
 	if len(subjects) == 0 {
 		return s.SBOMImageSubjectsRequired()
 	}
-	var images []*builderv0.ImageSBOM
-	index := map[string]*builderv0.ImageSBOM{}
+	var images []*builderv1.ImageSBOM
+	index := map[string]*builderv1.ImageSBOM{}
 	for _, subject := range subjects {
 		result, err := servicesbom.ImageForSubject(ctx, subject)
 		if err != nil {
@@ -483,10 +483,10 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 			existing.Subjects = append(existing.Subjects, subject)
 			continue
 		}
-		evidence := &builderv0.ImageSBOM{
+		evidence := &builderv1.ImageSBOM{
 			Digest:   result.Digest,
 			Platform: result.Platform,
-			Subjects: []*builderv0.ImageSubject{subject},
+			Subjects: []*builderv1.ImageSubject{subject},
 			Bom:      result.Bom,
 			Tool:     result.Tool,
 			Sha256:   result.SHA256,
@@ -498,21 +498,21 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 }
 
 // PackageResponse builds a successful portable-package response.
-func (s *BuilderWrapper) PackageResponse(artifacts []*builderv0.PackageArtifact) (*builderv0.PackageResponse, error) {
+func (s *BuilderWrapper) PackageResponse(artifacts []*builderv1.PackageArtifact) (*builderv1.PackageResponse, error) {
 	if !s.loaded {
 		return s.PackageError(fmt.Errorf("not loaded"))
 	}
-	return &builderv0.PackageResponse{
-		State:     &builderv0.PackageStatus{State: builderv0.PackageStatus_SUCCESS},
+	return &builderv1.PackageResponse{
+		State:     &builderv1.PackageStatus{State: builderv1.PackageStatus_SUCCESS},
 		Artifacts: artifacts,
 	}, nil
 }
 
 // PackageError reports a failed portable-package operation.
-func (s *BuilderWrapper) PackageError(err error) (*builderv0.PackageResponse, error) {
-	return &builderv0.PackageResponse{
-		State: &builderv0.PackageStatus{
-			State:   builderv0.PackageStatus_ERROR,
+func (s *BuilderWrapper) PackageError(err error) (*builderv1.PackageResponse, error) {
+	return &builderv1.PackageResponse{
+		State: &builderv1.PackageStatus{
+			State:   builderv1.PackageStatus_ERROR,
 			Message: err.Error(),
 			Failure: operationFailure("builder.package", err, err.Error()),
 		},
@@ -520,40 +520,40 @@ func (s *BuilderWrapper) PackageError(err error) (*builderv0.PackageResponse, er
 }
 
 // PackageUnsupported reports that the plugin cannot package its loaded source.
-func (s *BuilderWrapper) PackageUnsupported(message string) (*builderv0.PackageResponse, error) {
-	return &builderv0.PackageResponse{
-		State: &builderv0.PackageStatus{
-			State:   builderv0.PackageStatus_UNSUPPORTED,
+func (s *BuilderWrapper) PackageUnsupported(message string) (*builderv1.PackageResponse, error) {
+	return &builderv1.PackageResponse{
+		State: &builderv1.PackageStatus{
+			State:   builderv1.PackageStatus_UNSUPPORTED,
 			Message: message,
-			Failure: failures.New(basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.package", message),
+			Failure: failures.New(basev1.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION, "builder.package", message),
 		},
 	}, nil
 }
 
 // UpgradeResponse builds a successful UpgradeResponse. State is NOOP if
 // no changes were applied (or would be, in dry-run), SUCCESS otherwise.
-func (s *BuilderWrapper) UpgradeResponse(changes []*builderv0.UpgradeChange, lockfileDiff string) (*builderv0.UpgradeResponse, error) {
-	state := builderv0.UpgradeStatus_SUCCESS
+func (s *BuilderWrapper) UpgradeResponse(changes []*builderv1.UpgradeChange, lockfileDiff string) (*builderv1.UpgradeResponse, error) {
+	state := builderv1.UpgradeStatus_SUCCESS
 	if len(changes) == 0 {
-		state = builderv0.UpgradeStatus_NOOP
+		state = builderv1.UpgradeStatus_NOOP
 	}
-	return &builderv0.UpgradeResponse{
-		State:        &builderv0.UpgradeStatus{State: state},
+	return &builderv1.UpgradeResponse{
+		State:        &builderv1.UpgradeStatus{State: state},
 		Changes:      changes,
 		LockfileDiff: lockfileDiff,
 	}, nil
 }
 
-func (s *BuilderWrapper) UpgradeError(err error) (*builderv0.UpgradeResponse, error) {
-	return &builderv0.UpgradeResponse{
-		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.upgrade", err, err.Error())},
+func (s *BuilderWrapper) UpgradeError(err error) (*builderv1.UpgradeResponse, error) {
+	return &builderv1.UpgradeResponse{
+		State: &builderv1.UpgradeStatus{State: builderv1.UpgradeStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.upgrade", err, err.Error())},
 	}, nil
 }
 
-func (s *BuilderWrapper) UpgradeErrorf(err error, msg string, args ...any) (*builderv0.UpgradeResponse, error) {
+func (s *BuilderWrapper) UpgradeErrorf(err error, msg string, args ...any) (*builderv1.UpgradeResponse, error) {
 	message := ErrorMessage(err, msg, args...)
-	return &builderv0.UpgradeResponse{
-		State: &builderv0.UpgradeStatus{State: builderv0.UpgradeStatus_ERROR, Message: message, Failure: operationFailure("builder.upgrade", err, message)},
+	return &builderv1.UpgradeResponse{
+		State: &builderv1.UpgradeStatus{State: builderv1.UpgradeStatus_ERROR, Message: message, Failure: operationFailure("builder.upgrade", err, message)},
 	}, nil
 }
 
@@ -564,7 +564,7 @@ type DeploymentBase struct {
 	Environment *resources.Environment
 	Image       *resources.DockerImage
 	Replicas    int
-	Profile     builderv0.KubernetesOutputProfile
+	Profile     builderv1.KubernetesOutputProfile
 	// Restricted is true when the selected profile forbids inline Secret values
 	// and requires digest-pinned, policy-restricted manifests. It is a security
 	// property of the output, not a statement about how the manifests are
@@ -581,7 +581,7 @@ type DeploymentBase struct {
 // package services stays free of the Docker client. See CreateKubernetesBase.
 var ImageIDResolver func(*resources.DockerImage) (string, error)
 
-func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev0.Environment, namespace string, builderContext *builderv0.DockerBuildContext) (*DeploymentBase, error) {
+func (s *BuilderWrapper) CreateKubernetesBase(_ context.Context, env *basev1.Environment, namespace string, builderContext *builderv1.DockerBuildContext) (*DeploymentBase, error) {
 	envInfo := resources.EnvironmentFromProto(env)
 	dockerImage := s.DockerImage(builderContext)
 
@@ -625,7 +625,7 @@ type Parameters struct {
 type DeploymentParameters struct {
 	ConfigMap        EnvironmentMap
 	SecretMap        EnvironmentMap
-	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
+	SecretReferences map[string]*builderv1.KubernetesSecretKeyReference
 	Parameters       any
 	PodOverlay       *PodTemplateOverlay
 	// FileCarriers are the values delivered by file rather than as
@@ -688,9 +688,9 @@ func WithPodOverlay(overlay *PodTemplateOverlay) KustomizeDeploymentOption {
 // requested standard inputs have been collected and before ConfigMap/Secret
 // data is rendered.
 type KustomizeDeploymentContext struct {
-	Request              *builderv0.DeploymentRequest
-	Kubernetes           *builderv0.KubernetesDeployment
-	Profile              builderv0.KubernetesOutputProfile
+	Request              *builderv1.DeploymentRequest
+	Kubernetes           *builderv1.KubernetesDeployment
+	Profile              builderv1.KubernetesOutputProfile
 	EnvironmentVariables *resources.EnvironmentVariableManager
 	Parameters           any
 	// PodOverlay is seeded from the KustomizeDeployment and may be replaced by
@@ -699,13 +699,13 @@ type KustomizeDeploymentContext struct {
 	PodOverlay            *PodTemplateOverlay
 	ConfigMap             []*resources.EnvironmentVariable
 	Secrets               []*resources.EnvironmentVariable
-	exportedConfiguration *basev0.Configuration
+	exportedConfiguration *basev1.Configuration
 }
 
 // ExportConfiguration publishes a resource's connection configuration in the
 // deployment response and makes its values available to the rendered
 // workload. This is the standard operation for managed resource plugins.
-func (d *KustomizeDeploymentContext) ExportConfiguration(ctx context.Context, configuration *basev0.Configuration) error {
+func (d *KustomizeDeploymentContext) ExportConfiguration(ctx context.Context, configuration *basev1.Configuration) error {
 	if configuration == nil {
 		return fmt.Errorf("cannot export a nil configuration")
 	}
@@ -739,7 +739,7 @@ func EnvsAsSecretData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, e
 	return m, nil
 }
 
-func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
+func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *builderv1.DeploymentRequest) (*builderv1.KubernetesDeployment, error) {
 	kubernetes, _, err := s.judgeKubernetesDeployment(req)
 	return kubernetes, err
 }
@@ -748,7 +748,7 @@ func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *bui
 // profile are judged: KubernetesDeploymentRequest (a plugin's own pre-flight)
 // and DeployKustomize both read this and nothing else, so there is no second
 // parse to fall out of step with the first.
-func (s *BuilderWrapper) judgeKubernetesDeployment(req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, OutputProfile, error) {
+func (s *BuilderWrapper) judgeKubernetesDeployment(req *builderv1.DeploymentRequest) (*builderv1.KubernetesDeployment, OutputProfile, error) {
 	kubernetes, err := s.kubernetesDeploymentTarget(req)
 	if err != nil {
 		return nil, OutputProfile{}, err
@@ -769,7 +769,7 @@ func (s *BuilderWrapper) judgeKubernetesDeployment(req *builderv0.DeploymentRequ
 	return kubernetes, profile, nil
 }
 
-func (s *BuilderWrapper) kubernetesDeploymentTarget(req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
+func (s *BuilderWrapper) kubernetesDeploymentTarget(req *builderv1.DeploymentRequest) (*builderv1.KubernetesDeployment, error) {
 	if req == nil {
 		return nil, s.Wool.Wrapf(fmt.Errorf("deployment request is nil"), "cannot deploy")
 	}
@@ -777,7 +777,7 @@ func (s *BuilderWrapper) kubernetesDeploymentTarget(req *builderv0.DeploymentReq
 		return nil, s.Wool.Wrapf(fmt.Errorf("deployment target is missing"), "cannot deploy")
 	}
 	switch v := req.Deployment.Kind.(type) {
-	case *builderv0.Deployment_Kubernetes:
+	case *builderv1.Deployment_Kubernetes:
 		if v.Kubernetes == nil {
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes deployment is missing"), "cannot deploy")
 		}
@@ -796,7 +796,7 @@ func (members deploymentMembers) Member(name string) (resources.Member, bool) {
 	return member, ok
 }
 
-func (s *BuilderWrapper) deploymentProvenance(ctx context.Context, req *builderv0.DeploymentRequest) (resources.Provenance, error) {
+func (s *BuilderWrapper) deploymentProvenance(ctx context.Context, req *builderv1.DeploymentRequest) (resources.Provenance, error) {
 	if supplied := req.GetCompositionProvenance(); supplied != nil {
 		members := make(deploymentMembers, len(supplied.GetMembers()))
 		for _, member := range supplied.GetMembers() {
@@ -808,9 +808,9 @@ func (s *BuilderWrapper) deploymentProvenance(ctx context.Context, req *builderv
 			}
 			var role resources.MemberRole
 			switch member.GetRole() {
-			case builderv0.CompositionMember_ROLE_MODULE:
+			case builderv1.CompositionMember_ROLE_MODULE:
 				role = resources.MemberRoleModule
-			case builderv0.CompositionMember_ROLE_SOLUTION:
+			case builderv1.CompositionMember_ROLE_SOLUTION:
 				role = resources.MemberRoleSolution
 			default:
 				return nil, fmt.Errorf("%w: supplied composition member %q has unknown role %d", resources.ErrUnjudgedProvenance, member.GetName(), member.GetRole())
@@ -837,7 +837,7 @@ func (s *BuilderWrapper) deploymentProvenance(ctx context.Context, req *builderv
 // pipeline: validate the target, collect declared inputs, run the plugin's
 // preparation hook, split configuration from secrets, render Kustomize, and
 // return the structured builder response.
-func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.DeploymentRequest, deployment KustomizeDeployment) (*builderv0.DeploymentResponse, error) {
+func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv1.DeploymentRequest, deployment KustomizeDeployment) (*builderv1.DeploymentResponse, error) {
 	if deployment.EnvironmentVariables == nil {
 		return s.DeployError(fmt.Errorf("kustomize deployment requires an environment variable manager"))
 	}
@@ -855,7 +855,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return s.DeployError(err)
 	}
 	output := KustomizeOutput(profile)
-	fail := func(err error) (*builderv0.DeploymentResponse, error) {
+	fail := func(err error) (*builderv1.DeploymentResponse, error) {
 		return s.deployError(err, output)
 	}
 	if profile.Restricted() {
@@ -1035,8 +1035,8 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		kubernetes.GetValidationContext(),
 	)
 	output.GetKubernetes().Validation = validation
-	if validation.GetStaticValidation() == builderv0.KubernetesManifestValidation_STATUS_FAILED ||
-		validation.GetServerSideValidation() == builderv0.KubernetesManifestValidation_STATUS_FAILED {
+	if validation.GetStaticValidation() == builderv1.KubernetesManifestValidation_STATUS_FAILED ||
+		validation.GetServerSideValidation() == builderv1.KubernetesManifestValidation_STATUS_FAILED {
 		return fail(fmt.Errorf("generated Kubernetes manifests violate %s: %s",
 			KubernetesManifestContractVersion, strings.Join(validation.GetViolations(), "; ")))
 	}
@@ -1061,11 +1061,11 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 }
 
 // KustomizeOutput starts the response for a render under a judged profile.
-func KustomizeOutput(profile OutputProfile) *builderv0.DeploymentOutput {
-	return &builderv0.DeploymentOutput{
-		Kind: &builderv0.DeploymentOutput_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeploymentOutput{
-				Kind:            builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
+func KustomizeOutput(profile OutputProfile) *builderv1.DeploymentOutput {
+	return &builderv1.DeploymentOutput{
+		Kind: &builderv1.DeploymentOutput_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeploymentOutput{
+				Kind:            builderv1.KubernetesDeploymentOutput_KUSTOMIZE,
 				Profile:         profile.Proto(),
 				ContractVersion: KubernetesManifestContractVersion,
 			},
@@ -1078,7 +1078,7 @@ func KustomizeOutput(profile OutputProfile) *builderv0.DeploymentOutput {
 // refused before the base is built and before anything is written — and the
 // template inputs that say what the render may emit (.Restricted) are derived
 // from that one judgement, never from the raw number.
-func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fsys fs.FS, params any) error {
+func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev1.Environment, req *builderv1.KubernetesDeployment, fsys fs.FS, params any) error {
 	defer s.Wool.Catch()
 
 	profile, err := ParseOutputProfile(req.GetProfile())
@@ -1144,7 +1144,7 @@ type DeploymentWrapper struct {
 	Name             string
 	ConfigMap        EnvironmentMap
 	SecretMap        EnvironmentMap
-	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
+	SecretReferences map[string]*builderv1.KubernetesSecretKeyReference
 
 	// PodOverlay is the typed, shared pod-customization model. Core binds it into
 	// the rendered workload manifests after templating (applyPodOverlay), so an
@@ -1161,7 +1161,7 @@ type DeploymentWrapper struct {
 // says — a base whose .Restricted disagrees with the request's profile is
 // refused before the destination is touched, so no caller renders inline
 // Secret data under a profile that forbids it by assembling the inputs by hand.
-func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
+func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv1.KubernetesDeployment, base *DeploymentBase, params any) error {
 	profile, err := ParseOutputProfile(k.GetProfile())
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot render")
@@ -1235,10 +1235,10 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 }
 
 func validateRestrictedDeploymentRequest(
-	req *builderv0.DeploymentRequest,
-	references map[string]*builderv0.KubernetesSecretKeyReference,
+	req *builderv1.DeploymentRequest,
+	references map[string]*builderv1.KubernetesSecretKeyReference,
 ) error {
-	for _, configuration := range append([]*basev0.Configuration{req.GetConfiguration()}, req.GetDependenciesConfigurations()...) {
+	for _, configuration := range append([]*basev1.Configuration{req.GetConfiguration()}, req.GetDependenciesConfigurations()...) {
 		for _, information := range configuration.GetInfos() {
 			if data := information.GetData(); data.GetSecret() && len(data.GetContent()) > 0 {
 				return fmt.Errorf("restricted rendering cannot receive secret data %q", information.GetName())
@@ -1275,14 +1275,14 @@ func validateRestrictedDeploymentRequest(
 	return nil
 }
 
-func (s *BuilderWrapper) LogInitRequest(req *builderv0.InitRequest) {
+func (s *BuilderWrapper) LogInitRequest(req *builderv1.InitRequest) {
 	w := s.Wool.In("builder::init")
 	w.Debug("input",
 		wool.Field("dependency endpoints", resources.MakeManyEndpointSummary(req.GetDependenciesEndpoints())),
 	)
 }
 
-func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log wool.LogFunc) {
+func (s *BuilderWrapper) LogDeployRequest(req *builderv1.DeploymentRequest, log wool.LogFunc) {
 	if req == nil {
 		log("input", wool.Field("request", "nil"))
 		return
@@ -1295,12 +1295,12 @@ func (s *BuilderWrapper) LogDeployRequest(req *builderv0.DeploymentRequest, log 
 	)
 }
 
-func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv0.BuildRequest) (*builderv0.DockerBuildContext, error) {
+func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv1.BuildRequest) (*builderv1.DockerBuildContext, error) {
 	if err := ValidateBuildRequestOutputDirectory(req); err != nil {
 		return nil, s.Wool.Wrapf(err, "cannot build")
 	}
 	switch v := req.BuildContext.Kind.(type) {
-	case *builderv0.BuildContext_DockerBuildContext:
+	case *builderv1.BuildContext_DockerBuildContext:
 		if _, err := dockerhelpers.CacheArguments(v.DockerBuildContext.GetCache(), RecipeBuildPlatforms()); err != nil {
 			return nil, err
 		}

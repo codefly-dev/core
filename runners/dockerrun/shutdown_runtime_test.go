@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/runners/golang"
@@ -20,7 +20,7 @@ import (
 func TestDestroyRuntimeAcquiresContainerForTeardown(t *testing.T) {
 	for _, runtime := range []struct {
 		name    string
-		destroy func(context.Context, *basev0.RuntimeContext, *resources.DockerImage, string, string, string, string) error
+		destroy func(context.Context, *basev1.RuntimeContext, *resources.DockerImage, string, string, string, string) error
 	}{
 		{"goland", golang.DestroyGoRuntime},
 		{"rust", rust.DestroyRustRuntime},

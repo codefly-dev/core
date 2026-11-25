@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents/contract"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -56,7 +56,7 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			defer cancel()
 			ctx = metadata.AppendToOutgoingContext(ctx, AuthMetadataKey, "recovery-test")
 			var headers metadata.MD
-			info, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
+			info, err := agentv1.NewAgentClient(conn).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{}, grpc.Header(&headers))
 			require.NoError(t, err)
 			checkErr := contract.Check(info.GetContract(), contract.ContainerRecoveryScope)
 			if tc.wantError == "" {
@@ -67,7 +67,7 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			if tc.declaration != "absent" {
 				require.Contains(t, info.GetContract().GetCapabilities(), "fixture-feature/v1")
 			}
-			again, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+			again, err := agentv1.NewAgentClient(conn).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 			require.NoError(t, err)
 			require.Equal(t, info.GetContract().GetCapabilities(), again.GetContract().GetCapabilities())
 

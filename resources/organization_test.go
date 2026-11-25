@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"buf.build/go/protovalidate"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -12,10 +12,10 @@ import (
 func TestValidOrganization(t *testing.T) {
 	tcs := []struct {
 		name string
-		*basev0.Organization
+		*basev1.Organization
 		err error
 	}{
-		{"too short", &basev0.Organization{Name: "c"}, &protovalidate.ValidationError{}},
+		{"too short", &basev1.Organization{Name: "c"}, &protovalidate.ValidationError{}},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestApplySymbolPatchUsesAnalyzerOwnedDeclarationAcrossSupportedLanguages(t *testing.T) {
@@ -30,12 +30,12 @@ func TestApplySymbolPatchUsesAnalyzerOwnedDeclarationAcrossSupportedLanguages(t 
 			}
 			server := newSemanticServer(root)
 			t.Cleanup(func() { _ = server.Close() })
-			request := &codev0.ApplySymbolPatchRequest{
+			request := &codev1.ApplySymbolPatchRequest{
 				File: test.file, QualifiedName: test.qualifiedName,
 				ExpectedDeclarationSha256: semanticHash([]byte(test.declaration)),
-				NewSource:                 test.replacement, FixMode: basev0.FixMode_FIX_MODE_NONE, DryRun: true,
+				NewSource:                 test.replacement, FixMode: basev1.FixMode_FIX_MODE_NONE, DryRun: true,
 			}
-			preview, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: request}})
+			preview, err := server.Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: request}})
 			if err != nil || !preview.GetApplySymbolPatch().GetSuccess() || !preview.GetApplySymbolPatch().GetChanged() || preview.GetApplySymbolPatch().GetWrote() {
 				t.Fatalf("preview response=%+v failure=%+v err=%v", preview.GetApplySymbolPatch(), preview.GetFailure(), err)
 			}
@@ -48,7 +48,7 @@ func TestApplySymbolPatchUsesAnalyzerOwnedDeclarationAcrossSupportedLanguages(t 
 				t.Fatalf("dry run changed file: content=%q err=%v", unchanged, err)
 			}
 			request.DryRun = false
-			applied, err := server.Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: request}})
+			applied, err := server.Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: request}})
 			if err != nil || !applied.GetApplySymbolPatch().GetSuccess() || !applied.GetApplySymbolPatch().GetWrote() {
 				t.Fatalf("apply response=%+v failure=%+v err=%v", applied.GetApplySymbolPatch(), applied.GetFailure(), err)
 			}
@@ -69,18 +69,18 @@ func TestApplySymbolPatchFailsClosedOnStaleAnchorAndInvalidReplacement(t *testin
 	}
 	server := newSemanticServer(root)
 	t.Cleanup(func() { _ = server.Close() })
-	request := func(hash, replacement string) *codev0.CodeRequest {
-		return &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
+	request := func(hash, replacement string) *codev1.CodeRequest {
+		return &codev1.CodeRequest{Operation: &codev1.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev1.ApplySymbolPatchRequest{
 			File: "main.go", QualifiedName: "api.Value", ExpectedDeclarationSha256: hash,
-			NewSource: replacement, FixMode: basev0.FixMode_FIX_MODE_NONE,
+			NewSource: replacement, FixMode: basev1.FixMode_FIX_MODE_NONE,
 		}}}
 	}
 	stale, err := server.Execute(t.Context(), request(strings.Repeat("0", 64), "func Value() int { return 2 }"))
-	if err != nil || stale.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || stale.GetApplySymbolPatch().GetFailureReason() != basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR || stale.GetApplySymbolPatch().GetDeclarationSha256() != semanticHash([]byte("func Value() int { return 1 }")) {
+	if err != nil || stale.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || stale.GetApplySymbolPatch().GetFailureReason() != basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR || stale.GetApplySymbolPatch().GetDeclarationSha256() != semanticHash([]byte("func Value() int { return 1 }")) {
 		t.Fatalf("stale response=%+v failure=%+v err=%v", stale.GetApplySymbolPatch(), stale.GetFailure(), err)
 	}
 	invalid, err := server.Execute(t.Context(), request(semanticHash([]byte("func Value() int { return 1 }")), "func Value("))
-	if err != nil || invalid.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || invalid.GetApplySymbolPatch().GetFailureReason() != basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT {
+	if err != nil || invalid.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || invalid.GetApplySymbolPatch().GetFailureReason() != basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT {
 		t.Fatalf("invalid response=%+v failure=%+v err=%v", invalid.GetApplySymbolPatch(), invalid.GetFailure(), err)
 	}
 	current, err := os.ReadFile(path)
@@ -100,11 +100,11 @@ func TestApplySymbolPatchAcceptsFileShapedNestedDeclaration(t *testing.T) {
 	t.Cleanup(func() { _ = server.Close() })
 	declaration := "def render(self):\n        return 1"
 	replacement := "    def render(self):\n        return 2"
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev1.ApplySymbolPatchRequest{
 			File: "engine.py", QualifiedName: "engine.Engine.render",
 			ExpectedDeclarationSha256: semanticHash([]byte(declaration)),
-			NewSource:                 replacement, FixMode: basev0.FixMode_FIX_MODE_NONE,
+			NewSource:                 replacement, FixMode: basev1.FixMode_FIX_MODE_NONE,
 		}},
 	})
 	if err != nil || !response.GetApplySymbolPatch().GetSuccess() || !response.GetApplySymbolPatch().GetWrote() {
@@ -126,14 +126,14 @@ func TestApplySymbolPatchRejectsChangedQualifiedIdentity(t *testing.T) {
 	}
 	server := newSemanticServer(root)
 	t.Cleanup(func() { _ = server.Close() })
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev0.ApplySymbolPatchRequest{
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplySymbolPatch{ApplySymbolPatch: &codev1.ApplySymbolPatchRequest{
 			File: "main.go", QualifiedName: "api.Value",
 			ExpectedDeclarationSha256: semanticHash([]byte("func Value() int { return 1 }")),
-			NewSource:                 "func Other() int { return 2 }", FixMode: basev0.FixMode_FIX_MODE_NONE,
+			NewSource:                 "func Other() int { return 2 }", FixMode: basev1.FixMode_FIX_MODE_NONE,
 		}},
 	})
-	if err != nil || response.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || response.GetApplySymbolPatch().GetFailureReason() != basev0.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT {
+	if err != nil || response.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED || response.GetApplySymbolPatch().GetFailureReason() != basev1.SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT {
 		t.Fatalf("identity-changing response=%+v failure=%+v err=%v", response.GetApplySymbolPatch(), response.GetFailure(), err)
 	}
 	current, err := os.ReadFile(path)

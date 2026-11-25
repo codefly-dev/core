@@ -2,7 +2,7 @@ package golang
 
 // formula.go — the PROJECT-LOCAL Go test formula runner: the golang twin of
 // runners/python.RunFormulaStructured. It exists so a language-blind brain
-// (Mind) can ship a runtimev0.TestFormula (or nothing at all) and have THIS
+// (Mind) can ship a runtimev1.TestFormula (or nothing at all) and have THIS
 // plugin own "how to test a Go project": derive package scopes from go.mod or
 // a source-root go.work, execute them in the project directory, parse the structured event
 // stream, and — critically — CLASSIFY environment breakage (go.mod parse
@@ -30,8 +30,8 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/failures"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // OutputGoTestJSON is the formula output format produced by `go test -json`.
@@ -155,7 +155,7 @@ func ClassifyEnvError(raw string, runErr error) (reason, detail string) {
 //
 // The run disables ambient parent workspaces for a standalone module. A
 // go.work owned by sourceDir is project configuration and remains enabled.
-func RunFormula(ctx context.Context, sourceDir string, command []string, selectors []string, failFast ...bool) (*runtimev0.TestResponse, error) {
+func RunFormula(ctx context.Context, sourceDir string, command []string, selectors []string, failFast ...bool) (*runtimev1.TestResponse, error) {
 	start := time.Now()
 	workspace, ownsWorkspace, workspaceErr := loadSourceGoWorkspace(sourceDir)
 	if workspaceErr != nil {
@@ -294,18 +294,18 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 	// go test failed but every parsed case passed: an interrupted or killed
 	// run whose partial stream happens to be all-green (ctx cancellation
 	// kills the run mid-flight). A run that did not complete is never green.
-	if runErr != nil && resp.GetResult().GetState() == runtimev0.TestRunResult_PASSED {
+	if runErr != nil && resp.GetResult().GetState() == runtimev1.TestRunResult_PASSED {
 		msg := fmt.Sprintf("go test did not run to completion: %v", runErr)
 		if ctx.Err() != nil {
 			msg = fmt.Sprintf("go test interrupted (%v) with partial results: %v", ctx.Err(), runErr)
 		}
-		failure := failures.New(basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "runtime.test", msg)
+		failure := failures.New(basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "runtime.test", msg)
 		if ctx.Err() != nil {
 			failure = failures.FromError("runtime.test", ctx.Err())
 			failure.Message = msg
 		}
-		resp.Result = &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg, Failure: failure}
-		resp.Status = &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure}
+		resp.Result = &runtimev1.TestRunResult{State: runtimev1.TestRunResult_ERRORED, Message: msg, Failure: failure}
+		resp.Status = &runtimev1.TestStatus{State: runtimev1.TestStatus_ERROR, Message: msg, Failure: failure}
 	}
 	return resp, nil
 }
@@ -313,22 +313,22 @@ func RunFormula(ctx context.Context, sourceDir string, command []string, selecto
 // erroredResponse is the shared shape for runs that produced no gradable
 // cases: an explicit ERRORED result carrying the classification message and
 // the raw stream for diagnosis.
-func erroredResponse(msg, raw string) *runtimev0.TestResponse {
-	failureCode := basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED
+func erroredResponse(msg, raw string) *runtimev1.TestResponse {
+	failureCode := basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED
 	switch {
 	case strings.Contains(msg, EnvErrorToolchainMissing):
-		failureCode = basev0.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE
+		failureCode = basev1.FailureCode_FAILURE_CODE_TOOLCHAIN_UNAVAILABLE
 	case strings.Contains(msg, EnvErrorModuleBroken):
-		failureCode = basev0.FailureCode_FAILURE_CODE_INVALID_CONFIGURATION
+		failureCode = basev1.FailureCode_FAILURE_CODE_INVALID_CONFIGURATION
 	case strings.Contains(msg, EnvErrorNoTestsExecuted), strings.Contains(msg, EnvErrorNoTestsMatchedSelectors):
-		failureCode = basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED
+		failureCode = basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED
 	}
 	failure := failures.New(failureCode, "runtime.test", msg)
-	return &runtimev0.TestResponse{
-		Status: &runtimev0.TestStatus{State: runtimev0.TestStatus_ERROR, Message: msg, Failure: failure},
-		Result: &runtimev0.TestRunResult{State: runtimev0.TestRunResult_ERRORED, Message: msg, Failure: failure},
-		Counts: &runtimev0.TestCounts{},
-		Run:    &runtimev0.TestRun{Runner: "gotest"},
+	return &runtimev1.TestResponse{
+		Status: &runtimev1.TestStatus{State: runtimev1.TestStatus_ERROR, Message: msg, Failure: failure},
+		Result: &runtimev1.TestRunResult{State: runtimev1.TestRunResult_ERRORED, Message: msg, Failure: failure},
+		Counts: &runtimev1.TestCounts{},
+		Run:    &runtimev1.TestRun{Runner: "gotest"},
 		Output: raw,
 	}
 }

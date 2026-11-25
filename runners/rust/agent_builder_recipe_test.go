@@ -12,8 +12,8 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -32,12 +32,12 @@ type recipeBuilder struct {
 	wrapper *services.BuilderWrapper
 }
 
-func (b *recipeBuilder) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (b *recipeBuilder) Build(ctx context.Context, req *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	return BuildRustDocker(ctx, b.wrapper, req, &builders.Dependencies{}, recipeBuilderTemplates, "", "")
 }
 
 type recipeAgent struct {
-	client  builderv0.BuilderClient
+	client  builderv1.BuilderClient
 	service string
 	output  string
 }
@@ -56,14 +56,14 @@ func newRecipeAgent(t *testing.T, ctx context.Context) *recipeAgent {
 	require.NoError(t, os.MkdirAll(output, 0o755))
 
 	base := &services.Base{}
-	require.NoError(t, base.HeadlessLoad(ctx, &basev0.ServiceIdentity{
+	require.NoError(t, base.HeadlessLoad(ctx, &basev1.ServiceIdentity{
 		Name: "app", Module: "test", WorkspacePath: root, RelativeToWorkspace: "service"}))
 	wrapper := &services.BuilderWrapper{Base: base}
 	base.Builder = wrapper
 	base.SetDockerImage(&resources.DockerImage{Name: "app", Tag: "test"})
 
 	server := grpc.NewServer()
-	builderv0.RegisterBuilderServer(server, &recipeBuilder{DefaultBuilder: services.NewDefaultBuilder(wrapper), wrapper: wrapper})
+	builderv1.RegisterBuilderServer(server, &recipeBuilder{DefaultBuilder: services.NewDefaultBuilder(wrapper), wrapper: wrapper})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = server.Serve(listener) }()
@@ -72,14 +72,14 @@ func newRecipeAgent(t *testing.T, ctx context.Context) *recipeAgent {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 
-	return &recipeAgent{client: builderv0.NewBuilderClient(connection), service: location, output: output}
+	return &recipeAgent{client: builderv1.NewBuilderClient(connection), service: location, output: output}
 }
 
-func (a *recipeAgent) request() *builderv0.BuildRequest {
-	return &builderv0.BuildRequest{
+func (a *recipeAgent) request() *builderv1.BuildRequest {
+	return &builderv1.BuildRequest{
 		OutputDirectory: a.output,
-		BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{
-			DockerBuildContext: &builderv0.DockerBuildContext{BuildxBuilder: "selected"}}},
+		BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{
+			DockerBuildContext: &builderv1.DockerBuildContext{BuildxBuilder: "selected"}}},
 	}
 }
 
@@ -96,7 +96,7 @@ func TestImageRecipeEmitsEveryTemplateFile(t *testing.T) {
 
 	response, err := agent.client.Build(ctx, agent.request())
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	plan := response.GetResult().GetDockerBuildPlan()
 	require.NoError(t, services.VerifyDockerBuildPlan(agent.output, plan))
@@ -127,7 +127,7 @@ func TestImageRecipeNeverWritesThroughASymlinkedDestination(t *testing.T) {
 
 	response, err := agent.client.Build(ctx, agent.request())
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	require.NoError(t, services.VerifyDockerBuildPlan(agent.output, response.GetResult().GetDockerBuildPlan()))
 
 	for name, content := range targets {
@@ -157,7 +157,7 @@ func TestImageRecipeRequiresAnAbsoluteDestination(t *testing.T) {
 			if err != nil {
 				require.ErrorContains(t, err, scenario.expected)
 			} else {
-				require.Equal(t, builderv0.BuildStatus_ERROR, response.GetState().GetState())
+				require.Equal(t, builderv1.BuildStatus_ERROR, response.GetState().GetState())
 				require.Contains(t, response.GetState().GetMessage(), scenario.expected)
 			}
 

@@ -4,10 +4,10 @@ from concurrent import futures
 
 import grpc
 
-from codefly.services.agent.v0 import agent_pb2, agent_pb2_grpc, inputs_pb2
-from codefly.base.v0 import artifact_execution_pb2
-from codefly.services.builder.v0 import builder_pb2
-from codefly.services.solution.v0 import solution_pb2
+from codefly.services.agent.v1 import agent_pb2, agent_pb2_grpc, inputs_pb2
+from codefly.base.v1 import artifact_execution_pb2
+from codefly.services.builder.v1 import builder_pb2
+from codefly.services.solution.v1 import solution_pb2
 
 
 class EffectiveInputsContractTest(unittest.TestCase):

@@ -15,10 +15,10 @@ import (
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"google.golang.org/grpc"
 )
 
@@ -28,26 +28,26 @@ type executor struct {
 }
 
 type agentExecutor struct {
-	agentv0.UnimplementedAgentServer
+	agentv1.UnimplementedAgentServer
 	*executor
 }
 
-func (s *agentExecutor) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
+func (s *agentExecutor) GetAgentInformation(context.Context, *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
 	declaration := contract.Current()
 	if s.mode == "missing-protocol" {
-		declaration = &agentv0.AgentContract{}
+		declaration = &agentv1.AgentContract{}
 	} else if s.mode == "future-protocol" {
 		declaration.ProtocolVersion++
 	}
-	return &agentv0.AgentInformation{Contract: declaration}, nil
+	return &agentv1.AgentInformation{Contract: declaration}, nil
 }
 
 type builderExecutor struct {
-	builderv0.UnimplementedBuilderServer
+	builderv1.UnimplementedBuilderServer
 	*executor
 }
 type solutionExecutor struct {
-	solutionv0.UnimplementedSolutionServer
+	solutionv1.UnimplementedSolutionServer
 	*executor
 }
 
@@ -61,30 +61,30 @@ func (s *executor) contracts() []string {
 	return []string{artifactexecution.Contract}
 }
 
-func (s *builderExecutor) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
-	return &builderv0.BuildCapabilitiesResponse{ExecutionContracts: s.contracts()}, nil
+func (s *builderExecutor) BuildCapabilities(context.Context, *builderv1.BuildCapabilitiesRequest) (*builderv1.BuildCapabilitiesResponse, error) {
+	return &builderv1.BuildCapabilitiesResponse{ExecutionContracts: s.contracts()}, nil
 }
 
-func (s *solutionExecutor) GetSolutionInformation(_ context.Context, request *solutionv0.GetSolutionInformationRequest) (*solutionv0.GetSolutionInformationResponse, error) {
+func (s *solutionExecutor) GetSolutionInformation(_ context.Context, request *solutionv1.GetSolutionInformationRequest) (*solutionv1.GetSolutionInformationResponse, error) {
 	digest := s.digest
 	if s.mode == "wrong-executor" {
 		digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 	}
-	return &solutionv0.GetSolutionInformationResponse{Artifact: &solutionv0.SolutionArtifact{Publisher: request.GetArtifact().GetPublisher(), Name: request.GetArtifact().GetName(), Version: request.GetArtifact().GetVersion(), ArtifactDigest: digest}, Capabilities: &solutionv0.SolutionCapabilities{SupportsRender: s.mode != "no-render", ExecutionContracts: s.contracts()}}, nil
+	return &solutionv1.GetSolutionInformationResponse{Artifact: &solutionv1.SolutionArtifact{Publisher: request.GetArtifact().GetPublisher(), Name: request.GetArtifact().GetName(), Version: request.GetArtifact().GetVersion(), ArtifactDigest: digest}, Capabilities: &solutionv1.SolutionCapabilities{SupportsRender: s.mode != "no-render", ExecutionContracts: s.contracts()}}, nil
 }
 
-func (s *executor) emit(execution *basev0.ArtifactExecution, protocol, directory string) (*basev0.ArtifactExecutionReceipt, error) {
+func (s *executor) emit(execution *basev1.ArtifactExecution, protocol, directory string) (*basev1.ArtifactExecutionReceipt, error) {
 	if err := artifactexecution.Check(execution, protocol, s.digest, s.contracts()); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(directory, "dispatched"), []byte(protocol), 0600); err != nil {
 		return nil, err
 	}
-	receipt := &basev0.ArtifactExecutionReceipt{Identity: execution.Identity}
+	receipt := &basev1.ArtifactExecutionReceipt{Identity: execution.Identity}
 	for _, output := range execution.Outputs {
 		content, err := json.Marshal(struct {
 			Selection string                           `json:"selection"`
-			Inputs    []*basev0.ArtifactExecutionInput `json:"inputs"`
+			Inputs    []*basev1.ArtifactExecutionInput `json:"inputs"`
 		}{execution.SelectionIdentity, execution.Inputs})
 		if err != nil {
 			return nil, err
@@ -93,7 +93,7 @@ func (s *executor) emit(execution *basev0.ArtifactExecution, protocol, directory
 		if err := os.WriteFile(filepath.Join(directory, path), content, 0600); err != nil {
 			return nil, err
 		}
-		receipt.Outputs = append(receipt.Outputs, &basev0.ArtifactExecutionOutput{Name: output.Name, MediaType: output.MediaType, Path: path, Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(content))})
+		receipt.Outputs = append(receipt.Outputs, &basev1.ArtifactExecutionOutput{Name: output.Name, MediaType: output.MediaType, Path: path, Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(content))})
 	}
 	if s.mode == "wrong-ack" {
 		receipt.Identity = s.digest
@@ -116,27 +116,27 @@ func (s *executor) emit(execution *basev0.ArtifactExecution, protocol, directory
 	return receipt, nil
 }
 
-func (s *builderExecutor) Build(_ context.Context, request *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (s *builderExecutor) Build(_ context.Context, request *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	receipt, err := s.emit(request.Execution, artifactexecution.BuilderBuild, request.OutputDirectory)
-	state := builderv0.BuildStatus_SUCCESS
+	state := builderv1.BuildStatus_SUCCESS
 	if s.mode == "failed" {
-		state = builderv0.BuildStatus_ERROR
+		state = builderv1.BuildStatus_ERROR
 	}
-	return &builderv0.BuildResponse{State: &builderv0.BuildStatus{State: state}, Execution: receipt}, err
+	return &builderv1.BuildResponse{State: &builderv1.BuildStatus{State: state}, Execution: receipt}, err
 }
 
-func (s *builderExecutor) Deploy(_ context.Context, request *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+func (s *builderExecutor) Deploy(_ context.Context, request *builderv1.DeploymentRequest) (*builderv1.DeploymentResponse, error) {
 	receipt, err := s.emit(request.Execution, artifactexecution.BuilderRender, request.OutputDirectory)
-	state := builderv0.DeploymentStatus_SUCCESS
+	state := builderv1.DeploymentStatus_SUCCESS
 	if s.mode == "failed" {
-		state = builderv0.DeploymentStatus_ERROR
+		state = builderv1.DeploymentStatus_ERROR
 	}
-	return &builderv0.DeploymentResponse{State: &builderv0.DeploymentStatus{State: state}, Execution: receipt}, err
+	return &builderv1.DeploymentResponse{State: &builderv1.DeploymentStatus{State: state}, Execution: receipt}, err
 }
 
-func (s *solutionExecutor) Render(_ context.Context, request *solutionv0.RenderRequest) (*solutionv0.RenderResponse, error) {
+func (s *solutionExecutor) Render(_ context.Context, request *solutionv1.RenderRequest) (*solutionv1.RenderResponse, error) {
 	receipt, err := s.emit(request.Execution, artifactexecution.SolutionRender, request.Destination)
-	return &solutionv0.RenderResponse{Execution: receipt}, err
+	return &solutionv1.RenderResponse{Execution: receipt}, err
 }
 
 func main() {
@@ -197,18 +197,18 @@ func main() {
 	}
 	server := grpc.NewServer()
 	if *mode == "legacy" {
-		descriptor := builderv0.Builder_ServiceDesc
+		descriptor := builderv1.Builder_ServiceDesc
 		descriptor.Methods = nil
-		for _, method := range builderv0.Builder_ServiceDesc.Methods {
+		for _, method := range builderv1.Builder_ServiceDesc.Methods {
 			if method.MethodName != "BuildCapabilities" {
 				descriptor.Methods = append(descriptor.Methods, method)
 			}
 		}
 		server.RegisterService(&descriptor, &builderExecutor{executor: s})
 	} else {
-		builderv0.RegisterBuilderServer(server, &builderExecutor{executor: s})
+		builderv1.RegisterBuilderServer(server, &builderExecutor{executor: s})
 	}
-	solutionv0.RegisterSolutionServer(server, &solutionExecutor{executor: s})
+	solutionv1.RegisterSolutionServer(server, &solutionExecutor{executor: s})
 	if err := os.WriteFile(*address, []byte(listener.Addr().String()), 0600); err != nil {
 		panic(err)
 	}

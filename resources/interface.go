@@ -14,7 +14,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -414,7 +414,7 @@ func (c *InterfaceCapability) validate() error {
 // the interface appears. An undeclared key is refused rather than tolerated:
 // consumers would come to read it, and the informal interface the definition
 // replaces would grow back beside it.
-func (i *Interface) ValidateConfiguration(configuration *basev0.Configuration) error {
+func (i *Interface) ValidateConfiguration(configuration *basev1.Configuration) error {
 	label := i.Identity().String()
 	if i.Type != InterfaceTypeCapability {
 		return fmt.Errorf("interface %s is of type %q; only a capability interface constrains a configuration", label, i.Type)
@@ -422,7 +422,7 @@ func (i *Interface) ValidateConfiguration(configuration *basev0.Configuration) e
 	if configuration == nil {
 		return fmt.Errorf("interface %s: no configuration to validate", label)
 	}
-	var group *basev0.ConfigurationInformation
+	var group *basev1.ConfigurationInformation
 	for _, info := range configuration.Infos {
 		if info.GetName() == i.Capability.Configuration {
 			group = info

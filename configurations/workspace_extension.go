@@ -8,17 +8,17 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )
 
-func extendWorkspaceConfiguration(ctx context.Context, base, addition *basev0.ConfigurationInformation, rule resources.ConfigurationExtension) (*basev0.ConfigurationInformation, error) {
+func extendWorkspaceConfiguration(ctx context.Context, base, addition *basev1.ConfigurationInformation, rule resources.ConfigurationExtension) (*basev1.ConfigurationInformation, error) {
 	conflict := func(key, reason string) error {
 		return fmt.Errorf("configuration %s key %s: %s: %w", base.Name, key, reason, ErrConfigurationConflict)
 	}
-	result := &basev0.ConfigurationInformation{Name: base.Name}
+	result := &basev1.ConfigurationInformation{Name: base.Name}
 	if (base.Data != nil) != (addition.Data != nil) {
 		return nil, conflict("$", "cannot combine a document and env keys")
 	}
@@ -44,16 +44,16 @@ func extendWorkspaceConfiguration(ctx context.Context, base, addition *basev0.Co
 		if err != nil {
 			return nil, err
 		}
-		result.Data = &basev0.ConfigurationData{Kind: kindYaml, Content: content, Secret: base.Data.Secret || addition.Data.Secret}
+		result.Data = &basev1.ConfigurationData{Kind: kindYaml, Content: content, Secret: base.Data.Secret || addition.Data.Secret}
 		if trace := configurationOriginsFrom(ctx); trace != nil {
 			if trace.documentParents == nil {
-				trace.documentParents = make(map[*basev0.ConfigurationData][]*basev0.ConfigurationData)
+				trace.documentParents = make(map[*basev1.ConfigurationData][]*basev1.ConfigurationData)
 			}
-			trace.documentParents[result.Data] = []*basev0.ConfigurationData{base.Data, addition.Data}
+			trace.documentParents[result.Data] = []*basev1.ConfigurationData{base.Data, addition.Data}
 		}
 		return result, nil
 	}
-	for _, info := range []*basev0.ConfigurationInformation{base, addition} {
+	for _, info := range []*basev1.ConfigurationInformation{base, addition} {
 		if key, _, duplicate := duplicateConfigurationKey(info); duplicate {
 			return nil, conflict(key, "declared twice")
 		}
@@ -90,14 +90,14 @@ func extendWorkspaceConfiguration(ctx context.Context, base, addition *basev0.Co
 			}
 			seen[item] = true
 		}
-		combined := proto.Clone(value).(*basev0.ConfigurationValue)
+		combined := proto.Clone(value).(*basev1.ConfigurationValue)
 		combined.Value = previous.Value + delimiter + value.Value
 		setConfigurationValue(result, combined)
 		if trace := configurationOriginsFrom(ctx); trace != nil {
 			if trace.valueContributors == nil {
-				trace.valueContributors = make(map[*basev0.ConfigurationValue][]*basev0.ConfigurationValue)
+				trace.valueContributors = make(map[*basev1.ConfigurationValue][]*basev1.ConfigurationValue)
 			}
-			trace.valueContributors[combined] = []*basev0.ConfigurationValue{previous, value}
+			trace.valueContributors[combined] = []*basev1.ConfigurationValue{previous, value}
 		}
 	}
 	return result, nil

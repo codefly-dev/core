@@ -12,7 +12,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // DockerTemplating holds template parameters for Dockerfile generation.
@@ -35,9 +35,9 @@ type DockerEnv struct {
 
 // BuildRustDocker emits a Docker build recipe for a Rust service.
 func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest,
+	req *builderv1.BuildRequest,
 	requirements *builders.Dependencies, builderFS embed.FS,
-	rustVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
+	rustVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv1.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("rust.BuildRustDocker")
 
@@ -82,9 +82,9 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 // DeployRustKubernetes deploys a Rust service to Kubernetes. Identical in
 // shape to golang.DeployGoKubernetes — the deployment path is language
 // agnostic (env vars + config maps + secrets + kustomize).
-func DeployRustKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv0.DeploymentRequest,
+func DeployRustKubernetes(ctx context.Context, builder *services.BuilderWrapper, req *builderv1.DeploymentRequest,
 	envVars *resources.EnvironmentVariableManager, deploymentFS embed.FS,
-	opts ...services.KustomizeDeploymentOption) (*builderv0.DeploymentResponse, error) {
+	opts ...services.KustomizeDeploymentOption) (*builderv1.DeploymentResponse, error) {
 	deployment := services.KustomizeDeployment{
 		EnvironmentVariables: envVars,
 		Templates:            deploymentFS,

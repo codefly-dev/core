@@ -202,7 +202,7 @@ stops retrying a declaration bug and reports it.
 
 ## Proto
 
-The wire contract lives in `proto/codefly/base/v0/readiness.proto`
+The wire contract lives in `proto/codefly/base/v1/readiness.proto`
 (`Probe`, `Health`, `ProbeResult`, `HealthReport`), reachable from
 `Endpoint.health` and from `InformationResponse.health`. Regenerate with:
 

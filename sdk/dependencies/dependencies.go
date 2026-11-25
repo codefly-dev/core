@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/runstate"
@@ -45,10 +45,10 @@ import (
 // inherited stdout/stderr FDs.
 type Dependencies struct {
 	proc           *managedProcess
-	cli            v0.CLIClient
+	cli            v1.CLIClient
 	conn           *grpc.ClientConn
 	control        *session.Control
-	runtimeContext *basev0.RuntimeContext
+	runtimeContext *basev1.RuntimeContext
 	keepRunning    bool
 	attached       bool
 	inherited      bool
@@ -79,7 +79,7 @@ type Dependencies struct {
 	// readiness is the per-service view the CLI reported on the most recent
 	// poll, kept so a caller can attribute a readiness overrun to a dependency
 	// after WaitForReady has returned.
-	readiness []*v0.ServiceReadiness
+	readiness []*v1.ServiceReadiness
 
 	// owned records the variables this session installed into os.Environ.
 	// It is guarded by globalEnvironment.mu, the same lock that serializes
@@ -590,7 +590,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		return nil, fmt.Errorf("gRPC connection to CLI server at %s did not become ready within %s", channel.target, opt.Timeout)
 	}
 
-	cli := v0.NewCLIClient(conn)
+	cli := v1.NewCLIClient(conn)
 	// Ownership before anything else: readiness polling, environment reads and
 	// the Stop/Destroy RPCs all act on whatever answers this channel, so the
 	// peer proves it is this session's child before any of them run.
@@ -1064,7 +1064,7 @@ func (c *controlChannel) lockSetup(ctx context.Context, wait time.Duration) (fun
 // verifyOwnership makes the peer prove it holds this invocation's secret. A
 // shared control channel has no identity to check, so it is accepted as-is —
 // that is precisely the guarantee WithSharedControlChannel gives up.
-func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, owner *session.Session, timeout time.Duration) error {
+func (c *controlChannel) verifyOwnership(ctx context.Context, cli v1.CLIClient, owner *session.Session, timeout time.Duration) error {
 	if !c.isolated() {
 		return nil
 	}
@@ -1078,7 +1078,7 @@ func (c *controlChannel) verifyOwnership(ctx context.Context, cli v0.CLIClient, 
 	// wedge the caller indefinitely.
 	handshakeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	resp, err := cli.SessionHandshake(handshakeCtx, &v0.SessionHandshakeRequest{
+	resp, err := cli.SessionHandshake(handshakeCtx, &v1.SessionHandshakeRequest{
 		SessionId:       owner.ID,
 		Challenge:       challenge,
 		ProtocolVersion: session.ProtocolVersion,
@@ -1331,7 +1331,7 @@ func attachDependencies(ctx context.Context, channel *controlChannel, dir string
 		_ = conn.Close()
 		return nil, fmt.Errorf("existing CLI server at %s did not become ready within %s", channel.target, opt.Timeout)
 	}
-	cli := v0.NewCLIClient(conn)
+	cli := v1.NewCLIClient(conn)
 	if err := channel.verifyOwnership(ctx, cli, owner, attachExistingTimeout(opt.Timeout)); err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -1452,20 +1452,20 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 // Readiness returns the per-service view the CLI reported on the most recent
 // readiness poll. It is empty when the flow reported none, which is what an
 // orchestrator predating per-service status sends.
-func (l *Dependencies) Readiness() []*v0.ServiceReadiness {
+func (l *Dependencies) Readiness() []*v1.ServiceReadiness {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	// The entries are copied, not just the slice holding them: a caller that
 	// edits what it was handed must not reach the snapshot this session keeps,
 	// nor the copy an already-returned error carries.
-	snapshot := make([]*v0.ServiceReadiness, 0, len(l.readiness))
+	snapshot := make([]*v1.ServiceReadiness, 0, len(l.readiness))
 	for _, service := range l.readiness {
-		snapshot = append(snapshot, proto.Clone(service).(*v0.ServiceReadiness))
+		snapshot = append(snapshot, proto.Clone(service).(*v1.ServiceReadiness))
 	}
 	return snapshot
 }
 
-func (l *Dependencies) recordReadiness(services []*v0.ServiceReadiness) {
+func (l *Dependencies) recordReadiness(services []*v1.ServiceReadiness) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.readiness = services
@@ -1480,7 +1480,7 @@ func (l *Dependencies) readinessTimeout(timeout time.Duration) error {
 // the dependency that was still starting rather than to the flow as a whole.
 type ReadinessTimeout struct {
 	Timeout  time.Duration
-	Services []*v0.ServiceReadiness
+	Services []*v1.ServiceReadiness
 
 	// observedAt is when the budget ran out. Stage durations are measured
 	// against it rather than against the clock at rendering time: a caller
@@ -1493,10 +1493,10 @@ type ReadinessTimeout struct {
 // out: the ones the overrun is attributable to. A service that reported a hard
 // failure never appears here, because WaitForReady stops at that point and
 // returns a ReadinessFailure instead of waiting out the budget.
-func (e *ReadinessTimeout) Pending() []*v0.ServiceReadiness {
-	var pending []*v0.ServiceReadiness
+func (e *ReadinessTimeout) Pending() []*v1.ServiceReadiness {
+	var pending []*v1.ServiceReadiness
 	for _, service := range e.Services {
-		if service.GetLifecycle() != v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY {
+		if service.GetLifecycle() != v1.ServiceLifecycle_SERVICE_LIFECYCLE_READY {
 			pending = append(pending, service)
 		}
 	}
@@ -1518,7 +1518,7 @@ func (e *ReadinessTimeout) Error() string {
 // the timeout it would otherwise be mistaken for.
 type ReadinessFailure struct {
 	// Services holds only the dependencies that failed.
-	Services []*v0.ServiceReadiness
+	Services []*v1.ServiceReadiness
 
 	// observedAt is when the failure was read, for the same reason
 	// ReadinessTimeout carries one.
@@ -1529,10 +1529,10 @@ func (e *ReadinessFailure) Error() string {
 	return fmt.Sprintf("dependency failed to start: %s", describeStages(e.Services, reference(e.observedAt)))
 }
 
-func failedServices(services []*v0.ServiceReadiness) []*v0.ServiceReadiness {
-	var failed []*v0.ServiceReadiness
+func failedServices(services []*v1.ServiceReadiness) []*v1.ServiceReadiness {
+	var failed []*v1.ServiceReadiness
 	for _, service := range services {
-		if service.GetLifecycle() == v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED {
+		if service.GetLifecycle() == v1.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED {
 			failed = append(failed, service)
 		}
 	}
@@ -1549,7 +1549,7 @@ func reference(observed time.Time) time.Time {
 	return observed
 }
 
-func describeStages(services []*v0.ServiceReadiness, at time.Time) string {
+func describeStages(services []*v1.ServiceReadiness, at time.Time) string {
 	described := make([]string, 0, len(services))
 	for _, service := range services {
 		described = append(described, describeStage(service, at))
@@ -1561,7 +1561,7 @@ func describeStages(services []*v0.ServiceReadiness, at time.Time) string {
 // it had been there as of at. The elapsed time is charged to the stage rather
 // than to the whole wait, which is what separates a slow image pull from a
 // slow boot.
-func describeStage(service *v0.ServiceReadiness, at time.Time) string {
+func describeStage(service *v1.ServiceReadiness, at time.Time) string {
 	description := fmt.Sprintf("%s %s", service.GetService(), lifecycleLabel(service.GetLifecycle()))
 	// A nil timestamp reads as the Unix epoch rather than as absent, so it is
 	// checked here instead of through IsValid.
@@ -1574,17 +1574,17 @@ func describeStage(service *v0.ServiceReadiness, at time.Time) string {
 	return description
 }
 
-func lifecycleLabel(lifecycle v0.ServiceLifecycle) string {
+func lifecycleLabel(lifecycle v1.ServiceLifecycle) string {
 	switch lifecycle {
-	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING:
+	case v1.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING:
 		return "pending"
-	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE:
+	case v1.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE:
 		return "acquiring image"
-	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING:
+	case v1.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING:
 		return "starting"
-	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY:
+	case v1.ServiceLifecycle_SERVICE_LIFECYCLE_READY:
 		return "ready"
-	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED:
+	case v1.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED:
 		return "failed"
 	default:
 		return "not ready"
@@ -1717,7 +1717,7 @@ func (l *Dependencies) Stop(ctx context.Context) error {
 		}
 		return nil
 	}
-	_, err := l.cli.StopFlow(ctx, &v0.StopFlowRequest{})
+	_, err := l.cli.StopFlow(ctx, &v1.StopFlowRequest{})
 	if err != nil {
 		w.Warn("failed to stop flow", wool.Field("error", err))
 	}
@@ -1753,7 +1753,7 @@ func (l *Dependencies) Destroy(ctx context.Context) error {
 		}
 		return nil
 	}
-	_, err := l.cli.DestroyFlow(ctx, &v0.DestroyFlowRequest{})
+	_, err := l.cli.DestroyFlow(ctx, &v1.DestroyFlowRequest{})
 	if err != nil {
 		w.Warn("failed to destroy flow", wool.Field("error", err))
 	}

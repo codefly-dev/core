@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
@@ -271,7 +271,7 @@ func ProfileFile(ctx context.Context, base, kind string, profiles []string, name
 type ProfileConfigurations struct {
 	// Infos are the overlaid groups, in the order the base layer declared them,
 	// with groups a derived layer introduces appended.
-	Infos []*basev0.ConfigurationInformation
+	Infos []*basev1.ConfigurationInformation
 	// Exists reports whether the location holds the selected profile at all.
 	Exists bool
 	// Unsupplied are the values declared as supplied per profile that no layer
@@ -336,7 +336,7 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 // file a reader must look at.
 type profileOverlay struct {
 	origins *configurationOrigins
-	infos   []*basev0.ConfigurationInformation
+	infos   []*basev1.ConfigurationInformation
 	// writtenIn maps a value to the layer directory that last set it.
 	writtenIn map[string]string
 }
@@ -349,7 +349,7 @@ func profileValueKey(group, key string) string {
 	return strings.ToLower(strings.ReplaceAll(group, "-", "_")) + "\x00" + strings.ToLower(strings.ReplaceAll(key, "-", "_"))
 }
 
-func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationInformation) error {
+func (overlay *profileOverlay) add(layer string, infos []*basev1.ConfigurationInformation) error {
 	for _, info := range infos {
 		if info == nil {
 			continue
@@ -393,8 +393,8 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 		if info.GetData() != nil {
 			if overlay.origins != nil {
 				overlay.origins.profileReplacement(path.Base(layer), existing.Name,
-					&basev0.ConfigurationInformation{Name: existing.Name, Data: info.GetData()},
-					&basev0.ConfigurationInformation{Name: existing.Name, Data: existing.GetData()})
+					&basev1.ConfigurationInformation{Name: existing.Name, Data: info.GetData()},
+					&basev1.ConfigurationInformation{Name: existing.Name, Data: existing.GetData()})
 			}
 			existing.Data = info.GetData()
 			overlay.writtenIn[profileValueKey(info.GetName(), "")] = layer
@@ -419,11 +419,11 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 // nothing provides is told so by name rather than reading an empty key. The rule
 // is about a key that hides inside a group the base already declares, where
 // absence is indistinguishable from an empty value.
-func (overlay *profileOverlay) declares(info *basev0.ConfigurationInformation, key string) bool {
+func (overlay *profileOverlay) declares(info *basev1.ConfigurationInformation, key string) bool {
 	return findConfigurationValue(info, key) != nil
 }
 
-func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformation {
+func (overlay *profileOverlay) find(name string) *basev1.ConfigurationInformation {
 	for _, info := range overlay.infos {
 		if resources.Match(info.GetName(), name) {
 			return info
@@ -432,11 +432,11 @@ func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformatio
 	return nil
 }
 
-func (overlay *profileOverlay) set(layer string, info *basev0.ConfigurationInformation, value *basev0.ConfigurationValue) {
+func (overlay *profileOverlay) set(layer string, info *basev1.ConfigurationInformation, value *basev1.ConfigurationValue) {
 	if existing := findConfigurationValue(info, value.GetKey()); existing != nil && overlay.origins != nil {
 		overlay.origins.profileReplacement(path.Base(layer), info.Name,
-			&basev0.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{value}},
-			&basev0.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{existing}})
+			&basev1.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev1.ConfigurationValue{value}},
+			&basev1.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev1.ConfigurationValue{existing}})
 	}
 	overlay.writtenIn[profileValueKey(info.GetName(), value.GetKey())] = layer
 	setConfigurationValue(info, value)
@@ -447,7 +447,7 @@ func (overlay *profileOverlay) set(layer string, info *basev0.ConfigurationInfor
 // insensitively, with "-" and "_" equivalent), or nil when the group does not
 // declare it. It is what makes "the layer below declares this key" one question
 // with one answer, wherever a layer is overlaid on another.
-func findConfigurationValue(info *basev0.ConfigurationInformation, key string) *basev0.ConfigurationValue {
+func findConfigurationValue(info *basev1.ConfigurationInformation, key string) *basev1.ConfigurationValue {
 	for _, existing := range info.GetConfigurationValues() {
 		if resources.Match(existing.GetKey(), key) {
 			return existing
@@ -461,7 +461,7 @@ func findConfigurationValue(info *basev0.ConfigurationInformation, key string) *
 // only its text — a layer that turns a plaintext default into a secret, or into
 // an assembled template, says so here and a merge of the two would deliver half
 // of each — and is appended when the group does not carry it.
-func setConfigurationValue(info *basev0.ConfigurationInformation, value *basev0.ConfigurationValue) {
+func setConfigurationValue(info *basev1.ConfigurationInformation, value *basev1.ConfigurationValue) {
 	for index, existing := range info.ConfigurationValues {
 		if resources.Match(existing.GetKey(), value.GetKey()) {
 			info.ConfigurationValues[index] = value
@@ -482,7 +482,7 @@ func setConfigurationValue(info *basev0.ConfigurationInformation, value *basev0.
 // reader gets depends on where it is read from. Where that group is overlaid
 // onto someone else's, the duplicate is refused rather than resolved by
 // position — see overlayWorkspaceConfigurationOverride.
-func duplicateConfigurationKey(info *basev0.ConfigurationInformation) (string, string, bool) {
+func duplicateConfigurationKey(info *basev1.ConfigurationInformation) (string, string, bool) {
 	values := info.GetConfigurationValues()
 	for index, value := range values {
 		for _, candidate := range values[index+1:] {
@@ -497,7 +497,7 @@ func duplicateConfigurationKey(info *basev0.ConfigurationInformation) (string, s
 // configurationValueSuppliesNothing reports whether a value supplies nothing at
 // all: no text, and no template to assemble one. A value that supplies nothing
 // does not discharge a ProfileValueMarker — see ErrEmptyProfileValue.
-func configurationValueSuppliesNothing(value *basev0.ConfigurationValue) bool {
+func configurationValueSuppliesNothing(value *basev1.ConfigurationValue) bool {
 	if hasModuleArtifact(value) {
 		return false
 	}
@@ -546,14 +546,14 @@ func (overlay *profileOverlay) unsupplied(profile string) []ProfileRequirement {
 // DataDeclaredPerProfile reports whether a structured document declares that each
 // profile supplies its own. The whole document is the unit: there is no key to
 // name, and none is reported.
-func DataDeclaredPerProfile(data *basev0.ConfigurationData) bool {
+func DataDeclaredPerProfile(data *basev1.ConfigurationData) bool {
 	return data != nil && bytes.Contains(data.GetContent(), []byte(ProfileValueMarker))
 }
 
 // ValueDeclaredPerProfile reports whether a configuration value still declares
 // that a profile owes it. A templated value is judged by its literals, where a
 // producer writes text, for the same reason endpoint references are.
-func ValueDeclaredPerProfile(value *basev0.ConfigurationValue) bool {
+func ValueDeclaredPerProfile(value *basev1.ConfigurationValue) bool {
 	if value == nil {
 		return false
 	}
@@ -573,7 +573,7 @@ func ValueDeclaredPerProfile(value *basev0.ConfigurationValue) bool {
 // per-profile value: the requirement is collected when the profile is read and
 // discharged when the override lands, so `--set` is a way to supply one and not a
 // way around the declaration.
-func StillUnsupplied(requirements []ProfileRequirement, byOrigin func(origin string) []*basev0.ConfigurationInformation) []ProfileRequirement {
+func StillUnsupplied(requirements []ProfileRequirement, byOrigin func(origin string) []*basev1.ConfigurationInformation) []ProfileRequirement {
 	var out []ProfileRequirement
 	// One value is owed once, however many places offered the group. Two composed
 	// modules vendoring the same file both collect the requirement — identical
@@ -598,7 +598,7 @@ func StillUnsupplied(requirements []ProfileRequirement, byOrigin func(origin str
 	return out
 }
 
-func stillCarriesMarker(infos []*basev0.ConfigurationInformation, group, key string) bool {
+func stillCarriesMarker(infos []*basev1.ConfigurationInformation, group, key string) bool {
 	for _, info := range infos {
 		if !resources.Match(info.GetName(), group) {
 			continue

@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // ResolvedPolicySchemaV1 is the schema of a resolved policy receipt: one
@@ -27,7 +27,7 @@ const PolicyDigestFormatV1 = "codefly.runnable-policy.digest/v1"
 // canonical form, prefixed by the digest format. Two installations that hold
 // the same digest hold the same audience, scopes, budget and exposure, down to
 // the order of the selected ids.
-func PolicyDigest(policy *runnablev0.Operation) (string, error) {
+func PolicyDigest(policy *runnablev1.Operation) (string, error) {
 	canonical, err := CanonicalJSON(policy)
 	if err != nil {
 		return "", fmt.Errorf("%w: policy: %v", ErrInvalid, err)
@@ -43,7 +43,7 @@ func PolicyDigest(policy *runnablev0.Operation) (string, error) {
 // proto3 JSON. The schema and the policy digest are filled when the writer
 // leaves them empty and a stated value that is not the right one is refused
 // rather than repaired, exactly as EncodePrepared treats the contract digest.
-func EncodeResolvedPolicy(resolved *runnablev0.ResolvedPolicy) ([]byte, error) {
+func EncodeResolvedPolicy(resolved *runnablev1.ResolvedPolicy) ([]byte, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("%w: resolved policy is required", ErrInvalid)
 	}
@@ -68,11 +68,11 @@ func EncodeResolvedPolicy(resolved *runnablev0.ResolvedPolicy) ([]byte, error) {
 
 // DecodeResolvedPolicy reads a receipt strictly: a field the schema does not
 // declare is refused rather than dropped, as DecodePrepared refuses it.
-func DecodeResolvedPolicy(value []byte) (*runnablev0.ResolvedPolicy, error) {
+func DecodeResolvedPolicy(value []byte) (*runnablev1.ResolvedPolicy, error) {
 	if len(value) == 0 || len(value) > MaxPreparedBytes {
 		return nil, fmt.Errorf("%w: resolved policy of %d bytes is outside (0, %d]", ErrInvalid, len(value), MaxPreparedBytes)
 	}
-	resolved := &runnablev0.ResolvedPolicy{}
+	resolved := &runnablev1.ResolvedPolicy{}
 	if err := protojson.Unmarshal(value, resolved); err != nil {
 		return nil, fmt.Errorf("%w: resolved policy is not a %s document: %v", ErrInvalid, ResolvedPolicySchemaV1, err)
 	}
@@ -87,7 +87,7 @@ func DecodeResolvedPolicy(value []byte) (*runnablev0.ResolvedPolicy, error) {
 // with it, a policy outside the bounds an installation enforces, and a policy
 // with a required scope slot still open — a receipt is the answer to the
 // slots, and one that still asks the question is no receipt.
-func VerifyResolvedPolicy(resolved *runnablev0.ResolvedPolicy) error {
+func VerifyResolvedPolicy(resolved *runnablev1.ResolvedPolicy) error {
 	if resolved == nil {
 		return fmt.Errorf("%w: resolved policy is required", ErrInvalid)
 	}
@@ -115,7 +115,7 @@ func VerifyResolvedPolicy(resolved *runnablev0.ResolvedPolicy) error {
 // installation were generated from one resolution — not that each is valid on
 // its own, which VerifyPrepared and VerifyResolvedPolicy already say, and not
 // that the runtime will compare them again, which is the runtime's own check.
-func BindingMatchesResolvedPolicy(binding *runnablev0.PreparedBinding, resolved *runnablev0.ResolvedPolicy) error {
+func BindingMatchesResolvedPolicy(binding *runnablev1.PreparedBinding, resolved *runnablev1.ResolvedPolicy) error {
 	if err := VerifyPrepared(binding); err != nil {
 		return err
 	}

@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // MaxCapturedOutputBytesPerCase mirrors the Go-runner cap. Pytest's
@@ -65,7 +65,7 @@ type junitDetail struct {
 
 // StructuredTestRun is the python-side equivalent of the Go runner's
 // StructuredTestRun. Built by ParsePytestJUnit; convertible to
-// runtimev0.TestResponse via ToProtoResponse.
+// runtimev1.TestResponse via ToProtoResponse.
 type StructuredTestRun struct {
 	// Suites — one per source file. Pytest's JUnit emits a flat list
 	// of `<testcase>`s; we group by file to mirror the Go runner's
@@ -509,7 +509,7 @@ type StructuredSuite struct {
 type StructuredCase struct {
 	Name      string // local case name
 	FullName  string // classname.name
-	State     runtimev0.TestCaseState
+	State     runtimev1.TestCaseState
 	Duration  time.Duration
 	File      string
 	Line      int32
@@ -522,7 +522,7 @@ type StructuredCase struct {
 type StructuredFailure struct {
 	Message string // one-line pytest summary
 	Detail  string // traceback + captured output
-	Kind    runtimev0.TestFailureKind
+	Kind    runtimev1.TestFailureKind
 }
 
 // ParsePytestJUnit parses the contents of pytest's --junitxml output
@@ -579,7 +579,7 @@ func ParsePytestJUnit(rawXML string, coverage float32) *StructuredTestRun {
 
 			switch {
 			case tc.Failure != nil:
-				c.State = runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+				c.State = runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 				c.Failure = &StructuredFailure{
 					Message: tc.Failure.Message,
 					Detail:  joinFailureDetail(tc.Failure.Body, tc.SystemOut, tc.SystemErr),
@@ -590,21 +590,21 @@ func ParsePytestJUnit(rawXML string, coverage float32) *StructuredTestRun {
 					r.truncatedCases++
 				}
 			case tc.Error != nil:
-				c.State = runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED
+				c.State = runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED
 				c.Failure = &StructuredFailure{
 					Message: tc.Error.Message,
 					Detail:  joinFailureDetail(tc.Error.Body, tc.SystemOut, tc.SystemErr),
 					// `<error>` in JUnit pytest typically means
 					// fixture/setup failure or exception during
 					// collection — distinct from an assertion fail.
-					Kind: runtimev0.TestFailureKind_TEST_FAILURE_KIND_SETUP,
+					Kind: runtimev1.TestFailureKind_TEST_FAILURE_KIND_SETUP,
 				}
 				c.Output = capOutput(c.Failure.Detail, &c.Truncated)
 				if c.Truncated {
 					r.truncatedCases++
 				}
 			case tc.Skipped != nil:
-				c.State = runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED
+				c.State = runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED
 				// Skip detail goes in TestFailure.skip_reason. We
 				// surface it through the same struct because Mind/
 				// CLI consumers want one place to look. Output
@@ -613,7 +613,7 @@ func ParsePytestJUnit(rawXML string, coverage float32) *StructuredTestRun {
 					Message: tc.Skipped.Message,
 				}
 			default:
-				c.State = runtimev0.TestCaseState_TEST_CASE_STATE_PASSED
+				c.State = runtimev1.TestCaseState_TEST_CASE_STATE_PASSED
 				// Output stays empty for PASSED — the size-discipline
 				// rule. Even if pytest captured stdout/stderr (for
 				// debugging), we drop it here. Verbose mode would
@@ -669,35 +669,35 @@ func capOutput(s string, truncated *bool) string {
 // pytest emits ("AssertionError", "Failed", "TimeoutError", etc.)
 // plus the body text as a fallback. Conservative: defaults to
 // ASSERTION when unsure.
-func classifyFailure(failureType, body string) runtimev0.TestFailureKind {
+func classifyFailure(failureType, body string) runtimev1.TestFailureKind {
 	t := strings.ToLower(failureType)
 	switch {
 	case strings.Contains(t, "timeout"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
 	case strings.Contains(t, "syntaxerror"), strings.Contains(t, "importerror"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR
 	}
 	lower := strings.ToLower(body)
 	switch {
 	case strings.Contains(lower, "timeout"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
 	case strings.Contains(lower, "traceback") && !strings.Contains(lower, "assert"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_PANIC
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_PANIC
 	}
-	return runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
+	return runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
 }
 
 // --- Conversion to protobuf TestResponse ---------------------------
 
-// ToProtoResponse constructs the runtimev0.TestResponse with both
+// ToProtoResponse constructs the runtimev1.TestResponse with both
 // the structured tree (preferred) AND legacy flat fields populated
 // (back-compat for non-migrated consumers).
 //
 // runner is "pytest"; suiteName echoes TestRequest.suite. duration
 // is the wall-clock for the whole run.
-func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev0.TestResponse {
-	suites := make([]*runtimev0.TestSuite, 0, len(r.Suites))
-	counts := &runtimev0.TestCounts{}
+func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev1.TestResponse {
+	suites := make([]*runtimev1.TestSuite, 0, len(r.Suites))
+	counts := &runtimev1.TestCounts{}
 	legacyFailures := make([]string, 0)
 
 	for _, s := range r.Suites {
@@ -710,8 +710,8 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		counts.Errored += sCounts.Errored
 
 		for _, pc := range ps.GetCases() {
-			if pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-				pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+				pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				legacyFailures = append(legacyFailures,
 					fmt.Sprintf("FAIL %s::%s\n%s", s.File, pc.GetName(), pc.GetCapturedOutput()))
 			}
@@ -731,12 +731,12 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	}
 
 	// Run-level result.
-	runResult := &runtimev0.TestRunResult{
-		State:   runtimev0.TestRunResult_PASSED,
+	runResult := &runtimev1.TestRunResult{
+		State:   runtimev1.TestRunResult_PASSED,
 		Message: "all tests passed",
 	}
 	if counts.Failed > 0 {
-		runResult.State = runtimev0.TestRunResult_FAILED
+		runResult.State = runtimev1.TestRunResult_FAILED
 		runResult.Message = fmt.Sprintf("%d test(s) failed", counts.Failed)
 		// Dependency-warning-as-error: every failure is an EXTERNAL
 		// dependency's (Pending)DeprecationWarning escalated to an error by
@@ -751,7 +751,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		}
 	}
 	if counts.Errored > 0 {
-		runResult.State = runtimev0.TestRunResult_ERRORED
+		runResult.State = runtimev1.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("%d run-level error(s)", counts.Errored)
 	}
 	// Runtime-data warning-as-error: historical/scientific projects commonly
@@ -775,7 +775,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	// (<reason>): <detail>") so the tooling inner loop can heal the plugin config
 	// without re-parsing raw output.
 	if r.EnvError != nil {
-		runResult.State = runtimev0.TestRunResult_ERRORED
+		runResult.State = runtimev1.TestRunResult_ERRORED
 		// TAG CONTRACT: selector-scoped zero-match is the CALLER naming tests
 		// that don't exist — the environment may be perfectly healthy, so it
 		// must not carry the env-blocked tag (which routes callers to
@@ -792,13 +792,13 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	// non-errored result carrying the marker prefix — a pre-warm/health probe
 	// treats this as ready without demanding a full suite finish.
 	if r.Materialized && r.EnvError == nil && counts.Total == 0 {
-		runResult.State = runtimev0.TestRunResult_PASSED
+		runResult.State = runtimev1.TestRunResult_PASSED
 		runResult.Message = EnvMaterializedMessagePrefix + "the test runner launched and began executing before the probe budget elapsed; the environment can run the project's tests"
 	}
 
-	legacyState := runtimev0.TestStatus_SUCCESS
+	legacyState := runtimev1.TestStatus_SUCCESS
 	if counts.Failed > 0 || counts.Errored > 0 || r.EnvError != nil {
-		legacyState = runtimev0.TestStatus_ERROR
+		legacyState = runtimev1.TestStatus_ERROR
 	}
 
 	// Legacy output is the same normalized failure set as Failures. The prior
@@ -808,8 +808,8 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	if strings.TrimSpace(output) == "" && r.EnvError != nil {
 		output = r.RawOutput
 	}
-	resp := &runtimev0.TestResponse{
-		Run: &runtimev0.TestRun{
+	resp := &runtimev1.TestResponse{
+		Run: &runtimev1.TestRun{
 			Runner:    runner,
 			SuiteName: suiteName,
 			Duration:  durationpb.New(duration),
@@ -817,13 +817,13 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		Result: runResult,
 		Counts: counts,
 		Suites: suites,
-		Truncation: &runtimev0.TestTruncation{
+		Truncation: &runtimev1.TestTruncation{
 			Happened:        r.truncatedCases > 0,
 			MaxPerCaseBytes: int32(MaxCapturedOutputBytesPerCase),
 			TruncatedCases:  r.truncatedCases,
 		},
 
-		Status:       &runtimev0.TestStatus{State: legacyState, Message: runResult.Message},
+		Status:       &runtimev1.TestStatus{State: legacyState, Message: runResult.Message},
 		Output:       output,
 		TestsRun:     counts.Total,
 		TestsPassed:  counts.Passed,
@@ -834,7 +834,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	}
 
 	if r.CoveragePct > 0 {
-		resp.Coverage = &runtimev0.TestCoverage{
+		resp.Coverage = &runtimev1.TestCoverage{
 			TotalPct:          r.CoveragePct,
 			RawArtifactFormat: "pytest-cov",
 		}
@@ -842,38 +842,38 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	return resp
 }
 
-func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts) {
-	ps := &runtimev0.TestSuite{
+func (s *StructuredSuite) toProto() (*runtimev1.TestSuite, *runtimev1.TestCounts) {
+	ps := &runtimev1.TestSuite{
 		Name:     s.Name,
 		File:     s.File,
 		Duration: durationpb.New(s.Duration),
 	}
-	suiteCounts := &runtimev0.TestCounts{}
+	suiteCounts := &runtimev1.TestCounts{}
 
 	for _, c := range s.Cases {
-		pc := &runtimev0.TestCase{
+		pc := &runtimev1.TestCase{
 			Name:     c.Name,
 			FullName: c.FullName,
 			State:    c.State,
 			Duration: durationpb.New(c.Duration),
 		}
 		if c.File != "" || c.Line > 0 {
-			pc.Location = &runtimev0.TestLocation{
+			pc.Location = &runtimev1.TestLocation{
 				File: c.File,
 				Line: c.Line,
 			}
 		}
-		if c.State == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-			c.State == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+		if c.State == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+			c.State == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 			pc.CapturedOutput = c.Output
 		}
 		if c.Failure != nil {
-			pc.Failure = &runtimev0.TestFailure{
+			pc.Failure = &runtimev1.TestFailure{
 				Message: c.Failure.Message,
 				Detail:  c.Failure.Detail,
 				Kind:    c.Failure.Kind,
 			}
-			if c.State == runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED {
+			if c.State == runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED {
 				pc.Failure.SkipReason = c.Failure.Message
 			}
 		}
@@ -881,13 +881,13 @@ func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		ps.Cases = append(ps.Cases, pc)
 		suiteCounts.Total++
 		switch c.State {
-		case runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:
 			suiteCounts.Passed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 			suiteCounts.Failed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED:
 			suiteCounts.Skipped++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 			suiteCounts.Errored++
 		}
 	}
@@ -904,15 +904,15 @@ func (r *StructuredTestRun) LegacyTestSummary() *TestSummary {
 		for _, c := range suite.Cases {
 			s.Run++
 			switch c.State {
-			case runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:
 				s.Passed++
-			case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 				s.Failed++
 				s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s::%s\n%s",
 					suite.File, c.Name, c.Output))
-			case runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED:
 				s.Skipped++
-			case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 				s.Failed++ // legacy lumps errored under failed
 				s.Failures = append(s.Failures, fmt.Sprintf("ERROR %s::%s\n%s",
 					suite.File, c.Name, c.Output))
@@ -931,8 +931,8 @@ func (r *StructuredTestRun) dependencyWarningBlockDetail() string {
 	var failureText strings.Builder
 	for _, suite := range r.Suites {
 		for _, c := range suite.Cases {
-			if c.State != runtimev0.TestCaseState_TEST_CASE_STATE_FAILED &&
-				c.State != runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if c.State != runtimev1.TestCaseState_TEST_CASE_STATE_FAILED &&
+				c.State != runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				continue
 			}
 			if c.Failure != nil {
@@ -975,8 +975,8 @@ func (r *StructuredTestRun) runtimeDataWarningBlockDetail() string {
 	detail := ""
 	for _, suite := range r.Suites {
 		for _, c := range suite.Cases {
-			if c.State != runtimev0.TestCaseState_TEST_CASE_STATE_FAILED &&
-				c.State != runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if c.State != runtimev1.TestCaseState_TEST_CASE_STATE_FAILED &&
+				c.State != runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				continue
 			}
 			failing++

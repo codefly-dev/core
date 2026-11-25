@@ -8,8 +8,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // MaxScopeSlotNameLength bounds a slot's name.
@@ -25,7 +25,7 @@ var ErrUnresolvedScopeSlots = errors.New("required scope slots are unresolved")
 // every selected invoke scope must carry, whether a read-only lookup must come
 // with it — and nothing else: the resource kinds, actions and ids are the
 // composition's, which is the whole reason the slot exists.
-func validateScopeSlots(subject string, slots []*runnablev0.ScopeSlot) error {
+func validateScopeSlots(subject string, slots []*runnablev1.ScopeSlot) error {
 	if len(slots) > MaxScopes {
 		return fmt.Errorf("%w: %s declares %d scope slots; at most %d scopes may be bound", ErrInvalid, subject, len(slots), MaxScopes)
 	}
@@ -95,18 +95,18 @@ func validScopeSlotName(name string) bool {
 // read and never written, and the result shares no memory with either — so a
 // caller resolves once and hands the same concrete policy to every place the
 // policy appears.
-func (s *OperationSpec) ResolveScopeSlots(selections []*runnablev0.ScopeSelection) (*OperationSpec, error) {
+func (s *OperationSpec) ResolveScopeSlots(selections []*runnablev1.ScopeSelection) (*OperationSpec, error) {
 	if s == nil {
 		return nil, fmt.Errorf("%w: an operation spec is required to resolve scope slots", ErrInvalid)
 	}
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	declared := make(map[string]*runnablev0.ScopeSlot, len(s.RequiredScopeSlots))
+	declared := make(map[string]*runnablev1.ScopeSlot, len(s.RequiredScopeSlots))
 	for _, slot := range s.RequiredScopeSlots {
 		declared[slot.GetName()] = slot
 	}
-	bySlot := make(map[string]*runnablev0.ScopeSelection, len(selections))
+	bySlot := make(map[string]*runnablev1.ScopeSelection, len(selections))
 	for _, selection := range selections {
 		name := selection.GetSlot()
 		if _, known := declared[name]; !known {
@@ -136,7 +136,7 @@ func (s *OperationSpec) ResolveScopeSlots(selections []*runnablev0.ScopeSelectio
 		if len(selection.GetInvoke()) == 0 {
 			return nil, fmt.Errorf("%w: %s scope slot %q is selected with no invoke scope; a slot is required and never a wildcard", ErrInvalid, s.Method, name)
 		}
-		lookups := make(map[string]*basev0.WorkScopeV1, len(selection.GetLookup()))
+		lookups := make(map[string]*basev1.WorkScopeV1, len(selection.GetLookup()))
 		for _, lookup := range selection.GetLookup() {
 			kind := lookup.GetResourceKind()
 			if _, twice := lookups[kind]; twice {
@@ -208,7 +208,7 @@ func (s *OperationSpec) ResolveScopeSlots(selections []*runnablev0.ScopeSelectio
 // an exact kind, exact actions and exact ids, each bounded as the runtime
 // bounds a scope and none of them a wildcard — including the wildcard by
 // omission, an empty resource_ids that would be every resource of the kind.
-func (s *OperationSpec) validateSelectedScope(slot, at string, scope *basev0.WorkScopeV1) error {
+func (s *OperationSpec) validateSelectedScope(slot, at string, scope *basev1.WorkScopeV1) error {
 	kind := scope.GetResourceKind()
 	if !boundedScopeValue(kind, MaxScopeKindLength) || strings.Contains(kind, "*") {
 		return fmt.Errorf("%w: %s scope slot %q selects an %s scope with resource kind %q, which is not an exact kind", ErrInvalid, s.Method, slot, at, kind)
@@ -276,11 +276,11 @@ func (s *OperationSpec) clone() *OperationSpec {
 // clonedSlots copies an option's slots out of the descriptor, as clonedScopes
 // does for scopes: a descriptor's options are shared and must not be written
 // through.
-func clonedSlots(slots []*runnablev0.ScopeSlot) []*runnablev0.ScopeSlot {
+func clonedSlots(slots []*runnablev1.ScopeSlot) []*runnablev1.ScopeSlot {
 	if slots == nil {
 		return nil
 	}
-	cloned := make([]*runnablev0.ScopeSlot, 0, len(slots))
+	cloned := make([]*runnablev1.ScopeSlot, 0, len(slots))
 	for _, slot := range slots {
 		cloned = append(cloned, proto.CloneOf(slot))
 	}

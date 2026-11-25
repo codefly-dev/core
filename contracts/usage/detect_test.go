@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // source is a consumer's semantic index, written the way an analyzer
@@ -16,13 +16,13 @@ type source struct {
 	calls          []string
 }
 
-func indexOf(files ...source) *basev0.SemanticIndex {
-	index := &basev0.SemanticIndex{}
+func indexOf(files ...source) *basev1.SemanticIndex {
+	index := &basev1.SemanticIndex{}
 	for _, file := range files {
-		index.Files = append(index.Files, &basev0.SemanticFile{Path: file.path, Language: file.language, Imports: file.imports})
-		symbol := &basev0.SemanticSymbol{Name: "f", Location: &basev0.SemanticLocation{Path: file.path}}
+		index.Files = append(index.Files, &basev1.SemanticFile{Path: file.path, Language: file.language, Imports: file.imports})
+		symbol := &basev1.SemanticSymbol{Name: "f", Location: &basev1.SemanticLocation{Path: file.path}}
 		for line, call := range file.calls {
-			symbol.Calls = append(symbol.Calls, &basev0.SemanticUse{Name: call, Location: &basev0.SemanticLocation{Path: file.path, StartLine: int32(line + 10), StartColumn: 2}})
+			symbol.Calls = append(symbol.Calls, &basev1.SemanticUse{Name: call, Location: &basev1.SemanticLocation{Path: file.path, StartLine: int32(line + 10), StartColumn: 2}})
 		}
 		index.Symbols = append(index.Symbols, symbol)
 	}
@@ -190,11 +190,11 @@ func TestDetectReadsNothingItWasNotGiven(t *testing.T) {
 // A call outside every function is on its file, and is found like any other.
 func TestDetectReadsCallsOutsideFunctions(t *testing.T) {
 	contract := full(t)
-	index := &basev0.SemanticIndex{
+	index := &basev1.SemanticIndex{
 		FileCallsProjected: true,
-		Files: []*basev0.SemanticFile{{
+		Files: []*basev1.SemanticFile{{
 			Path: "app/db.py", Language: "python", Imports: []string{"psycopg"},
-			Calls: []*basev0.SemanticUse{{Name: "psycopg.connect", Location: &basev0.SemanticLocation{Path: "app/db.py", StartLine: 3, StartColumn: 14}}},
+			Calls: []*basev1.SemanticUse{{Name: "psycopg.connect", Location: &basev1.SemanticLocation{Path: "app/db.py", StartLine: 3, StartColumn: 14}}},
 		}},
 	}
 	want := []Finding{{RuleID: "STORE-CONN-001", Severity: SeverityError, Language: "python", Kind: FindingCall, Symbol: "psycopg.connect", Path: "app/db.py", Line: 3, Column: 14}}
@@ -211,8 +211,8 @@ func TestDetectReadsCallsOutsideFunctions(t *testing.T) {
 // matched something there.
 func TestUnreadSaysWhenInitializersWereNotProjected(t *testing.T) {
 	contract := full(t)
-	old := func(language string) *basev0.SemanticIndex {
-		return &basev0.SemanticIndex{Files: []*basev0.SemanticFile{{Path: "a", Language: language}}}
+	old := func(language string) *basev1.SemanticIndex {
+		return &basev1.SemanticIndex{Files: []*basev1.SemanticFile{{Path: "a", Language: language}}}
 	}
 	if unread := contract.Unread(old("go")); len(unread) != 1 || !strings.Contains(unread[0], "calls outside functions and methods") {
 		t.Fatalf("a go clause forbids a call and go initializers went unread: %v", unread)

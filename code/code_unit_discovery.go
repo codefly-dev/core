@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 const (
@@ -104,14 +104,14 @@ func manifestSuffix(suffixes ...string) func(string) bool {
 	}
 }
 
-func (s *DefaultCodeServer) discoverCodeUnits(ctx context.Context, _ *codev0.DiscoverCodeUnitsRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) discoverCodeUnits(ctx context.Context, _ *codev1.DiscoverCodeUnitsRequest) (*codev1.CodeResponse, error) {
 	declarations, err := s.scanCodeUnitDeclarations(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("discover code units: %w", err)
 	}
 	units := assembleCodeUnits(s.SourceDir, declarations)
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_DiscoverCodeUnits{
-		DiscoverCodeUnits: &codev0.DiscoverCodeUnitsResponse{CodeUnits: units},
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_DiscoverCodeUnits{
+		DiscoverCodeUnits: &codev1.DiscoverCodeUnitsResponse{CodeUnits: units},
 	}}, nil
 }
 
@@ -319,9 +319,9 @@ func skipCodeUnitDiscoveryDir(name string) bool {
 
 // assembleCodeUnits groups co-located declarations and solution-owned .NET
 // projects without suppressing unsupported ecosystems.
-func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) []*codev0.CodeUnitInfo {
+func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) []*codev1.CodeUnitInfo {
 	if len(declarations) == 0 {
-		return []*codev0.CodeUnitInfo{{
+		return []*codev1.CodeUnitInfo{{
 			Path: ".", Name: filepath.Base(filepath.Clean(sourceDir)),
 			PrimaryLanguage: "unknown", Languages: []string{"unknown"},
 		}}
@@ -366,7 +366,7 @@ func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) [
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	units := make([]*codev0.CodeUnitInfo, 0, len(paths))
+	units := make([]*codev1.CodeUnitInfo, 0, len(paths))
 	for _, path := range paths {
 		group := groups[path]
 		languages := sortedSet(group.languages)
@@ -375,7 +375,7 @@ func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) [
 		if path == "." {
 			name = filepath.Base(filepath.Clean(sourceDir))
 		}
-		units = append(units, &codev0.CodeUnitInfo{
+		units = append(units, &codev1.CodeUnitInfo{
 			Path: path, Name: name, PrimaryLanguage: group.primaryLanguage,
 			Languages: languages, ManifestPaths: manifests,
 		})

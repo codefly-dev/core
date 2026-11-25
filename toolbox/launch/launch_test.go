@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
@@ -102,7 +102,7 @@ func TestLaunch_FromManifest_RoundTrip(t *testing.T) {
 
 	// Identity surfaces the version coming from the manifest via
 	// launch's standard env injection.
-	id, err := plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	id, err := plugin.Client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "git", id.Name)
 	require.Equal(t, "phaseB-test", id.Version,
@@ -110,7 +110,7 @@ func TestLaunch_FromManifest_RoundTrip(t *testing.T) {
 
 	// Real RPC against the plugin operating on the workspace we set.
 	resp, err := plugin.Client.CallTool(ctx,
-		&toolboxv0.CallToolRequest{Name: "git.status"})
+		&toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error, "fresh repo via Launch must work end-to-end: %s", resp.Error)
 	out := resp.Content[0].GetStructured().AsMap()

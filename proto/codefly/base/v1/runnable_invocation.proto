@@ -1,0 +1,215 @@
+syntax = "proto3";
+package codefly.base.v1;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v1/runnable.proto";
+import "google/protobuf/timestamp.proto";
+
+/*
+The per-call facts of one Runnable invocation, and the answer an implementation
+gives for it.
+
+Every facility is reached by calling something that serves the contract, so
+these are the facts of a call rather than the documents of a launched process.
+Identity, the effect identity and the deadline travel as the call's headers
+(runnable.WorkContextHeader, runnable.EffectHeader, runnable.DeadlineHeader) and
+the bounded input is the request body, with no Codefly envelope around it: a
+field Codefly added to an owner's body would be a field the owner never
+described.
+
+RunnableInvocation is therefore the caller's own record of what it sent, not a
+document written anywhere for something else to read. It is not
+content-addressed like a package or a binding: it names one run of an
+already-installed binding rather than an immutable installation fact.
+
+Standard output and standard error stay logs. They never carry completion data:
+an implementation that printed its output would be indistinguishable from a
+library that printed a warning.
+
+One call carries one invocation, so RunnableExecution.concurrency bounds how
+many calls a facility serves at once rather than a pool inside one of them.
+*/
+
+// RunnableGrantReference is an opaque, revocable reference to a delegation the
+// invocation's authority is minted from. It is not a capability: presenting it
+// mints nothing by itself, and every mint is a fresh exchange under a live
+// re-check of the delegation, so revoking it takes effect on the next exchange
+// rather than whenever a long-lived token would have expired.
+//
+// It exists because the alternative does not work for work that starts later
+// than it was admitted. A child capability projected when an invocation is
+// submitted presents an expired capability by the time a job container starts
+// or a provider retries it — nothing long-lived is minted anywhere, so there is
+// no token that could span the gap. Whatever performs the invocation mints, at
+// the moment it invokes, from this.
+message RunnableGrantReference {
+  // delegation_id identifies the delegation, opaque to everything that carries
+  // it: only the authority that recorded it can resolve it, which is what keeps
+  // it from being usable as a bearer value if it leaks.
+  string delegation_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // audience is the trust boundary the exchanged child must be minted for. It
+  // repeats the binding authority's audience so an invocation document is
+  // self-contained: whatever exchanges this has the invocation and nothing else.
+  string audience = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// RunnableInvocationIdentity is the Work Context one invocation runs under, and
+// it is required. An optional identity slot is not a lenient one: it reinstates
+// exactly the state it exists to remove, where an invocation nobody minted for
+// runs under the platform's own identity, and it does so silently — the caller
+// that forgot to fill it and the caller that had no authority to fill it are
+// indistinguishable.
+//
+// It travels as the call's Work Context header rather than in the environment
+// of whatever serves the call: a capability is minted per call, immediately
+// before it, and an environment variable is readable by every descendant, lives
+// as long as the process and appears in whatever collects process metadata.
+message RunnableInvocationIdentity {
+  // carrier is how the authority arrives. Which arm is set follows from when the
+  // invocation runs, not from which facility runs it: a call happening now
+  // carries the minted capability, and work that starts later carries the
+  // reference it is minted from.
+  oneof carrier {
+    // An invocation with neither reaches an owner with no identity, which is
+    // the one thing this message exists to prevent, so the arm is required.
+    option (buf.validate.oneof).required = true;
+    // work_context is the already-minted, short-lived capability, in the signed
+    // wire representation Codefly SDKs own. A holder must not parse or
+    // reconstruct it; it is carried verbatim to the owner.
+    string work_context = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 8192];
+    // grant is the reference a child is exchanged from at the moment of the
+    // call.
+    RunnableGrantReference grant = 2;
+  }
+}
+
+// RunnableCallbackTarget is where an owner reports a submitted invocation: the
+// terminal answer, and the heartbeats that say the work is still live. It is
+// the caller's own address, presented on the call, and it is what settles the
+// direction of every later report — an owner never chooses whether to push.
+//
+// A caller that presents none has undertaken to read the status by handle
+// instead, which is the recovery path an owner owes anyway because a callback
+// can always be lost. So the two mechanisms are one owner obligation and one
+// caller choice, rather than a negotiation.
+message RunnableCallbackTarget {
+  // address is the absolute URL the owner POSTs its reports to. Plaintext is
+  // admitted only to a loopback host: every other plaintext address would put
+  // a completion, and the Work Context authenticating it, on the wire in
+  // clear.
+  string address = 1 [(buf.validate.field).string.uri = true, (buf.validate.field).string.max_len = 512];
+  // audience is the trust boundary the owner mints its own capability for when
+  // it reports. The callback is authenticated by the reporting workload's
+  // identity and by nothing else: a shared secret would have to be delivered
+  // to every owner that may report, which makes each of them able to forge
+  // every other's completions.
+  //
+  // It is stated rather than derived from the address, because an audience is
+  // a trust boundary and a URL host is a route to one. Deriving it would make
+  // a DNS name decide what a capability is minted for.
+  string audience = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// RunnableInvocation is one call's per-call facts, as the caller issued them.
+message RunnableInvocation {
+  // protocol is the invocation protocol the call is made over, matching the
+  // package contract's protocol.
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // runnable is the release being invoked. An implementation handed another
+  // release's invocation refuses it instead of running foreign input.
+  RunnableIdentity runnable = 2 [(buf.validate.field).required = true];
+  // invocation_id identifies this one call. It is the caller's own
+  // correlation identity: no header carries it, because nothing on the
+  // receiving side has anything to do with it.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // intent_id is the caller's logical operation, stable across attempts. Core
+  // never decides that another attempt happens; it carries the identity that
+  // makes attempts of one intent recognizable to whoever does.
+  string intent_id = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // effect_id is the idempotency key of the external effect. It is required
+  // when the package declares RECOVERY_RECEIPT, whose uncertain outcome is
+  // resolved by looking the effect up. A caller with one identity scheme for
+  // all of its work may carry it on a RECOVERY_RECOMPUTE invocation too, where
+  // it is the caller's own identity and nothing looks it up: making a field
+  // forbidden by the target package's recovery policy would force every caller
+  // to branch on that policy before filling it.
+  string effect_id = 5 [(buf.validate.field).string.max_len = 128];
+  // issued_at is when the caller issued this invocation.
+  google.protobuf.Timestamp issued_at = 6 [(buf.validate.field).required = true];
+  // deadline is when the caller stops waiting, at most issued_at plus the
+  // package's declared execution timeout: that timeout bounds one invocation's
+  // duration, so a caller computing a deadline of its own may shorten it but
+  // never overrule the author. It reaches the implementation as the call's
+  // deadline header, so an implementation may decline work it cannot finish in
+  // time rather than starting an effect nobody will hear the outcome of.
+  google.protobuf.Timestamp deadline = 7 [(buf.validate.field).required = true];
+  // input is one UTF-8 JSON object matching the contract's input schema,
+  // bounded by RunnableExecution.max_input_bytes, and it is the call's request
+  // body verbatim. Bytes rather than a structured value because proto3 JSON
+  // maps every number to a double while the bounded profile has a 64-bit
+  // integer, and because the bound must apply to exactly the document that was
+  // sent. A proto3 JSON encoder base64-encodes this field; the bound is on the
+  // decoded document.
+  bytes input = 8 [(buf.validate.field).bytes.min_len = 1];
+  // identity is the Work Context this invocation runs under. Required: there is
+  // no invocation without an identity to run it as.
+  RunnableInvocationIdentity identity = 9 [(buf.validate.field).required = true];
+  // callback is where the owner reports a submitted invocation, and it is the
+  // caller's own choice: present, the owner pushes its heartbeats and its
+  // terminal answer there; absent, the caller reads the status by the handle
+  // the acceptance gave it. It is set only for an operation declaring
+  // COMPLETION_SUBMIT — a call-mode invocation answers in the reply, so an
+  // address to report to later would describe a report nothing ever sends.
+  RunnableCallbackTarget callback = 10;
+}
+
+// RunnableError is a handler's own typed failure. The code is the operation's
+// vocabulary rather than Codefly's: a runnable that could not charge a card
+// says so in its own terms, and core never reinterprets it.
+message RunnableError {
+  // code is a stable, operation-defined failure code.
+  string code = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // message explains the failure to a human.
+  string message = 2;
+}
+
+// RunnableResult is what an implementation answered for one call. It reports
+// only what the implementation observed of itself: the handler produced output,
+// the handler ran and failed, or an interruption stopped it. Every other way a
+// call can end is a judgement about an answer that never arrived or did not
+// validate, which only the caller is in a position to make — see
+// RunnableServedOutcome in runnable_served.proto.
+message RunnableResult {
+  // Status enumerates what a harness can report about its own invocation.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified; a result
+    // carrying it is not a valid result.
+    UNKNOWN = 0;
+    // SUCCEEDED means the handler returned output matching the contract.
+    SUCCEEDED = 1;
+    // FAILED means the handler ran and reported a typed failure. It says the
+    // handler completed without its effect, which a caller reading the outcome
+    // as certain relies on: a handler that abandons a half-applied effect owes
+    // an INTERRUPTED or a crash, never a FAILED.
+    FAILED = 2;
+    // INTERRUPTED means the implementation handled an interruption signal and
+    // stopped. A package declaring CANCELLATION_SIGNAL promises exactly this
+    // report, and without it such an implementation would have to claim a
+    // failure it did not have: the effect is left unproven, not disproven.
+    INTERRUPTED = 3;
+  }
+  // protocol is the invocation protocol the call was made over.
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // invocation_id echoes the invocation. A caller reading another invocation's
+  // id has found something that is not this call's answer.
+  string invocation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // status is what the harness observed.
+  Status status = 3 [(buf.validate.field).enum.defined_only = true];
+  // output is the SUCCEEDED payload: one UTF-8 JSON object matching the
+  // contract's output schema, bounded by RunnableExecution.max_output_bytes
+  // and base64-encoded by a proto3 JSON encoder like the invocation input.
+  bytes output = 4;
+  // error is the FAILED cause, and optionally what an INTERRUPTED
+  // implementation was doing when the signal arrived.
+  RunnableError error = 5;
+}

@@ -8,7 +8,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"github.com/codefly-dev/core/failures"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -49,9 +49,9 @@ func Validate(req proto.Message) error {
 			detailedErr := fmt.Errorf("invalid %s: %s", msgType, strings.Join(errDetails, "; "))
 
 			st := status.New(codes.InvalidArgument, detailedErr.Error())
-			failure := failures.New(basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "validate", detailedErr.Error())
+			failure := failures.New(basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT, "validate", detailedErr.Error())
 			for _, violation := range fieldsViolation {
-				failure.FieldViolations = append(failure.FieldViolations, &basev0.FieldViolation{
+				failure.FieldViolations = append(failure.FieldViolations, &basev1.FieldViolation{
 					Field:       violation.GetField(),
 					Description: violation.GetDescription(),
 				})

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 )
@@ -29,7 +29,7 @@ import (
 //     api, PortModeHost).
 //   - Two endpoints resolving to the same port is an error, as is a nil
 //     endpoint or an endpoint name appearing twice.
-func DeployedEndpointPorts(ctx context.Context, module, service string, endpoints []*basev0.Endpoint) (map[string]uint16, error) {
+func DeployedEndpointPorts(ctx context.Context, module, service string, endpoints []*basev1.Endpoint) (map[string]uint16, error) {
 	apiCounts := make(map[string]int)
 	for _, endpoint := range endpoints {
 		if endpoint == nil {
@@ -41,7 +41,7 @@ func DeployedEndpointPorts(ctx context.Context, module, service string, endpoint
 	for priority, api := range standards.APIS() {
 		apiPriority[api] = priority
 	}
-	canonicalOwners := make(map[uint16]*basev0.Endpoint)
+	canonicalOwners := make(map[uint16]*basev1.Endpoint)
 	for _, endpoint := range endpoints {
 		if apiCounts[endpoint.Api] > 1 && endpoint.Name != endpoint.Api {
 			continue

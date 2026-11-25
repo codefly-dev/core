@@ -5,25 +5,25 @@ import (
 	"path/filepath"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
 // wholeTreePlan mirrors what a service agent emits when it copies its build
 // context into the destination and builds "." — service-go's buildRecipe does
 // exactly this, so every file under destination is a real build input.
-func wholeTreePlan(t *testing.T) (string, *builderv0.DockerBuildPlan) {
+func wholeTreePlan(t *testing.T) (string, *builderv1.DockerBuildPlan) {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "code"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\nCOPY . .\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "code", "main.go"), []byte("package main\n"), 0o644))
-	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{{
+	plan, err := BuildDockerBuildPlan(dir, []*builderv1.DockerBuildRecipe{{
 		Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1",
 		Platforms: RecipeBuildPlatforms(),
 	}})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE, plan.GetScope())
+	require.Equal(t, builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE, plan.GetScope())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 	return dir, plan
 }
@@ -54,7 +54,7 @@ func TestVerifyToleratesUnclaimedContentInAnEmittedScopePlan(t *testing.T) {
 	dir, emitted := writeRecipeTree(t, true)
 	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms(), emitted)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED, plan.GetScope())
+	require.Equal(t, builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED, plan.GetScope())
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("mac"), 0o644))
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
@@ -65,7 +65,7 @@ func TestVerifyToleratesUnclaimedContentInAnEmittedScopePlan(t *testing.T) {
 func TestScopeCannotBeDowngradedWithoutBreakingTheDigest(t *testing.T) {
 	dir, plan := wholeTreePlan(t)
 
-	plan.Scope = builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED
+	plan.Scope = builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
 }
 
@@ -74,7 +74,7 @@ func TestScopeCannotBeDowngradedWithoutBreakingTheDigest(t *testing.T) {
 func TestScopeParticipatesInTheAggregateDigest(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
-	recipes := []*builderv0.DockerBuildRecipe{{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"}}
+	recipes := []*builderv1.DockerBuildRecipe{{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"}}
 
 	tree, err := BuildDockerBuildPlan(dir, recipes)
 	require.NoError(t, err)
@@ -90,6 +90,6 @@ func TestScopeParticipatesInTheAggregateDigest(t *testing.T) {
 func TestVerifyRejectsAPlanWithNoDeclaredScope(t *testing.T) {
 	dir, plan := wholeTreePlan(t)
 
-	plan.Scope = builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED
+	plan.Scope = builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "no inventory scope")
 }

@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Options is shared across language adapters.
@@ -32,7 +32,7 @@ type Options struct {
 // human-facing summary (e.g. truncated `git diff` of go.sum) for the
 // CLI to print; it's allowed to be empty.
 type Result struct {
-	Changes      []*builderv0.UpgradeChange
+	Changes      []*builderv1.UpgradeChange
 	LockfileDiff string
 }
 

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // makeApplyEdit is a helper to construct an ApplyEdit CodeRequest.
-func makeApplyEdit(file, find, replace string) *codev0.CodeRequest {
-	return &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+func makeApplyEdit(file, find, replace string) *codev1.CodeRequest {
+	return &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 			File: file, Find: find, Replace: replace,
 		}},
 	}
@@ -137,8 +137,8 @@ func TestEditCycle_VirtualEndpoint(t *testing.T) {
 	t.Log("Phase 3: Applying virtual edits via Code API")
 
 	// Edit 1: Add handleHealth function and register it in setupRoutes
-	editResp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+	editResp, err := srv.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 			File: "main.go",
 			Find: `func setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", handleRoot)
@@ -163,8 +163,8 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	t.Logf("  main.go edit: strategy=%s", editResp.GetApplyEdit().Strategy)
 
 	// Edit 2: Add test for /health endpoint
-	editResp, err = srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+	editResp, err = srv.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 			File: "main_test.go",
 			Find: `func TestHandleRoot(t *testing.T) {`,
 			Replace: `func TestHandleHealth(t *testing.T) {

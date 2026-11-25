@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Node bumps Node packages in dir.
@@ -30,7 +30,7 @@ func Node(ctx context.Context, dir string, opts Options) (*Result, error) {
 	}
 	names, selected := splitNpmOnly(opts.Only)
 	var selectedGroups []npmInstallGroup
-	var selectedChanges []*builderv0.UpgradeChange
+	var selectedChanges []*builderv1.UpgradeChange
 	if len(selected) > 0 {
 		manifests, err := readNpmManifests(ctx, dir)
 		if err != nil {
@@ -141,8 +141,8 @@ func nodeDryRun(ctx context.Context, dir string, opts Options) (*Result, error) 
 	return &Result{Changes: npmUpgradeChanges(raw, opts, workspaces)}, nil
 }
 
-func npmUpgradeChanges(entries map[string][]npmOutdatedEntry, opts Options, workspaces map[string]string) []*builderv0.UpgradeChange {
-	var changes []*builderv0.UpgradeChange
+func npmUpgradeChanges(entries map[string][]npmOutdatedEntry, opts Options, workspaces map[string]string) []*builderv1.UpgradeChange {
+	var changes []*builderv1.UpgradeChange
 	for name, candidates := range entries {
 		if !inOnly(name, opts.Only) {
 			continue
@@ -151,7 +151,7 @@ func npmUpgradeChanges(entries map[string][]npmOutdatedEntry, opts Options, work
 		if !ok {
 			continue
 		}
-		changes = append(changes, &builderv0.UpgradeChange{
+		changes = append(changes, &builderv1.UpgradeChange{
 			Package: name, From: e.Current, To: to,
 		})
 	}
@@ -162,15 +162,15 @@ func npmUpgradeChanges(entries map[string][]npmOutdatedEntry, opts Options, work
 // npm ls only snapshots root dependencies. Preserve successful workspace-only
 // changes from the pre-install outdated plan while preferring observed root
 // versions whenever both sources report the same package.
-func mergeUpgradeChanges(observed, planned []*builderv0.UpgradeChange) []*builderv0.UpgradeChange {
-	merged := make(map[string]*builderv0.UpgradeChange, len(observed)+len(planned))
+func mergeUpgradeChanges(observed, planned []*builderv1.UpgradeChange) []*builderv1.UpgradeChange {
+	merged := make(map[string]*builderv1.UpgradeChange, len(observed)+len(planned))
 	for _, change := range planned {
 		merged[change.Package] = change
 	}
 	for _, change := range observed {
 		merged[change.Package] = change
 	}
-	changes := make([]*builderv0.UpgradeChange, 0, len(merged))
+	changes := make([]*builderv1.UpgradeChange, 0, len(merged))
 	for _, change := range merged {
 		changes = append(changes, change)
 	}

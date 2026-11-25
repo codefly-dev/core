@@ -16,7 +16,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
@@ -88,14 +88,14 @@ var runnableFieldFormats = map[RunnableFieldType][]string{
 	RunnableFieldJSON:   {"object", "array"},
 }
 
-var runnableFieldTypeProto = map[RunnableFieldType]basev0.RunnableField_Type{
-	RunnableFieldString:  basev0.RunnableField_STRING,
-	RunnableFieldInteger: basev0.RunnableField_INTEGER,
-	RunnableFieldBoolean: basev0.RunnableField_BOOLEAN,
-	RunnableFieldObject:  basev0.RunnableField_OBJECT,
-	RunnableFieldArray:   basev0.RunnableField_ARRAY,
-	RunnableFieldNumber:  basev0.RunnableField_NUMBER,
-	RunnableFieldJSON:    basev0.RunnableField_JSON,
+var runnableFieldTypeProto = map[RunnableFieldType]basev1.RunnableField_Type{
+	RunnableFieldString:  basev1.RunnableField_STRING,
+	RunnableFieldInteger: basev1.RunnableField_INTEGER,
+	RunnableFieldBoolean: basev1.RunnableField_BOOLEAN,
+	RunnableFieldObject:  basev1.RunnableField_OBJECT,
+	RunnableFieldArray:   basev1.RunnableField_ARRAY,
+	RunnableFieldNumber:  basev1.RunnableField_NUMBER,
+	RunnableFieldJSON:    basev1.RunnableField_JSON,
 }
 
 // runnableFieldNamePattern keeps field names representable as identifiers in
@@ -161,7 +161,7 @@ func RunnableFacilities() []RunnableFacility {
 // silently not the others.
 type RunnableFacilityCapabilities struct {
 	// Kind is the wire spelling of the form.
-	Kind basev0.RunnableFacility_Kind
+	Kind basev1.RunnableFacility_Kind
 	// Protocol is the invocation protocol that reaches an implementation of
 	// this form.
 	Protocol string
@@ -172,10 +172,10 @@ type RunnableFacilityCapabilities struct {
 }
 
 var runnableFacilityTable = map[RunnableFacility]RunnableFacilityCapabilities{
-	RunnableFacilityGenerated:  {Kind: basev0.RunnableFacility_GENERATED_SERVICE, Protocol: RunnableServedProtocolV1, Packaged: true},
-	RunnableFacilityKubernetes: {Kind: basev0.RunnableFacility_KUBERNETES, Protocol: RunnableServedProtocolV1, Packaged: true},
-	RunnableFacilityService:    {Kind: basev0.RunnableFacility_SERVICE, Protocol: RunnableServiceProtocolV1},
-	RunnableFacilityFunction:   {Kind: basev0.RunnableFacility_FUNCTION, Protocol: RunnableFunctionProtocolV1},
+	RunnableFacilityGenerated:  {Kind: basev1.RunnableFacility_GENERATED_SERVICE, Protocol: RunnableServedProtocolV1, Packaged: true},
+	RunnableFacilityKubernetes: {Kind: basev1.RunnableFacility_KUBERNETES, Protocol: RunnableServedProtocolV1, Packaged: true},
+	RunnableFacilityService:    {Kind: basev1.RunnableFacility_SERVICE, Protocol: RunnableServiceProtocolV1},
+	RunnableFacilityFunction:   {Kind: basev1.RunnableFacility_FUNCTION, Protocol: RunnableFunctionProtocolV1},
 }
 
 // Capabilities returns the dispatch form's shared facts.
@@ -185,7 +185,7 @@ func (f RunnableFacility) Capabilities() (RunnableFacilityCapabilities, bool) {
 }
 
 // RunnableFacilityOf maps a wire facility back to its declaration spelling.
-func RunnableFacilityOf(kind basev0.RunnableFacility_Kind) (RunnableFacility, bool) {
+func RunnableFacilityOf(kind basev1.RunnableFacility_Kind) (RunnableFacility, bool) {
 	for _, facility := range RunnableFacilities() {
 		if runnableFacilityTable[facility].Kind == kind {
 			return facility, true
@@ -244,9 +244,9 @@ const (
 	RunnableCancellationSignal RunnableCancellation = "signal"
 )
 
-var runnableCancellationProto = map[RunnableCancellation]basev0.RunnableExecution_Cancellation{
-	RunnableCancellationNone:   basev0.RunnableExecution_CANCELLATION_NONE,
-	RunnableCancellationSignal: basev0.RunnableExecution_CANCELLATION_SIGNAL,
+var runnableCancellationProto = map[RunnableCancellation]basev1.RunnableExecution_Cancellation{
+	RunnableCancellationNone:   basev1.RunnableExecution_CANCELLATION_NONE,
+	RunnableCancellationSignal: basev1.RunnableExecution_CANCELLATION_SIGNAL,
 }
 
 // RunnableCompletion is the YAML spelling of how an operation's answer arrives.
@@ -264,9 +264,9 @@ const (
 	RunnableCompletionSubmit RunnableCompletion = "submit"
 )
 
-var runnableCompletionProto = map[RunnableCompletion]basev0.RunnableExecution_Completion{
-	RunnableCompletionCall:   basev0.RunnableExecution_COMPLETION_CALL,
-	RunnableCompletionSubmit: basev0.RunnableExecution_COMPLETION_SUBMIT,
+var runnableCompletionProto = map[RunnableCompletion]basev1.RunnableExecution_Completion{
+	RunnableCompletionCall:   basev1.RunnableExecution_COMPLETION_CALL,
+	RunnableCompletionSubmit: basev1.RunnableExecution_COMPLETION_SUBMIT,
 }
 
 // RunnableRecovery is the YAML spelling of the declared effect semantics: how
@@ -283,9 +283,9 @@ const (
 	RunnableRecoveryReceipt RunnableRecovery = "receipt"
 )
 
-var runnableRecoveryProto = map[RunnableRecovery]basev0.RunnableExecution_Recovery{
-	RunnableRecoveryRecompute: basev0.RunnableExecution_RECOVERY_RECOMPUTE,
-	RunnableRecoveryReceipt:   basev0.RunnableExecution_RECOVERY_RECEIPT,
+var runnableRecoveryProto = map[RunnableRecovery]basev1.RunnableExecution_Recovery{
+	RunnableRecoveryRecompute: basev1.RunnableExecution_RECOVERY_RECOMPUTE,
+	RunnableRecoveryReceipt:   basev1.RunnableExecution_RECOVERY_RECEIPT,
 }
 
 // RunnablePayload bounds inline invocation data.
@@ -418,8 +418,8 @@ func (r *RunnableIdentity) Unique() string {
 }
 
 // Proto returns the validated wire identity.
-func (r *RunnableIdentity) Proto() (*basev0.RunnableIdentity, error) {
-	proto := &basev0.RunnableIdentity{
+func (r *RunnableIdentity) Proto() (*basev1.RunnableIdentity, error) {
+	proto := &basev1.RunnableIdentity{
 		Name:      r.Name,
 		Module:    r.Module,
 		Workspace: r.Workspace,
@@ -432,7 +432,7 @@ func (r *RunnableIdentity) Proto() (*basev0.RunnableIdentity, error) {
 }
 
 // RunnableIdentityFromProto reads a wire identity.
-func RunnableIdentityFromProto(proto *basev0.RunnableIdentity) *RunnableIdentity {
+func RunnableIdentityFromProto(proto *basev1.RunnableIdentity) *RunnableIdentity {
 	return &RunnableIdentity{
 		Name:      proto.Name,
 		Module:    proto.Module,
@@ -458,12 +458,12 @@ func (l *RunnableLocation) Dir() string {
 }
 
 // Proto returns the validated wire location.
-func (l *RunnableLocation) Proto() (*basev0.RunnableLocation, error) {
+func (l *RunnableLocation) Proto() (*basev1.RunnableLocation, error) {
 	identity, err := l.Identity.Proto()
 	if err != nil {
 		return nil, err
 	}
-	proto := &basev0.RunnableLocation{
+	proto := &basev1.RunnableLocation{
 		Identity:            identity,
 		WorkspacePath:       l.WorkspacePath,
 		RelativeToWorkspace: l.RelativeToWorkspace,
@@ -475,7 +475,7 @@ func (l *RunnableLocation) Proto() (*basev0.RunnableLocation, error) {
 }
 
 // RunnableLocationFromProto reads a wire location.
-func RunnableLocationFromProto(proto *basev0.RunnableLocation) *RunnableLocation {
+func RunnableLocationFromProto(proto *basev1.RunnableLocation) *RunnableLocation {
 	return &RunnableLocation{
 		Identity:            RunnableIdentityFromProto(proto.Identity),
 		WorkspacePath:       proto.WorkspacePath,
@@ -811,7 +811,7 @@ func joinRunnableFacilities() string {
 
 // Proto converts the declaration to its wire form. It validates first, so a
 // proto is only ever produced from a complete declaration.
-func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
+func (r *Runnable) Proto(_ context.Context) (*basev1.Runnable, error) {
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
@@ -819,7 +819,7 @@ func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
 	if err != nil {
 		return nil, err
 	}
-	proto := &basev0.Runnable{
+	proto := &basev1.Runnable{
 		Name:                               r.Name,
 		Description:                        r.Description,
 		Version:                            r.Version,
@@ -840,14 +840,14 @@ func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
 			}
 			module = r.module
 		}
-		wire := &basev0.RunnableDependency{Name: dep.Name, Module: module, Kind: string(dep.Kind)}
+		wire := &basev1.RunnableDependency{Name: dep.Name, Module: module, Kind: string(dep.Kind)}
 		for _, endpoint := range dep.Endpoints {
 			wire.Endpoints = append(wire.Endpoints, endpoint.Name)
 		}
 		proto.ServiceDependencies = append(proto.ServiceDependencies, wire)
 	}
 	for _, lib := range r.LibraryDependencies {
-		proto.LibraryDependencies = append(proto.LibraryDependencies, &basev0.LibraryDependency{
+		proto.LibraryDependencies = append(proto.LibraryDependencies, &basev1.LibraryDependency{
 			Name: lib.Name, Version: lib.Version, Languages: slices.Clone(lib.Languages),
 		})
 	}
@@ -858,27 +858,27 @@ func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
 }
 
 // Proto converts the contract to its wire form. Validate the contract first.
-func (c *RunnableContract) Proto() *basev0.RunnableContract {
-	return &basev0.RunnableContract{
+func (c *RunnableContract) Proto() *basev1.RunnableContract {
+	return &basev1.RunnableContract{
 		Protocol: c.Protocol,
-		Input:    &basev0.RunnableSchema{Fields: runnableFieldsProto(c.Input.Fields)},
-		Output:   &basev0.RunnableSchema{Fields: runnableFieldsProto(c.Output.Fields)},
+		Input:    &basev1.RunnableSchema{Fields: runnableFieldsProto(c.Input.Fields)},
+		Output:   &basev1.RunnableSchema{Fields: runnableFieldsProto(c.Output.Fields)},
 	}
 }
 
-func runnableFieldsProto(fields []*RunnableField) []*basev0.RunnableField {
+func runnableFieldsProto(fields []*RunnableField) []*basev1.RunnableField {
 	if len(fields) == 0 {
 		return nil
 	}
-	out := make([]*basev0.RunnableField, 0, len(fields))
+	out := make([]*basev1.RunnableField, 0, len(fields))
 	for _, field := range fields {
 		out = append(out, field.proto())
 	}
 	return out
 }
 
-func (f *RunnableField) proto() *basev0.RunnableField {
-	out := &basev0.RunnableField{
+func (f *RunnableField) proto() *basev1.RunnableField {
+	out := &basev1.RunnableField{
 		Name:        f.Name,
 		Type:        runnableFieldTypeProto[f.Type],
 		Description: f.Description,
@@ -897,7 +897,7 @@ func (f *RunnableField) proto() *basev0.RunnableField {
 // RunnableContractFromProto converts a wire contract back to its declaration
 // form and validates it, so a contract carried by a package descriptor is held
 // to the same bounded profile as one read from YAML.
-func RunnableContractFromProto(contract *basev0.RunnableContract) (*RunnableContract, error) {
+func RunnableContractFromProto(contract *basev1.RunnableContract) (*RunnableContract, error) {
 	if contract == nil {
 		return nil, fmt.Errorf("contract is required")
 	}
@@ -918,7 +918,7 @@ func RunnableContractFromProto(contract *basev0.RunnableContract) (*RunnableCont
 	return out, nil
 }
 
-func runnableFieldsFromProto(fields []*basev0.RunnableField) []*RunnableField {
+func runnableFieldsFromProto(fields []*basev1.RunnableField) []*RunnableField {
 	if len(fields) == 0 {
 		return nil
 	}
@@ -929,7 +929,7 @@ func runnableFieldsFromProto(fields []*basev0.RunnableField) []*RunnableField {
 	return out
 }
 
-func runnableFieldFromProto(field *basev0.RunnableField) *RunnableField {
+func runnableFieldFromProto(field *basev1.RunnableField) *RunnableField {
 	out := &RunnableField{
 		Name:        field.GetName(),
 		Type:        runnableFieldTypeFromProto(field.GetType()),
@@ -949,7 +949,7 @@ func runnableFieldFromProto(field *basev0.RunnableField) *RunnableField {
 // runnableFieldTypeFromProto maps a wire type back to its YAML spelling. An
 // unknown wire type maps to its enum name so validation reports it as outside
 // the profile instead of silently becoming a string.
-func runnableFieldTypeFromProto(t basev0.RunnableField_Type) RunnableFieldType {
+func runnableFieldTypeFromProto(t basev1.RunnableField_Type) RunnableFieldType {
 	for yamlType, protoType := range runnableFieldTypeProto {
 		if protoType == t {
 			return yamlType
@@ -960,8 +960,8 @@ func runnableFieldTypeFromProto(t basev0.RunnableField_Type) RunnableFieldType {
 
 // Proto converts the execution declaration to its wire form, with payload and
 // log defaults applied. Validate the execution first.
-func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
-	out := &basev0.RunnableExecution{
+func (e *RunnableExecution) Proto() *basev1.RunnableExecution {
+	out := &basev1.RunnableExecution{
 		Timeout:        durationpb.New(e.GetTimeout()),
 		Cancellation:   runnableCancellationProto[e.Cancellation],
 		Recovery:       runnableRecoveryProto[e.Recovery],
@@ -974,7 +974,7 @@ func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 		out.MaxLogBytes = e.MaxLogBytes()
 	}
 	for _, facility := range e.Facilities {
-		out.Facilities = append(out.Facilities, &basev0.RunnableFacility{Kind: runnableFacilityTable[facility].Kind})
+		out.Facilities = append(out.Facilities, &basev1.RunnableFacility{Kind: runnableFacilityTable[facility].Kind})
 	}
 	return out
 }

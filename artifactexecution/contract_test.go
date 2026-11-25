@@ -4,16 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
-func requestFixture() *basev0.ArtifactExecution {
+func requestFixture() *basev1.ArtifactExecution {
 	digest := "sha256:" + strings.Repeat("a", 64)
-	return &basev0.ArtifactExecution{ContractVersion: Contract, SelectionIdentity: digest, Target: "modules/app", Service: "api", Protocol: BuilderRender, ExecutorDigest: digest, ConfigurationIdentity: "hmac-" + digest, BindingIdentity: digest,
-		Inputs:  []*basev0.ArtifactExecutionInput{{Name: "runtime", Target: "modules/app", Artifact: "runtime", Uri: "https://artifacts.example.test/runtime", MediaType: "application/octet-stream", Digest: digest}},
-		Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", MediaType: "application/yaml"}}}
+	return &basev1.ArtifactExecution{ContractVersion: Contract, SelectionIdentity: digest, Target: "modules/app", Service: "api", Protocol: BuilderRender, ExecutorDigest: digest, ConfigurationIdentity: "hmac-" + digest, BindingIdentity: digest,
+		Inputs:  []*basev1.ArtifactExecutionInput{{Name: "runtime", Target: "modules/app", Artifact: "runtime", Uri: "https://artifacts.example.test/runtime", MediaType: "application/octet-stream", Digest: digest}},
+		Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", MediaType: "application/yaml"}}}
 }
 
 func TestExecutionIdentityMatchesPython(t *testing.T) {
@@ -24,7 +24,7 @@ func TestExecutionIdentityMatchesPython(t *testing.T) {
 
 func TestPrepareCanonicalizesAndBindsEveryInput(t *testing.T) {
 	raw := requestFixture()
-	extra := proto.Clone(raw.Inputs[0]).(*basev0.ArtifactExecutionInput)
+	extra := proto.Clone(raw.Inputs[0]).(*basev1.ArtifactExecutionInput)
 	extra.Name = "contract"
 	raw.Inputs = append(raw.Inputs, extra)
 	first, err := Prepare(raw)
@@ -36,7 +36,7 @@ func TestPrepareCanonicalizesAndBindsEveryInput(t *testing.T) {
 	require.True(t, proto.Equal(first, second))
 	for _, scenario := range []string{"bytes", "target", "media", "uri", "executor", "configuration", "bindings", "service"} {
 		t.Run(scenario, func(t *testing.T) {
-			candidate := proto.Clone(first).(*basev0.ArtifactExecution)
+			candidate := proto.Clone(first).(*basev1.ArtifactExecution)
 			other := "sha256:" + strings.Repeat("b", 64)
 			switch scenario {
 			case "bytes":
@@ -114,7 +114,7 @@ func TestReceiptCannotChangeOutputLocationsOrContract(t *testing.T) {
 	request, err := Prepare(requestFixture())
 	require.NoError(t, err)
 	for _, path := range []string{"../outside", "/absolute", "a/../../outside", `..\outside`, "", ".", "a/../b", "a//b", "file:outside"} {
-		receipt := &basev0.ArtifactExecutionReceipt{Identity: request.Identity, Outputs: []*basev0.ArtifactExecutionOutput{{Name: "manifests", MediaType: "application/yaml", Digest: request.SelectionIdentity, Path: path}}}
+		receipt := &basev1.ArtifactExecutionReceipt{Identity: request.Identity, Outputs: []*basev1.ArtifactExecutionOutput{{Name: "manifests", MediaType: "application/yaml", Digest: request.SelectionIdentity, Path: path}}}
 		require.Error(t, CheckReceipt(request, receipt), path)
 	}
 	require.Error(t, Check(request, BuilderRender, request.ExecutorDigest, nil))

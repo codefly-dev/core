@@ -49,7 +49,7 @@ import (
 	"syscall"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	runners "github.com/codefly-dev/core/runners/base"
 )
 
@@ -88,7 +88,7 @@ type Run struct {
 // For is the run an agent was loaded for: its workspace's path and the
 // environment the caller handed it. Disposability needs a naming scope: the
 // unscoped run of a workspace is the developer's own, whatever else is said.
-func For(workspacePath string, environment *basev0.Environment) Run {
+func For(workspacePath string, environment *basev1.Environment) Run {
 	scope := environment.GetNamingScope()
 	return Run{
 		Workspace:   workspacePath,

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/distribution/reference"
 	"google.golang.org/protobuf/proto"
 )
@@ -20,7 +20,7 @@ var imageRoleName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // ValidateBuildImageInput rejects ambiguous or mutable image bindings. The
 // variant is an agent-owned compatibility declaration, not a host-side roster.
-func ValidateBuildImageInput(input *builderv0.BuildImageInput) error {
+func ValidateBuildImageInput(input *builderv1.BuildImageInput) error {
 	if input == nil || !imageRoleName.MatchString(input.GetRole()) {
 		return fmt.Errorf("image input requires a lowercase role name")
 	}
@@ -48,8 +48,8 @@ func ValidateBuildImageInput(input *builderv0.BuildImageInput) error {
 // inputs. Missing bindings retain defaults; unknown roles, duplicate roles and
 // unsupported variants refuse. The result owns its messages and preserves the
 // agent's declaration order. Consumers render only from this result.
-func ResolveBuildImages(defaults, bindings []*builderv0.BuildImageInput) ([]*builderv0.BuildImageInput, error) {
-	result := make([]*builderv0.BuildImageInput, 0, len(defaults))
+func ResolveBuildImages(defaults, bindings []*builderv1.BuildImageInput) ([]*builderv1.BuildImageInput, error) {
+	result := make([]*builderv1.BuildImageInput, 0, len(defaults))
 	indices := make(map[string]int, len(defaults))
 	for _, input := range defaults {
 		if err := ValidateBuildImageInput(input); err != nil {
@@ -90,7 +90,7 @@ func ResolveBuildImages(defaults, bindings []*builderv0.BuildImageInput) ([]*bui
 // RequireBuildImageBindings holds an opt-in request to the running executor's
 // advertisement. A known agent name, library version or generated getter is
 // never evidence that an executor implements the operation.
-func RequireBuildImageBindings(capabilities *builderv0.BuildCapabilitiesResponse) error {
+func RequireBuildImageBindings(capabilities *builderv1.BuildCapabilitiesResponse) error {
 	if !slices.Contains(capabilities.GetExecutionContracts(), BuildImageBindingsContract) {
 		return fmt.Errorf("builder must advertise %s to select environment image bindings", BuildImageBindingsContract)
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/standards"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func TestREST(t *testing.T) {
 	rest, err := resources.LoadRestAPI(ctx, shared.Pointer("testdata/endpoints/basic/openapi/api.json"))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(rest.Groups)) // 2 Paths
-	var routes []*basev0.RestRoute
+	var routes []*basev1.RestRoute
 	for _, group := range rest.Groups {
 		routes = append(routes, group.Routes...)
 	}

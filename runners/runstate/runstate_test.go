@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -202,9 +202,9 @@ func dirs(swept []Swept) []string {
 // The plain run of a workspace has no scope: its directory is the developer's
 // database, which no flag makes disposable.
 func TestRunOfAnEnvironmentIsDisposableOnlyUnderAScope(t *testing.T) {
-	require.Equal(t, disposable, For("/work/shop", &basev0.Environment{NamingScope: "invabcdefgh", Disposable: true}))
-	require.Equal(t, Run{Workspace: "/work/shop", NamingScope: "mine"}, For("/work/shop", &basev0.Environment{NamingScope: "mine"}))
-	require.Equal(t, persistent, For("/work/shop", &basev0.Environment{Disposable: true}))
+	require.Equal(t, disposable, For("/work/shop", &basev1.Environment{NamingScope: "invabcdefgh", Disposable: true}))
+	require.Equal(t, Run{Workspace: "/work/shop", NamingScope: "mine"}, For("/work/shop", &basev1.Environment{NamingScope: "mine"}))
+	require.Equal(t, persistent, For("/work/shop", &basev1.Environment{Disposable: true}))
 	require.Equal(t, persistent, For("/work/shop", nil))
 }
 

@@ -9,8 +9,8 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	actionservice "github.com/codefly-dev/core/actions/service"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -69,7 +69,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		return nil, w.Wrapf(err, "cannot load builder for service instance")
 	}
 
-	info, err := instance.Agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	info, err := instance.Agent.GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get agent information")
 	}
@@ -83,7 +83,7 @@ func Add(ctx context.Context, workspace *resources.Workspace, module *resources.
 		return nil, w.Wrapf(err, "builder failed in load")
 	}
 
-	_, err = instance.Builder.Create(ctx, &builderv0.CreateRequest{}, handler)
+	_, err = instance.Builder.Create(ctx, &builderv1.CreateRequest{}, handler)
 	if err != nil {
 		return nil, w.Wrapf(err, "builder failed in create")
 

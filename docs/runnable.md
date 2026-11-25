@@ -120,8 +120,8 @@ release may name follows from its facilities.
 
 ## Immutable installation facts
 
-`proto/codefly/base/v0/runnable.proto` carries the wire contracts, generated
-into `generated/go/codefly/base/v0`; `runnable-python` generates its own Python
+`proto/codefly/base/v1/runnable.proto` carries the wire contracts, generated
+into `generated/go/codefly/base/v1`; `runnable-python` generates its own Python
 bindings from the same sources. The `runnable` Go package validates,
 canonicalizes and digests two of them.
 
@@ -299,7 +299,7 @@ operates has no install root of its own, so it cannot be written as a
 `generated-service` binding.
 
 The cluster spelling follows the existing Kubernetes deployment inputs
-(`codefly.services.builder.v0.KubernetesDeployment`), which the target does not
+(`codefly.services.builder.v1.KubernetesDeployment`), which the target does not
 import: that message carries manifest-generation inputs, not dispatch
 coordinates. A service target reuses `NetworkMapping`, the resolved address
 contract dependencies already use, and must address exactly the endpoint the
@@ -384,7 +384,7 @@ A derived mutation is **at-most-once today**, and says so. It is attempted
 once, because a retry is exactly-once only where the owner records a receipt
 and a Receipts server answers for it, and neither exists yet for a derived
 operation: the SDK's receipt guard covers option-marked methods, and no
-generic `codefly.runnable.receipts.v0.Receipts` server is served. An uncertain
+generic `codefly.runnable.receipts.v1.Receipts` server is served. An uncertain
 outcome is therefore surfaced as *unknown* — honestly, never as success or
 failure — and a recovery reading "no receipt" stays inconclusive. A caller
 that invokes again after an unknown outcome makes a new effect, so it asks the
@@ -406,7 +406,7 @@ its service names as its `lookup_method`, or one spelled `Lookup<Op>` beside a
 method `<Op>`: it is recovery's, so it is never derived. Hand-marked
 operations derive as they always did, and are tools too.
 
-`codefly.runnable.v0.exclude` keeps a method from being derived, for an
+`codefly.runnable.v1.exclude` keeps a method from being derived, for an
 operation no agent may ever call whatever its grants; it is refused beside an
 operation option. A
 policy requiring nothing (`any_checked_caller`) has no authority to mint a
@@ -423,7 +423,7 @@ There are two ways an owner describes an operation, and one derivation:
 
 | | gRPC | REST |
 | --- | --- | --- |
-| Marking | the `codefly.runnable.v0.operation` method option (`proto/codefly/runnable/v0/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
+| Marking | the `codefly.runnable.v1.operation` method option (`proto/codefly/runnable/v1/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
 | Default with nothing added | `runnable.DefaultOperation(method, authority, audience)`, from `authority.hop.v1.policy` | `runnable.DefaultRouteOperation(method, path, authority, audience, name, description)`; `runnable.RouteMarker` writes it as the marker from the route's `x-codefly-authority-policy` JSON, which is how solution-runtime-go marks a route |
 | Source of the contract | the method's request and response descriptors | the operation's `application/json` request body — a `GET`'s query — and its one `2xx` response |
 | Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")`, from OpenAPI 3 or Swagger 2.0 |
@@ -464,7 +464,7 @@ operation states its recovery. Declared, they are a read-only subset of the
 invoke scopes. Empty, a receipt is read under the invoke scopes and **only by
 the identity that made the effect**: a receipt records its Work Context's owner
 and whole actor chain, each hop by principal and agent
-(`codefly.runnable.receipts.v0.ReceiptIdentity`), and
+(`codefly.runnable.receipts.v1.ReceiptIdentity`), and
 `runnable.AdmitReceiptLookup` admits a lookup only for that same identity,
 holding the scopes the receipt is read under. A refused lookup answers
 NOT_FOUND exactly as an absent receipt does, its reason logged and never
@@ -635,7 +635,7 @@ implied by a matching shape — which an inline schema has nothing to record. A
 the document writes it, so a `$ref`'d path item, request body, response or
 parameter is refused rather than resolved.
 
-`x-codefly-operation` is the proto3 JSON form of `codefly.runnable.v0.Operation`
+`x-codefly-operation` is the proto3 JSON form of `codefly.runnable.v1.Operation`
 — the same field names in either spelling, durations as strings such as `"30s"`,
 scopes as `WorkScopeV1` — decoded into that message rather than into a second
 schema, and held to the same bounds. A field the message does not declare is an
@@ -699,7 +699,7 @@ Every facility is reached by **calling** something that serves the contract, so
 there is one shape for all of them: this endpoint, this method, this identity,
 this input, this policy. The four facts fixed when the operation is installed
 live in the binding; identity, input, the effect identity and the deadline
-belong to one call. `proto/codefly/base/v0/runnable_invocation.proto` carries
+belong to one call. `proto/codefly/base/v1/runnable_invocation.proto` carries
 the per-call facts and the answer, and the `runnable` Go package implements the
 caller's half.
 
@@ -865,7 +865,7 @@ the caller may fail to receive, and recomputing cannot tell a lost answer from
 work that never happened.
 
 The call itself does not change. Same address, same route, same four headers,
-the bounded input as the whole body. `proto/codefly/runnable/v0/submit.proto`
+the bounded input as the whole body. `proto/codefly/runnable/v1/submit.proto`
 carries the four shapes; `runnable/submit.go` is the caller's half of them.
 
 **The acceptance is the reply**, `RunnableAcceptance` as proto3 JSON:
@@ -918,7 +918,7 @@ place in this contract where a document's shape is read off the document rather
 than off the declaration.
 
 An owner serving submit mode serves the status route
-(`/codefly.runnable.v0.Runnable/Status`, a `RunnableStatusRequest` naming the
+(`/codefly.runnable.v1.Runnable/Status`, a `RunnableStatusRequest` naming the
 handle) whether or not a callback address was presented. That is not a second
 mechanism: a callback can always be lost, so the read is the recovery path the
 owner owed anyway, and a caller that presented no address is using the recovery
@@ -1018,7 +1018,7 @@ tool with its own name, schema and effect. Discovery projects those tools over
 `PackageFromMethod` still reads the method descriptors and release identity at
 generation time. Installation-selected declarations do not change that identity.
 
-[`ToolProjection`](../proto/codefly/runnable/v0/projection.proto) is the shared
+[`ToolProjection`](../proto/codefly/runnable/v1/projection.proto) is the shared
 delivery shape. Its fields are:
 
 ```text

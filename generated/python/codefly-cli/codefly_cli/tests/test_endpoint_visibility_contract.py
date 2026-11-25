@@ -4,8 +4,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from codefly.base.v0 import endpoint_pb2
-from codefly.base.v0 import module_pb2
+from codefly.base.v1 import endpoint_pb2
+from codefly.base.v1 import module_pb2
 from google.protobuf import descriptor_pb2
 
 # buf.validate's extension numbers and the field numbers inside its rules, as

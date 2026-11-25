@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -319,10 +319,10 @@ func joinedMethods() string {
 // POST or PUT.
 func readOnlyRoute(spec *OperationSpec, route string) error {
 	invoked := &Authority{Requires: spec.InvokeScopes}
-	if spec.EffectiveRecovery() != basev0.RunnableExecution_RECOVERY_RECOMPUTE ||
-		(spec.Tool != nil && spec.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY) || !invoked.ReadOnly() {
+	if spec.EffectiveRecovery() != basev1.RunnableExecution_RECOVERY_RECOMPUTE ||
+		(spec.Tool != nil && spec.Tool.GetEffect() != runnablev1.ToolExposure_EFFECT_READ_ONLY) || !invoked.ReadOnly() {
 		return fmt.Errorf("%w: %s is a GET, which is admitted only as a read: recovery %s, a %s tool, and invoke scopes requiring only %q; a mutation is published as POST or PUT",
-			ErrInvalid, route, basev0.RunnableExecution_RECOVERY_RECOMPUTE, runnablev0.ToolExposure_EFFECT_READ_ONLY, ReadOnlyScopeAction)
+			ErrInvalid, route, basev1.RunnableExecution_RECOVERY_RECOMPUTE, runnablev1.ToolExposure_EFFECT_READ_ONLY, ReadOnlyScopeAction)
 	}
 	return nil
 }
@@ -334,7 +334,7 @@ func readOnlyRoute(spec *OperationSpec, route string) error {
 // JSON spelling — and a GET with no parameter takes the empty object. No
 // component describes a query, so the identity input_message records is the
 // one the document publishes it under: the operation's operationId.
-func (d *OpenAPIDocument) queryPayload(operation *OpenAPIOperation, parameters []OpenAPIParameter, route string) (*basev0.RunnableSchema, string, error) {
+func (d *OpenAPIDocument) queryPayload(operation *OpenAPIOperation, parameters []OpenAPIParameter, route string) (*basev1.RunnableSchema, string, error) {
 	if operation.RequestBody != nil {
 		return nil, "", fmt.Errorf("%w: %s declares a request body, and a GET's input is its query", ErrInvalid, route)
 	}
@@ -366,7 +366,7 @@ func (d *OpenAPIDocument) queryPayload(operation *OpenAPIOperation, parameters [
 	}
 	for _, field := range input.GetFields() {
 		switch field.GetType() {
-		case basev0.RunnableField_STRING, basev0.RunnableField_INTEGER, basev0.RunnableField_NUMBER, basev0.RunnableField_BOOLEAN:
+		case basev1.RunnableField_STRING, basev1.RunnableField_INTEGER, basev1.RunnableField_NUMBER, basev1.RunnableField_BOOLEAN:
 		default:
 			return nil, "", fmt.Errorf("%w: %s query parameter %q is %s, and a query carries one scalar per name", ErrInvalid, route, field.GetName(), field.GetType())
 		}
@@ -381,7 +381,7 @@ func (d *OpenAPIDocument) queryPayload(operation *OpenAPIOperation, parameters [
 // schema has to be a component $ref: input_message and output_message record
 // the owner's published message identity so the reuse is auditable, and an
 // inline schema has no identity to record.
-func (d *OpenAPIDocument) payload(body *OpenAPIBody, route, what string) (*basev0.RunnableSchema, string, error) {
+func (d *OpenAPIDocument) payload(body *OpenAPIBody, route, what string) (*basev1.RunnableSchema, string, error) {
 	if body == nil {
 		return nil, "", fmt.Errorf("%w: %s declares no %s, and a derived operation is one finite call with one input and one output", ErrInvalid, route, what)
 	}
@@ -449,7 +449,7 @@ func success(operation *OpenAPIOperation, route string) (*OpenAPIBody, error) {
 // by a descriptor, and deliberately lands in the same place: one profile, one
 // digest and one drift rule, so a FastAPI service and a gRPC one publish the
 // same kind of operation rather than two kinds that resemble each other.
-func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLocation, owner ServiceOwner, method, path string) (*basev0.RunnablePackage, *OperationSpec, error) {
+func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLocation, owner ServiceOwner, method, path string) (*basev1.RunnablePackage, *OperationSpec, error) {
 	if location == nil || location.Identity == nil {
 		return nil, nil, fmt.Errorf("%w: the release identity a derived package carries is required", ErrInvalid)
 	}
@@ -471,7 +471,7 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 			return nil, nil, err
 		}
 	}
-	var input *basev0.RunnableSchema
+	var input *basev1.RunnableSchema
 	var inputMessage string
 	if strings.EqualFold(method, http.MethodGet) {
 		if err = readOnlyRoute(spec, route); err != nil {
@@ -496,28 +496,28 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: identity: %v", ErrInvalid, err)
 	}
-	pkg, err := PreparePackage(&basev0.RunnablePackage{
+	pkg, err := PreparePackage(&basev1.RunnablePackage{
 		Schema:   PackageSchemaV1,
 		Identity: identity,
 		Agent:    owner.Agent,
-		Contract: &basev0.RunnableContract{Protocol: resources.RunnableServiceProtocolV1, Input: input, Output: output},
-		Execution: &basev0.RunnableExecution{
-			Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
+		Contract: &basev1.RunnableContract{Protocol: resources.RunnableServiceProtocolV1, Input: input, Output: output},
+		Execution: &basev1.RunnableExecution{
+			Facilities:     []*basev1.RunnableFacility{{Kind: basev1.RunnableFacility_SERVICE}},
 			Timeout:        durationpb.New(spec.TotalTimeout),
-			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
+			Cancellation:   basev1.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       spec.EffectiveRecovery(),
 			Completion:     spec.Completion,
 			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
 			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
 		},
-		ServiceOperations: []*basev0.RunnableServiceOperation{{
+		ServiceOperations: []*basev1.RunnableServiceOperation{{
 			Module:        owner.Module,
 			Name:          owner.Service,
 			Endpoint:      owner.Endpoint,
 			Operation:     spec.Method,
 			InputMessage:  inputMessage,
 			OutputMessage: outputMessage,
-			Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+			Adaptation:    basev1.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
 		}},
 	})
 	if err != nil {
@@ -529,7 +529,7 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 // restTool presents a REST operation as a tool from what its document says:
 // its operationId (or its route), its description (or summary), and its
 // effect, read-only exactly when it recomputes.
-func restTool(operation *OpenAPIOperation, route string, recovery basev0.RunnableExecution_Recovery) *runnablev0.ToolExposure {
+func restTool(operation *OpenAPIOperation, route string, recovery basev1.RunnableExecution_Recovery) *runnablev1.ToolExposure {
 	name := operation.OperationID
 	if name == "" {
 		name = route
@@ -541,11 +541,11 @@ func restTool(operation *OpenAPIOperation, route string, recovery basev0.Runnabl
 	if description == "" {
 		description = "Calls " + route + "."
 	}
-	effect := runnablev0.ToolExposure_EFFECT_MUTATION
-	if recovery == basev0.RunnableExecution_RECOVERY_RECOMPUTE {
-		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
+	effect := runnablev1.ToolExposure_EFFECT_MUTATION
+	if recovery == basev1.RunnableExecution_RECOVERY_RECOMPUTE {
+		effect = runnablev1.ToolExposure_EFFECT_READ_ONLY
 	}
-	return &runnablev0.ToolExposure{Name: toolName(name), Description: description, Effect: effect}
+	return &runnablev1.ToolExposure{Name: toolName(name), Description: description, Effect: effect}
 }
 
 // DefaultReadRetryableStatuses are the outcomes a derived REST read is retried
@@ -582,17 +582,17 @@ func DefaultRouteOperation(method, path string, authority *Authority, audience, 
 		Backoff:        DefaultBackoff,
 		Codes:          HTTPStatusCodes,
 		Audience:       audience,
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 		InvokeScopes:   clonedScopes(authority.Requires),
 	}
-	effect := runnablev0.ToolExposure_EFFECT_MUTATION
+	effect := runnablev1.ToolExposure_EFFECT_MUTATION
 	if authority.ReadOnly() {
-		effect = runnablev0.ToolExposure_EFFECT_READ_ONLY
-		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+		effect = runnablev1.ToolExposure_EFFECT_READ_ONLY
+		spec.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
 		spec.MaxAttempts = DefaultReadAttempts
 		spec.RetryableCodes = slices.Clone(DefaultReadRetryableStatuses)
 	} else {
-		spec.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+		spec.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
 		spec.MaxAttempts = DefaultMutationAttempts
 	}
 	if name == "" {
@@ -602,7 +602,7 @@ func DefaultRouteOperation(method, path string, authority *Authority, audience, 
 	if text == "" {
 		text = "Calls " + route + "."
 	}
-	spec.Tool = &runnablev0.ToolExposure{Name: toolName(name), Description: text, Effect: effect}
+	spec.Tool = &runnablev1.ToolExposure{Name: toolName(name), Description: text, Effect: effect}
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -636,7 +636,7 @@ func RouteMarker(method, path string, policy json.RawMessage, audience, name, de
 	}
 	authority := &Authority{AnyCheckedCaller: declared.AnyCheckedCaller}
 	for _, requirement := range declared.Requires {
-		authority.Requires = append(authority.Requires, &basev0.WorkScopeV1{ResourceKind: requirement.ResourceKind, Actions: slices.Clone(requirement.Actions)})
+		authority.Requires = append(authority.Requires, &basev1.WorkScopeV1{ResourceKind: requirement.ResourceKind, Actions: slices.Clone(requirement.Actions)})
 	}
 	spec, err := DefaultRouteOperation(method, path, authority, audience, name, description)
 	if err != nil {

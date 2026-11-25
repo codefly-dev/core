@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/distribution/reference"
 )
 
@@ -14,7 +14,7 @@ const CacheContractVersion = "registry-v1"
 // CacheArguments translates caller-owned cache policy for both recipe executors
 // and in-agent builds. BuildKit, rather than this transport tag, keys individual
 // layers by their platform, base image, instruction and consumed file contents.
-func CacheArguments(cache *builderv0.BuildCacheOptions, platforms []string) ([]string, error) {
+func CacheArguments(cache *builderv1.BuildCacheOptions, platforms []string) ([]string, error) {
 	if cache == nil {
 		return nil, nil
 	}

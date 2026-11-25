@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 // Policy is the one conversion from a derived spec to the policy a prepared
@@ -26,8 +26,8 @@ import (
 // rather than one quietly repaired. A spec still carrying required scope slots
 // yields a policy that carries them too, which EncodePrepared refuses: a writer
 // resolves with ResolveScopeSlots first and delivers the concrete policy.
-func (s *OperationSpec) Policy() *runnablev0.Operation {
-	return &runnablev0.Operation{
+func (s *OperationSpec) Policy() *runnablev1.Operation {
+	return &runnablev1.Operation{
 		AttemptTimeout:     durationpb.New(s.AttemptTimeout),
 		TotalTimeout:       durationpb.New(s.TotalTimeout),
 		MaxAttempts:        s.MaxAttempts,

@@ -12,20 +12,20 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/runners/runstate"
 )
 
 type runtime struct {
-	runtimev0.UnimplementedRuntimeServer
+	runtimev1.UnimplementedRuntimeServer
 	hold *runstate.Hold
 }
 
-func (r *runtime) Load(context.Context, *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
-	return &runtimev0.LoadResponse{}, nil
+func (r *runtime) Load(context.Context, *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
+	return &runtimev1.LoadResponse{}, nil
 }
 
-func (r *runtime) Init(context.Context, *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+func (r *runtime) Init(context.Context, *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
 	dir := os.Getenv("STOREAGENT_DIR")
 	run := runstate.Run{Workspace: "/work/shop"}
 	if os.Getenv("STOREAGENT_DISPOSABLE") == "true" {
@@ -50,18 +50,18 @@ func (r *runtime) Init(context.Context, *runtimev0.InitRequest) (*runtimev0.Init
 	if err := os.WriteFile(os.Getenv("STOREAGENT_REPORT"), []byte(report), 0o600); err != nil {
 		return nil, err
 	}
-	return &runtimev0.InitResponse{}, nil
+	return &runtimev1.InitResponse{}, nil
 }
 
 // Stop stops the server, unless the agent is one whose Stop keeps it.
-func (r *runtime) Stop(ctx context.Context, _ *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
+func (r *runtime) Stop(ctx context.Context, _ *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
 	if r.hold == nil || os.Getenv("STOREAGENT_STOP_KEEPS_SERVER") == "true" {
-		return &runtimev0.StopResponse{}, nil
+		return &runtimev1.StopResponse{}, nil
 	}
 	if _, err := r.hold.StopTracked(ctx, runstate.StopOptions{Grace: 3 * time.Second}); err != nil {
 		return nil, err
 	}
-	return &runtimev0.StopResponse{}, nil
+	return &runtimev1.StopResponse{}, nil
 }
 
 func main() {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -30,7 +30,7 @@ var ErrOutputProfileUnknown = errors.New("the Kubernetes output profile is not o
 // "not restricted", and a render that emits inline Secret data on that answer
 // is the opposite of what the profile meant.
 type OutputProfile struct {
-	profile builderv0.KubernetesOutputProfile
+	profile builderv1.KubernetesOutputProfile
 }
 
 // ParseOutputProfile judges a decoded profile. It accepts exactly the profiles
@@ -38,12 +38,12 @@ type OutputProfile struct {
 // with ErrOutputProfileNotSelected, a number the schema reserves (a deleted
 // value) or never defined with ErrOutputProfileUnknown, naming what the
 // contract does define.
-func ParseOutputProfile(profile builderv0.KubernetesOutputProfile) (OutputProfile, error) {
+func ParseOutputProfile(profile builderv1.KubernetesOutputProfile) (OutputProfile, error) {
 	switch profile {
-	case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1:
+	case builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1:
 		return OutputProfile{profile: profile}, nil
-	case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED:
+	case builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED:
 		return OutputProfile{}, fmt.Errorf("%w: select one of %s", ErrOutputProfileNotSelected, definedOutputProfiles())
 	}
 	if reservedOutputProfileNumber(profile) {
@@ -55,7 +55,7 @@ func ParseOutputProfile(profile builderv0.KubernetesOutputProfile) (OutputProfil
 }
 
 // Proto is the wire value of the profile, for the response that reports it.
-func (p OutputProfile) Proto() builderv0.KubernetesOutputProfile {
+func (p OutputProfile) Proto() builderv1.KubernetesOutputProfile {
 	return p.profile
 }
 
@@ -64,13 +64,13 @@ func (p OutputProfile) Proto() builderv0.KubernetesOutputProfile {
 // it. The zero value is not restricted and not anything else — it never
 // reaches a renderer, which parses first.
 func (p OutputProfile) Restricted() bool {
-	return p.profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
+	return p.profile == builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
 }
 
 // InlineSecrets reports whether the profile may embed Secret data in the
 // rendered tree: EPHEMERAL_LOCAL_APPLY_V1, and only it.
 func (p OutputProfile) InlineSecrets() bool {
-	return p.profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1
+	return p.profile == builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1
 }
 
 func (p OutputProfile) String() string {
@@ -81,15 +81,15 @@ func (p OutputProfile) String() string {
 // refusals above.
 func definedOutputProfiles() string {
 	return strings.Join([]string{
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1.String(),
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1.String(),
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1.String(),
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1.String(),
 	}, ", ")
 }
 
 // reservedOutputProfileNumber reports whether the schema reserves this number:
 // the record a deletion leaves behind, read from the descriptor rather than
 // kept as a second list here.
-func reservedOutputProfileNumber(profile builderv0.KubernetesOutputProfile) bool {
-	descriptor := builderv0.KubernetesOutputProfile(0).Descriptor()
+func reservedOutputProfileNumber(profile builderv1.KubernetesOutputProfile) bool {
+	descriptor := builderv1.KubernetesOutputProfile(0).Descriptor()
 	return descriptor.ReservedRanges().Has(protoreflect.EnumNumber(profile))
 }

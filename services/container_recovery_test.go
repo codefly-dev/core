@@ -11,7 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
@@ -45,13 +45,13 @@ func TestAcknowledgedContainerRecoveryScope(t *testing.T) {
 func TestRequireContainerRecoveryScope(t *testing.T) {
 	for _, tc := range []struct {
 		name                     string
-		advertised               *agentv0.AgentContract
+		advertised               *agentv1.AgentContract
 		ack, expected, wantError string
 	}{
 		{name: "supported and acknowledged", advertised: contract.Current(), ack: "scope:namespace", expected: "scope:namespace"},
 		{name: "optional namespace", advertised: contract.Current(), ack: "scope:", expected: "scope:"},
 		{name: "legacy acknowledgement does not imply support", ack: "scope:namespace", expected: "scope:namespace", wantError: "does not declare"},
-		{name: "capability missing", advertised: &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}, expected: "scope:namespace", wantError: "does not implement required capability \"container-recovery-scope/v1\""},
+		{name: "capability missing", advertised: &agentv1.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}, expected: "scope:namespace", wantError: "does not implement required capability \"container-recovery-scope/v1\""},
 		{name: "supported but unacknowledged", advertised: contract.Current(), expected: "scope:namespace", wantError: "implements container-recovery-scope/v1 but did not acknowledge"},
 		{name: "wrong run", advertised: contract.Current(), ack: "other:namespace", expected: "scope:namespace", wantError: "did not acknowledge"},
 		{name: "no resolved scope", advertised: contract.Current(), wantError: "requires a resolved scope"},
@@ -59,7 +59,7 @@ func TestRequireContainerRecoveryScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			instance := &Instance{
 				Identity:               &resources.ServiceIdentity{Module: "module", Name: "service"},
-				Info:                   &agentv0.AgentInformation{Contract: tc.advertised},
+				Info:                   &agentv1.AgentInformation{Contract: tc.advertised},
 				ContainerRecoveryScope: tc.ack,
 			}
 			err := instance.RequireContainerRecoveryScope(tc.expected)

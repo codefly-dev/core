@@ -12,8 +12,8 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -30,7 +30,7 @@ type recipeBuilder struct {
 	workspace   bool
 }
 
-func (b *recipeBuilder) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (b *recipeBuilder) Build(ctx context.Context, req *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	return BuildGoDocker(ctx, b.wrapper, req, &builders.Dependencies{}, recipeBuilderTemplates, "", "",
 		func(options *DockerTemplating) {
 			options.ContextRoot = b.contextRoot
@@ -38,14 +38,14 @@ func (b *recipeBuilder) Build(ctx context.Context, req *builderv0.BuildRequest) 
 		})
 }
 
-func (*recipeBuilder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
-	return &builderv0.BuildCapabilitiesResponse{BuildxSelection: true}, nil
+func (*recipeBuilder) BuildCapabilities(context.Context, *builderv1.BuildCapabilitiesRequest) (*builderv1.BuildCapabilitiesResponse, error) {
+	return &builderv1.BuildCapabilitiesResponse{BuildxSelection: true}, nil
 }
 
 // recipeAgent stands up the real gRPC Builder surface with Docker and Buildx
 // absent from PATH, so nothing here can accidentally execute a build.
 type recipeAgent struct {
-	client  builderv0.BuilderClient
+	client  builderv1.BuilderClient
 	service string
 	output  string
 	agent   *recipeBuilder
@@ -65,7 +65,7 @@ func newRecipeAgent(t *testing.T, ctx context.Context) *recipeAgent {
 	require.NoError(t, os.MkdirAll(output, 0o755))
 
 	base := &services.Base{}
-	require.NoError(t, base.HeadlessLoad(ctx, &basev0.ServiceIdentity{
+	require.NoError(t, base.HeadlessLoad(ctx, &basev1.ServiceIdentity{
 		Name: "app", Module: "test", WorkspacePath: root, RelativeToWorkspace: "service"}))
 	wrapper := &services.BuilderWrapper{Base: base}
 	base.Builder = wrapper
@@ -73,7 +73,7 @@ func newRecipeAgent(t *testing.T, ctx context.Context) *recipeAgent {
 
 	agent := &recipeBuilder{DefaultBuilder: services.NewDefaultBuilder(wrapper), wrapper: wrapper}
 	server := grpc.NewServer()
-	builderv0.RegisterBuilderServer(server, agent)
+	builderv1.RegisterBuilderServer(server, agent)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = server.Serve(listener) }()
@@ -82,18 +82,18 @@ func newRecipeAgent(t *testing.T, ctx context.Context) *recipeAgent {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 
-	return &recipeAgent{client: builderv0.NewBuilderClient(connection), service: location, output: output, agent: agent}
+	return &recipeAgent{client: builderv1.NewBuilderClient(connection), service: location, output: output, agent: agent}
 }
 
-func (a *recipeAgent) request(dockerContext *builderv0.DockerBuildContext) *builderv0.BuildRequest {
-	return &builderv0.BuildRequest{
+func (a *recipeAgent) request(dockerContext *builderv1.DockerBuildContext) *builderv1.BuildRequest {
+	return &builderv1.BuildRequest{
 		OutputDirectory: a.output,
-		BuildContext:    &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: dockerContext}},
+		BuildContext:    &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: dockerContext}},
 	}
 }
 
-func selectedContext() *builderv0.DockerBuildContext {
-	return &builderv0.DockerBuildContext{BuildxBuilder: "selected"}
+func selectedContext() *builderv1.DockerBuildContext {
+	return &builderv1.DockerBuildContext{BuildxBuilder: "selected"}
 }
 
 func testContext(t *testing.T) context.Context {
@@ -109,7 +109,7 @@ func TestImageRecipeEmitsAVerifiablePlan(t *testing.T) {
 
 	response, err := agent.client.Build(ctx, agent.request(selectedContext()))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	plan := response.GetResult().GetDockerBuildPlan()
 	require.NotNil(t, plan)
@@ -134,7 +134,7 @@ func TestImageRecipeReplacesStaleDockerfile(t *testing.T) {
 
 	response, err := agent.client.Build(ctx, agent.request(selectedContext()))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	fresh, err := os.ReadFile(filepath.Join(agent.output, "Dockerfile"))
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestImageRecipeIsUnaffectedByUnrelatedContentInTheRecipeDirectory(t *testin
 
 	clean, err := agent.client.Build(ctx, agent.request(selectedContext()))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, clean.GetState().GetState(), clean.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, clean.GetState().GetState(), clean.GetState().GetMessage())
 
 	require.NoError(t, os.WriteFile(filepath.Join(agent.service, "shared.conf"), []byte("x"), 0o644))
 	require.NoError(t, os.Symlink(filepath.Join(agent.service, "shared.conf"), filepath.Join(agent.output, "shared.conf")))
@@ -160,7 +160,7 @@ func TestImageRecipeIsUnaffectedByUnrelatedContentInTheRecipeDirectory(t *testin
 
 	dirty, err := agent.client.Build(ctx, agent.request(selectedContext()))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, dirty.GetState().GetState(), dirty.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, dirty.GetState().GetState(), dirty.GetState().GetMessage())
 	require.Equal(t,
 		clean.GetResult().GetDockerBuildPlan().GetDigest(),
 		dirty.GetResult().GetDockerBuildPlan().GetDigest())
@@ -179,10 +179,10 @@ func TestImageRecipeIsIndependentOfCallerTransportPolicy(t *testing.T) {
 
 	cached := selectedContext()
 	cached.BuildxBuilder = "cache-selected"
-	cached.Cache = &builderv0.BuildCacheOptions{Backend: "registry", Scope: "test/app", Exports: []string{"registry.example.com/cache"}}
+	cached.Cache = &builderv1.BuildCacheOptions{Backend: "registry", Scope: "test/app", Exports: []string{"registry.example.com/cache"}}
 	selected, err := agent.client.Build(ctx, agent.request(cached))
 	require.NoError(t, err)
-	require.Equal(t, builderv0.BuildStatus_SUCCESS, selected.GetState().GetState(), selected.GetState().GetMessage())
+	require.Equal(t, builderv1.BuildStatus_SUCCESS, selected.GetState().GetState(), selected.GetState().GetMessage())
 
 	require.Equal(t,
 		plain.GetResult().GetDockerBuildPlan().GetDigest(),
@@ -194,19 +194,19 @@ func TestImageRecipeIsIndependentOfCallerTransportPolicy(t *testing.T) {
 
 func TestImageRecipeRejectsUnsupportedRequests(t *testing.T) {
 	for name, scenario := range map[string]struct {
-		mutate   func(*recipeAgent, *builderv0.BuildRequest)
+		mutate   func(*recipeAgent, *builderv1.BuildRequest)
 		expected string
 	}{
 		"missing output_directory": {
-			func(_ *recipeAgent, r *builderv0.BuildRequest) { r.OutputDirectory = "" },
+			func(_ *recipeAgent, r *builderv1.BuildRequest) { r.OutputDirectory = "" },
 			"output_directory is required",
 		},
 		"relative output_directory": {
-			func(_ *recipeAgent, r *builderv0.BuildRequest) { r.OutputDirectory = "builder" },
+			func(_ *recipeAgent, r *builderv1.BuildRequest) { r.OutputDirectory = "builder" },
 			"must be absolute",
 		},
 		"custom context root": {
-			func(a *recipeAgent, _ *builderv0.BuildRequest) { a.agent.contextRoot = a.service },
+			func(a *recipeAgent, _ *builderv1.BuildRequest) { a.agent.contextRoot = a.service },
 			"custom Docker context root",
 		},
 		// Workspace carries the same requirement as ContextRoot and agents set the
@@ -214,7 +214,7 @@ func TestImageRecipeRejectsUnsupportedRequests(t *testing.T) {
 		// service directory while the template copies workspace-relative paths —
 		// failing later, inside the executor, with an opaque COPY error.
 		"workspace context": {
-			func(a *recipeAgent, _ *builderv0.BuildRequest) { a.agent.workspace = true },
+			func(a *recipeAgent, _ *builderv1.BuildRequest) { a.agent.workspace = true },
 			"workspace-root Docker contexts are not supported",
 		},
 	} {
@@ -230,7 +230,7 @@ func TestImageRecipeRejectsUnsupportedRequests(t *testing.T) {
 			if err != nil {
 				require.ErrorContains(t, err, scenario.expected)
 			} else {
-				require.Equal(t, builderv0.BuildStatus_ERROR, response.GetState().GetState())
+				require.Equal(t, builderv1.BuildStatus_ERROR, response.GetState().GetState())
 				require.Contains(t, response.GetState().GetMessage(), scenario.expected)
 			}
 

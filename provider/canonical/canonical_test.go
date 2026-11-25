@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/stretchr/testify/require"
@@ -14,13 +14,13 @@ import (
 
 func TestCanonicalMapAndResourceOrderingIsByteIdentical(t *testing.T) {
 	first := materialObservation()
-	second := proto.Clone(first).(*providerv0.MaterialObservation)
+	second := proto.Clone(first).(*providerv1.MaterialObservation)
 	second.Resources[0], second.Resources[1] = second.Resources[1], second.Resources[0]
-	second.Resources[0].ProviderOwnedFields = map[string]*providerv0.PublicValue{
+	second.Resources[0].ProviderOwnedFields = map[string]*providerv1.PublicValue{
 		"z": stringValue("last"),
 		"a": stringValue("first"),
 	}
-	first.Resources[1].ProviderOwnedFields = map[string]*providerv0.PublicValue{
+	first.Resources[1].ProviderOwnedFields = map[string]*providerv1.PublicValue{
 		"a": stringValue("first"),
 		"z": stringValue("last"),
 	}
@@ -35,15 +35,15 @@ func TestMaterialDigestIsOrderIndependentWhenResourcesShareIdentity(t *testing.T
 	// Two distinct observations that share a remote identity but differ in
 	// content: a partial identity sort key left their relative order — and thus
 	// the digest — dependent on retrieval order.
-	identity := &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "shared"}
-	first := &providerv0.MaterialObservation{
-		AccountIdentity: "account", Mode: providerv0.HostMode_HOST_MODE_PRODUCTION, Complete: true,
-		Resources: []*providerv0.MaterialResourceObservation{
-			{Identity: proto.Clone(identity).(*providerv0.RemoteIdentity), Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1"},
-			{Identity: proto.Clone(identity).(*providerv0.RemoteIdentity), Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "2"},
+	identity := &providerv1.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "shared"}
+	first := &providerv1.MaterialObservation{
+		AccountIdentity: "account", Mode: providerv1.HostMode_HOST_MODE_PRODUCTION, Complete: true,
+		Resources: []*providerv1.MaterialResourceObservation{
+			{Identity: proto.Clone(identity).(*providerv1.RemoteIdentity), Ownership: providerv1.Ownership_OWNERSHIP_OWNED, Revision: "1"},
+			{Identity: proto.Clone(identity).(*providerv1.RemoteIdentity), Ownership: providerv1.Ownership_OWNERSHIP_OWNED, Revision: "2"},
 		},
 	}
-	second := proto.Clone(first).(*providerv0.MaterialObservation)
+	second := proto.Clone(first).(*providerv1.MaterialObservation)
 	second.Resources[0], second.Resources[1] = second.Resources[1], second.Resources[0]
 
 	firstDigest, err := canonical.MaterialObservationDigest(first)
@@ -56,17 +56,17 @@ func TestMaterialDigestIsOrderIndependentWhenResourcesShareIdentity(t *testing.T
 func TestBindingDesiredDigestIsOrderIndependentWhenReferencesTieOnPurposeAndReference(t *testing.T) {
 	// Credential references that tie on (purpose, reference) but differ in
 	// safe_fingerprint used to sort permutation-dependently.
-	reference := func(fingerprint string) *providerv0.OpaqueReference {
-		return &providerv0.OpaqueReference{
-			Reference: "secret://runtime", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+	reference := func(fingerprint string) *providerv1.OpaqueReference {
+		return &providerv1.OpaqueReference{
+			Reference: "secret://runtime", Purpose: providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 			SafeFingerprint: digest(fingerprint),
 		}
 	}
-	first := &providerv0.BindingDesiredState{
-		CredentialReferences: []*providerv0.OpaqueReference{reference("1"), reference("2")},
+	first := &providerv1.BindingDesiredState{
+		CredentialReferences: []*providerv1.OpaqueReference{reference("1"), reference("2")},
 	}
-	second := &providerv0.BindingDesiredState{
-		CredentialReferences: []*providerv0.OpaqueReference{reference("2"), reference("1")},
+	second := &providerv1.BindingDesiredState{
+		CredentialReferences: []*providerv1.OpaqueReference{reference("2"), reference("1")},
 	}
 	firstDigest, err := canonical.BindingDesiredStateDigest(first)
 	require.NoError(t, err)
@@ -76,18 +76,18 @@ func TestBindingDesiredDigestIsOrderIndependentWhenReferencesTieOnPurposeAndRefe
 }
 
 func TestPlannedRequestDigestIsCredentialPurposeOrderIndependent(t *testing.T) {
-	base := &providerv0.PlannedRequest{
+	base := &providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.read",
 		RequestDescriptorDigest: digest("1"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_GET,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_GET,
 		AdmittedOriginDigest:    digest("1"),
 		ResponsePolicyDigest:    digest("1"),
-		CredentialPurposes: []providerv0.CredentialPurpose{
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		CredentialPurposes: []providerv1.CredentialPurpose{
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 		},
 	}
-	reordered := proto.Clone(base).(*providerv0.PlannedRequest)
+	reordered := proto.Clone(base).(*providerv1.PlannedRequest)
 	reordered.CredentialPurposes[0], reordered.CredentialPurposes[1] = reordered.CredentialPurposes[1], reordered.CredentialPurposes[0]
 
 	baseDigest, err := canonical.PlannedRequestDigest(base)
@@ -102,11 +102,11 @@ func TestFeatureFlagsOutputProposalDigestIsValueOrderIndependent(t *testing.T) {
 	application := outputPublicValue("accounts")
 	environment := outputPublicValue("production")
 	mode := outputPublicValue("hosted")
-	credential := outputOpaqueValue("secret://feature-flags/server", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)
+	credential := outputOpaqueValue("secret://feature-flags/server", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME)
 	credential.GetOpaqueReference().SafeFingerprint = digest("b")
-	first := &providerv0.OutputProposal{
+	first := &providerv1.OutputProposal{
 		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"FEATURE_FLAGS_SERVER_ENDPOINT":   endpoint,
 			"FEATURE_FLAGS_APPLICATION_ID":    application,
 			"FEATURE_FLAGS_ENVIRONMENT_ID":    environment,
@@ -114,14 +114,14 @@ func TestFeatureFlagsOutputProposalDigestIsValueOrderIndependent(t *testing.T) {
 			"FEATURE_FLAGS_SERVER_CREDENTIAL": credential,
 		},
 	}
-	second := &providerv0.OutputProposal{
+	second := &providerv1.OutputProposal{
 		Contract: configuration.FeatureFlagsContract, TargetGeneration: 1,
-		Values: map[string]*providerv0.OutputValue{
-			"FEATURE_FLAGS_SERVER_CREDENTIAL": proto.Clone(credential).(*providerv0.OutputValue),
-			"FEATURE_FLAGS_PROVIDER_MODE":     proto.Clone(mode).(*providerv0.OutputValue),
-			"FEATURE_FLAGS_ENVIRONMENT_ID":    proto.Clone(environment).(*providerv0.OutputValue),
-			"FEATURE_FLAGS_APPLICATION_ID":    proto.Clone(application).(*providerv0.OutputValue),
-			"FEATURE_FLAGS_SERVER_ENDPOINT":   proto.Clone(endpoint).(*providerv0.OutputValue),
+		Values: map[string]*providerv1.OutputValue{
+			"FEATURE_FLAGS_SERVER_CREDENTIAL": proto.Clone(credential).(*providerv1.OutputValue),
+			"FEATURE_FLAGS_PROVIDER_MODE":     proto.Clone(mode).(*providerv1.OutputValue),
+			"FEATURE_FLAGS_ENVIRONMENT_ID":    proto.Clone(environment).(*providerv1.OutputValue),
+			"FEATURE_FLAGS_APPLICATION_ID":    proto.Clone(application).(*providerv1.OutputValue),
+			"FEATURE_FLAGS_SERVER_ENDPOINT":   proto.Clone(endpoint).(*providerv1.OutputValue),
 		},
 	}
 
@@ -134,14 +134,14 @@ func TestFeatureFlagsOutputProposalDigestIsValueOrderIndependent(t *testing.T) {
 
 func TestVolatileObservationMetadataDoesNotChangeMaterialDigest(t *testing.T) {
 	material := materialObservation()
-	first := &providerv0.ObserveResponse{
+	first := &providerv1.ObserveResponse{
 		Material: material,
-		Volatile: &providerv0.VolatileObservation{
+		Volatile: &providerv1.VolatileObservation{
 			RequestIds: []string{"request-b", "request-a"}, RateLimitRemaining: 10,
-			Diagnostics: []*basev0.FailureDiagnostic{{Code: "z"}, {Code: "a"}},
+			Diagnostics: []*basev1.FailureDiagnostic{{Code: "z"}, {Code: "a"}},
 		},
 	}
-	second := proto.Clone(first).(*providerv0.ObserveResponse)
+	second := proto.Clone(first).(*providerv1.ObserveResponse)
 	second.Volatile.RequestIds = []string{"request-c"}
 	second.Volatile.RateLimitRemaining = 1
 	second.Volatile.Diagnostics[0], second.Volatile.Diagnostics[1] = second.Volatile.Diagnostics[1], second.Volatile.Diagnostics[0]
@@ -165,30 +165,30 @@ func TestOrderedPlanDigestBindsEveryMaterialInputAndOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, bound.PlanDigest, repeated.PlanDigest)
 
-	mutations := map[string]func(*providerv0.OrderedPlan){
-		"artifact":   func(plan *providerv0.OrderedPlan) { plan.ArtifactDigest = digest("2") },
-		"descriptor": func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].RequestDescriptorDigest = digest("3") },
-		"origin":     func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].AdmittedOriginDigest = digest("3") },
-		"path": func(plan *providerv0.OrderedPlan) {
+	mutations := map[string]func(*providerv1.OrderedPlan){
+		"artifact":   func(plan *providerv1.OrderedPlan) { plan.ArtifactDigest = digest("2") },
+		"descriptor": func(plan *providerv1.OrderedPlan) { plan.Actions[0].Requests[0].RequestDescriptorDigest = digest("3") },
+		"origin":     func(plan *providerv1.OrderedPlan) { plan.Actions[0].Requests[0].AdmittedOriginDigest = digest("3") },
+		"path": func(plan *providerv1.OrderedPlan) {
 			plan.Actions[0].Requests[0].PathParameters["account_id"] = stringValue("other")
 		},
-		"query": func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].Query["expand"] = stringValue("other") },
-		"body":  func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].Body["name"] = stringValue("other") },
-		"credential purpose": func(plan *providerv0.OrderedPlan) {
-			plan.Actions[0].Requests[0].CredentialPurposes[0] = providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME
+		"query": func(plan *providerv1.OrderedPlan) { plan.Actions[0].Requests[0].Query["expand"] = stringValue("other") },
+		"body":  func(plan *providerv1.OrderedPlan) { plan.Actions[0].Requests[0].Body["name"] = stringValue("other") },
+		"credential purpose": func(plan *providerv1.OrderedPlan) {
+			plan.Actions[0].Requests[0].CredentialPurposes[0] = providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME
 		},
-		"response policy":   func(plan *providerv0.OrderedPlan) { plan.Actions[0].Requests[0].ResponsePolicyDigest = digest("3") },
-		"output generation": func(plan *providerv0.OrderedPlan) { plan.OutputTargetDigest = digest("4") },
-		"output proposal":   func(plan *providerv0.OrderedPlan) { plan.Actions[1].Output.TargetGeneration++ },
-		"policy":            func(plan *providerv0.OrderedPlan) { plan.PolicyInputDigest = digest("5") },
-		"action order": func(plan *providerv0.OrderedPlan) {
+		"response policy":   func(plan *providerv1.OrderedPlan) { plan.Actions[0].Requests[0].ResponsePolicyDigest = digest("3") },
+		"output generation": func(plan *providerv1.OrderedPlan) { plan.OutputTargetDigest = digest("4") },
+		"output proposal":   func(plan *providerv1.OrderedPlan) { plan.Actions[1].Output.TargetGeneration++ },
+		"policy":            func(plan *providerv1.OrderedPlan) { plan.PolicyInputDigest = digest("5") },
+		"action order": func(plan *providerv1.OrderedPlan) {
 			plan.Actions[0], plan.Actions[1] = plan.Actions[1], plan.Actions[0]
 			plan.Actions[0].Position, plan.Actions[1].Position = 0, 1
 		},
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
-			changed := proto.Clone(bound).(*providerv0.OrderedPlan)
+			changed := proto.Clone(bound).(*providerv1.OrderedPlan)
 			changed.PlanDigest = ""
 			mutate(changed)
 			for _, action := range changed.Actions {
@@ -215,14 +215,14 @@ func TestCanonicalRejectsUnknownFieldsAndAmbiguousValues(t *testing.T) {
 	encoded, err := proto.Marshal(value)
 	require.NoError(t, err)
 	encoded = append(encoded, 0xa0, 0x06, 0x01)
-	var unknown providerv0.PublicValue
+	var unknown providerv1.PublicValue
 	require.NoError(t, proto.Unmarshal(encoded, &unknown))
 	_, err = canonical.Digest(&unknown)
 	require.ErrorContains(t, err, "unknown fields")
 
 	for _, decimal := range []string{"01", "1.0", "-0", "1e3", "NaN"} {
-		_, err := canonical.Digest(&providerv0.PublicValue{
-			Kind: &providerv0.PublicValue_DecimalValue{DecimalValue: decimal},
+		_, err := canonical.Digest(&providerv1.PublicValue{
+			Kind: &providerv1.PublicValue_DecimalValue{DecimalValue: decimal},
 		})
 		require.ErrorContains(t, err, "not canonical")
 	}
@@ -230,7 +230,7 @@ func TestCanonicalRejectsUnknownFieldsAndAmbiguousValues(t *testing.T) {
 	require.ErrorContains(t, err, "secret-shaped")
 
 	plan := orderedPlan()
-	plan.Actions[0].Type = providerv0.ActionType(99)
+	plan.Actions[0].Type = providerv1.ActionType(99)
 	_, err = canonical.OrderedPlanDigest(plan)
 	require.ErrorContains(t, err, "unknown plan action")
 }
@@ -238,9 +238,9 @@ func TestCanonicalRejectsUnknownFieldsAndAmbiguousValues(t *testing.T) {
 func TestExecuteRequestMustMatchExactAdmittedPlanRequest(t *testing.T) {
 	plan := orderedPlan()
 	action := plan.Actions[0]
-	origin := &providerv0.AdmittedOrigin{
+	origin := &providerv1.AdmittedOrigin{
 		OriginRuleId: "api", Scheme: "https", Host: "api.example.com", Port: 443,
-		PrivateNetworkClass: providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC,
+		PrivateNetworkClass: providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC,
 	}
 	var err error
 	origin.AdmissionDigest, err = canonical.AdmittedOriginDigest(origin)
@@ -249,17 +249,17 @@ func TestExecuteRequestMustMatchExactAdmittedPlanRequest(t *testing.T) {
 	action.Requests[0].RequestDigest = ""
 	action.Requests[0], err = canonical.BindPlannedRequestDigest(action.Requests[0])
 	require.NoError(t, err)
-	handle := &providerv0.CredentialHandle{
-		Handle: "host-handle", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+	handle := &providerv1.CredentialHandle{
+		Handle: "host-handle", Purpose: providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
 	}
-	execute := &providerv0.ExecuteRequestRequest{
-		Context: &providerv0.ProviderContext{
-			Operation:   &providerv0.OperationIdentity{ActionId: action.ActionId},
-			Credentials: []*providerv0.CredentialHandle{handle},
+	execute := &providerv1.ExecuteRequestRequest{
+		Context: &providerv1.ProviderContext{
+			Operation:   &providerv1.OperationIdentity{ActionId: action.ActionId},
+			Credentials: []*providerv1.CredentialHandle{handle},
 		},
-		Request:           proto.Clone(action.Requests[0]).(*providerv0.PlannedRequest),
+		Request:           proto.Clone(action.Requests[0]).(*providerv1.PlannedRequest),
 		Origin:            origin,
-		CredentialHandles: []*providerv0.CredentialHandle{handle},
+		CredentialHandles: []*providerv1.CredentialHandle{handle},
 	}
 	require.NoError(t, canonical.ValidateExecuteRequest(action, execute))
 
@@ -271,34 +271,34 @@ func TestExecuteRequestMustMatchExactAdmittedPlanRequest(t *testing.T) {
 	require.ErrorContains(t, canonical.ValidateExecuteRequest(action, execute), "not present in admitted action")
 }
 
-func materialObservation() *providerv0.MaterialObservation {
-	return &providerv0.MaterialObservation{
+func materialObservation() *providerv1.MaterialObservation {
+	return &providerv1.MaterialObservation{
 		AccountIdentity: "account",
-		Mode:            providerv0.HostMode_HOST_MODE_PRODUCTION,
+		Mode:            providerv1.HostMode_HOST_MODE_PRODUCTION,
 		Complete:        true,
-		Resources: []*providerv0.MaterialResourceObservation{
+		Resources: []*providerv1.MaterialResourceObservation{
 			{
-				Identity:  &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "b"},
-				Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1",
+				Identity:  &providerv1.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "b"},
+				Ownership: providerv1.Ownership_OWNERSHIP_OWNED, Revision: "1",
 			},
 			{
-				Identity:  &providerv0.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "a"},
-				Ownership: providerv0.Ownership_OWNERSHIP_OWNED, Revision: "1",
+				Identity:  &providerv1.RemoteIdentity{Provider: "fixture", AccountId: "account", ResourceType: "account", RemoteId: "a"},
+				Ownership: providerv1.Ownership_OWNERSHIP_OWNED, Revision: "1",
 			},
 		},
 	}
 }
 
-func orderedPlan() *providerv0.OrderedPlan {
-	request, err := canonical.BindPlannedRequestDigest(&providerv0.PlannedRequest{
+func orderedPlan() *providerv1.OrderedPlan {
+	request, err := canonical.BindPlannedRequestDigest(&providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.update",
 		RequestDescriptorDigest: digest("1"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_PATCH,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_PATCH,
 		AdmittedOriginDigest:    digest("1"),
-		PathParameters:          map[string]*providerv0.PublicValue{"account_id": stringValue("account")},
-		Query:                   map[string]*providerv0.PublicValue{"expand": stringValue("status")},
-		Body:                    map[string]*providerv0.PublicValue{"name": stringValue("updated")},
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		PathParameters:          map[string]*providerv1.PublicValue{"account_id": stringValue("account")},
+		Query:                   map[string]*providerv1.PublicValue{"expand": stringValue("status")},
+		Body:                    map[string]*providerv1.PublicValue{"name": stringValue("updated")},
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
 		ResponsePolicyDigest:    digest("1"),
 		IdempotencyKey:          "idempotency-1",
 	})
@@ -310,38 +310,38 @@ func orderedPlan() *providerv0.OrderedPlan {
 	if err != nil {
 		panic(err)
 	}
-	return &providerv0.OrderedPlan{
+	return &providerv1.OrderedPlan{
 		PlanId: "plan", ArtifactDigest: digest("1"), ManifestDigest: digest("1"), CatalogDigest: digest("1"),
 		DesiredDigest: digest("1"), ObservationDigest: digest("1"), OutputTargetDigest: digest("1"),
 		StateGenerationDigest: digest("1"), PolicyInputDigest: digest("1"),
-		Actions: []*providerv0.PlanAction{
-			{ActionId: "first", Position: 0, Type: providerv0.ActionType_ACTION_TYPE_UPDATE, ResourceType: "account", Requests: []*providerv0.PlannedRequest{request}},
-			{ActionId: "second", Position: 1, Type: providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, ResourceType: "project-output", Output: output},
+		Actions: []*providerv1.PlanAction{
+			{ActionId: "first", Position: 0, Type: providerv1.ActionType_ACTION_TYPE_UPDATE, ResourceType: "account", Requests: []*providerv1.PlannedRequest{request}},
+			{ActionId: "second", Position: 1, Type: providerv1.ActionType_ACTION_TYPE_PROJECT_OUTPUT, ResourceType: "project-output", Output: output},
 		},
 	}
 }
 
-func stringValue(value string) *providerv0.PublicValue {
-	return &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: value}}
+func stringValue(value string) *providerv1.PublicValue {
+	return &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: value}}
 }
 
-func outputPublicValue(value string) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_PublicValue{PublicValue: stringValue(value)}}
+func outputPublicValue(value string) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_PublicValue{PublicValue: stringValue(value)}}
 }
 
-func outputOpaqueValue(reference string, purpose providerv0.CredentialPurpose) *providerv0.OutputValue {
-	return &providerv0.OutputValue{Kind: &providerv0.OutputValue_OpaqueReference{OpaqueReference: &providerv0.OpaqueReference{
+func outputOpaqueValue(reference string, purpose providerv1.CredentialPurpose) *providerv1.OutputValue {
+	return &providerv1.OutputValue{Kind: &providerv1.OutputValue_OpaqueReference{OpaqueReference: &providerv1.OpaqueReference{
 		Reference: reference, Purpose: purpose,
 	}}}
 }
 
-func billingOutputProposal() *providerv0.OutputProposal {
-	return &providerv0.OutputProposal{
+func billingOutputProposal() *providerv1.OutputProposal {
+	return &providerv1.OutputProposal{
 		Contract: configuration.BillingContract, TargetGeneration: 2,
-		Values: map[string]*providerv0.OutputValue{
+		Values: map[string]*providerv1.OutputValue{
 			"STRIPE_PUBLISHABLE_KEY": outputPublicValue("pk_live_public_identifier"),
-			"STRIPE_SECRET_KEY":      outputOpaqueValue("secret://stripe/runtime", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
-			"STRIPE_WEBHOOK_SECRET":  outputOpaqueValue("secret://stripe/webhook", providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
+			"STRIPE_SECRET_KEY":      outputOpaqueValue("secret://stripe/runtime", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME),
+			"STRIPE_WEBHOOK_SECRET":  outputOpaqueValue("secret://stripe/webhook", providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION),
 		},
 	}
 }

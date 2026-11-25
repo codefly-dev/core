@@ -3,7 +3,7 @@ package base
 import (
 	"context"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -25,7 +25,7 @@ import (
 //  3. Anything else → NativeEnvironment.
 //
 // Never returns nil. Errors creating Nix fall through to native.
-func ResolveStandaloneEnvironment(ctx context.Context, dir string, runtimeCtx *basev0.RuntimeContext) RunnerEnvironment {
+func ResolveStandaloneEnvironment(ctx context.Context, dir string, runtimeCtx *basev1.RuntimeContext) RunnerEnvironment {
 	if runtimeCtx != nil {
 		if runtimeCtx.Kind == resources.RuntimeContextNix && CheckNixInstalled() && IsNixSupported() {
 			if nix, err := NewNixEnvironment(ctx, dir); err == nil {

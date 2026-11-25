@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -27,15 +27,15 @@ func fullSpec() *OperationSpec {
 		RetryableCodes:     []string{"503"},
 		Codes:              HTTPStatusCodes,
 		Audience:           "acme.items",
-		InvokeScopes:       []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
-		LookupScopes:       []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
+		InvokeScopes:       []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
+		LookupScopes:       []*basev1.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
 		LookupMethod:       "/acme.items.v1.Items/Lookup",
 		MaxInputBytes:      1024,
 		MaxOutputBytes:     2048,
-		Completion:         basev0.RunnableExecution_COMPLETION_CALL,
-		Tool:               &runnablev0.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION},
-		RequiredScopeSlots: []*runnablev0.ScopeSlot{{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true}},
-		Recovery:           basev0.RunnableExecution_RECOVERY_RECEIPT,
+		Completion:         basev1.RunnableExecution_COMPLETION_CALL,
+		Tool:               &runnablev1.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev1.ToolExposure_EFFECT_MUTATION},
+		RequiredScopeSlots: []*runnablev1.ScopeSlot{{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true}},
+		Recovery:           basev1.RunnableExecution_RECOVERY_RECEIPT,
 		Declared:           true,
 	}
 }
@@ -71,16 +71,16 @@ func TestPolicyRoundTripsEveryField(t *testing.T) {
 	require.Equal(t, fields.Len(), value.NumField()-3,
 		"OperationSpec and Operation disagree on the policy's fields: a spec field that is not Method, Codes or Declared is exactly one wire field, and the reverse")
 
-	binding := &runnablev0.PreparedBinding{
-		Operation: &runnablev0.PreparedOperation{Module: "owner", Service: "items", Endpoint: "rest", Spelling: spec.Method},
-		Call: &runnablev0.PreparedCall{
+	binding := &runnablev1.PreparedBinding{
+		Operation: &runnablev1.PreparedOperation{Module: "owner", Service: "items", Endpoint: "rest", Spelling: spec.Method},
+		Call: &runnablev1.PreparedCall{
 			Address: "http://items-rest.owner:8080",
-			Route:   &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "POST", Path: "/v1/items"}},
+			Route:   &runnablev1.PreparedCall_Rest{Rest: &runnablev1.HTTPRoute{Verb: "POST", Path: "/v1/items"}},
 		},
-		Contract: &basev0.RunnableContract{
+		Contract: &basev1.RunnableContract{
 			Protocol: resources.RunnableServiceProtocolV1,
-			Input:    &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "item", Type: basev0.RunnableField_STRING}}},
-			Output:   &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "applied", Type: basev0.RunnableField_BOOLEAN}}},
+			Input:    &basev1.RunnableSchema{Fields: []*basev1.RunnableField{{Name: "item", Type: basev1.RunnableField_STRING}}},
+			Output:   &basev1.RunnableSchema{Fields: []*basev1.RunnableField{{Name: "applied", Type: basev1.RunnableField_BOOLEAN}}},
 		},
 		Policy: policy,
 	}
@@ -96,10 +96,10 @@ func TestPolicyRoundTripsEveryField(t *testing.T) {
 	// What a binding delivers is the resolved policy. EncodePrepared validates
 	// it; a conversion that wrote something Validate refuses would be refused
 	// here, not repaired.
-	resolved, err := spec.ResolveScopeSlots([]*runnablev0.ScopeSelection{{
+	resolved, err := spec.ResolveScopeSlots([]*runnablev1.ScopeSelection{{
 		Slot:   "model",
-		Invoke: []*basev0.WorkScopeV1{{ResourceKind: "model", Actions: []string{"invoke", "read"}, ResourceIds: []string{"model-a"}}},
-		Lookup: []*basev0.WorkScopeV1{{ResourceKind: "model", Actions: []string{"read"}, ResourceIds: []string{"model-a"}}},
+		Invoke: []*basev1.WorkScopeV1{{ResourceKind: "model", Actions: []string{"invoke", "read"}, ResourceIds: []string{"model-a"}}},
+		Lookup: []*basev1.WorkScopeV1{{ResourceKind: "model", Actions: []string{"read"}, ResourceIds: []string{"model-a"}}},
 	}})
 	require.NoError(t, err)
 	policy = resolved.Policy()

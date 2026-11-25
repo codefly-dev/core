@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/policy"
 )
 
@@ -52,7 +52,7 @@ func TestPDPMetrics_RequireApproval_OwnCounter(t *testing.T) {
 		Decision: policy.PDPDecision{
 			Allow:           false,
 			RequireApproval: true,
-			Approval:        &basev0.ApprovalRequiredV1{RequestId: "ar-1"},
+			Approval:        &basev1.ApprovalRequiredV1{RequestId: "ar-1"},
 		},
 	})
 

@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -59,7 +59,7 @@ const (
 	// RunnableStatus. An owner serving submit mode serves it whether or not the
 	// caller presented a callback address: a callback can always be lost, so
 	// this is the recovery path rather than a second mechanism.
-	ServedStatusProcedure = "/codefly.runnable.v0.Runnable/Status"
+	ServedStatusProcedure = "/codefly.runnable.v1.Runnable/Status"
 	// CallbackHeader carries the absolute URL an owner POSTs its reports to. Its
 	// presence is the caller saying "push to me here"; its absence is the caller
 	// undertaking to read the status itself. An owner never chooses.
@@ -83,11 +83,11 @@ const (
 type Accepted struct {
 	// Acceptance is the owner's acceptance, naming the handle everything the
 	// caller says about this work from here on is keyed by.
-	Acceptance *runnablev0.RunnableAcceptance
+	Acceptance *runnablev1.RunnableAcceptance
 	// Completion is set when the call did not accept: the same outcomes a
 	// call-mode invocation reaches, minus SERVED_SUCCEEDED, which a submit call
 	// cannot reach because its reply is not the work's answer.
-	Completion *basev0.RunnableServedCompletion
+	Completion *basev1.RunnableServedCompletion
 }
 
 // ClassifySubmit turns what a caller saw of a submit call into either an
@@ -96,8 +96,8 @@ type Accepted struct {
 // It errors only on a call it cannot record at all, the line ClassifyServed
 // draws: every way an owner can answer is an outcome, because a caller told
 // "this was not a real call" may submit the same effect a second time.
-func ClassifySubmit(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, observed Call) (Accepted, error) {
-	if completion := pkg.GetExecution().GetCompletion(); completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+func ClassifySubmit(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, observed Call) (Accepted, error) {
+	if completion := pkg.GetExecution().GetCompletion(); completion != basev1.RunnableExecution_COMPLETION_SUBMIT {
 		return Accepted{}, fmt.Errorf("%w: package declares %s, so its answer is the reply to the call and there is no acceptance to read",
 			ErrInvalid, completion)
 	}
@@ -111,13 +111,13 @@ func ClassifySubmit(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 	// read instead; every other outcome is about how the call ended and holds
 	// unchanged.
 	switch completion.GetOutcome() {
-	case basev0.RunnableServedOutcome_SERVED_SUCCEEDED, basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY:
+	case basev1.RunnableServedOutcome_SERVED_SUCCEEDED, basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY:
 	default:
 		return Accepted{Completion: completion}, nil
 	}
 	acceptance, err := ParseAcceptance(observed.Response, inv)
 	if err != nil {
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_INVOCATION_INTEGRITY
 		completion.Result = nil
 		completion.Message = appendServedMessage(messageOf(observed.Trouble), err.Error())
 		return Accepted{Completion: completion}, nil
@@ -126,8 +126,8 @@ func ClassifySubmit(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage,
 }
 
 // ParseAcceptance decodes and validates an owner's acceptance of inv.
-func ParseAcceptance(document []byte, inv *basev0.RunnableInvocation) (*runnablev0.RunnableAcceptance, error) {
-	acceptance := &runnablev0.RunnableAcceptance{}
+func ParseAcceptance(document []byte, inv *basev1.RunnableInvocation) (*runnablev1.RunnableAcceptance, error) {
+	acceptance := &runnablev1.RunnableAcceptance{}
 	if err := unmarshalSubmit(document, acceptance, "acceptance"); err != nil {
 		return nil, err
 	}
@@ -147,11 +147,11 @@ type Reported struct {
 	// Heartbeat is a liveness report. It is never terminal: an operation that
 	// reported progress and then died has an unproven effect, exactly as one
 	// that reported nothing.
-	Heartbeat *runnablev0.RunnableHeartbeat
+	Heartbeat *runnablev1.RunnableHeartbeat
 	// Completion is the terminal answer, classified by the served taxonomy: the
 	// answer a submit-mode operation gives is the answer a call-mode one would
 	// have given, arriving by a different route.
-	Completion *basev0.RunnableServedCompletion
+	Completion *basev1.RunnableServedCompletion
 }
 
 // ClassifyReport reads one document posted to the callback address of inv,
@@ -161,7 +161,7 @@ type Reported struct {
 // of a call's answer: a caller reaches this only because something posted to its
 // own address, and a malformed post is not evidence that anything happened to
 // the work. The caller goes on waiting, and resolves by status or receipt.
-func ClassifyReport(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, acceptance *runnablev0.RunnableAcceptance) (Reported, error) {
+func ClassifyReport(document []byte, inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, acceptance *runnablev1.RunnableAcceptance) (Reported, error) {
 	if err := validateAccepted(inv, pkg, acceptance); err != nil {
 		return Reported{}, err
 	}
@@ -171,7 +171,7 @@ func ClassifyReport(document []byte, inv *basev0.RunnableInvocation, pkg *basev0
 	}
 	switch schema {
 	case HeartbeatSchemaV1:
-		heartbeat := &runnablev0.RunnableHeartbeat{}
+		heartbeat := &runnablev1.RunnableHeartbeat{}
 		if err := unmarshalSubmit(document, heartbeat, "heartbeat"); err != nil {
 			return Reported{}, err
 		}
@@ -180,7 +180,7 @@ func ClassifyReport(document []byte, inv *basev0.RunnableInvocation, pkg *basev0
 		}
 		return Reported{Heartbeat: heartbeat}, nil
 	case CallbackSchemaV1:
-		callback := &runnablev0.RunnableCompletionCallback{}
+		callback := &runnablev1.RunnableCompletionCallback{}
 		if err := unmarshalSubmit(document, callback, "callback"); err != nil {
 			return Reported{}, err
 		}
@@ -214,11 +214,11 @@ func ClassifyReport(document []byte, inv *basev0.RunnableInvocation, pkg *basev0
 // handle and cannot say what became of it has told the caller to read the
 // receipt, and a caller told nothing could not tell that from an owner that
 // never accepted the work.
-func ClassifyStatus(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, acceptance *runnablev0.RunnableAcceptance) (*runnablev0.RunnableStatus, *basev0.RunnableServedCompletion, error) {
+func ClassifyStatus(document []byte, inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, acceptance *runnablev1.RunnableAcceptance) (*runnablev1.RunnableStatus, *basev1.RunnableServedCompletion, error) {
 	if err := validateAccepted(inv, pkg, acceptance); err != nil {
 		return nil, nil, err
 	}
-	status := &runnablev0.RunnableStatus{}
+	status := &runnablev1.RunnableStatus{}
 	if err := unmarshalSubmit(document, status, "status"); err != nil {
 		return nil, nil, err
 	}
@@ -226,21 +226,21 @@ func ClassifyStatus(document []byte, inv *basev0.RunnableInvocation, pkg *basev0
 		return nil, nil, err
 	}
 	switch status.GetState() {
-	case runnablev0.RunnableStatus_STATE_ACCEPTED, runnablev0.RunnableStatus_STATE_RUNNING:
+	case runnablev1.RunnableStatus_STATE_ACCEPTED, runnablev1.RunnableStatus_STATE_RUNNING:
 		if status.GetResult() != nil {
 			return nil, nil, fmt.Errorf("%w: status reports %s and carries a result, which would be an answer for work it says has not ended",
 				ErrInvalid, status.GetState())
 		}
 		return status, nil, nil
-	case runnablev0.RunnableStatus_STATE_COMPLETED:
+	case runnablev1.RunnableStatus_STATE_COMPLETED:
 		completion, err := completionOf(inv, pkg, status.GetResult(), status.GetCompletedAt())
 		if err != nil {
 			return nil, nil, err
 		}
 		return status, completion, nil
-	case runnablev0.RunnableStatus_STATE_LOST:
+	case runnablev1.RunnableStatus_STATE_LOST:
 		completion := submitCompletion(inv, pkg, nil)
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_OWNER_UNAVAILABLE
 		completion.Message = "the owner accepted this work and cannot say what became of it; the effect receipt is the only evidence"
 		return status, completion, nil
 	default:
@@ -253,7 +253,7 @@ func ClassifyStatus(document []byte, inv *basev0.RunnableInvocation, pkg *basev0
 // invocation is prepared rather than where a report arrives, because an owner
 // that cannot reach the address reports nothing and the caller learns only from
 // a silence it cannot tell from a dead worker.
-func ValidateCallbackTarget(target *basev0.RunnableCallbackTarget) error {
+func ValidateCallbackTarget(target *basev1.RunnableCallbackTarget) error {
 	if err := validator.Validate(target); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -298,11 +298,11 @@ func isLoopbackHost(host string) bool {
 // validateAccepted holds the three facts every later shape is read against: the
 // invocation is a submit-mode one, the acceptance is this invocation's, and it
 // named a handle.
-func validateAccepted(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, acceptance *runnablev0.RunnableAcceptance) error {
+func validateAccepted(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, acceptance *runnablev1.RunnableAcceptance) error {
 	if err := validateInvocation(inv, pkg); err != nil {
 		return err
 	}
-	if completion := pkg.GetExecution().GetCompletion(); completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+	if completion := pkg.GetExecution().GetCompletion(); completion != basev1.RunnableExecution_COMPLETION_SUBMIT {
 		return fmt.Errorf("%w: package declares %s, which is answered by the reply to the call", ErrInvalid, completion)
 	}
 	if err := validator.Validate(acceptance); err != nil {
@@ -318,7 +318,7 @@ func validateAccepted(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackag
 // naming another handle or another invocation has found something that is not
 // this work's, and reading it as this work's would resolve one invocation with
 // another's answer.
-func belongsTo(kind string, handle string, invocation string, inv *basev0.RunnableInvocation, acceptance *runnablev0.RunnableAcceptance) error {
+func belongsTo(kind string, handle string, invocation string, inv *basev1.RunnableInvocation, acceptance *runnablev1.RunnableAcceptance) error {
 	if handle != acceptance.GetHandle() {
 		return fmt.Errorf("%w: %s names handle %q, not the accepted %q", ErrInvalid, kind, handle, acceptance.GetHandle())
 	}
@@ -331,7 +331,7 @@ func belongsTo(kind string, handle string, invocation string, inv *basev0.Runnab
 // completionOf turns a terminal answer that arrived by callback or by status
 // read into the completion a reply would have produced. The routes differ; what
 // the answer proves does not, so the taxonomy is applied once.
-func completionOf(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, result *basev0.RunnableResult, completed *timestamppb.Timestamp) (*basev0.RunnableServedCompletion, error) {
+func completionOf(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, result *basev1.RunnableResult, completed *timestamppb.Timestamp) (*basev1.RunnableServedCompletion, error) {
 	if result == nil {
 		return nil, fmt.Errorf("%w: a terminal answer carrying no result says the work ended and refuses to say how", ErrInvalid)
 	}
@@ -341,13 +341,13 @@ func completionOf(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, r
 	completion := submitCompletion(inv, pkg, completed)
 	completion.Result = proto.CloneOf(result)
 	switch result.GetStatus() {
-	case basev0.RunnableResult_SUCCEEDED:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_SUCCEEDED
-	case basev0.RunnableResult_FAILED:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_OWNER_FAILED
+	case basev1.RunnableResult_SUCCEEDED:
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_SUCCEEDED
+	case basev1.RunnableResult_FAILED:
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_OWNER_FAILED
 		completion.FailureCode = result.GetError().GetCode()
 	default:
-		completion.Outcome = basev0.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN
+		completion.Outcome = basev1.RunnableServedOutcome_SERVED_EFFECT_OUTCOME_UNKNOWN
 	}
 	return completion, nil
 }
@@ -357,12 +357,12 @@ func completionOf(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, r
 // the answer reached the caller — the owner's own completed_at when it stated
 // one, because for a submitted invocation that is when the work ended, and the
 // caller's clock only says when it heard.
-func submitCompletion(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, completed *timestamppb.Timestamp) *basev0.RunnableServedCompletion {
+func submitCompletion(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage, completed *timestamppb.Timestamp) *basev1.RunnableServedCompletion {
 	answered := completed
 	if answered == nil {
 		answered = inv.GetDeadline()
 	}
-	return &basev0.RunnableServedCompletion{
+	return &basev1.RunnableServedCompletion{
 		Runnable:     proto.CloneOf(pkg.GetIdentity()),
 		InvocationId: inv.GetInvocationId(),
 		CalledAt:     inv.GetIssuedAt(),

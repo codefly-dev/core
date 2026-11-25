@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/runners/javascript"
 )
 
@@ -136,14 +136,14 @@ func TestPlaywright_PassingTest_NoCapturedOutput(t *testing.T) {
 	run := javascript.ParsePlaywrightJSON(realisticPlaywrightPassing)
 	resp := run.ToProtoResponse("playwright", "e2e", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State)
 	require.EqualValues(t, 1, resp.Counts.Total)
 	require.EqualValues(t, 1, resp.Counts.Passed)
 
 	require.Len(t, resp.Suites, 1)
 	require.Equal(t, "tests/login.spec.ts", resp.Suites[0].File)
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, c.State)
 	require.Empty(t, c.CapturedOutput,
 		"PASSED case has no captured output — the load-bearing rule")
 	require.NotNil(t, c.Location)
@@ -155,11 +155,11 @@ func TestPlaywright_FailedTest_TimeoutClassification(t *testing.T) {
 	run := javascript.ParsePlaywrightJSON(realisticPlaywrightFailed)
 	resp := run.ToProtoResponse("playwright", "e2e", time.Second)
 
-	require.Equal(t, runtimev0.TestRunResult_FAILED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_FAILED, resp.Result.State)
 	require.EqualValues(t, 1, resp.Counts.Failed)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, c.State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, c.State)
 	require.NotNil(t, c.Failure)
 	require.Contains(t, c.Failure.Detail, "Locator.click",
 		"failure.detail must contain the playwright error message")
@@ -174,17 +174,17 @@ func TestPlaywright_FlakyTest_PassedAfterRetry_RetriesPopulated(t *testing.T) {
 	resp := run.ToProtoResponse("playwright", "e2e", time.Second)
 
 	// Flaky = eventually passed → counts as PASSED at the run level.
-	require.Equal(t, runtimev0.TestRunResult_PASSED, resp.Result.State)
+	require.Equal(t, runtimev1.TestRunResult_PASSED, resp.Result.State)
 	require.EqualValues(t, 1, resp.Counts.Passed)
 
 	c := resp.Suites[0].Cases[0]
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_PASSED, c.State,
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_PASSED, c.State,
 		"flaky tests that eventually pass surface as PASSED in the case state")
 
 	// But retries[] carries the failed attempts — consumers can flag
 	// the test for quarantine even though it passed.
 	require.Len(t, c.Retries, 1, "one earlier failed attempt before the passing retry")
-	require.Equal(t, runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, c.Retries[0].State)
+	require.Equal(t, runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, c.Retries[0].State)
 	require.NotNil(t, c.Retries[0].Failure)
 	require.Contains(t, c.Retries[0].Failure.Detail, "Network error")
 	require.EqualValues(t, 1, c.Retries[0].Attempt,

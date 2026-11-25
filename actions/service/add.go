@@ -7,7 +7,7 @@ import (
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/resources"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -19,7 +19,7 @@ func (action *AddServiceAction) Command() string {
 	return fmt.Sprintf("codefly add service %s --agent=%s", action.Name, resources.AgentIdentifierFromProto(action.Agent))
 }
 
-type AddService = actionsv0.AddService
+type AddService = actionsv1.AddService
 
 func NewActionAddService(ctx context.Context, in *AddService) (*AddServiceAction, error) {
 	w := wool.Get(ctx).In("actions.service.NewActionAddService")

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -17,8 +17,8 @@ func secretsDep(endpoints ...string) []*resources.ServiceDependency {
 	return []*resources.ServiceDependency{dep}
 }
 
-func mappingOf(name, visibility string) *basev0.NetworkMapping {
-	endpoint := &basev0.Endpoint{
+func mappingOf(name, visibility string) *basev1.NetworkMapping {
+	endpoint := &basev1.Endpoint{
 		Module:     "vault",
 		Service:    "secrets",
 		Name:       name,
@@ -27,10 +27,10 @@ func mappingOf(name, visibility string) *basev0.NetworkMapping {
 	if visibility == resources.VisibilityPublic {
 		endpoint.Exposure = resources.ExposureNone
 	}
-	return &basev0.NetworkMapping{Endpoint: endpoint}
+	return &basev1.NetworkMapping{Endpoint: endpoint}
 }
 
-func resolvedNames(mappings []*basev0.NetworkMapping) []string {
+func resolvedNames(mappings []*basev1.NetworkMapping) []string {
 	names := make([]string, 0, len(mappings))
 	for _, mapping := range mappings {
 		names = append(names, mapping.GetEndpoint().GetName())
@@ -44,10 +44,10 @@ func resolvedNames(mappings []*basev0.NetworkMapping) []string {
 func TestResolveDependencyNetworkMappingsEnforcesConsumedEndpoint(t *testing.T) {
 	deps := secretsDep("http")
 
-	if _, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityPrivate)}); err == nil {
+	if _, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, []*basev1.NetworkMapping{mappingOf("http", resources.VisibilityPrivate)}); err == nil {
 		t.Fatal("consuming a private endpoint from another module must fail")
 	}
-	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
+	mappings := []*basev1.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
 	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "platform", deps, mappings)
 	if err != nil {
 		t.Fatalf("an internal endpoint is reachable by whatever composes the workspace: %v", err)
@@ -62,7 +62,7 @@ func TestResolveDependencyNetworkMappingsEnforcesConsumedEndpoint(t *testing.T) 
 // endpoints are enforced, matching the static workspace pass.
 func TestResolveDependencyNetworkMappingsIgnoresUnconsumedSiblingEndpoint(t *testing.T) {
 	deps := secretsDep("http") // consumes only "http"
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		mappingOf("http", resources.VisibilityPublic),
 		mappingOf("admin", resources.VisibilityPrivate), // sibling the consumer never asked for
 	}
@@ -81,7 +81,7 @@ func TestResolveDependencyNetworkMappingsIgnoresUnconsumedSiblingEndpoint(t *tes
 // accessor its author explicitly declared, with nothing to explain why.
 func TestResolveDependencyNetworkMappingsRejectsNamedForbiddenEndpoint(t *testing.T) {
 	deps := secretsDep("http", "admin")
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		mappingOf("http", resources.VisibilityPublic),
 		mappingOf("admin", resources.VisibilityPrivate),
 	}
@@ -101,7 +101,7 @@ func TestResolveDependencyNetworkMappingsRejectsNamedForbiddenEndpoint(t *testin
 // consumer that did not enumerate simply by adding one private endpoint.
 func TestResolveDependencyNetworkMappingsFiltersForbiddenWhenConsumingAll(t *testing.T) {
 	deps := secretsDep() // no endpoint names -> consumes them all
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		mappingOf("http", resources.VisibilityPublic),
 		mappingOf("admin", resources.VisibilityPrivate),
 		mappingOf("ops", resources.VisibilityInternal),
@@ -123,7 +123,7 @@ func TestResolveDependencyNetworkMappingsFiltersForbiddenWhenConsumingAll(t *tes
 // An intra-module edge is always permitted, whatever the endpoint's visibility.
 func TestResolveDependencyNetworkMappingsAllowsSameModulePrivateEndpoint(t *testing.T) {
 	deps := secretsDep("admin")
-	mappings := []*basev0.NetworkMapping{mappingOf("admin", resources.VisibilityPrivate)}
+	mappings := []*basev1.NetworkMapping{mappingOf("admin", resources.VisibilityPrivate)}
 
 	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "vault", deps, mappings)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestResolveDependencyNetworkMappingsAllowsSameModulePrivateEndpoint(t *test
 // a nil pointer and panicking the runtime.
 func TestResolveDependencyNetworkMappingsRejectsNilEndpoint(t *testing.T) {
 	deps := secretsDep("http")
-	_, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "platform", deps, []*basev0.NetworkMapping{{Endpoint: nil}})
+	_, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "platform", deps, []*basev1.NetworkMapping{{Endpoint: nil}})
 	if err == nil || !strings.Contains(err.Error(), "missing its endpoint") {
 		t.Fatalf("nil endpoint must be rejected, got %v", err)
 	}
@@ -150,7 +150,7 @@ func TestResolveDependencyNetworkMappingsRejectsNilEndpoint(t *testing.T) {
 // never reach, with no address and no error to say why.
 func TestResolveDependencyNetworkMappingsRejectsConsumingAllWhenNothingIsPermitted(t *testing.T) {
 	deps := secretsDep() // no endpoint names -> consumes them all
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		mappingOf("admin", resources.VisibilityPrivate),
 		mappingOf("ops", resources.VisibilityPrivate),
 	}
@@ -201,11 +201,11 @@ func TestTheVerdictRefusesToJudgeWithoutAComposition(t *testing.T) {
 	if !errors.Is(err, resources.ErrUnjudgedProvenance) {
 		t.Fatalf("nil provenance must be refused as unjudged, got %v", err)
 	}
-	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
+	mappings := []*basev1.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
 	if _, err := resources.ResolveDependencyNetworkMappings(nil, "web", secretsDep("http"), mappings); !errors.Is(err, resources.ErrUnjudgedProvenance) {
 		t.Fatalf("the hand-out with no composition must be refused as unjudged, got %v", err)
 	}
-	if _, err := resources.ConsumedDependencyEndpoints(nil, "web", secretsDep("http")[0], []*basev0.Endpoint{mappings[0].Endpoint}); !errors.Is(err, resources.ErrUnjudgedProvenance) {
+	if _, err := resources.ConsumedDependencyEndpoints(nil, "web", secretsDep("http")[0], []*basev1.Endpoint{mappings[0].Endpoint}); !errors.Is(err, resources.ErrUnjudgedProvenance) {
 		t.Fatalf("the verdict with no composition must be refused as unjudged, got %v", err)
 	}
 	// And a composition that does not carry one end is the same refusal.

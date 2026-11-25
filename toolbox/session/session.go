@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	coretoolbox "github.com/codefly-dev/core/toolbox"
@@ -199,7 +199,7 @@ type CallRequest struct {
 // CallResult carries only safe correlation and protocol output. The scoped
 // token and signing secret never leave Session.
 type CallResult struct {
-	Response        *toolboxv0.CallToolResponse
+	Response        *toolboxv1.CallToolResponse
 	InvocationID    string
 	AuthorizationID string
 	CatalogDigest   string
@@ -391,7 +391,7 @@ func (s *ToolboxSession) describeTool(ctx context.Context, name string, correlat
 	catalog := s.catalog
 	s.mu.RUnlock()
 
-	description, err := client.DescribeTool(ctx, &toolboxv0.DescribeToolRequest{Name: name})
+	description, err := client.DescribeTool(ctx, &toolboxv1.DescribeToolRequest{Name: name})
 	if err != nil {
 		return nil, &CallError{Code: classifyTransport(ctx, err), Op: "describe", Err: err, Retry: RetryNever}
 	}
@@ -564,7 +564,7 @@ func (s *ToolboxSession) call(ctx context.Context, input CallRequest, now func()
 	metadataPairs = appendMetadata(metadataPairs, metadataTraceID, traceID)
 	metadataPairs = appendMetadata(metadataPairs, metadataReleaseID, s.scope.ReleaseID)
 	callCtx = metadata.AppendToOutgoingContext(callCtx, metadataPairs...)
-	var response *toolboxv0.CallToolResponse
+	var response *toolboxv1.CallToolResponse
 	callErr := callContextError(callCtx, now)
 	if callErr == nil {
 		response, callErr = client.CallTool(callCtx, request)
@@ -665,19 +665,19 @@ func (s *ToolboxSession) record(ctx context.Context, event AuditEvent) error {
 	return s.audit.Record(ctx, event)
 }
 
-func discover(ctx context.Context, client toolboxv0.ToolboxClient) (*coretoolbox.CatalogSnapshot, error) {
-	identity, err := client.Identity(ctx, &toolboxv0.IdentityRequest{})
+func discover(ctx context.Context, client toolboxv1.ToolboxClient) (*coretoolbox.CatalogSnapshot, error) {
+	identity, err := client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	if err != nil {
 		return nil, err
 	}
-	summaries, err := client.ListToolSummaries(ctx, &toolboxv0.ListToolSummariesRequest{})
+	summaries, err := client.ListToolSummaries(ctx, &toolboxv1.ListToolSummariesRequest{})
 	if err != nil {
 		return nil, err
 	}
 	return coretoolbox.NewCatalogSnapshot(identity, summaries)
 }
 
-func validateRuntimeIdentity(manifest *resources.Toolbox, identity *toolboxv0.IdentityResponse) error {
+func validateRuntimeIdentity(manifest *resources.Toolbox, identity *toolboxv1.IdentityResponse) error {
 	if identity.GetName() != manifest.Name || identity.GetVersion() != manifest.Version {
 		return fmt.Errorf("runtime identity %s@%s does not match manifest %s",
 			identity.GetName(), identity.GetVersion(), manifest.Identity())
@@ -692,7 +692,7 @@ func validateRuntimeIdentity(manifest *resources.Toolbox, identity *toolboxv0.Id
 	return nil
 }
 
-func buildRequest(input CallRequest) (*toolboxv0.CallToolRequest, string, error) {
+func buildRequest(input CallRequest) (*toolboxv1.CallToolRequest, string, error) {
 	arguments := &structpb.Struct{Fields: map[string]*structpb.Value{}}
 	if input.Arguments != nil {
 		arguments = proto.Clone(input.Arguments).(*structpb.Struct)
@@ -746,7 +746,7 @@ func buildRequest(input CallRequest) (*toolboxv0.CallToolRequest, string, error)
 		}
 		arguments.Fields["result_budget"] = value
 	}
-	return &toolboxv0.CallToolRequest{
+	return &toolboxv1.CallToolRequest{
 		Name: input.Name, Arguments: arguments, Roots: append([]string(nil), input.Roots...),
 	}, resource, nil
 }
@@ -812,7 +812,7 @@ func appendMetadata(pairs []string, key, value string) []string {
 	return append(pairs, key, value)
 }
 
-func summarizeContent(response *toolboxv0.CallToolResponse) (contentItems, structuredItems int) {
+func summarizeContent(response *toolboxv1.CallToolResponse) (contentItems, structuredItems int) {
 	if response == nil {
 		return 0, 0
 	}
@@ -962,8 +962,8 @@ func cloneApprovedTool(approved *coretoolbox.ApprovedTool) *coretoolbox.Approved
 		return nil
 	}
 	return &coretoolbox.ApprovedTool{
-		Summary:     proto.Clone(approved.Summary).(*toolboxv0.ToolSummary),
-		Description: proto.Clone(approved.Description).(*toolboxv0.DescribeToolResponse),
+		Summary:     proto.Clone(approved.Summary).(*toolboxv1.ToolSummary),
+		Description: proto.Clone(approved.Description).(*toolboxv1.DescribeToolResponse),
 		Digest:      approved.Digest,
 		Idempotency: approved.Idempotency,
 	}

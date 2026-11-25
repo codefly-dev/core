@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 /*
@@ -64,15 +64,15 @@ type CallRequest struct {
 // caller must not act on, including holding a delivered GET to being a read,
 // and a caller runs it once when it installs the binding rather than on every
 // call.
-func CallRequestFor(binding *runnablev0.PreparedBinding, input []byte) (CallRequest, error) {
+func CallRequestFor(binding *runnablev1.PreparedBinding, input []byte) (CallRequest, error) {
 	switch route := binding.GetCall().GetRoute().(type) {
-	case *runnablev0.PreparedCall_Connect:
+	case *runnablev1.PreparedCall_Connect:
 		procedure := route.Connect.GetProcedure()
 		if !absolutePath(procedure) {
 			return CallRequest{}, fmt.Errorf("%w: prepared binding's Connect procedure %q is not an absolute path", ErrInvalid, procedure)
 		}
 		return CallRequest{Method: http.MethodPost, Path: procedure, Body: input, Connect: true}, nil
-	case *runnablev0.PreparedCall_Rest:
+	case *runnablev1.PreparedCall_Rest:
 		verb, path := strings.ToUpper(route.Rest.GetVerb()), route.Rest.GetPath()
 		if !absolutePath(path) {
 			return CallRequest{}, fmt.Errorf("%w: prepared binding's REST route %q is not an absolute path", ErrInvalid, path)

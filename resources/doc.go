@@ -12,7 +12,7 @@
 //
 // Each level is backed by a YAML file (workspace.codefly.yaml,
 // module.codefly.yaml, service.codefly.yaml) and validated against a
-// proto schema (see core/generated/go/codefly/base/v0). Loaders in
+// proto schema (see core/generated/go/codefly/base/v1). Loaders in
 // this package read the YAML, populate the Go struct, and verify the
 // proto contract.
 //

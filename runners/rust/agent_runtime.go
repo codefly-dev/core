@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/discovery"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
@@ -19,7 +19,7 @@ import (
 // SetRustRuntimeContext determines the runtime context (native, nix,
 // container) based on the requested context and the available Cargo
 // toolchain. Mirrors golang.SetGoRuntimeContext.
-func SetRustRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.RuntimeContext {
+func SetRustRuntimeContext(runtimeContext *basev1.RuntimeContext) *basev1.RuntimeContext {
 	if runtimeContext.Kind == resources.RuntimeContextNix {
 		return resources.NewRuntimeContextNix()
 	}
@@ -43,7 +43,7 @@ type RunnerConfig struct {
 
 // CreateRunner creates a RustRunnerEnvironment based on the runtime context.
 // For container runtimes, the caller is responsible for port bindings.
-func CreateRunner(ctx context.Context, runtimeCtx *basev0.RuntimeContext, cfg RunnerConfig) (*RustRunnerEnvironment, error) {
+func CreateRunner(ctx context.Context, runtimeCtx *basev1.RuntimeContext, cfg RunnerConfig) (*RustRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("rust.CreateRunner")
 
 	sourceRelative := path.Join(cfg.RelativeSource, cfg.Settings.RustSourceDir())
@@ -260,7 +260,7 @@ func joinFeatures(features []string) string {
 
 // DestroyRustRuntime cleans up cache and shuts down the container runtime if
 // applicable. Mirrors golang.DestroyGoRuntime.
-func DestroyRustRuntime(ctx context.Context, runtimeCtx *basev0.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
+func DestroyRustRuntime(ctx context.Context, runtimeCtx *basev1.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
 	_ = shared.EmptyDir(ctx, cacheLocation)
 	if runtimeCtx.Kind == resources.RuntimeContextContainer {
 		return dockerrun.ShutdownNamedContainer(ctx, "rust-"+uniqueName)

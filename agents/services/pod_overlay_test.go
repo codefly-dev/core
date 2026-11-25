@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
@@ -159,13 +159,13 @@ func deployWithOverlay(ctx context.Context, t *testing.T, overlay *PodTemplateOv
 	require.NoError(t, err)
 	builder, manager := podOverlayDeployBuilder(ctx, t)
 	destination := t.TempDir()
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -175,8 +175,8 @@ func deployWithOverlay(ctx context.Context, t *testing.T, overlay *PodTemplateOv
 		PodOverlay:           overlay,
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
-	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED,
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_PASSED,
 		response.GetDeployment().GetKubernetes().GetValidation().GetStaticValidation())
 	return destination
 }
@@ -277,13 +277,13 @@ func TestDeployKustomizeRejectsInvalidServiceAccountName(t *testing.T) {
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 	builder, manager := podOverlayDeployBuilder(ctx, t)
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: t.TempDir(),
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -293,7 +293,7 @@ func TestDeployKustomizeRejectsInvalidServiceAccountName(t *testing.T) {
 		PodOverlay:           &PodTemplateOverlay{ServiceAccount: &WorkloadServiceAccount{Name: "Bad_Name"}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Equal(t, builderv1.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "DNS-1123 subdomain")
 }
 
@@ -303,13 +303,13 @@ func TestDeployKustomizePrepareCanDeriveOverlay(t *testing.T) {
 	require.NoError(t, err)
 	builder, manager := podOverlayDeployBuilder(ctx, t)
 	destination := t.TempDir()
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   "codefly",
 				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 	}, KustomizeDeployment{
@@ -322,7 +322,7 @@ func TestDeployKustomizePrepareCanDeriveOverlay(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	deployment, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(deployment), "serviceAccountName: derived-sa")

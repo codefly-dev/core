@@ -3,7 +3,7 @@ package base
 import (
 	"testing"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 func TestBackendSupportResolveBackends(t *testing.T) {
@@ -13,7 +13,7 @@ func TestBackendSupportResolveBackends(t *testing.T) {
 		nixInstalled    bool
 		nixSupported    bool
 		dockerInstalled bool
-		want            []agentv0.Backend_Type
+		want            []agentv1.Backend_Type
 	}{
 		{
 			name:            "canonical preference order",
@@ -21,7 +21,7 @@ func TestBackendSupportResolveBackends(t *testing.T) {
 			nixInstalled:    true,
 			nixSupported:    true,
 			dockerInstalled: true,
-			want:            []agentv0.Backend_Type{agentv0.Backend_LOCAL, agentv0.Backend_NIX, agentv0.Backend_DOCKER},
+			want:            []agentv1.Backend_Type{agentv1.Backend_LOCAL, agentv1.Backend_NIX, agentv1.Backend_DOCKER},
 		},
 		{
 			name:            "host availability filters capabilities",
@@ -36,7 +36,7 @@ func TestBackendSupportResolveBackends(t *testing.T) {
 			nixInstalled:    true,
 			nixSupported:    false,
 			dockerInstalled: true,
-			want:            []agentv0.Backend_Type{agentv0.Backend_DOCKER},
+			want:            []agentv1.Backend_Type{agentv1.Backend_DOCKER},
 		},
 		{
 			name:            "undeclared backends stay disabled",
@@ -54,7 +54,7 @@ func TestBackendSupportResolveBackends(t *testing.T) {
 				func() bool { return test.nixSupported },
 				func() bool { return test.dockerInstalled },
 			)
-			got := make([]agentv0.Backend_Type, 0, len(resolved))
+			got := make([]agentv1.Backend_Type, 0, len(resolved))
 			for _, backend := range resolved {
 				if backend == nil {
 					t.Fatal("resolver returned a nil backend")

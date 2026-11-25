@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	coretoolbox "github.com/codefly-dev/core/toolbox"
 	"github.com/codefly-dev/core/wool"
@@ -22,9 +22,9 @@ import (
 // CallTool, ReadResource, and GetPrompt pass through the PDP
 // because they're side-effecting (or at least information-disclosing).
 type Guard struct {
-	toolboxv0.UnimplementedToolboxServer
+	toolboxv1.UnimplementedToolboxServer
 
-	inner   toolboxv0.ToolboxServer
+	inner   toolboxv1.ToolboxServer
 	pdp     policy.PDP
 	toolbox string // identity surfaced in PDPRequest.Toolbox
 
@@ -96,7 +96,7 @@ type Guard struct {
 // Without scoped-auth wiring, every CallTool consults the PDP. To
 // enable the two-level scoped-auth fast path, use NewWithScopedAuth
 // or set the secret/audience via the With* helpers.
-func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Guard {
+func New(inner toolboxv1.ToolboxServer, pdp policy.PDP, toolboxName string) *Guard {
 	if pdp == nil {
 		pdp = policy.DenyAllPDP{}
 	}
@@ -156,7 +156,7 @@ func New(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string) *Gua
 // audienceID should be the plugin's canonical identity
 // ("publisher/name:version"); tokens minted for a different
 // audience are rejected.
-func NewWithScopedAuth(inner toolboxv0.ToolboxServer, pdp policy.PDP, toolboxName string, secret []byte, audienceID string) *Guard {
+func NewWithScopedAuth(inner toolboxv1.ToolboxServer, pdp policy.PDP, toolboxName string, secret []byte, audienceID string) *Guard {
 	g := New(inner, pdp, toolboxName)
 	g.scopedAuthSecret = secret
 	g.audienceID = audienceID
@@ -253,17 +253,17 @@ func (g *Guard) WithIdentity(identity map[string]any) *Guard {
 
 // --- Pass-through (no PDP) ---------------------------------------
 
-func (g *Guard) Identity(ctx context.Context, req *toolboxv0.IdentityRequest) (*toolboxv0.IdentityResponse, error) {
+func (g *Guard) Identity(ctx context.Context, req *toolboxv1.IdentityRequest) (*toolboxv1.IdentityResponse, error) {
 	return g.inner.Identity(ctx, req)
 }
 
-func (g *Guard) ListTools(ctx context.Context, req *toolboxv0.ListToolsRequest) (*toolboxv0.ListToolsResponse, error) {
+func (g *Guard) ListTools(ctx context.Context, req *toolboxv1.ListToolsRequest) (*toolboxv1.ListToolsResponse, error) {
 	return g.inner.ListTools(ctx, req)
 }
 
 // ListToolSummaries is the lightweight catalog half of the two-phase
 // API. Same trust class as ListTools — pass through unmolested.
-func (g *Guard) ListToolSummaries(ctx context.Context, req *toolboxv0.ListToolSummariesRequest) (*toolboxv0.ListToolSummariesResponse, error) {
+func (g *Guard) ListToolSummaries(ctx context.Context, req *toolboxv1.ListToolSummariesRequest) (*toolboxv1.ListToolSummariesResponse, error) {
 	return g.inner.ListToolSummaries(ctx, req)
 }
 
@@ -271,15 +271,15 @@ func (g *Guard) ListToolSummaries(ctx context.Context, req *toolboxv0.ListToolSu
 // trust class as ListTools — pass through unmolested. The PDP gates
 // the actual side-effecting RPC (CallTool) below; describing a tool
 // is not itself a privileged operation.
-func (g *Guard) DescribeTool(ctx context.Context, req *toolboxv0.DescribeToolRequest) (*toolboxv0.DescribeToolResponse, error) {
+func (g *Guard) DescribeTool(ctx context.Context, req *toolboxv1.DescribeToolRequest) (*toolboxv1.DescribeToolResponse, error) {
 	return g.inner.DescribeTool(ctx, req)
 }
 
-func (g *Guard) ListResources(ctx context.Context, req *toolboxv0.ListResourcesRequest) (*toolboxv0.ListResourcesResponse, error) {
+func (g *Guard) ListResources(ctx context.Context, req *toolboxv1.ListResourcesRequest) (*toolboxv1.ListResourcesResponse, error) {
 	return g.inner.ListResources(ctx, req)
 }
 
-func (g *Guard) ListPrompts(ctx context.Context, req *toolboxv0.ListPromptsRequest) (*toolboxv0.ListPromptsResponse, error) {
+func (g *Guard) ListPrompts(ctx context.Context, req *toolboxv1.ListPromptsRequest) (*toolboxv1.ListPromptsResponse, error) {
 	return g.inner.ListPrompts(ctx, req)
 }
 
@@ -302,7 +302,7 @@ func (g *Guard) ListPrompts(ctx context.Context, req *toolboxv0.ListPromptsReque
 // Error — the SAME envelope a tool that refused itself would
 // produce. The model sees an actionable refusal, not a transport
 // error or a panic-style disconnect.
-func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (g *Guard) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	// Snapshot rotatable config once per call so a concurrent
 	// With* mutator can't tear our view (secret swapped while
 	// the tracker is still the old one, etc.).
@@ -320,7 +320,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 	// authorizes below. Pure deny — no-op when no principal / chain is present.
 	if p := policy.PrincipalFrom(ctx); p != nil {
 		if err := policy.CheckDelegationDepth(p); err != nil {
-			return &toolboxv0.CallToolResponse{Error: "denied: " + err.Error()}, nil
+			return &toolboxv1.CallToolResponse{Error: "denied: " + err.Error()}, nil
 		}
 	}
 
@@ -337,7 +337,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 	if len(secret) > 0 {
 		sa, tokenPresent, verifyErr := g.tryVerifyScopedAuthWith(ctx, req, secret, audience, verifiers, wellKnownExpectations, requireBoundDigests)
 		if verifyErr != nil {
-			return &toolboxv0.CallToolResponse{Error: "scoped-authz: invalid token"}, nil
+			return &toolboxv1.CallToolResponse{Error: "scoped-authz: invalid token"}, nil
 		}
 		if tokenPresent {
 			// Resource binding: a resource-scoped token must only authorize a
@@ -346,16 +346,16 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 			// otherwise a token minted for "repo:foo" would authorize a call
 			// that surfaces no resource, voiding its least-authority binding.
 			if sa.Resource != "" && sa.Resource != callResource {
-				return &toolboxv0.CallToolResponse{Error: "scoped-authz: token resource binding not satisfied by call"}, nil
+				return &toolboxv1.CallToolResponse{Error: "scoped-authz: token resource binding not satisfied by call"}, nil
 			}
 			// Token revocation (hardening): a revoked-but-unexpired token id is
 			// denied even though its HMAC verified.
 			if g.trl != nil && g.trl.IsRevoked(sa.ID) {
-				return &toolboxv0.CallToolResponse{Error: "scoped-authz: token revoked"}, nil
+				return &toolboxv1.CallToolResponse{Error: "scoped-authz: token revoked"}, nil
 			}
 			// Replay tracking — enforces MaxUses across calls.
 			if err := tracker.Consume(sa); err != nil {
-				return &toolboxv0.CallToolResponse{
+				return &toolboxv1.CallToolResponse{
 					Error: "scoped-authz: " + err.Error(),
 				}, nil
 			}
@@ -366,7 +366,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 			// Bound mode is the production session contract. Falling back to
 			// the raw PDP here would bypass the exact catalog/request binding
 			// and single-use replay semantics that the host just established.
-			return &toolboxv0.CallToolResponse{Error: "scoped-authz: token required"}, nil
+			return &toolboxv1.CallToolResponse{Error: "scoped-authz: token required"}, nil
 		}
 		// A genuinely absent token falls through to the PDP path.
 	}
@@ -389,7 +389,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 			policy.LogBreakGlassUsage(ctx, req.GetName(), callResource)
 			return g.inner.CallTool(ctx, req)
 		}
-		return &toolboxv0.CallToolResponse{Error: d.Reason}, nil
+		return &toolboxv1.CallToolResponse{Error: d.Reason}, nil
 	}
 	return g.inner.CallTool(ctx, req)
 }
@@ -409,7 +409,7 @@ func (g *Guard) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*
 // layer can fail independently without opening a hole.
 func (g *Guard) tryVerifyScopedAuthWith(
 	ctx context.Context,
-	req *toolboxv0.CallToolRequest,
+	req *toolboxv1.CallToolRequest,
 	secret []byte,
 	audience string,
 	verifiers map[string]policy.CaveatVerifier,
@@ -462,7 +462,7 @@ func (g *Guard) tryVerifyScopedAuthWith(
 		if g.catalog == nil {
 			return nil, true, policy.ErrScopedAuthInvalid
 		}
-		description, err := g.inner.DescribeTool(ctx, &toolboxv0.DescribeToolRequest{Name: req.GetName()})
+		description, err := g.inner.DescribeTool(ctx, &toolboxv1.DescribeToolRequest{Name: req.GetName()})
 		if err != nil {
 			return nil, true, err
 		}
@@ -565,7 +565,7 @@ func mergeCaveatVerifiers(
 // URI string. Rules can match on the URI prefix via the
 // suffix-match shorthand (e.g. Tool="config.yaml" matches any URI
 // ending in /config.yaml).
-func (g *Guard) ReadResource(ctx context.Context, req *toolboxv0.ReadResourceRequest) (*toolboxv0.ReadResourceResponse, error) {
+func (g *Guard) ReadResource(ctx context.Context, req *toolboxv1.ReadResourceRequest) (*toolboxv1.ReadResourceResponse, error) {
 	pdpReq := &policy.PDPRequest{
 		Toolbox:  g.toolbox,
 		Tool:     req.GetUri(),
@@ -573,8 +573,8 @@ func (g *Guard) ReadResource(ctx context.Context, req *toolboxv0.ReadResourceReq
 	}
 	d := g.pdp.Evaluate(ctx, pdpReq)
 	if !d.Allow {
-		return &toolboxv0.ReadResourceResponse{
-			Content: []*toolboxv0.Content{{Body: &toolboxv0.Content_Text{Text: "policy: " + d.Reason}}},
+		return &toolboxv1.ReadResourceResponse{
+			Content: []*toolboxv1.Content{{Body: &toolboxv1.Content_Text{Text: "policy: " + d.Reason}}},
 		}, nil
 	}
 	return g.inner.ReadResource(ctx, req)
@@ -582,7 +582,7 @@ func (g *Guard) ReadResource(ctx context.Context, req *toolboxv0.ReadResourceReq
 
 // GetPrompt is also gated — prompts may template in private context
 // (paths, secrets) that the operator wants to deny per caller.
-func (g *Guard) GetPrompt(ctx context.Context, req *toolboxv0.GetPromptRequest) (*toolboxv0.GetPromptResponse, error) {
+func (g *Guard) GetPrompt(ctx context.Context, req *toolboxv1.GetPromptRequest) (*toolboxv1.GetPromptResponse, error) {
 	pdpReq := &policy.PDPRequest{
 		Toolbox:  g.toolbox,
 		Tool:     req.GetName(),
@@ -593,7 +593,7 @@ func (g *Guard) GetPrompt(ctx context.Context, req *toolboxv0.GetPromptRequest) 
 	}
 	d := g.pdp.Evaluate(ctx, pdpReq)
 	if !d.Allow {
-		return &toolboxv0.GetPromptResponse{Description: "denied: " + d.Reason}, nil
+		return &toolboxv1.GetPromptResponse{Description: "denied: " + d.Reason}, nil
 	}
 	return g.inner.GetPrompt(ctx, req)
 }

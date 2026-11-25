@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -117,12 +117,12 @@ func TestSensitiveEnvironmentVariableMatchesProducedCarriers(t *testing.T) {
 		resources.ServiceConfigurationKeyFromUnique("saas/auth-gateway", "datasource-oauth", "providers")))
 	require.True(t, resources.IsSensitiveEnvironmentVariable(
 		resources.ServiceConfigurationKeyFromUnique("saas/auth-gateway", "datasource-oauth", "client-secret")))
-	workspace := &basev0.Configuration{Origin: resources.ConfigurationWorkspace}
+	workspace := &basev1.Configuration{Origin: resources.ConfigurationWorkspace}
 	for key, sensitive := range map[string]bool{"providers": false, "client-id": false, "client-secret": true} {
-		carrier := resources.ConfigurationValueEnvironmentKey(workspace, "datasource-oauth", &basev0.ConfigurationValue{Key: key})
+		carrier := resources.ConfigurationValueEnvironmentKey(workspace, "datasource-oauth", &basev1.ConfigurationValue{Key: key})
 		require.Equal(t, "CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__"+resources.NameToKey(key), carrier)
 		require.Equal(t, sensitive, resources.IsSensitiveEnvironmentVariable(carrier), carrier)
-		secret := resources.ConfigurationValueEnvironmentKey(workspace, "datasource-oauth", &basev0.ConfigurationValue{Key: key, Secret: true})
+		secret := resources.ConfigurationValueEnvironmentKey(workspace, "datasource-oauth", &basev1.ConfigurationValue{Key: key, Secret: true})
 		require.True(t, resources.IsSensitiveEnvironmentVariable(secret), secret)
 	}
 	require.True(t, resources.IsSensitiveEnvironmentVariable(
@@ -139,7 +139,7 @@ func TestSensitiveEnvironmentVariableMatchesProducedCarriers(t *testing.T) {
 	smuggled := "CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN"
 	require.True(t, resources.IsSensitiveKey(smuggled))
 	for _, carrier := range []string{
-		resources.ConfigurationValueEnvironmentKey(workspace, "settings", &basev0.ConfigurationValue{Key: smuggled}),
+		resources.ConfigurationValueEnvironmentKey(workspace, "settings", &basev1.ConfigurationValue{Key: smuggled}),
 		resources.ServiceConfigurationKeyFromUnique("app/svc", "settings", smuggled),
 	} {
 		require.True(t, resources.IsSensitiveEnvironmentVariable(carrier), carrier)
@@ -214,7 +214,7 @@ func TestConfigurationCarrierKeyIsTheOneParser(t *testing.T) {
 	for _, name := range []string{"policy--auth", "policy__auth", "policy-_auth"} {
 		require.True(t, resources.ConfigurationNameHasAmbiguousSpelling(name), name)
 		key, ok := resources.ConfigurationCarrierKey(resources.ConfigurationValueEnvironmentKey(
-			&basev0.Configuration{Origin: resources.ConfigurationWorkspace}, name, &basev0.ConfigurationValue{Key: "client-id"}))
+			&basev1.Configuration{Origin: resources.ConfigurationWorkspace}, name, &basev1.ConfigurationValue{Key: "client-id"}))
 		require.True(t, ok)
 		require.Equal(t, "AUTH__CLIENT_ID", key, "the ambiguity the loader exists to refuse")
 	}

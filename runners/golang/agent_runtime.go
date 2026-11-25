@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/codefly-dev/core/discovery"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
@@ -45,7 +45,7 @@ var (
 // local-first order (native wins when the toolchain is present).
 //
 // nil-safe. Returns a fresh RuntimeContext — callers assign it to their struct.
-func SetGoRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.RuntimeContext {
+func SetGoRuntimeContext(runtimeContext *basev1.RuntimeContext) *basev1.RuntimeContext {
 	if runtimeContext != nil && runtimeContext.Kind == resources.RuntimeContextContainer {
 		return resources.NewRuntimeContextContainer()
 	}
@@ -71,7 +71,7 @@ type RunnerConfig struct {
 
 // CreateRunner creates a GoRunnerEnvironment based on the runtime context.
 // For container runtimes, the caller is responsible for port bindings (agent-specific).
-func CreateRunner(ctx context.Context, runtimeCtx *basev0.RuntimeContext, cfg RunnerConfig) (*GoRunnerEnvironment, error) {
+func CreateRunner(ctx context.Context, runtimeCtx *basev1.RuntimeContext, cfg RunnerConfig) (*GoRunnerEnvironment, error) {
 	w := wool.Get(ctx).In("golang.CreateRunner")
 	if runtimeCtx == nil {
 		return nil, w.NewError("runtime context is nil")
@@ -479,7 +479,7 @@ func isPackagePath(s string) bool {
 }
 
 // DestroyGoRuntime cleans up cache and shuts down container runtime if applicable.
-func DestroyGoRuntime(ctx context.Context, runtimeCtx *basev0.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
+func DestroyGoRuntime(ctx context.Context, runtimeCtx *basev1.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
 	_ = shared.EmptyDir(ctx, cacheLocation)
 	if runtimeCtx.Kind == resources.RuntimeContextContainer {
 		return dockerrun.ShutdownNamedContainer(ctx, fmt.Sprintf("goland-%s", uniqueName))

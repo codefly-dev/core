@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/gofrs/flock"
 )
 
@@ -134,7 +134,7 @@ type trivyOutput struct {
 	} `json:"Results"`
 }
 
-func parseTrivy(out []byte) []*builderv0.AuditFinding {
+func parseTrivy(out []byte) []*builderv1.AuditFinding {
 	if len(out) == 0 {
 		return nil
 	}
@@ -142,10 +142,10 @@ func parseTrivy(out []byte) []*builderv0.AuditFinding {
 	if err := json.Unmarshal(out, &t); err != nil {
 		return nil
 	}
-	var findings []*builderv0.AuditFinding
+	var findings []*builderv1.AuditFinding
 	for _, r := range t.Results {
 		for _, v := range r.Vulnerabilities {
-			findings = append(findings, &builderv0.AuditFinding{
+			findings = append(findings, &builderv1.AuditFinding{
 				Severity:       trivySeverity(v.Severity),
 				Id:             v.VulnerabilityID,
 				Package:        v.PkgName,
@@ -159,17 +159,17 @@ func parseTrivy(out []byte) []*builderv0.AuditFinding {
 	return findings
 }
 
-func trivySeverity(s string) builderv0.AuditFinding_Severity {
+func trivySeverity(s string) builderv1.AuditFinding_Severity {
 	switch strings.ToUpper(s) {
 	case "LOW":
-		return builderv0.AuditFinding_LOW
+		return builderv1.AuditFinding_LOW
 	case "MEDIUM":
-		return builderv0.AuditFinding_MEDIUM
+		return builderv1.AuditFinding_MEDIUM
 	case "HIGH":
-		return builderv0.AuditFinding_HIGH
+		return builderv1.AuditFinding_HIGH
 	case "CRITICAL":
-		return builderv0.AuditFinding_CRITICAL
+		return builderv1.AuditFinding_CRITICAL
 	default:
-		return builderv0.AuditFinding_UNKNOWN
+		return builderv1.AuditFinding_UNKNOWN
 	}
 }

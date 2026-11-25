@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func gatewayMappings() []*basev0.NetworkMapping {
-	return []*basev0.NetworkMapping{
+func gatewayMappings() []*basev1.NetworkMapping {
+	return []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
-				{Address: "http://localhost:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}},
-				{Address: "http://host.docker.internal:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessContainer}},
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
+				{Address: "http://localhost:1234", Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessNative}},
+				{Address: "http://host.docker.internal:1234", Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessContainer}},
 			},
 		},
 	}
@@ -68,10 +68,10 @@ func TestInterpolateEndpoints(t *testing.T) {
 	})
 
 	t.Run("errors on an empty resolved address instead of emitting a broken URL", func(t *testing.T) {
-		blank := []*basev0.NetworkMapping{
+		blank := []*basev1.NetworkMapping{
 			{
-				Endpoint:  &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-				Instances: []*basev0.NetworkInstance{{Address: "", Access: resources.NewNativeNetworkAccess()}},
+				Endpoint:  &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+				Instances: []*basev1.NetworkInstance{{Address: "", Access: resources.NewNativeNetworkAccess()}},
 			},
 		}
 		_, err := resources.InterpolateEndpointsFor(ctx,
@@ -93,12 +93,12 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name: "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{
+				ConfigurationValues: []*basev1.ConfigurationValue{
 					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json"},
 					{Key: "static", Value: "keep-me"},
 				},
@@ -135,12 +135,12 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 // path drops nothing and returns the same structure it was given.
 func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name: "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{
+				ConfigurationValues: []*basev1.ConfigurationValue{
 					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
 			},
@@ -162,12 +162,12 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 
 // platformConfiguration is the `gateway` key every consumer of the group reads,
 // plus one more key under test.
-func platformConfiguration(key, value string) *basev0.Configuration {
-	return &basev0.Configuration{
+func platformConfiguration(key, value string) *basev1.Configuration {
+	return &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "platform",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "gateway", Value: "${endpoint:edge/sidecar/http}"},
 				{Key: key, Value: value},
 			},
@@ -246,7 +246,7 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers
 
 	for _, tc := range []struct {
 		name     string
-		mappings []*basev0.NetworkMapping
+		mappings []*basev1.NetworkMapping
 		key      string
 	}{
 		// The producer is absent from mappings the render did bind: it may be out
@@ -308,12 +308,12 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheEndpointHasNoInstanceForTh
 // path: it names no producer that any run could contain, so it cannot be a value
 // that is merely not for this consumer.
 func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.T) {
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name:                "platform",
-				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:edge}"}},
+				ConfigurationValues: []*basev1.ConfigurationValue{{Key: "gateway", Value: "${endpoint:edge}"}},
 			},
 		},
 	}
@@ -328,12 +328,12 @@ func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.
 // survive.
 func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsumer(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name: "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{
+				ConfigurationValues: []*basev1.ConfigurationValue{
 					{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json"},
 					{Key: "static", Value: "keep-me"},
 				},
@@ -372,12 +372,12 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 	wool.SetGlobalLogLevel(wool.TRACE)
 	t.Cleanup(func() { wool.SetGlobalLogLevel(previous) })
 
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name:                "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+				ConfigurationValues: []*basev1.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
 			},
 		},
 	}
@@ -397,12 +397,12 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 // have failed this consumer's boot on a config it never consumes.
 func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedService(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
+		Infos: []*basev1.ConfigurationInformation{
 			{
 				Name: "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{
+				ConfigurationValues: []*basev1.ConfigurationValue{
 					{Key: "grpc-url", Value: "${endpoint:edge/sidecar/grpc}"},
 					{Key: "http-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
@@ -454,15 +454,15 @@ func TestInterpolateEndpointAuthority(t *testing.T) {
 // them.
 func TestInterpolateConfigurationEndpointsFailsOnAnInRunProducerNamedOnlyInATemplateLiteral(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "db",
-			ConfigurationValues: []*basev0.ConfigurationValue{{
+			ConfigurationValues: []*basev1.ConfigurationValue{{
 				Key:    "CONNECTION",
 				Secret: true,
-				Template: &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
-					{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "postgres://${endpoint:mod/store/postgres}/db"}},
+				Template: &basev1.ConfigurationValueTemplate{Segments: []*basev1.ConfigurationValueTemplateSegment{
+					{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "postgres://${endpoint:mod/store/postgres}/db"}},
 				}},
 			}},
 		}},
@@ -490,11 +490,11 @@ func TestInterpolateConfigurationEndpointsFailsOnAnInRunProducerNamedOnlyInATemp
 // address leaves the workload with a DEBUG line behind it.
 func TestInterpolateRunWideConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name:                "work-context",
-			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/auth/http}/jwks"}},
+			ConfigurationValues: []*basev1.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/auth/http}/jwks"}},
 		}},
 	}
 

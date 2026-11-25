@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from codefly.base.v0 import configuration_evidence_pb2 as evidence
+from codefly.base.v1 import configuration_evidence_pb2 as evidence
 from google.protobuf import json_format
 
 

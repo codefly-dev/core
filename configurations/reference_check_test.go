@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -38,15 +38,15 @@ func TestCheckEndpointReferencesListsEveryUnresolvedReference(t *testing.T) {
 	plan := map[string]*resources.Service{"host/api": host, "assistant/chat": chat, "assistant/worker": worker}
 	lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
 
-	provided := []*basev0.ConfigurationInformation{
-		{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{
+	provided := []*basev1.ConfigurationInformation{
+		{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{
 			{Key: "host-endpoint", Value: "${endpoint:host/api/http}"},
 			{Key: "host-rpc", Value: "${endpoint:host/api/grpc|authority}"},
 			{Key: "documents-endpoint", Value: "${endpoint:documents/store/grpc}"},
 			{Key: "host-missing", Value: "${endpoint:host/api/admin}"},
 		}},
-		{Name: "excluded", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "k", Value: "${endpoint:absent/service/http}"}}},
-		{Name: "undeclared", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "k", Value: "${endpoint:absent/service/http}"}}},
+		{Name: "excluded", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "k", Value: "${endpoint:absent/service/http}"}}},
+		{Name: "undeclared", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "k", Value: "${endpoint:absent/service/http}"}}},
 	}
 	err := configurations.CheckEndpointReferences(provided, []*resources.Service{worker, chat}, excludingGroups("excluded"), lookup)
 	var unresolved *configurations.UnresolvedReferencesError
@@ -78,8 +78,8 @@ func TestCheckEndpointReferencesListsEveryUnresolvedReference(t *testing.T) {
 // A reference that cannot name an endpoint is reported as malformed.
 func TestCheckEndpointReferencesReportsAMalformedReference(t *testing.T) {
 	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
-	err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
-		{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Value: "${endpoint:host}"}}},
+	err := configurations.CheckEndpointReferences([]*basev1.ConfigurationInformation{
+		{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "bad", Value: "${endpoint:host}"}}},
 	}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return nil, false })
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "assistant/bad")
@@ -101,8 +101,8 @@ func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
 		"an empty api qualifier":                   "${endpoint:assistant/chat/grpc::}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
-				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
+			err := configurations.CheckEndpointReferences([]*basev1.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
 			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return nil, false })
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), secret)
@@ -120,16 +120,16 @@ func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
 		"an empty api qualifier":        "${endpoint:assistant/chat/grpc::}",
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
-				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
+			err := configurations.CheckEndpointReferences([]*basev1.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
 			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return anyProducer, true })
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), secret)
 			require.Contains(t, err.Error(), "assistant/bad")
 		})
 	}
-	err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
-		{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Value: "${endpoint:assistant/chat/grpc::}"}}},
+	err := configurations.CheckEndpointReferences([]*basev1.ConfigurationInformation{
+		{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "bad", Value: "${endpoint:assistant/chat/grpc::}"}}},
 	}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return anyProducer, true })
 	require.ErrorContains(t, err, "malformed reference", "an empty qualifier is malformed, not an unknown endpoint")
 }
@@ -138,18 +138,18 @@ func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
 // render: in the value and in a template literal alike.
 func TestCheckEndpointReferencesReportsAMalformedMarker(t *testing.T) {
 	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
-	for name, value := range map[string]*basev0.ConfigurationValue{
+	for name, value := range map[string]*basev1.ConfigurationValue{
 		"empty marker":        {Key: "bad", Value: "${endpoint:}"},
 		"unterminated marker": {Key: "bad", Value: "${endpoint:assistant/chat/grpc"},
-		"in a template literal": {Key: "bad", Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{
-				{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "x=${endpoint:"}},
+		"in a template literal": {Key: "bad", Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{
+				{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "x=${endpoint:"}},
 			},
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
-				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{value}},
+			err := configurations.CheckEndpointReferences([]*basev1.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev1.ConfigurationValue{value}},
 			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return nil, false })
 			var unresolved *configurations.UnresolvedReferencesError
 			require.True(t, errors.As(err, &unresolved), "got %v", err)
@@ -177,8 +177,8 @@ func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(
 		"assistant/chat": outsider, "host/worker": sibling, "billing/ledger": allowed,
 	}
 	lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
-	provided := []*basev0.ConfigurationInformation{
-		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
+	provided := []*basev1.ConfigurationInformation{
+		{Name: "platform", ConfigurationValues: []*basev1.ConfigurationValue{
 			{Key: "host-endpoint", Value: "${endpoint:host/api/grpc}"},
 			{Key: "gate-endpoint", Value: "${endpoint:host/gate/grpc}"},
 		}},
@@ -193,8 +193,8 @@ func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(
 
 	require.NoError(t, configurations.CheckEndpointReferences(provided, []*resources.Service{sibling}, resources.RunProfile{}, lookup),
 		"a consumer in the producer's own module receives both")
-	gateOnly := []*basev0.ConfigurationInformation{
-		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
+	gateOnly := []*basev1.ConfigurationInformation{
+		{Name: "platform", ConfigurationValues: []*basev1.ConfigurationValue{
 			{Key: "gate-endpoint", Value: "${endpoint:host/gate/grpc}"},
 		}},
 	}
@@ -216,15 +216,15 @@ func TestCheckEndpointReferencesLeavesTheRunSetToResolveTime(t *testing.T) {
 	consumer := referenceCheckService("assistant", "chat", []string{"platform"})
 	plan := map[string]*resources.Service{"infra/temporal": temporal, "assistant/chat": consumer}
 	lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
-	provided := []*basev0.ConfigurationInformation{
-		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
+	provided := []*basev1.ConfigurationInformation{
+		{Name: "platform", ConfigurationValues: []*basev1.ConfigurationValue{
 			{Key: "temporal-address", Value: "${endpoint:infra/temporal/grpc}"},
 		}},
 	}
 	require.NoError(t, configurations.CheckEndpointReferences(provided, []*resources.Service{consumer}, resources.RunProfile{}, lookup),
 		"a producer of the workspace is never a composition fault, whatever the run excludes")
 
-	conf := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: provided}
+	conf := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: provided}
 	dropped, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
 		resources.WithRunProducers(func(string) bool { return false }),
 		resources.WithConsumer("assistant", resources.DeclaredEndpointsOf([]*resources.Service{temporal})))
@@ -249,12 +249,12 @@ func TestCheckEndpointReferencesSeesTemplateLiterals(t *testing.T) {
 		}
 		return nil, false
 	}
-	provided := []*basev0.ConfigurationInformation{{
+	provided := []*basev1.ConfigurationInformation{{
 		Name: "postgres",
-		ConfigurationValues: []*basev0.ConfigurationValue{
-			{Key: "connection", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-				Segments: []*basev0.ConfigurationValueTemplateSegment{
-					{Content: &basev0.ConfigurationValueTemplateSegment_Literal{
+		ConfigurationValues: []*basev1.ConfigurationValue{
+			{Key: "connection", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+				Segments: []*basev1.ConfigurationValueTemplateSegment{
+					{Content: &basev1.ConfigurationValueTemplateSegment_Literal{
 						Literal: "postgresql://reader@${endpoint:absent/store/postgres}/app"}},
 				},
 			}},
@@ -288,7 +288,7 @@ func TestCheckEndpointReferencesRefusesAPrivateExactNameWhateverTheManifestOrder
 			consumer := referenceCheckService("payments", "worker", []string{"work-context"})
 			plan := map[string]*resources.Service{"platform/authority": authority, "payments/worker": consumer}
 			lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
-			provided := []*basev0.ConfigurationInformation{{Name: "work-context", ConfigurationValues: []*basev0.ConfigurationValue{
+			provided := []*basev1.ConfigurationInformation{{Name: "work-context", ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "authority-address", Value: "${endpoint:platform/authority/grpc}"},
 			}}}
 			err := configurations.CheckEndpointReferences(provided, []*resources.Service{consumer}, resources.RunProfile{}, lookup)

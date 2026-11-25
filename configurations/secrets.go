@@ -16,7 +16,7 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Legacy *.secret.* files accept either local plaintext or provider references.
@@ -233,7 +233,7 @@ func (e *secretResolution) resolveString(ctx context.Context, value string) (res
 	return v, true, nil
 }
 
-func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev0.Configuration, env *resources.Environment) error {
+func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev1.Configuration, env *resources.Environment) error {
 	for _, info := range conf.Infos {
 		for _, value := range info.ConfigurationValues {
 			if !value.Secret {
@@ -271,7 +271,7 @@ func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev
 // resolveData resolves references embedded in a structured secret blob
 // (.secret.yaml / .secret.json). It parses the content, resolves any string
 // references in place, and re-marshals only if something changed.
-func (e *secretResolution) resolveData(ctx context.Context, data *basev0.ConfigurationData, env *resources.Environment, origin string) error {
+func (e *secretResolution) resolveData(ctx context.Context, data *basev1.ConfigurationData, env *resources.Environment, origin string) error {
 	var node any
 	switch data.Kind {
 	case kindYaml, kindYml:

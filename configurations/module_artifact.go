@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wire"
 	"github.com/codefly-dev/core/resources"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -22,7 +22,7 @@ import (
 // ModuleArtifactResolver acquires exact public bytes from an already selected
 // module. Selection provenance, confined bounded reads and observed instability
 // belong to this caller; Core never fetches a module or calls a secret provider.
-type ModuleArtifactResolver func(context.Context, *basev0.ConfigurationModuleArtifactReference) ([]byte, error)
+type ModuleArtifactResolver func(context.Context, *basev1.ConfigurationModuleArtifactReference) ([]byte, error)
 
 // WithModuleArtifactResolver supplies acquisition for each ordinary Load.
 func (local *ConfigurationInformationLocalReader) WithModuleArtifactResolver(resolve ModuleArtifactResolver) *ConfigurationInformationLocalReader {
@@ -33,7 +33,7 @@ func (local *ConfigurationInformationLocalReader) WithModuleArtifactResolver(res
 const moduleArtifactsFile = "module-artifacts.codefly.json"
 const maxModuleArtifactDeclarationBytes = 64 << 10
 
-func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0.ConfigurationInformation) ([]*basev0.ConfigurationInformation, error) {
+func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev1.ConfigurationInformation) ([]*basev1.ConfigurationInformation, error) {
 	file, err := os.OpenFile(filepath.Join(dir, moduleArtifactsFile), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if os.IsNotExist(err) {
 		return infos, nil
@@ -54,7 +54,7 @@ func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0
 	if yaml.Unmarshal(content, &node) != nil || wire.Check(&node).Kind != wire.NoDefect {
 		return nil, fmt.Errorf("invalid module artifact declaration fields")
 	}
-	var declarations basev0.ProfileModuleArtifactConfigurations
+	var declarations basev1.ProfileModuleArtifactConfigurations
 	if protojson.Unmarshal(content, &declarations) != nil || declarations.SchemaVersion != 1 {
 		return nil, fmt.Errorf("invalid module artifact declaration schema")
 	}
@@ -71,7 +71,7 @@ func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0
 			return nil, fmt.Errorf("duplicate module artifact destination")
 		}
 		seen[coordinate] = true
-		var group *basev0.ConfigurationInformation
+		var group *basev1.ConfigurationInformation
 		for _, info := range infos {
 			if resources.Match(info.Name, binding.Configuration) {
 				group = info
@@ -79,7 +79,7 @@ func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0
 			}
 		}
 		if group == nil {
-			group = &basev0.ConfigurationInformation{Name: binding.Configuration}
+			group = &basev1.ConfigurationInformation{Name: binding.Configuration}
 			infos = append(infos, group)
 		}
 		if group.Data != nil {
@@ -88,9 +88,9 @@ func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0
 		if value := findConfigurationValue(group, binding.Key); value != nil && !moduleArtifactSlot(value) {
 			return nil, fmt.Errorf("module artifact conflicts with literal: %w", ErrConfigurationConflict)
 		}
-		value := &basev0.ConfigurationValue{Key: binding.Key, ModuleArtifact: proto.Clone(binding.Source).(*basev0.ConfigurationModuleArtifactReference)}
+		value := &basev1.ConfigurationValue{Key: binding.Key, ModuleArtifact: proto.Clone(binding.Source).(*basev1.ConfigurationModuleArtifactReference)}
 		if trace := configurationOriginsFrom(ctx); trace != nil {
-			if err := trace.record(&basev0.ConfigurationInformation{Name: group.Name, ConfigurationValues: []*basev0.ConfigurationValue{value}}, filepath.Join(dir, moduleArtifactsFile)); err != nil {
+			if err := trace.record(&basev1.ConfigurationInformation{Name: group.Name, ConfigurationValues: []*basev1.ConfigurationValue{value}}, filepath.Join(dir, moduleArtifactsFile)); err != nil {
 				return nil, err
 			}
 		}
@@ -99,7 +99,7 @@ func loadModuleArtifactBindings(ctx context.Context, dir string, infos []*basev0
 	return infos, nil
 }
 
-func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, resolve ModuleArtifactResolver) error {
+func resolveModuleArtifacts(ctx context.Context, confs []*basev1.Configuration, resolve ModuleArtifactResolver) error {
 	acquired := map[string]string{}
 	for _, conf := range confs {
 		for _, info := range conf.GetInfos() {
@@ -130,7 +130,7 @@ func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, 
 				key := ref.Module + "\x00" + ref.Path
 				content, found := acquired[key]
 				if !found {
-					data, err := resolve(ctx, proto.Clone(ref).(*basev0.ConfigurationModuleArtifactReference))
+					data, err := resolve(ctx, proto.Clone(ref).(*basev1.ConfigurationModuleArtifactReference))
 					if err != nil {
 						return fail("cannot acquire selected module artifact")
 					}
@@ -142,7 +142,7 @@ func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, 
 				}
 				sum := sha256.Sum256([]byte(content))
 				value.Value = content
-				value.ResolvedModuleArtifact = &basev0.ResolvedConfigurationModuleArtifact{Reference: proto.Clone(ref).(*basev0.ConfigurationModuleArtifactReference), ArtifactIdentity: &basev0.SourceIdentity{Algorithm: basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, Digest: fmt.Sprintf("%x", sum), SizeBytes: int64(len(content))}}
+				value.ResolvedModuleArtifact = &basev1.ResolvedConfigurationModuleArtifact{Reference: proto.Clone(ref).(*basev1.ConfigurationModuleArtifactReference), ArtifactIdentity: &basev1.SourceIdentity{Algorithm: basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, Digest: fmt.Sprintf("%x", sum), SizeBytes: int64(len(content))}}
 				value.ModuleArtifact = nil
 			}
 		}
@@ -150,18 +150,18 @@ func resolveModuleArtifacts(ctx context.Context, confs []*basev0.Configuration, 
 	return resources.ValidateModuleArtifactDelivery(confs, nil, nil)
 }
 
-func hasModuleArtifact(value *basev0.ConfigurationValue) bool {
+func hasModuleArtifact(value *basev1.ConfigurationValue) bool {
 	return value.GetModuleArtifact() != nil || value.GetResolvedModuleArtifact() != nil
 }
 
 // Check offers before any whole-group or per-key replacement discards them.
 // Reference-to-reference follows ordinary precedence; a profile slot is the
 // only ordinary value permitted to yield to a reference.
-func checkArtifactOverlay(base, override *basev0.ConfigurationInformation, whole bool) error {
+func checkArtifactOverlay(base, override *basev1.ConfigurationInformation, whole bool) error {
 	if base == nil || override == nil {
 		return nil
 	}
-	for direction, pair := range [][2]*basev0.ConfigurationInformation{{base, override}, {override, base}} {
+	for direction, pair := range [][2]*basev1.ConfigurationInformation{{base, override}, {override, base}} {
 		for _, value := range pair[0].GetConfigurationValues() {
 			if !hasModuleArtifact(value) {
 				continue
@@ -175,7 +175,7 @@ func checkArtifactOverlay(base, override *basev0.ConfigurationInformation, whole
 	return nil
 }
 
-func checkArtifactOverride(infos []*basev0.ConfigurationInformation, name, key string) error {
+func checkArtifactOverride(infos []*basev1.ConfigurationInformation, name, key string) error {
 	for _, info := range infos {
 		if resources.Match(info.Name, name) && hasModuleArtifact(findConfigurationValue(info, key)) {
 			return fmt.Errorf("invocation override conflicts with module artifact: %w", ErrConfigurationConflict)
@@ -184,6 +184,6 @@ func checkArtifactOverride(infos []*basev0.ConfigurationInformation, name, key s
 	return nil
 }
 
-func moduleArtifactSlot(value *basev0.ConfigurationValue) bool {
+func moduleArtifactSlot(value *basev1.ConfigurationValue) bool {
 	return value != nil && value.Value == ProfileValueMarker && !value.Secret && value.Template == nil && !hasModuleArtifact(value)
 }

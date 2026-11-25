@@ -7,18 +7,18 @@ import (
 	"github.com/codefly-dev/core/resources"
 
 	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"google.golang.org/grpc"
 )
 
 // Agent is the Go interface that plugin types implement on the server side.
 type Agent interface {
-	GetAgentInformation(ctx context.Context, req *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error)
+	GetAgentInformation(ctx context.Context, req *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error)
 }
 
 // ServiceAgent is the client-side wrapper for the Agent gRPC service.
 type ServiceAgent struct {
-	agentv0.AgentClient
+	agentv1.AgentClient
 	// ExecutionExporter is the additive product-neutral receipt exporter
 	// capability. Callers must still require its advertised capability before
 	// invoking it.
@@ -30,7 +30,7 @@ type ServiceAgent struct {
 // NewServiceAgentClient creates a ServiceAgent from an existing gRPC connection.
 func NewServiceAgentClient(conn *grpc.ClientConn) *ServiceAgent {
 	return &ServiceAgent{
-		AgentClient:       agentv0.NewAgentClient(conn),
+		AgentClient:       agentv1.NewAgentClient(conn),
 		ExecutionExporter: executionv1.NewExecutionExporterClient(conn),
 	}
 }

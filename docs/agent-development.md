@@ -63,7 +63,7 @@ type Settings struct {
 type Service struct {
     *services.Base
     *Settings
-    HTTPEndpoint *basev0.Endpoint
+    HTTPEndpoint *basev1.Endpoint
 }
 
 func NewService() *Service {
@@ -110,12 +110,12 @@ func NewBuilder() *Builder {
 The conventional `Load` path is declarative too:
 
 ```go
-func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
+func (s *Builder) Load(ctx context.Context, req *builderv1.LoadRequest) (*builderv1.LoadResponse, error) {
     return s.Builder.LoadService(ctx, req, services.BuilderLoad{
         Settings:         s.Settings,
         Requirements:     requirements,
         FactoryTemplates: factoryFS,
-        ResolveEndpoints: func(ctx context.Context, endpoints []*basev0.Endpoint) error {
+        ResolveEndpoints: func(ctx context.Context, endpoints []*basev1.Endpoint) error {
             endpoint, err := resources.FindHTTPEndpoint(ctx, endpoints)
             if err != nil {
                 return err
@@ -171,7 +171,7 @@ credentials to produce a restricted bundle.
 The common application path is a single call:
 
 ```go
-func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+func (s *Builder) Deploy(ctx context.Context, req *builderv1.DeploymentRequest) (*builderv1.DeploymentResponse, error) {
     return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
         EnvironmentVariables: s.EnvironmentVariables,
         Templates:             deploymentFS,
@@ -199,7 +199,7 @@ A managed resource usually has one unique operation: derive the connection
 configuration clients should receive.
 
 ```go
-func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+func (s *Builder) Deploy(ctx context.Context, req *builderv1.DeploymentRequest) (*builderv1.DeploymentResponse, error) {
     return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
         EnvironmentVariables: s.EnvironmentVariables,
         Templates:             deploymentFS,
@@ -435,13 +435,13 @@ The invocation's fixture selection and its per-service process overrides ride
 both `InitRequest` and `StartRequest`. Record them from both:
 
 ```go
-func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+func (s *Runtime) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
     s.Runtime.SetFixtureFromInit(req.GetFixture())
     s.Runtime.SetOverridesFromInit(req.GetOverrides())
     // ...
 }
 
-func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+func (s *Runtime) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
     s.Runtime.SetFixtureFromStart(req.GetFixture())
     s.Runtime.SetOverridesFromStart(req.GetOverrides())
     // ...
@@ -470,7 +470,7 @@ carried leaves the process holding two entries for it.
 ## Response states: use helpers, not aliases
 
 Do not introduce local aliases for generated values such as
-`runtimev0.InitStatus_READY`. The generated enum is the wire contract; another
+`runtimev1.InitStatus_READY`. The generated enum is the wire contract; another
 alias adds a second vocabulary that can drift. Plugin code normally should not
 mention the enum at all—return `s.Runtime.InitResponse()` or an error helper.
 Core owns the exact generated status value.

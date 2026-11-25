@@ -85,7 +85,7 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
 
 ## Rules
 
-- All codefly services are `v0` (still evolving); Mind services are `v1`.
+- All Codefly services use `v1`.
 - Breaking contracts require explicit adoption by their actual consumers.
   Unchanged contracts do not require fleet rebuilding or repinning. Optional
   operation contracts require truthful live executor capabilities; regenerated

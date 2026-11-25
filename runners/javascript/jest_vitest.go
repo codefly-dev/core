@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // jestVitestEnvelope is the shape vitest and jest both emit when
@@ -106,13 +106,13 @@ func ParseJestVitestJSON(rawJSON string, coverage float32) *StructuredTestRun {
 			ss.Cases = append(ss.Cases, &StructuredCase{
 				Name:     "<file>",
 				FullName: suite.Name,
-				State:    runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED,
+				State:    runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED,
 				File:     suite.Name,
 				Output:   capped,
 				Failure: &StructuredFailure{
 					Message: extractFirstLine(detail),
 					Detail:  detail,
-					Kind:    runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR,
+					Kind:    runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR,
 				},
 			})
 			r.Suites = append(r.Suites, ss)
@@ -131,7 +131,7 @@ func ParseJestVitestJSON(rawJSON string, coverage float32) *StructuredTestRun {
 				c.Line = a.Location.Line
 			}
 
-			if c.State == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED && len(a.FailureMessages) > 0 {
+			if c.State == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED && len(a.FailureMessages) > 0 {
 				detail := strings.Join(a.FailureMessages, "\n\n")
 				truncated := false
 				capped := capOutput(detail, &truncated)
@@ -162,18 +162,18 @@ func millisecondsDuration(milliseconds float64) time.Duration {
 // platform's TestCaseState. jest distinguishes "skipped", "pending",
 // and "todo"; we collapse all three to SKIPPED — the platform's
 // semantics don't model the difference and consumers don't need it.
-func mapJestVitestStatus(s string) runtimev0.TestCaseState {
+func mapJestVitestStatus(s string) runtimev1.TestCaseState {
 	switch s {
 	case "passed":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED
 	case "failed":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 	case "skipped", "pending", "todo", "disabled":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED
 	default:
 		// Unknown status — treat as ERRORED so it surfaces in the
 		// aggregate counts rather than getting silently dropped.
-		return runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED
 	}
 }
 
@@ -192,18 +192,18 @@ func assertionFullName(a jestVitestAssertion) string {
 // classifyJestFailure picks the FailureKind from the failure message
 // content. JS test runners don't have a clean "type" field like
 // pytest's JUnit XML, so we scan the text.
-func classifyJestFailure(detail string) runtimev0.TestFailureKind {
+func classifyJestFailure(detail string) runtimev1.TestFailureKind {
 	lower := strings.ToLower(detail)
 	switch {
 	case strings.Contains(lower, "exceeded timeout") || strings.Contains(lower, "timed out"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
 	case strings.Contains(lower, "syntaxerror"), strings.Contains(lower, "module not found"),
 		strings.Contains(lower, "cannot find module"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_BUILD_ERROR
 	case strings.Contains(lower, "uncaught") && !strings.Contains(lower, "expect"):
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_PANIC
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_PANIC
 	}
-	return runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
+	return runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
 }
 
 // extractFirstLine returns the first non-blank line of s. Used for

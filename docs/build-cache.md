@@ -180,8 +180,8 @@ read-only `BuildCapabilities` RPC to report `buildx_selection=true`. Recipe-only
 agents should implement this capability after verifying their Build path:
 
 ```go
-func (*Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
-    return &builderv0.BuildCapabilitiesResponse{BuildxSelection: true}, nil
+func (*Builder) BuildCapabilities(context.Context, *builderv1.BuildCapabilitiesRequest) (*builderv1.BuildCapabilitiesResponse, error) {
+    return &builderv1.BuildCapabilitiesResponse{BuildxSelection: true}, nil
 }
 ```
 

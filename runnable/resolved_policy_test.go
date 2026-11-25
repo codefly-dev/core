@@ -7,13 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
-func receiptFor(binding *runnablev0.PreparedBinding) *runnablev0.ResolvedPolicy {
-	return &runnablev0.ResolvedPolicy{Operation: proto.CloneOf(binding.GetOperation()), Policy: proto.CloneOf(binding.GetPolicy())}
+func receiptFor(binding *runnablev1.PreparedBinding) *runnablev1.ResolvedPolicy {
+	return &runnablev1.ResolvedPolicy{Operation: proto.CloneOf(binding.GetOperation()), Policy: proto.CloneOf(binding.GetPolicy())}
 }
 
 // One resolution, two halves: the receipt the host binds from and the binding
@@ -172,7 +172,7 @@ func TestTheEqualityGateRefusesABindingThatDoesNotVerify(t *testing.T) {
 
 	// Same policy, same operation, but the contract no longer derives the digest
 	// the binding carries: VerifyPrepared refuses it, and so must the gate.
-	delivered.Contract.Input.Fields[0].Type = basev0.RunnableField_BOOLEAN
+	delivered.Contract.Input.Fields[0].Type = basev1.RunnableField_BOOLEAN
 	err = runnable.BindingMatchesResolvedPolicy(delivered, receipt)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "contract digest")

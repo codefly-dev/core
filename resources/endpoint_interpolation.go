@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 	"google.golang.org/protobuf/proto"
@@ -155,7 +155,7 @@ func EndpointReferences(value string) []string {
 // cannot read the manifests is refused before any reference is read: there is no
 // consumer-less resolution, because an endpoint reference is an edge into the
 // consumer's module and the export boundary is a statement about that module.
-func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
+func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, selection EndpointSelectionContext) (string, error) {
 	n := len(endpointInterpolationPattern.FindAllStringIndex(value, -1))
 	return interpolateEndpointsAt(ctx, value, mappings, access, selection, 0, n)
 }
@@ -166,7 +166,7 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 // value — a configuration value may be a secret, and an error travels further
 // than the value was meant to — so a reference is named by that number, and
 // the number is the same one the plan-time check reports for it.
-func interpolateEndpointsAt(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext, base, total int) (string, error) {
+func interpolateEndpointsAt(ctx context.Context, value string, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, selection EndpointSelectionContext, base, total int) (string, error) {
 	if malformedEndpointMarker(value) {
 		return "", fmt.Errorf("%w (beside %s)", ErrMalformedEndpointReference, referenceCount(value))
 	}
@@ -273,7 +273,7 @@ func ReferenceFailureIsAnOmission(err error) bool {
 //
 // For a configuration injected run-wide into services that never declared it,
 // use InterpolateRunWideConfigurationEndpoints.
-func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, opts ...ConfigurationInterpolationOption) (*basev0.Configuration, error) {
+func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev1.Configuration, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, opts ...ConfigurationInterpolationOption) (*basev1.Configuration, error) {
 	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false, opts...)
 }
 
@@ -347,11 +347,11 @@ func WithRunProducers(inRun func(unique string) bool) ConfigurationInterpolation
 //
 // With the run set stated, an empty mapping set is still a drop: that is the leaf
 // consumer, and it is the case this path exists for.
-func InterpolateRunWideConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, opts ...ConfigurationInterpolationOption) (*basev0.Configuration, error) {
+func InterpolateRunWideConfigurationEndpoints(ctx context.Context, conf *basev1.Configuration, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, opts ...ConfigurationInterpolationOption) (*basev1.Configuration, error) {
 	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, true, opts...)
 }
 
-func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, dropUnresolved bool, opts ...ConfigurationInterpolationOption) (*basev0.Configuration, error) {
+func interpolateConfigurationEndpoints(ctx context.Context, conf *basev1.Configuration, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, dropUnresolved bool, opts ...ConfigurationInterpolationOption) (*basev1.Configuration, error) {
 	if conf == nil || !configurationHasEndpointReference(conf) {
 		return conf, nil
 	}
@@ -360,7 +360,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 		opt(options)
 	}
 	w := wool.Get(ctx).In("resources.InterpolateConfigurationEndpoints")
-	cloned, ok := proto.Clone(conf).(*basev0.Configuration)
+	cloned, ok := proto.Clone(conf).(*basev1.Configuration)
 	if !ok {
 		return nil, w.NewError("cloning a configuration did not produce a configuration")
 	}
@@ -454,7 +454,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 	return cloned, nil
 }
 
-func configurationHasEndpointReference(conf *basev0.Configuration) bool {
+func configurationHasEndpointReference(conf *basev1.Configuration) bool {
 	for _, info := range conf.Infos {
 		for _, value := range info.ConfigurationValues {
 			if endpointInterpolationPattern.MatchString(value.Value) || malformedEndpointMarker(value.Value) {
@@ -484,7 +484,7 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 // applies to a templated value exactly as it does to a plain one — a value
 // assembled from a half-interpolated literal would otherwise reach a workload
 // with "${endpoint:…}" in the middle of a connection string.
-func interpolateConfigurationValue(ctx context.Context, value *basev0.ConfigurationValue, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
+func interpolateConfigurationValue(ctx context.Context, value *basev1.ConfigurationValue, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, selection EndpointSelectionContext) (string, error) {
 	// The same dominance rule as within one value, across the value's parts: a
 	// composition fault in any literal or in the value itself is reported over
 	// an omission in another, whichever came first.
@@ -496,7 +496,7 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 	total := len(ConfigurationValueEndpointReferences(value))
 	base := len(EndpointReferences(value.GetValue()))
 	for _, segment := range value.GetTemplate().GetSegments() {
-		literal, isLiteral := segment.GetContent().(*basev0.ConfigurationValueTemplateSegment_Literal)
+		literal, isLiteral := segment.GetContent().(*basev1.ConfigurationValueTemplateSegment_Literal)
 		if !isLiteral {
 			continue
 		}
@@ -555,7 +555,7 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 // — even one whose every token validated — would print the value. What a
 // diagnostic may name is what the manifest and the run say: declared endpoint
 // names, published ones, the access.
-func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, info *EndpointInformation, position string, access *basev0.NetworkAccess, selection EndpointSelectionContext) (*basev0.NetworkInstance, error) {
+func resolveEndpointReference(ctx context.Context, mappings []*basev1.NetworkMapping, info *EndpointInformation, position string, access *basev1.NetworkAccess, selection EndpointSelectionContext) (*basev1.NetworkInstance, error) {
 	w := wool.Get(ctx).In("resources.resolveEndpointReference")
 	reference := position
 
@@ -590,7 +590,7 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	// conflicting metadata whichever order it was published in, and binding
 	// an earlier mapping's address would hide it. A mapping that states no API
 	// is not in conflict; the declaration is the authority.
-	var named []*basev0.NetworkMapping
+	var named []*basev1.NetworkMapping
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
 			continue
@@ -641,7 +641,7 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 // the template's literals and its Value is empty, so reading Value alone found no
 // reference, judged every such value out of the run, and DELETED a credential
 // assembled around the address of a producer the caller had just said was in it.
-func unresolvedNamesRunProducer(ctx context.Context, value *basev0.ConfigurationValue, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, inRun func(string) bool, selection EndpointSelectionContext) bool {
+func unresolvedNamesRunProducer(ctx context.Context, value *basev1.ConfigurationValue, mappings []*basev1.NetworkMapping, access *basev1.NetworkAccess, inRun func(string) bool, selection EndpointSelectionContext) bool {
 	if inRun == nil {
 		return false
 	}
@@ -666,7 +666,7 @@ func unresolvedNamesRunProducer(ctx context.Context, value *basev0.Configuration
 // not an access the platform has; it names the absence in a message.
 const accessKindNone = "none"
 
-func accessKind(access *basev0.NetworkAccess) string {
+func accessKind(access *basev1.NetworkAccess) string {
 	if access == nil {
 		return accessKindNone
 	}

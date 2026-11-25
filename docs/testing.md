@@ -82,11 +82,11 @@ func TestGoGRPCAgent(t *testing.T) {
     conn, _ := manager.Load(ctx, agent)
     defer conn.Close()
 
-    runtime := runtimev0.NewRuntimeClient(conn.GRPCConn())
+    runtime := runtimev1.NewRuntimeClient(conn.GRPCConn())
 
     // 2. Load
-    loadResp, err := runtime.Load(ctx, &runtimev0.LoadRequest{
-        Identity: &basev0.ServiceIdentity{
+    loadResp, err := runtime.Load(ctx, &runtimev1.LoadRequest{
+        Identity: &basev1.ServiceIdentity{
             Name:      "test-svc",
             Module:    "mod",
             Workspace: "ws",
@@ -101,21 +101,21 @@ func TestGoGRPCAgent(t *testing.T) {
     mappings, _ := mgr.GenerateNetworkMappings(ctx, env, workspace, svcIdentity, loadResp.Endpoints)
 
     // 4. Init
-    _, err = runtime.Init(ctx, &runtimev0.InitRequest{
+    _, err = runtime.Init(ctx, &runtimev1.InitRequest{
         ProposedNetworkMappings: mappings,
     })
     require.NoError(t, err)
 
     // 5. Start
-    _, err = runtime.Start(ctx, &runtimev0.StartRequest{})
+    _, err = runtime.Start(ctx, &runtimev1.StartRequest{})
     require.NoError(t, err)
 
     // 6. Test the running service
     // ...
 
     // 7. Stop + Destroy
-    runtime.Stop(ctx, &runtimev0.StopRequest{})
-    runtime.Destroy(ctx, &runtimev0.DestroyRequest{})
+    runtime.Stop(ctx, &runtimev1.StopRequest{})
+    runtime.Destroy(ctx, &runtimev1.DestroyRequest{})
 }
 ```
 

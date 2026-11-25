@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -34,11 +34,11 @@ func ValidateMediaType(value string) error {
 	return nil
 }
 
-func Prepare(request *basev0.ArtifactExecution) (*basev0.ArtifactExecution, error) {
+func Prepare(request *basev1.ArtifactExecution) (*basev1.ArtifactExecution, error) {
 	if request == nil {
 		return nil, errors.New("artifact execution is required")
 	}
-	value := proto.Clone(request).(*basev0.ArtifactExecution)
+	value := proto.Clone(request).(*basev1.ArtifactExecution)
 	if len(value.ProtoReflect().GetUnknown()) != 0 || !validTarget(value.Target) {
 		return nil, errors.New("unsupported execution fields or invalid instance target")
 	}
@@ -78,8 +78,8 @@ func Prepare(request *basev0.ArtifactExecution) (*basev0.ArtifactExecution, erro
 		}
 		seen[output.Name] = true
 	}
-	slices.SortFunc(value.Inputs, func(a, b *basev0.ArtifactExecutionInput) int { return strings.Compare(a.Name, b.Name) })
-	slices.SortFunc(value.Outputs, func(a, b *basev0.ArtifactExecutionOutput) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(value.Inputs, func(a, b *basev1.ArtifactExecutionInput) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(value.Outputs, func(a, b *basev1.ArtifactExecutionOutput) int { return strings.Compare(a.Name, b.Name) })
 	supplied := value.Identity
 	value.Identity = ""
 	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(value)
@@ -105,7 +105,7 @@ func validTarget(value string) bool {
 	return true
 }
 
-func Check(request *basev0.ArtifactExecution, protocol, executorDigest string, advertised []string) error {
+func Check(request *basev1.ArtifactExecution, protocol, executorDigest string, advertised []string) error {
 	if request == nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func Check(request *basev0.ArtifactExecution, protocol, executorDigest string, a
 	return nil
 }
 
-func CheckReceipt(request *basev0.ArtifactExecution, receipt *basev0.ArtifactExecutionReceipt) error {
+func CheckReceipt(request *basev1.ArtifactExecution, receipt *basev1.ArtifactExecutionReceipt) error {
 	if request == nil {
 		return nil
 	}
@@ -144,7 +144,7 @@ func CheckReceipt(request *basev0.ArtifactExecution, receipt *basev0.ArtifactExe
 			return errors.New("execution outputs require unique relative file paths")
 		}
 		paths[output.Path] = true
-		index := slices.IndexFunc(request.Outputs, func(expected *basev0.ArtifactExecutionOutput) bool {
+		index := slices.IndexFunc(request.Outputs, func(expected *basev1.ArtifactExecutionOutput) bool {
 			return expected.Name == output.Name && expected.MediaType == output.MediaType
 		})
 		if index < 0 {

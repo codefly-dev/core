@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ScopeContained applies the Work Context attenuation rule to one scope: a
@@ -23,7 +23,7 @@ import (
 // owner-selected scope as the whole kind. Such a reader must refuse, or grant
 // nothing from, a scope with a non-empty resource_owner_id until it compares
 // owners (docs/work-context.md lists the known ones).
-func ScopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bool {
+func ScopeContained(child *basev1.WorkScopeV1, parents []*basev1.WorkScopeV1) bool {
 	// A kind can have several rows with different action/resource coverage.
 	// Check each pair against that coverage, never their Cartesian product.
 	kindPresent := false
@@ -69,7 +69,7 @@ func ScopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bo
 // ScopesAttenuate reports whether every scope in child is contained in
 // parents. An empty child attenuates anything: holding nothing is always a
 // narrowing.
-func ScopesAttenuate(child, parents []*basev0.WorkScopeV1) bool {
+func ScopesAttenuate(child, parents []*basev1.WorkScopeV1) bool {
 	for _, scope := range child {
 		if !ScopeContained(scope, parents) {
 			return false
@@ -103,8 +103,8 @@ func ScopesAttenuate(child, parents []*basev0.WorkScopeV1) bool {
 // resources, and splitting the scope by action to keep the wider read would
 // mint a child the operation's single declared scope for the kind never
 // described.
-func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.WorkScopeV1, error) {
-	inherited := make([]*basev0.WorkScopeV1, 0, len(requested))
+func InheritResourceOwner(requested, parent []*basev1.WorkScopeV1) ([]*basev1.WorkScopeV1, error) {
+	inherited := make([]*basev1.WorkScopeV1, 0, len(requested))
 	for _, scope := range requested {
 		child := proto.CloneOf(scope)
 		if ScopeContained(child, parent) {
@@ -150,7 +150,7 @@ func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.Wo
 // covered by the parent under one owner or another. It returns nil when some
 // point is not covered at all, so "not covered" and "covered only across
 // owners" are refused with their own reasons.
-func coveringOwners(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) []string {
+func coveringOwners(child *basev1.WorkScopeV1, parent []*basev1.WorkScopeV1) []string {
 	candidates := []string{""}
 	for _, row := range parent {
 		if owner := row.GetResourceOwnerId(); owner != "" && row.GetResourceKind() == child.GetResourceKind() && !slices.Contains(candidates, owner) {
@@ -164,7 +164,7 @@ func coveringOwners(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) []s
 	var owners []string
 	for _, action := range child.GetActions() {
 		for _, id := range ids {
-			point := &basev0.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: []string{action}}
+			point := &basev1.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: []string{action}}
 			if id != "" {
 				point.ResourceIds = []string{id}
 			}
@@ -193,12 +193,12 @@ func coveringOwners(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) []s
 // operation can run once per owner on that owner's resources. A scope naming
 // no ids, or one whose actions are split between owners, has no such split:
 // every child would lack an action the operation's one declared scope needs.
-func splitsByResource(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) bool {
+func splitsByResource(child *basev1.WorkScopeV1, parent []*basev1.WorkScopeV1) bool {
 	if len(child.GetResourceIds()) == 0 {
 		return false
 	}
 	for _, id := range child.GetResourceIds() {
-		point := &basev0.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: child.GetActions(), ResourceIds: []string{id}}
+		point := &basev1.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: child.GetActions(), ResourceIds: []string{id}}
 		covered := false
 		for _, row := range parent {
 			if owner := row.GetResourceOwnerId(); owner != "" && row.GetResourceKind() == child.GetResourceKind() {

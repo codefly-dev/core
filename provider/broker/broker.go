@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/cassette"
@@ -34,16 +34,16 @@ import (
 // for an operation. The durable store itself is out of scope (F3); the broker
 // depends only on this read-side to enforce checkpoint-before-send ordering.
 type Checkpointer interface {
-	Latest(ctx context.Context, operation *providerv0.OperationIdentity) (*providerv0.ActionCheckpoint, error)
+	Latest(ctx context.Context, operation *providerv1.OperationIdentity) (*providerv1.ActionCheckpoint, error)
 }
 
 // Config binds one broker session to exactly one admitted plan action. Every
 // field is host-owned; the provider cannot override any of it.
 type Config struct {
 	Manifest *manifest.Manifest
-	Action   *providerv0.PlanAction
-	Binding  *providerv0.BindingAddress
-	Budget   *providerv0.RequestBudget
+	Action   *providerv1.PlanAction
+	Binding  *providerv1.BindingAddress
+	Budget   *providerv1.RequestBudget
 	ReadOnly bool
 
 	Vault       *credentials.Vault
@@ -61,7 +61,7 @@ type Config struct {
 	// response in order, as it is delivered live or replayed, before Execute
 	// returns. It is how a caller gets live tokens instead of only the fully
 	// buffered ordered set. A non-nil error from it fails the delivery closed.
-	OnStreamEvent func(*providerv0.FilteredEvent) error
+	OnStreamEvent func(*providerv1.FilteredEvent) error
 
 	// MaxRequestDuration bounds one round trip — including reading a streamed
 	// body — when the budget carries no absolute deadline. It exists so a slow or
@@ -88,8 +88,8 @@ const DefaultMaxRequestDuration = 10 * time.Minute
 type Session struct {
 	mu sync.Mutex
 
-	action    *providerv0.PlanAction
-	binding   *providerv0.BindingAddress
+	action    *providerv1.PlanAction
+	binding   *providerv1.BindingAddress
 	readOnly  bool
 	userAgent string
 
@@ -98,7 +98,7 @@ type Session struct {
 	responseSchemas map[string]manifest.ResponseSchema
 	purposes        map[string]manifest.CredentialPurpose
 
-	budget    *providerv0.RequestBudget
+	budget    *providerv1.RequestBudget
 	limits    responsepolicy.Limits
 	remaining uint32
 
@@ -106,7 +106,7 @@ type Session struct {
 	sink          responsepolicy.Sink
 	checkpoints   Checkpointer
 	cassette      *cassette.Cassette
-	onStreamEvent func(*providerv0.FilteredEvent) error
+	onStreamEvent func(*providerv1.FilteredEvent) error
 	maxDuration   time.Duration
 	resolver      *net.Resolver
 	clientFor     func(urlguard.Origin, urlguard.Resolution) *http.Client
@@ -180,7 +180,7 @@ func New(cfg Config) (*Session, error) {
 	return session, nil
 }
 
-func responsePolicyLimits(budget *providerv0.RequestBudget) responsepolicy.Limits {
+func responsePolicyLimits(budget *providerv1.RequestBudget) responsepolicy.Limits {
 	limits := responsepolicy.DefaultLimits()
 	if bytes := int64(budget.GetResponseBytes()); bytes > 0 {
 		limits.MaxCompressedBytes = bytes
@@ -192,7 +192,7 @@ func responsePolicyLimits(budget *providerv0.RequestBudget) responsepolicy.Limit
 // Execute runs one admitted broker request. It returns a filtered response and,
 // on any admission or filtering failure, a non-nil error the coordinator treats
 // as a hard stop. Original response bytes are never forwarded.
-func (s *Session) Execute(ctx context.Context, request *providerv0.ExecuteRequestRequest) (*providerv0.ExecuteRequestResponse, error) {
+func (s *Session) Execute(ctx context.Context, request *providerv1.ExecuteRequestRequest) (*providerv1.ExecuteRequestResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -275,12 +275,12 @@ func (s *Session) replaying() bool {
 func (s *Session) deliver(
 	ctx context.Context,
 	descriptor manifest.RequestDescriptor,
-	planned *providerv0.PlannedRequest,
-	attested *providerv0.AdmittedOrigin,
+	planned *providerv1.PlannedRequest,
+	attested *providerv1.AdmittedOrigin,
 	origin urlguard.Origin,
 	pinned urlguard.Resolution,
 	httpRequest *http.Request,
-) (providerv0.DeliveryState, *providerv0.ExecuteRequestResponse, error) {
+) (providerv1.DeliveryState, *providerv1.ExecuteRequestResponse, error) {
 	if s.cassette != nil && s.cassette.Mode() == cassette.ModeReplay {
 		status, response, err := s.cassette.Replay(cassette.NewKey(planned, attested))
 		if err != nil {
@@ -293,14 +293,14 @@ func (s *Session) deliver(
 		if err := s.emitStreamEvents(response.GetEvents()); err != nil {
 			return 0, nil, err
 		}
-		return providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response, nil
+		return providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response, nil
 	}
 	client := s.clientFor(origin, pinned)
 	delivery, response, err := s.roundTrip(ctx, client, descriptor, httpRequest)
 	if err != nil {
 		return 0, nil, err
 	}
-	if s.cassette != nil && s.cassette.Mode() == cassette.ModeRecord && delivery == providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED {
+	if s.cassette != nil && s.cassette.Mode() == cassette.ModeRecord && delivery == providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED {
 		if err := s.cassette.Record(cassette.NewKey(planned, attested), response.GetStatusCode(), nil, response); err != nil {
 			return 0, nil, fmt.Errorf("record cassette: %w", err)
 		}
@@ -308,7 +308,7 @@ func (s *Session) deliver(
 	return delivery, response, nil
 }
 
-func (s *Session) admitDescriptor(planned *providerv0.PlannedRequest) (manifest.RequestDescriptor, error) {
+func (s *Session) admitDescriptor(planned *providerv1.PlannedRequest) (manifest.RequestDescriptor, error) {
 	descriptor, ok := s.requests[planned.GetRequestDescriptorId()]
 	if !ok {
 		return manifest.RequestDescriptor{}, fmt.Errorf("request descriptor %q is not packaged", planned.GetRequestDescriptorId())
@@ -340,7 +340,7 @@ func (s *Session) checkBudget() error {
 // attested origin to the descriptor's rule and confirms it stays within the
 // manifest ceiling. It never resolves DNS, so it runs identically for live and
 // replay.
-func (s *Session) admitOrigin(descriptor manifest.RequestDescriptor, attested *providerv0.AdmittedOrigin) (urlguard.Origin, urlguard.Ceiling, error) {
+func (s *Session) admitOrigin(descriptor manifest.RequestDescriptor, attested *providerv1.AdmittedOrigin) (urlguard.Origin, urlguard.Ceiling, error) {
 	if attested.GetOriginRuleId() != descriptor.OriginRule {
 		return urlguard.Origin{}, urlguard.Ceiling{}, fmt.Errorf("origin rule does not match descriptor")
 	}
@@ -360,7 +360,7 @@ func (s *Session) admitOrigin(descriptor manifest.RequestDescriptor, attested *p
 // admitted peer IP, and confirms the resolved network class matches the
 // host-attested class. It runs only for live delivery — never during replay —
 // and always before any credential is resolved.
-func (s *Session) resolveAndPin(ctx context.Context, origin urlguard.Origin, ceiling urlguard.Ceiling, attested *providerv0.AdmittedOrigin) (urlguard.Resolution, error) {
+func (s *Session) resolveAndPin(ctx context.Context, origin urlguard.Origin, ceiling urlguard.Ceiling, attested *providerv1.AdmittedOrigin) (urlguard.Resolution, error) {
 	pinned, err := urlguard.Resolve(ctx, s.resolver, origin, ceiling.AllowedClasses)
 	if err != nil {
 		return urlguard.Resolution{}, err
@@ -374,7 +374,7 @@ func (s *Session) resolveAndPin(ctx context.Context, origin urlguard.Origin, cei
 // requireCheckpoint enforces that a durable pre-send checkpoint exists before
 // any bytes leave, and that a prior durable capture has been acknowledged by a
 // newer checkpoint before the next external request.
-func (s *Session) requireCheckpoint(ctx context.Context, operation *providerv0.OperationIdentity, planned *providerv0.PlannedRequest) (string, error) {
+func (s *Session) requireCheckpoint(ctx context.Context, operation *providerv1.OperationIdentity, planned *providerv1.PlannedRequest) (string, error) {
 	checkpoint, err := s.checkpoints.Latest(ctx, operation)
 	if err != nil {
 		return "", fmt.Errorf("read checkpoint: %w", err)
@@ -394,7 +394,7 @@ func (s *Session) requireCheckpoint(ctx context.Context, operation *providerv0.O
 	return checkpoint.GetCheckpointId(), nil
 }
 
-func (s *Session) injectCredentials(httpRequest *http.Request, request *providerv0.ExecuteRequestRequest, origin urlguard.Origin) error {
+func (s *Session) injectCredentials(httpRequest *http.Request, request *providerv1.ExecuteRequestRequest, origin urlguard.Origin) error {
 	use := credentials.Use{
 		Binding:       s.binding,
 		ActionID:      s.action.GetActionId(),
@@ -414,7 +414,7 @@ func (s *Session) injectCredentials(httpRequest *http.Request, request *provider
 // roundTrip performs exactly one request with no retry. Request tracing tells
 // whether request bytes crossed the boundary so a lost response is reported as
 // SENT_OUTCOME_UNKNOWN rather than NOT_SENT.
-func (s *Session) roundTrip(ctx context.Context, client *http.Client, descriptor manifest.RequestDescriptor, httpRequest *http.Request) (providerv0.DeliveryState, *providerv0.ExecuteRequestResponse, error) {
+func (s *Session) roundTrip(ctx context.Context, client *http.Client, descriptor manifest.RequestDescriptor, httpRequest *http.Request) (providerv1.DeliveryState, *providerv1.ExecuteRequestResponse, error) {
 	// The absolute budget deadline bounds the whole round trip, not just the
 	// pre-send admission checks. When the budget carries no deadline a default
 	// bound still applies, so reading a slow or stalled streamed body cannot hold
@@ -434,20 +434,20 @@ func (s *Session) roundTrip(ctx context.Context, client *http.Client, descriptor
 	resp, err := client.Do(traced)
 	if err != nil {
 		if wrote {
-			return providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
-				&providerv0.ExecuteRequestResponse{Certainty: providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN}, nil
+			return providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+				&providerv1.ExecuteRequestResponse{Certainty: providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN}, nil
 		}
-		certainty := providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
+		certainty := providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE
 		if descriptor.ReadOnly {
-			certainty = providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN
+			certainty = providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN
 		}
-		return providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
-			&providerv0.ExecuteRequestResponse{Certainty: certainty}, nil
+		return providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
+			&providerv1.ExecuteRequestResponse{Certainty: certainty}, nil
 	}
 	defer resp.Body.Close()
 	response, err := s.handleResponse(descriptor, resp)
 	if err != nil {
-		return providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, nil, err
+		return providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, nil, err
 	}
-	return providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response, nil
+	return providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response, nil
 }

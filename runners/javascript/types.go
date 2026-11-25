@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // MaxCapturedOutputBytesPerCase mirrors the Go-runner + python-runner
@@ -49,7 +49,7 @@ type StructuredSuite struct {
 type StructuredCase struct {
 	Name      string
 	FullName  string
-	State     runtimev0.TestCaseState
+	State     runtimev1.TestCaseState
 	Duration  time.Duration
 	File      string
 	Line      int32
@@ -66,27 +66,27 @@ type StructuredCase struct {
 type StructuredFailure struct {
 	Message string
 	Detail  string
-	Kind    runtimev0.TestFailureKind
+	Kind    runtimev1.TestFailureKind
 }
 
 // StructuredRetry is one attempt of a flaky test.
 type StructuredRetry struct {
 	Attempt  int32
-	State    runtimev0.TestCaseState
+	State    runtimev1.TestCaseState
 	Duration time.Duration
 	Failure  *StructuredFailure
 }
 
 // --- Conversion to protobuf TestResponse ---------------------------
 
-// ToProtoResponse constructs the runtimev0.TestResponse with both
+// ToProtoResponse constructs the runtimev1.TestResponse with both
 // structured (preferred) and legacy fields populated.
 //
 // runner is "vitest" | "jest" | "playwright"; suiteName echoes
 // TestRequest.suite. duration is the wall-clock for the whole run.
-func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev0.TestResponse {
-	suites := make([]*runtimev0.TestSuite, 0, len(r.Suites))
-	counts := &runtimev0.TestCounts{}
+func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration time.Duration) *runtimev1.TestResponse {
+	suites := make([]*runtimev1.TestSuite, 0, len(r.Suites))
+	counts := &runtimev1.TestCounts{}
 	legacyFailures := make([]string, 0)
 
 	// Stable suite ordering for deterministic output.
@@ -102,34 +102,34 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		counts.Errored += sCounts.Errored
 
 		for _, pc := range ps.GetCases() {
-			if pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-				pc.GetState() == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+				pc.GetState() == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				legacyFailures = append(legacyFailures,
 					fmt.Sprintf("FAIL %s > %s\n%s", s.File, pc.GetName(), pc.GetCapturedOutput()))
 			}
 		}
 	}
 
-	runResult := &runtimev0.TestRunResult{
-		State:   runtimev0.TestRunResult_PASSED,
+	runResult := &runtimev1.TestRunResult{
+		State:   runtimev1.TestRunResult_PASSED,
 		Message: "all tests passed",
 	}
 	if counts.Failed > 0 {
-		runResult.State = runtimev0.TestRunResult_FAILED
+		runResult.State = runtimev1.TestRunResult_FAILED
 		runResult.Message = fmt.Sprintf("%d test(s) failed", counts.Failed)
 	}
 	if counts.Errored > 0 {
-		runResult.State = runtimev0.TestRunResult_ERRORED
+		runResult.State = runtimev1.TestRunResult_ERRORED
 		runResult.Message = fmt.Sprintf("%d run-level error(s)", counts.Errored)
 	}
 
-	legacyState := runtimev0.TestStatus_SUCCESS
+	legacyState := runtimev1.TestStatus_SUCCESS
 	if counts.Failed > 0 || counts.Errored > 0 {
-		legacyState = runtimev0.TestStatus_ERROR
+		legacyState = runtimev1.TestStatus_ERROR
 	}
 
-	resp := &runtimev0.TestResponse{
-		Run: &runtimev0.TestRun{
+	resp := &runtimev1.TestResponse{
+		Run: &runtimev1.TestRun{
 			Runner:    runner,
 			SuiteName: suiteName,
 			Duration:  durationpb.New(duration),
@@ -137,14 +137,14 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 		Result: runResult,
 		Counts: counts,
 		Suites: suites,
-		Truncation: &runtimev0.TestTruncation{
+		Truncation: &runtimev1.TestTruncation{
 			Happened:        r.truncatedCases > 0,
 			MaxPerCaseBytes: int32(MaxCapturedOutputBytesPerCase),
 			TruncatedCases:  r.truncatedCases,
 		},
 
 		// Legacy flat (deprecated; populated for transition).
-		Status:       &runtimev0.TestStatus{State: legacyState, Message: runResult.Message},
+		Status:       &runtimev1.TestStatus{State: legacyState, Message: runResult.Message},
 		TestsRun:     counts.Total,
 		TestsPassed:  counts.Passed,
 		TestsFailed:  counts.Failed,
@@ -154,7 +154,7 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	}
 
 	if r.CoveragePct > 0 {
-		resp.Coverage = &runtimev0.TestCoverage{
+		resp.Coverage = &runtimev1.TestCoverage{
 			TotalPct:          r.CoveragePct,
 			RawArtifactFormat: jsCoverageFormat(runner),
 		}
@@ -162,13 +162,13 @@ func (r *StructuredTestRun) ToProtoResponse(runner, suiteName string, duration t
 	return resp
 }
 
-func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts) {
-	ps := &runtimev0.TestSuite{
+func (s *StructuredSuite) toProto() (*runtimev1.TestSuite, *runtimev1.TestCounts) {
+	ps := &runtimev1.TestSuite{
 		Name:     s.Name,
 		File:     s.File,
 		Duration: durationpb.New(s.Duration),
 	}
-	suiteCounts := &runtimev0.TestCounts{}
+	suiteCounts := &runtimev1.TestCounts{}
 
 	// Stable case ordering — alphabetical by full_name (vitest+jest
 	// don't guarantee a particular order across runs).
@@ -177,24 +177,24 @@ func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 	})
 
 	for _, c := range s.Cases {
-		pc := &runtimev0.TestCase{
+		pc := &runtimev1.TestCase{
 			Name:     c.Name,
 			FullName: c.FullName,
 			State:    c.State,
 			Duration: durationpb.New(c.Duration),
 		}
 		if c.File != "" || c.Line > 0 {
-			pc.Location = &runtimev0.TestLocation{
+			pc.Location = &runtimev1.TestLocation{
 				File: c.File,
 				Line: c.Line,
 			}
 		}
-		if c.State == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-			c.State == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+		if c.State == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+			c.State == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 			pc.CapturedOutput = c.Output
 		}
 		if c.Failure != nil {
-			pc.Failure = &runtimev0.TestFailure{
+			pc.Failure = &runtimev1.TestFailure{
 				Message: c.Failure.Message,
 				Detail:  c.Failure.Detail,
 				Kind:    c.Failure.Kind,
@@ -202,13 +202,13 @@ func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		}
 		if len(c.Retries) > 0 {
 			for _, r := range c.Retries {
-				pr := &runtimev0.TestRetry{
+				pr := &runtimev1.TestRetry{
 					Attempt:  r.Attempt,
 					State:    r.State,
 					Duration: durationpb.New(r.Duration),
 				}
 				if r.Failure != nil {
-					pr.Failure = &runtimev0.TestFailure{
+					pr.Failure = &runtimev1.TestFailure{
 						Message: r.Failure.Message,
 						Detail:  r.Failure.Detail,
 						Kind:    r.Failure.Kind,
@@ -221,13 +221,13 @@ func (s *StructuredSuite) toProto() (*runtimev0.TestSuite, *runtimev0.TestCounts
 		ps.Cases = append(ps.Cases, pc)
 		suiteCounts.Total++
 		switch c.State {
-		case runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:
 			suiteCounts.Passed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 			suiteCounts.Failed++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED:
 			suiteCounts.Skipped++
-		case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+		case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 			suiteCounts.Errored++
 		}
 	}
@@ -269,15 +269,15 @@ func (r *StructuredTestRun) LegacyTestSummary() *LegacyTestSummary {
 		for _, c := range suite.Cases {
 			s.Run++
 			switch c.State {
-			case runtimev0.TestCaseState_TEST_CASE_STATE_PASSED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_PASSED:
 				s.Passed++
-			case runtimev0.TestCaseState_TEST_CASE_STATE_FAILED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_FAILED:
 				s.Failed++
 				s.Failures = append(s.Failures, fmt.Sprintf("FAIL %s > %s\n%s",
 					suite.File, c.Name, c.Output))
-			case runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED:
 				s.Skipped++
-			case runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED:
+			case runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED:
 				s.Failed++ // legacy lumps errored under failed
 				s.Failures = append(s.Failures, fmt.Sprintf("ERROR %s > %s\n%s",
 					suite.File, c.Name, c.Output))

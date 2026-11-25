@@ -1,6 +1,6 @@
 import unittest
 
-from codefly.services.runtime.v0 import runtime_pb2
+from codefly.services.runtime.v1 import runtime_pb2
 
 
 class RuntimeImageContractTest(unittest.TestCase):

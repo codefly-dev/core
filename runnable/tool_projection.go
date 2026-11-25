@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 )
 
 const (
@@ -34,7 +34,7 @@ var (
 // or any caller's authority. ToolsFromProjection additionally checks it against
 // the complete prepared binding. A digest of an external declaration is checked
 // for syntax only; admission freezes all fields, not just the stated digests.
-func ValidateToolProjection(projection *runnablev0.ToolProjection) error {
+func ValidateToolProjection(projection *runnablev1.ToolProjection) error {
 	if projection == nil {
 		return fmt.Errorf("%w: tool projection is required", ErrInvalid)
 	}
@@ -119,7 +119,7 @@ func validateToolSchema(schema *structpb.Struct, input bool) error {
 
 // EncodeToolProjection validates and writes canonical proto3 JSON. It neither
 // fills nor repairs digests, whose declaration content belongs to the publisher.
-func EncodeToolProjection(projection *runnablev0.ToolProjection) ([]byte, error) {
+func EncodeToolProjection(projection *runnablev1.ToolProjection) ([]byte, error) {
 	if err := ValidateToolProjection(projection); err != nil {
 		return nil, err
 	}
@@ -128,11 +128,11 @@ func EncodeToolProjection(projection *runnablev0.ToolProjection) ([]byte, error)
 
 // DecodeToolProjection accepts protobuf's snake_case and lowerCamelCase JSON
 // spellings, refusing unknown fields and malformed or oversized declarations.
-func DecodeToolProjection(value []byte) (*runnablev0.ToolProjection, error) {
+func DecodeToolProjection(value []byte) (*runnablev1.ToolProjection, error) {
 	if len(value) == 0 || len(value) > MaxToolProjectionBytes {
 		return nil, fmt.Errorf("%w: tool projection of %d bytes is outside (0, %d]", ErrInvalid, len(value), MaxToolProjectionBytes)
 	}
-	projection := &runnablev0.ToolProjection{}
+	projection := &runnablev1.ToolProjection{}
 	if err := protojson.Unmarshal(value, projection); err != nil {
 		return nil, fmt.Errorf("%w: invalid tool projection JSON: %v", ErrInvalid, err)
 	}
@@ -149,7 +149,7 @@ func DecodeToolProjection(value []byte) (*runnablev0.ToolProjection, error) {
 // still project tools. A projected name must not collide with that binding's
 // direct exposure. Admission checks names across other bindings and projections.
 // Neither this check nor an effect grants authority.
-func ToolsFromProjection(binding *runnablev0.PreparedBinding, projection *runnablev0.ToolProjection) ([]*runnablev0.ProjectedTool, error) {
+func ToolsFromProjection(binding *runnablev1.PreparedBinding, projection *runnablev1.ToolProjection) ([]*runnablev1.ProjectedTool, error) {
 	if err := VerifyPrepared(binding); err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func ToolsFromProjection(binding *runnablev0.PreparedBinding, projection *runnab
 		}
 		found := false
 		for _, field := range binding.GetContract().GetInput().GetFields() {
-			if field.GetName() == tool.GetSelector().GetField() && field.GetType() == basev0.RunnableField_STRING {
+			if field.GetName() == tool.GetSelector().GetField() && field.GetType() == basev1.RunnableField_STRING {
 				found = true
 				break
 			}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -45,16 +45,16 @@ func ConvertToAnyPb(value any) (*anypb.Any, error) {
 		return nil, fmt.Errorf("failed to marshal value: %v", err)
 	}
 
-	genericValue := &basev0.GenericValue{
+	genericValue := &basev1.GenericValue{
 		Value: jsonData,
 	}
 
 	return anypb.New(genericValue)
 }
 
-func ConvertSpec(spec map[string]any) (*basev0.Specs, error) {
-	stringAnyMap := &basev0.Specs{
-		Fields: make(map[string]*basev0.SpecValue),
+func ConvertSpec(spec map[string]any) (*basev1.Specs, error) {
+	stringAnyMap := &basev1.Specs{
+		Fields: make(map[string]*basev1.SpecValue),
 	}
 
 	for key, value := range spec {
@@ -62,7 +62,7 @@ func ConvertSpec(spec map[string]any) (*basev0.Specs, error) {
 		if err != nil {
 			return nil, err
 		}
-		stringAnyMap.Fields[key] = &basev0.SpecValue{Value: v}
+		stringAnyMap.Fields[key] = &basev1.SpecValue{Value: v}
 	}
 	return stringAnyMap, nil
 }
@@ -72,7 +72,7 @@ func FromAnyPb[T any](v *anypb.Any) (*T, error) {
 		return nil, nil
 	}
 	// Attempt to unmarshal as a GenericValue
-	genericValue := &basev0.GenericValue{}
+	genericValue := &basev1.GenericValue{}
 	if err := v.UnmarshalTo(genericValue); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal Any to GenericValue: %v", err)
 	}

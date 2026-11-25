@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 )
 
 func TestIdentityAndTools(t *testing.T) {
 	s := New("/tmp/x", "test")
-	id, err := s.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	id, err := s.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestIdentityAndTools(t *testing.T) {
 func TestListOutsideWorkspaceErrors(t *testing.T) {
 	// A dir with no codefly workspace at or above it should error cleanly, not panic.
 	s := New(t.TempDir(), "test")
-	resp := s.list(context.Background(), &toolboxv0.CallToolRequest{})
+	resp := s.list(context.Background(), &toolboxv1.CallToolRequest{})
 	if resp.Error == "" {
 		t.Skip("environment happens to be inside a workspace; skipping negative check")
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 func TestNodeAuditDependencyScopeIsExplicit(t *testing.T) {
@@ -173,7 +173,7 @@ func TestParseGovulncheckIgnoresInventoryOnlyFindings(t *testing.T) {
 // runGovulncheckParse exposes the JSON parsing path of runGovulncheck
 // for testing without invoking govulncheck. Not exported on purpose —
 // keeps the public surface small.
-func runGovulncheckParse(out string) ([]*builderv0.AuditFinding, error) {
+func runGovulncheckParse(out string) ([]*builderv1.AuditFinding, error) {
 	bytesOut := []byte(out)
 	return runGovulncheckParseBytes(bytesOut)
 }
@@ -218,7 +218,7 @@ func TestParseNpmAudit(t *testing.T) {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
 	f := findings[0]
-	if f.Severity != builderv0.AuditFinding_HIGH || f.Package != "lodash" || f.FixedVersion != "4.17.21" {
+	if f.Severity != builderv1.AuditFinding_HIGH || f.Package != "lodash" || f.FixedVersion != "4.17.21" {
 		t.Fatalf("finding wrong: %+v", f)
 	}
 }
@@ -236,7 +236,7 @@ func TestParseNpmOutdated(t *testing.T) {
 		t.Fatalf("expected 2, got %d", len(deps))
 	}
 	// Map iteration is non-deterministic; just check both are present.
-	got := map[string]*builderv0.OutdatedDep{}
+	got := map[string]*builderv1.OutdatedDep{}
 	for _, d := range deps {
 		got[d.Package] = d
 	}
@@ -290,7 +290,7 @@ func TestParseOSVGroupsAliasesAndKeepsUnknownSeverityGating(t *testing.T) {
 	if finding.Id != "RUSTSEC-2022-0013" || finding.FixedVersion != "1.5.5" {
 		t.Fatalf("finding wrong: %+v", finding)
 	}
-	if finding.Severity != builderv0.AuditFinding_HIGH {
+	if finding.Severity != builderv1.AuditFinding_HIGH {
 		t.Fatalf("unclassified vulnerability must remain release-gating: %+v", finding)
 	}
 }
@@ -319,18 +319,18 @@ func TestParseTrivy(t *testing.T) {
 		}]
 	}`)
 	findings := parseTrivy(out)
-	if len(findings) != 1 || findings[0].Severity != builderv0.AuditFinding_HIGH {
+	if len(findings) != 1 || findings[0].Severity != builderv1.AuditFinding_HIGH {
 		t.Fatalf("finding wrong: %+v", findings)
 	}
 }
 
 func TestNpmSeverity(t *testing.T) {
-	cases := map[string]builderv0.AuditFinding_Severity{
-		"low":      builderv0.AuditFinding_LOW,
-		"moderate": builderv0.AuditFinding_MEDIUM,
-		"high":     builderv0.AuditFinding_HIGH,
-		"critical": builderv0.AuditFinding_CRITICAL,
-		"weird":    builderv0.AuditFinding_UNKNOWN,
+	cases := map[string]builderv1.AuditFinding_Severity{
+		"low":      builderv1.AuditFinding_LOW,
+		"moderate": builderv1.AuditFinding_MEDIUM,
+		"high":     builderv1.AuditFinding_HIGH,
+		"critical": builderv1.AuditFinding_CRITICAL,
+		"weird":    builderv1.AuditFinding_UNKNOWN,
 	}
 	for in, want := range cases {
 		if got := npmSeverity(in); got != want {

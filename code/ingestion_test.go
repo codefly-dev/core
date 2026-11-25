@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // TestIngestion_FullPipeline validates the operational Codefly code layer:
@@ -49,8 +49,8 @@ func TestIngestion_FullPipeline(t *testing.T) {
 }
 
 func testProjectInfo(t *testing.T, ctx context.Context, srv *GoCodeServer, repo TestRepo, dir string) {
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,8 +85,8 @@ func testProjectInfo(t *testing.T, ctx context.Context, srv *GoCodeServer, repo 
 }
 
 func testBuildDepGraph(t *testing.T, ctx context.Context, srv *GoCodeServer, repo TestRepo) {
-	resp, err := srv.Execute(ctx, &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	resp, err := srv.Execute(ctx, &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -508,7 +508,7 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	if networkAccess == nil {
 		return nil, w.NewError("no network access found")
 	}
-	mappings, err := l.cli.GetDependenciesNetworkMappings(ctx, &v0.GetNetworkMappingsRequest{
+	mappings, err := l.cli.GetDependenciesNetworkMappings(ctx, &v1.GetNetworkMappingsRequest{
 		Module: mod.Name, Service: svc.Name,
 	})
 	if err != nil {
@@ -539,7 +539,7 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 		}))
 	}
 
-	request := &v0.GetConfigurationRequest{Module: mod.Name, Service: svc.Name}
+	request := &v1.GetConfigurationRequest{Module: mod.Name, Service: svc.Name}
 	configuration, err := l.cli.GetConfiguration(ctx, request)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to get configuration")
@@ -579,7 +579,7 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	return newSessionEnvironment(append(variables, supplied...)), nil
 }
 
-func configurationVariables(conf *basev0.Configuration, environment string) ([]*resources.EnvironmentVariable, error) {
+func configurationVariables(conf *basev1.Configuration, environment string) ([]*resources.EnvironmentVariable, error) {
 	variables, err := resources.ConfigurationAsEnvironmentVariables(conf, environment, false)
 	if err != nil {
 		return nil, err
@@ -613,7 +613,7 @@ const ProcessVariableNamespace = "CODEFLY__"
 // naming no source, and a command-scoped session never calls os.Setenv at all,
 // so it would carry a corrupt entry into its children. Errors name the key,
 // never the value, because a supplied value may be a secret.
-func processVariables(values []*basev0.ConfigurationValue) ([]*resources.EnvironmentVariable, error) {
+func processVariables(values []*basev1.ConfigurationValue) ([]*resources.EnvironmentVariable, error) {
 	variables := make([]*resources.EnvironmentVariable, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {

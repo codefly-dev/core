@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/git"
 )
 
@@ -46,7 +46,7 @@ func initTestRepo(t *testing.T) string {
 
 func TestGit_Identity(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
-	resp, err := srv.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	resp, err := srv.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "git", resp.Name)
 	require.Equal(t, "0.0.1", resp.Version)
@@ -57,7 +57,7 @@ func TestGit_Identity(t *testing.T) {
 
 func TestGit_ListTools_Stable(t *testing.T) {
 	srv := git.New(t.TempDir(), "0.0.1")
-	resp, err := srv.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	resp, err := srv.ListTools(context.Background(), &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 
 	// Pin the surface so adding/removing tools is a deliberate change.
@@ -76,7 +76,7 @@ func TestGit_ListTools_Stable(t *testing.T) {
 
 func TestGit_Status_CleanRepoAfterInit(t *testing.T) {
 	srv := git.New(initTestRepo(t), "0.0.1")
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error, "fresh repo with all files committed should be clean: %s", resp.Error)
 	require.Len(t, resp.Content, 1)
@@ -95,7 +95,7 @@ func TestGit_Status_DirtyAfterEdit(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"),
 		[]byte("# changed\n"), 0o600))
 
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 
@@ -108,7 +108,7 @@ func TestGit_Status_DirtyAfterEdit(t *testing.T) {
 func TestGit_Log_ReturnsCommit(t *testing.T) {
 	srv := git.New(initTestRepo(t), "0.0.1")
 	args, _ := structpb.NewStruct(map[string]any{"limit": 10})
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "git.log",
 		Arguments: args,
 	})
@@ -144,7 +144,7 @@ func TestGit_Log_RespectsLimit(t *testing.T) {
 
 	srv := git.New(dir, "0.0.1")
 	args, _ := structpb.NewStruct(map[string]any{"limit": 3})
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name:      "git.log",
 		Arguments: args,
 	})
@@ -156,7 +156,7 @@ func TestGit_Log_RespectsLimit(t *testing.T) {
 
 func TestGit_UnknownTool_ReturnsActionableError(t *testing.T) {
 	srv := git.New(initTestRepo(t), "0.0.1")
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "git.bogus"})
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "git.bogus"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "git.bogus", "error must name the bad tool")
@@ -169,7 +169,7 @@ func TestGit_Diff_ReturnsNotImplemented_ButDispatches(t *testing.T) {
 	// later implement diff for real (just delete this test or assert
 	// real content).
 	srv := git.New(initTestRepo(t), "0.0.1")
-	resp, err := srv.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: "git.diff"})
+	resp, err := srv.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: "git.diff"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "not yet implemented")

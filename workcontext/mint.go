@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Authority mints capabilities. It holds the issuer's signing key, so exactly
@@ -85,7 +85,7 @@ type StartInput struct {
 	OwnerAgentID       string                // required when OwnerPrincipalKind is agent
 	TaskID             string                // required; survives every child session
 	Audience           string                // required; the service allowed to consume this capability
-	AuthorityScopes    []*basev0.WorkScopeV1 // the maximum authority the owner delegated in
+	AuthorityScopes    []*basev1.WorkScopeV1 // the maximum authority the owner delegated in
 	AttributionTeamIDs []string              // optional; verified attribution snapshot
 	WorkspaceID        string                // optional
 	ProjectID          string                // optional; narrows WorkspaceID
@@ -116,7 +116,7 @@ type StartInput struct {
 // Start mints the first capability of a task, carrying the owner's delegated
 // authority and no actor hop: the owner acting directly is not dressed up as
 // a delegation to itself.
-func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.WorkContextV1, error) {
+func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev1.WorkContextV1, error) {
 	if err := a.checkTTL("start", in.TTL); err != nil {
 		return "", nil, err
 	}
@@ -136,7 +136,7 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		replay = ReplayIdempotent
 	}
 	now := a.now()
-	wc := &basev0.WorkContextV1{
+	wc := &basev1.WorkContextV1{
 		Typ:                   Typ,
 		Algorithm:             Algorithm,
 		KeyId:                 a.KeyID,
@@ -172,7 +172,7 @@ type ChildInput struct {
 	AgentID        string                // required when PrincipalKind is agent
 	DelegationID   string                // required; the delegation that produced the hop
 	OrganizationID string                // the actor's own organization, when it differs from the task's
-	GrantedScopes  []*basev0.WorkScopeV1 // required; must attenuate the parent's effective scopes
+	GrantedScopes  []*basev1.WorkScopeV1 // required; must attenuate the parent's effective scopes
 	Audience       string                // required; the service allowed to consume this capability
 	ReplayPolicy   string                // "" defaults to idempotent
 	TTL            time.Duration         // required; clamped to the parent's expiry
@@ -215,7 +215,7 @@ type ChildInput struct {
 // scopes must attenuate the parent's effective scopes and the child expires no
 // later than the parent: an exchange narrows authority or leaves it alone,
 // never the reverse.
-func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) (string, *basev0.WorkContextV1, error) {
+func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) (string, *basev1.WorkContextV1, error) {
 	if parent == nil {
 		return "", nil, fmt.Errorf("%w: child needs a verified parent", ErrInvalid)
 	}
@@ -239,7 +239,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	if err != nil {
 		return "", nil, err
 	}
-	hop := &basev0.WorkActorV1{
+	hop := &basev1.WorkActorV1{
 		PrincipalId:   in.PrincipalID,
 		PrincipalKind: in.PrincipalKind,
 		DelegationId:  in.DelegationID,
@@ -309,7 +309,7 @@ func (a *Authority) requireTrustedParent(parent *Verified) error {
 	return nil
 }
 
-func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string) error {
+func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev1.WorkContextV1, bindingID, exercising string) error {
 	if err := a.requireTrustedParent(parent); err != nil {
 		return err
 	}
@@ -391,7 +391,7 @@ type GrantInput struct {
 // would be born dead whenever the installation moved between the parent's
 // verification and this mint, and the failure would surface in the approved
 // call rather than here.
-func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) (string, *basev0.WorkContextV1, error) {
+func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) (string, *basev1.WorkContextV1, error) {
 	if parent == nil {
 		return "", nil, fmt.Errorf("%w: grant needs a verified parent", ErrInvalid)
 	}
@@ -415,11 +415,11 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 	}
 
 	actor := parent.Actor()
-	hop := &basev0.WorkActorV1{
+	hop := &basev1.WorkActorV1{
 		PrincipalId:   parent.claims().GetOwnerPrincipalId(),
 		PrincipalKind: parent.claims().GetOwnerPrincipalKind(),
 		DelegationId:  grant.ID,
-		GrantedScopes: cloneScopes([]*basev0.WorkScopeV1{grant.Scope}),
+		GrantedScopes: cloneScopes([]*basev1.WorkScopeV1{grant.Scope}),
 	}
 	if actor != nil {
 		hop.PrincipalId = actor.GetPrincipalId()
@@ -442,10 +442,10 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		return "", nil, err
 	}
 	wc.ActorChain = append(wc.ActorChain, hop)
-	wc.GrantHop = &basev0.WorkGrantHopV1{
+	wc.GrantHop = &basev1.WorkGrantHopV1{
 		GrantId:       grant.ID,
 		Approvers:     cloneApprovers(grant.Approvers),
-		GrantedScope:  cloneScopes([]*basev0.WorkScopeV1{grant.Scope})[0],
+		GrantedScope:  cloneScopes([]*basev1.WorkScopeV1{grant.Scope})[0],
 		Subject:       grant.Subject,
 		RequestDigest: grant.RequestDigest,
 	}
@@ -463,7 +463,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 // mutating the returned message would rewrite what the parent is verified to
 // hold — and a later exchange off that same parent would attenuate against
 // the rewritten authority.
-func (a *Authority) derive(parent *Verified, audience, replay string, expires time.Time, revision uint64, session string) (*basev0.WorkContextV1, error) {
+func (a *Authority) derive(parent *Verified, audience, replay string, expires time.Time, revision uint64, session string) (*basev1.WorkContextV1, error) {
 	now := a.now()
 	parentExpiry := time.Unix(parent.claims().GetExpiresAtUnix(), 0)
 	if parentExpiry.Before(expires) {
@@ -521,7 +521,7 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 // engine's NotAfter or the parent's expiry, not from a requested TTL. So the
 // mint answers the question at the resolution it writes, which is the only
 // resolution the answer is true at.
-func stateWindow(wc *basev0.WorkContextV1, now, expires time.Time) error {
+func stateWindow(wc *basev1.WorkContextV1, now, expires time.Time) error {
 	if expires.Unix() <= now.Unix() {
 		return fmt.Errorf("%w: a window closing at %s leaves no whole second after the mint instant %s; "+
 			"a capability states whole seconds, so this one would be issued at or after its own expiry and no verifier would accept it",
@@ -545,13 +545,13 @@ func (a *Authority) revision(ctx context.Context, tenantID string) (uint64, erro
 	return revision, nil
 }
 
-func cloneScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
+func cloneScopes(scopes []*basev1.WorkScopeV1) []*basev1.WorkScopeV1 {
 	if scopes == nil {
 		return nil
 	}
-	out := make([]*basev0.WorkScopeV1, 0, len(scopes))
+	out := make([]*basev1.WorkScopeV1, 0, len(scopes))
 	for _, scope := range scopes {
-		cloned, ok := proto.Clone(scope).(*basev0.WorkScopeV1)
+		cloned, ok := proto.Clone(scope).(*basev1.WorkScopeV1)
 		if !ok {
 			continue
 		}
@@ -560,10 +560,10 @@ func cloneScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
 	return out
 }
 
-func cloneApprovers(approvers []Approver) []*basev0.WorkApproverV1 {
-	out := make([]*basev0.WorkApproverV1, 0, len(approvers))
+func cloneApprovers(approvers []Approver) []*basev1.WorkApproverV1 {
+	out := make([]*basev1.WorkApproverV1, 0, len(approvers))
 	for _, approver := range approvers {
-		out = append(out, &basev0.WorkApproverV1{
+		out = append(out, &basev1.WorkApproverV1{
 			PrincipalId:   approver.PrincipalID,
 			PrincipalKind: approver.Kind,
 		})
@@ -598,7 +598,7 @@ func (a *Authority) signingKey() (crypto.Signer, error) {
 
 // seal validates the assembled claims against the schema and signs them. A
 // capability that would not verify is never handed out.
-func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV1, error) {
+func (a *Authority) seal(wc *basev1.WorkContextV1) (string, *basev1.WorkContextV1, error) {
 	// A NIL KEY IS A REFUSAL, not a panic. ed25519.Sign panics on a key of
 	// the wrong length, so an Authority assembled without one crashed the
 	// caller at the last step of a mint instead of saying what was missing —

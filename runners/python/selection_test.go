@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func TestRenderTestSelectionOwnsPythonSelectorGrammar(t *testing.T) {
@@ -67,8 +67,8 @@ func TestCommandForExactSelectionReplacesBroadPytestDiscovery(t *testing.T) {
 	}
 }
 
-func pythonCaseSelection() *runtimev0.TestSelection {
-	return &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_TestCase{TestCase: &runtimev0.TestCaseSelection{
+func pythonCaseSelection() *runtimev1.TestSelection {
+	return &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_TestCase{TestCase: &runtimev1.TestCaseSelection{
 		Path:          "tests/admin_docs/test_utils.py",
 		QualifiedName: []string{"WidgetTests", "test_empty"},
 	}}}

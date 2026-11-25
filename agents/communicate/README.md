@@ -13,7 +13,7 @@ Bidirectional gRPC streaming for interactive Q&A.
 ### Plugin side
 
 ```go
-func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
+func (s *Builder) Communicate(stream builderv1.Builder_CommunicateServer) error {
     asker := communicate.NewQuestionAsker(stream)
     answers, err := asker.RunSequence(s.Options())
     s.answers = answers

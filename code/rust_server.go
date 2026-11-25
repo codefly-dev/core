@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	"github.com/codefly-dev/core/internal/cargometadata"
 )
 
@@ -28,30 +28,30 @@ func NewRustCodeServer(dir string, serverOpts ...ServerOption) *RustCodeServer {
 	return server
 }
 
-func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	sourceRoot := s.SourceDir
-	response := &codev0.GetProjectInfoResponse{Language: "rust"}
+	response := &codev1.GetProjectInfoResponse{Language: "rust"}
 	metadata, err := cargometadata.Run(ctx, sourceRoot, cargometadata.Options{
 		ManifestPath: filepath.Join(sourceRoot, "Cargo.toml"),
 		Locked:       true, NoDependencies: true, Offline: true,
 	})
 	if err != nil {
-		return codeFailure(wrapRustProjectInfo(response), basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED,
+		return codeFailure(wrapRustProjectInfo(response), basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED,
 			"code.get-project-info", err.Error()), nil
 	}
 
 	packages := rustPackagesWithinRoot(sourceRoot, metadata.Packages)
 	if len(packages) == 0 {
-		return codeFailure(wrapRustProjectInfo(response), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED,
+		return codeFailure(wrapRustProjectInfo(response), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED,
 			"code.get-project-info", "cargo metadata returned no package within the code-unit root"), nil
 	}
 
 	editions := make(map[string]struct{})
-	dependencies := make(map[string]*codev0.Dependency)
+	dependencies := make(map[string]*codev1.Dependency)
 	for _, pkg := range packages {
 		packageRoot := filepath.Dir(pkg.ManifestPath)
 		relativePackage, _ := relativePathWithin(sourceRoot, packageRoot)
-		packageInfo := &codev0.PackageInfo{Name: pkg.Name, RelativePath: relativePackage}
+		packageInfo := &codev1.PackageInfo{Name: pkg.Name, RelativePath: relativePackage}
 		if pkg.Edition != "" {
 			editions[pkg.Edition] = struct{}{}
 		}
@@ -69,7 +69,7 @@ func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.Cod
 			}
 			packageInfo.Imports = append(packageInfo.Imports, importName)
 			key := dependency.Name + "\x00" + dependency.Req
-			dependencies[key] = &codev0.Dependency{Name: dependency.Name, Version: dependency.Req, Direct: true}
+			dependencies[key] = &codev1.Dependency{Name: dependency.Name, Version: dependency.Req, Direct: true}
 		}
 		packageInfo.Imports = sortedUniqueStrings(packageInfo.Imports)
 		response.Packages = append(response.Packages, packageInfo)
@@ -89,7 +89,7 @@ func (s *RustCodeServer) handleGetProjectInfo(ctx context.Context, _ *codev0.Cod
 	response.FileHashes = ComputeFileHashes(s.FS, sourceRoot, rustProjectFileExtensions)
 	response.SourceFiles, response.SourceFilesOmitted, err = s.inspectOptionalSourceImports(ctx, sourceRoot, "rust")
 	if err != nil {
-		return codeFailure(wrapRustProjectInfo(response), basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED,
+		return codeFailure(wrapRustProjectInfo(response), basev1.FailureCode_FAILURE_CODE_VALIDATION_FAILED,
 			"code.get-project-info", err.Error()), nil
 	}
 	return wrapRustProjectInfo(response), nil
@@ -141,7 +141,7 @@ func relativePathWithin(root, candidate string) (string, bool) {
 	return filepath.ToSlash(relative), true
 }
 
-func rustModuleName(packages []*codev0.PackageInfo) string {
+func rustModuleName(packages []*codev1.PackageInfo) string {
 	for _, pkg := range packages {
 		if pkg.RelativePath == "." {
 			return pkg.Name
@@ -178,6 +178,6 @@ var rustProjectFileExtensions = map[string]bool{
 	".rs": true, ".toml": true, ".lock": true,
 }
 
-func wrapRustProjectInfo(response *codev0.GetProjectInfoResponse) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetProjectInfo{GetProjectInfo: response}}
+func wrapRustProjectInfo(response *codev1.GetProjectInfoResponse) *codev1.CodeResponse {
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetProjectInfo{GetProjectInfo: response}}
 }

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/policy/testharness"
 	"github.com/codefly-dev/core/toolbox/policyguard"
@@ -32,7 +32,7 @@ import (
 // CallTool invocations for assertion. We don't need git for these
 // tests — just a stub that says "I was called".
 type recordingToolboxServer struct {
-	toolboxv0.UnimplementedToolboxServer
+	toolboxv1.UnimplementedToolboxServer
 	calls []recordedCall
 }
 
@@ -41,12 +41,12 @@ type recordedCall struct {
 	scopedSA *policy.ScopedAuthorization // captured from ctx
 }
 
-func (r *recordingToolboxServer) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (r *recordingToolboxServer) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
 	r.calls = append(r.calls, recordedCall{
 		tool:     req.GetName(),
 		scopedSA: policy.ScopedAuthFrom(ctx),
 	})
-	return &toolboxv0.CallToolResponse{}, nil
+	return &toolboxv1.CallToolResponse{}, nil
 }
 
 func mintForTest(t *testing.T, secret []byte, action, resource, audience string, ttl time.Duration) string {
@@ -81,7 +81,7 @@ func TestGuard_FastPath_ValidToken_SkipsPDP(t *testing.T) {
 	token := mintForTest(t, secret, "git.status", "", "codefly.dev/test:1.0", time.Minute)
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "git.status",
 	})
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestGuard_FastPath_PrincipalOrganizationUsesSignedClaim(t *testing.T) {
 	})
 	ctx = ctxWithScopedAuth(ctx, token)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 	require.Len(t, inner.calls, 1)
@@ -118,7 +118,7 @@ func TestGuard_FastPath_StampsScopedAuthOnCtx(t *testing.T) {
 	token := mintForTest(t, secret, "git.status", "", "codefly.dev/test:1.0", time.Minute)
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
-	_, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	_, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Len(t, inner.calls, 1)
 	require.NotNil(t, inner.calls[0].scopedSA,
@@ -136,7 +136,7 @@ func TestGuard_DefensePath_NoToken_FallsBackToPDP(t *testing.T) {
 		secret, "codefly.dev/test:1.0")
 
 	// No token in metadata — falls back to PDP path.
-	resp, err := guard.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := guard.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name: "git.status",
 	})
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestGuard_DefensePath_NoToken_PDPDeniesIsHonored(t *testing.T) {
 	guard := policyguard.NewWithScopedAuth(inner, denyPDP, "test-toolbox",
 		secret, "codefly.dev/test:1.0")
 
-	resp, err := guard.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := guard.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name: "git.status",
 	})
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestGuard_InvalidToken_DeniedWithoutPDPDowngrade(t *testing.T) {
 	bogus := "definitely.notavalid.token"
 	ctx := ctxWithScopedAuth(context.Background(), bogus)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Contains(t, resp.Error, "invalid token")
 	require.Equal(t, 0, allowPDP.CallCount(),
@@ -190,7 +190,7 @@ func TestGuard_InvalidToken_PDPDeniesStillRefuses(t *testing.T) {
 		secret, "codefly.dev/test:1.0")
 
 	ctx := ctxWithScopedAuth(context.Background(), "bogus.token.here")
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error,
 		"invalid credentials are denied before the PDP path")
@@ -209,7 +209,7 @@ func TestGuard_WrongAudience_FallsBackToPDP(t *testing.T) {
 	token := mintForTest(t, secret, "git.status", "", "different-plugin", time.Minute)
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	// Audience mismatch → token verification fails closed.
 	require.NotEmpty(t, resp.Error,
@@ -227,7 +227,7 @@ func TestGuard_ActionMismatch_FallsBackToPDP(t *testing.T) {
 	token := mintForTest(t, secret, "git.status", "", "codefly.dev/test:1.0", time.Minute)
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.commit"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.commit"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error,
 		"action-mismatched token must NOT authorize a different action")
@@ -243,7 +243,7 @@ func TestGuard_ResourceCheck_TokenMatchesArgsResource(t *testing.T) {
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
 	args, _ := structpb.NewStruct(map[string]any{"resource": "repo:foo"})
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "git.status", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestGuard_ResourceMismatch_FallsBackToPDP(t *testing.T) {
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
 	args, _ := structpb.NewStruct(map[string]any{"resource": "repo:not-authorized"})
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name: "git.status", Arguments: args,
 	})
 	require.NoError(t, err)
@@ -282,12 +282,12 @@ func TestGuard_ReplayProtection_SecondUseDenied(t *testing.T) {
 	ctx := ctxWithScopedAuth(context.Background(), token)
 
 	// First use: succeeds.
-	resp1, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp1, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp1.Error)
 
 	// Second use: replay tracker rejects with Exhausted.
-	resp2, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp2, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp2.Error)
 	require.Contains(t, resp2.Error, "max uses exhausted",
@@ -308,7 +308,7 @@ func TestGuard_NoSecretConfigured_AlwaysUsesPDP(t *testing.T) {
 	// Even with a token in metadata, Guard ignores it (no
 	// secret to verify against).
 	ctx := ctxWithScopedAuth(context.Background(), "anything.at.all")
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error)
 	require.Equal(t, 1, allowPDP.CallCount(),
@@ -329,7 +329,7 @@ func TestGuard_PicksUpSecretFromEnv(t *testing.T) {
 
 	token := mintForTest(t, secret, "git.status", "", "codefly.dev/test:1.0", time.Minute)
 	ctx := ctxWithScopedAuth(context.Background(), token)
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error,
 		"Guard must pick up the secret from env and verify successfully")
@@ -361,7 +361,7 @@ func TestGuard_CaveatVerification(t *testing.T) {
 		})
 
 	ctx := ctxWithScopedAuth(context.Background(), encoded)
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "github.merge_pr"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "github.merge_pr"})
 	require.NoError(t, err)
 	require.Empty(t, resp.Error,
 		"caveat verifier accepts → fast path proceeds")
@@ -404,7 +404,7 @@ func TestGuard_ConfigMutators_RaceFree(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				_, _ = guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+				_, _ = guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 			}
 		}
 	}()
@@ -449,7 +449,7 @@ func TestGuard_EmptyTokenIsInvalid(t *testing.T) {
 	md := metadata.Pairs(policy.ScopedAuthMetadataKey, "")
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
-	resp, err := guard.CallTool(ctx, &toolboxv0.CallToolRequest{Name: "git.status"})
+	resp, err := guard.CallTool(ctx, &toolboxv1.CallToolRequest{Name: "git.status"})
 	require.NoError(t, err)
 	require.Contains(t, resp.Error, "invalid token")
 	require.Equal(t, 0, allowPDP.CallCount())

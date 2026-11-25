@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/codefly-dev/core/agents"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/toolbox/lang"
 )
 
@@ -31,12 +31,12 @@ import (
 // (which surfaces as gRPC Unimplemented — the bridge passes that
 // through cleanly).
 type fakeTooling struct {
-	toolingv0.UnimplementedToolingServer
+	toolingv1.UnimplementedToolingServer
 	version string
 }
 
-func (f *fakeTooling) Test(_ context.Context, _ *toolingv0.TestRequest) (*toolingv0.TestResponse, error) {
-	return &toolingv0.TestResponse{
+func (f *fakeTooling) Test(_ context.Context, _ *toolingv1.TestRequest) (*toolingv1.TestResponse, error) {
+	return &toolingv1.TestResponse{
 		Success:     true,
 		TestsRun:    3,
 		TestsPassed: 3,

@@ -30,7 +30,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/artifactexecution"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,7 +39,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const solutionServiceName protoreflect.FullName = "codefly.services.solution.v0.Solution"
+const solutionServiceName protoreflect.FullName = "codefly.services.solution.v1.Solution"
 
 // Ceiling is the maximum network reach and state effect a host admits for one
 // operation. A method is admitted only when both of its declared policy fields
@@ -56,8 +56,8 @@ const solutionServiceName protoreflect.FullName = "codefly.services.solution.v0.
 // do not address (see the package doc): the constructor proves which operation a
 // caller named, not that the caller was entitled to it.
 type Ceiling struct {
-	network solutionv0.SolutionNetworkMode
-	effect  solutionv0.SolutionEffect
+	network solutionv1.SolutionNetworkMode
+	effect  solutionv1.SolutionEffect
 }
 
 // CeilingInspect admits only offline, read-only RPCs — GetSolutionInformation.
@@ -65,8 +65,8 @@ type Ceiling struct {
 // advertisement without invoking any lifecycle mutation.
 func CeilingInspect() Ceiling {
 	return Ceiling{
-		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
-		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_READ_ONLY,
+		network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
+		effect:  solutionv1.SolutionEffect_SOLUTION_EFFECT_READ_ONLY,
 	}
 }
 
@@ -74,8 +74,8 @@ func CeilingInspect() Ceiling {
 // but not Render (which pulls the packaged artifact) or Package's registry push.
 func CeilingScaffold() Ceiling {
 	return Ceiling{
-		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
-		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
+		network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_OFFLINE,
+		effect:  solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
 	}
 }
 
@@ -84,16 +84,16 @@ func CeilingScaffold() Ceiling {
 // Package's registry push.
 func CeilingRender() Ceiling {
 	return Ceiling{
-		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ,
-		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
+		network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_READ,
+		effect:  solutionv1.SolutionEffect_SOLUTION_EFFECT_LOCAL_WRITE,
 	}
 }
 
 // CeilingPublish admits every Solution RPC, including Package's registry push.
 func CeilingPublish() Ceiling {
 	return Ceiling{
-		network: solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE,
-		effect:  solutionv0.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE,
+		network: solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_REGISTRY_WRITE,
+		effect:  solutionv1.SolutionEffect_SOLUTION_EFFECT_REGISTRY_WRITE,
 	}
 }
 
@@ -112,14 +112,14 @@ func CeilingPublish() Ceiling {
 // callers that bypass Client — admits the same call rather than defaulting it to
 // least privilege.
 //
-// The raw generated solutionv0.SolutionClient is deliberately not a second entry
+// The raw generated solutionv1.SolutionClient is deliberately not a second entry
 // point for effectful calls: the context stamp is unexported (withCeiling), so a
 // caller holding the raw client can only ever reach the least-privilege default
 // ceiling — enough for the read-only advertisement, which stays reachable that way
 // by design — while every mutating RPC fails closed. That leaves this type as the
 // single path that can dispatch anything beyond that read.
 type Client struct {
-	inner solutionv0.SolutionClient
+	inner solutionv1.SolutionClient
 }
 
 // NewClient wraps a connection with the typed, ceiling-enforcing Solution client.
@@ -127,44 +127,44 @@ type Client struct {
 // ceiling itself — though every agent connection from agents/manager.Load installs
 // it anyway to gate any caller that reaches for the raw generated client.
 func NewClient(conn grpc.ClientConnInterface) *Client {
-	return &Client{inner: solutionv0.NewSolutionClient(conn)}
+	return &Client{inner: solutionv1.NewSolutionClient(conn)}
 }
 
 // GetSolutionInformation reads a solution executor's advertisement.
-func (c *Client) GetSolutionInformation(ctx context.Context, ceiling Ceiling, in *solutionv0.GetSolutionInformationRequest, opts ...grpc.CallOption) (*solutionv0.GetSolutionInformationResponse, error) {
-	if err := enforce(solutionv0.Solution_GetSolutionInformation_FullMethodName, ceiling); err != nil {
+func (c *Client) GetSolutionInformation(ctx context.Context, ceiling Ceiling, in *solutionv1.GetSolutionInformationRequest, opts ...grpc.CallOption) (*solutionv1.GetSolutionInformationResponse, error) {
+	if err := enforce(solutionv1.Solution_GetSolutionInformation_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
 	return c.inner.GetSolutionInformation(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Create scaffolds a new solution into a destination directory.
-func (c *Client) Create(ctx context.Context, ceiling Ceiling, in *solutionv0.CreateRequest, opts ...grpc.CallOption) (*solutionv0.CreateResponse, error) {
-	if err := enforce(solutionv0.Solution_Create_FullMethodName, ceiling); err != nil {
+func (c *Client) Create(ctx context.Context, ceiling Ceiling, in *solutionv1.CreateRequest, opts ...grpc.CallOption) (*solutionv1.CreateResponse, error) {
+	if err := enforce(solutionv1.Solution_Create_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
 	return c.inner.Create(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Update reconciles an existing solution source with the executor's template.
-func (c *Client) Update(ctx context.Context, ceiling Ceiling, in *solutionv0.UpdateRequest, opts ...grpc.CallOption) (*solutionv0.UpdateResponse, error) {
-	if err := enforce(solutionv0.Solution_Update_FullMethodName, ceiling); err != nil {
+func (c *Client) Update(ctx context.Context, ceiling Ceiling, in *solutionv1.UpdateRequest, opts ...grpc.CallOption) (*solutionv1.UpdateResponse, error) {
+	if err := enforce(solutionv1.Solution_Update_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
 	return c.inner.Update(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Package builds an OCI artifact from a solution source directory and pushes it.
-func (c *Client) Package(ctx context.Context, ceiling Ceiling, in *solutionv0.PackageRequest, opts ...grpc.CallOption) (*solutionv0.PackageResponse, error) {
-	if err := enforce(solutionv0.Solution_Package_FullMethodName, ceiling); err != nil {
+func (c *Client) Package(ctx context.Context, ceiling Ceiling, in *solutionv1.PackageRequest, opts ...grpc.CallOption) (*solutionv1.PackageResponse, error) {
+	if err := enforce(solutionv1.Solution_Package_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
 	return c.inner.Package(withCeiling(ctx, ceiling), in, opts...)
 }
 
 // Render renders a packaged solution's manifests into a gitops destination.
-func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv0.RenderRequest, opts ...grpc.CallOption) (*solutionv0.RenderResponse, error) {
-	if err := enforce(solutionv0.Solution_Render_FullMethodName, ceiling); err != nil {
+func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv1.RenderRequest, opts ...grpc.CallOption) (*solutionv1.RenderResponse, error) {
+	if err := enforce(solutionv1.Solution_Render_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
 	if execution := in.GetExecution(); execution != nil {
@@ -178,7 +178,7 @@ func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv0.Ren
 		if artifact == nil || artifact.GetArtifactDigest() == "" {
 			return nil, fmt.Errorf("verified solution executor identity is required")
 		}
-		information, err := c.GetSolutionInformation(ctx, CeilingInspect(), &solutionv0.GetSolutionInformationRequest{Artifact: artifact}, opts...)
+		information, err := c.GetSolutionInformation(ctx, CeilingInspect(), &solutionv1.GetSolutionInformationRequest{Artifact: artifact}, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -237,42 +237,42 @@ func ceilingFrom(ctx context.Context) (Ceiling, bool) {
 }
 
 // policyFor returns the declared method policy for a full gRPC method name
-// (e.g. "/codefly.services.solution.v0.Solution/Package"). The second result
+// (e.g. "/codefly.services.solution.v1.Solution/Package"). The second result
 // reports whether the method belongs to the Solution service; a Solution method
 // with no annotation returns (nil, true) so callers fail closed. It is
 // unexported: only the interceptor consults policies; a host uses the interceptor
 // plus Client, never the policy lookup directly.
-func policyFor(fullMethod string) (*solutionv0.SolutionMethodPolicy, bool) {
+func policyFor(fullMethod string) (*solutionv1.SolutionMethodPolicy, bool) {
 	method := methodDescriptor(fullMethod)
 	if method == nil {
 		return nil, false
 	}
 	options, ok := method.Options().(*descriptorpb.MethodOptions)
-	if !ok || !proto.HasExtension(options, solutionv0.E_SolutionMethodPolicy) {
+	if !ok || !proto.HasExtension(options, solutionv1.E_SolutionMethodPolicy) {
 		return nil, true
 	}
-	return proto.GetExtension(options, solutionv0.E_SolutionMethodPolicy).(*solutionv0.SolutionMethodPolicy), true
+	return proto.GetExtension(options, solutionv1.E_SolutionMethodPolicy).(*solutionv1.SolutionMethodPolicy), true
 }
 
 // admits reports whether a method policy is within the ceiling. It fails closed:
 // a nil policy, an unspecified policy field, or an unspecified ceiling field is
 // never admitted. It is unexported for the same reason as policyFor — it is the
 // interceptor's internal check, not host-facing API.
-func admits(policy *solutionv0.SolutionMethodPolicy, ceiling Ceiling) error {
+func admits(policy *solutionv1.SolutionMethodPolicy, ceiling Ceiling) error {
 	if policy == nil {
 		return fmt.Errorf("no method policy declared")
 	}
 	network, effect := policy.GetNetwork(), policy.GetEffect()
-	if network == solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
+	if network == solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
 		return fmt.Errorf("network mode is unspecified")
 	}
-	if effect == solutionv0.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
+	if effect == solutionv1.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
 		return fmt.Errorf("effect is unspecified")
 	}
-	if ceiling.network == solutionv0.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
+	if ceiling.network == solutionv1.SolutionNetworkMode_SOLUTION_NETWORK_MODE_UNSPECIFIED {
 		return fmt.Errorf("ceiling network mode is unspecified")
 	}
-	if ceiling.effect == solutionv0.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
+	if ceiling.effect == solutionv1.SolutionEffect_SOLUTION_EFFECT_UNSPECIFIED {
 		return fmt.Errorf("ceiling effect is unspecified")
 	}
 	if network > ceiling.network {
@@ -337,7 +337,7 @@ func methodDescriptor(fullMethod string) protoreflect.MethodDescriptor {
 	if protoreflect.FullName(trimmed[:slash]) != solutionServiceName {
 		return nil
 	}
-	service := solutionv0.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
+	service := solutionv1.File_codefly_services_solution_v0_solution_proto.Services().ByName("Solution")
 	if service == nil {
 		return nil
 	}

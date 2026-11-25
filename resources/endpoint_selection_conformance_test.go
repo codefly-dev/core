@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -36,19 +36,19 @@ func selectionEndpoint(name, api, visibility string) *resources.Endpoint {
 	return endpoint
 }
 
-func selectionMapping(name, api string, instances ...*basev0.NetworkInstance) *basev0.NetworkMapping {
-	return &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: selectionModule, Service: selectionService, Name: name, Api: api},
+func selectionMapping(name, api string, instances ...*basev1.NetworkInstance) *basev1.NetworkMapping {
+	return &basev1.NetworkMapping{
+		Endpoint:  &basev1.Endpoint{Module: selectionModule, Service: selectionService, Name: name, Api: api},
 		Instances: instances,
 	}
 }
 
-func nativeAt(address string) *basev0.NetworkInstance {
-	return &basev0.NetworkInstance{Address: address, Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}}
+func nativeAt(address string) *basev1.NetworkInstance {
+	return &basev1.NetworkInstance{Address: address, Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessNative}}
 }
 
-func containerAt(address string) *basev0.NetworkInstance {
-	return &basev0.NetworkInstance{Address: address, Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessContainer}}
+func containerAt(address string) *basev1.NetworkInstance {
+	return &basev1.NetworkInstance{Address: address, Access: &basev1.NetworkAccess{Kind: resources.NetworkAccessContainer}}
 }
 
 // declaredBy answers a selection context's manifest lookup for one producer.
@@ -71,8 +71,8 @@ func publicTrio() resources.EndpointSelectionContext {
 	)}
 }
 
-func resolveFor(t *testing.T, reference string, mappings []*basev0.NetworkMapping,
-	access *basev0.NetworkAccess, selection resources.EndpointSelectionContext,
+func resolveFor(t *testing.T, reference string, mappings []*basev1.NetworkMapping,
+	access *basev1.NetworkAccess, selection resources.EndpointSelectionContext,
 ) (string, error) {
 	t.Helper()
 	return resources.InterpolateEndpointsFor(context.Background(), "${endpoint:"+reference+"}", mappings, access, selection)
@@ -94,11 +94,11 @@ func TestAReferenceResolvesToTheEndpointItNamesInAnyOrder(t *testing.T) {
 
 	for _, order := range []struct {
 		name     string
-		mappings []*basev0.NetworkMapping
+		mappings []*basev1.NetworkMapping
 	}{
-		{"named first", []*basev0.NetworkMapping{grpc, admin, metrics}},
-		{"named last", []*basev0.NetworkMapping{admin, metrics, grpc}},
-		{"named between", []*basev0.NetworkMapping{admin, grpc, metrics}},
+		{"named first", []*basev1.NetworkMapping{grpc, admin, metrics}},
+		{"named last", []*basev1.NetworkMapping{admin, metrics, grpc}},
+		{"named between", []*basev1.NetworkMapping{admin, grpc, metrics}},
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			out, err := resolveFor(t, selectionUnique+"/grpc", order.mappings, resources.NewNativeNetworkAccess(),
@@ -118,7 +118,7 @@ func TestAReferenceResolvesToTheEndpointItNamesInAnyOrder(t *testing.T) {
 // An endpoint that published no mapping is reported as absent, never replaced by
 // a sibling that shares its API.
 func TestAnAbsentExactNameIsNotAnsweredByAnAPISibling(t *testing.T) {
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 	}
 	declared := resources.EndpointSelectionContext{
@@ -154,13 +154,13 @@ func TestAnAbsentExactNameIsNotAnsweredByAnAPISibling(t *testing.T) {
 func TestAnEndpointWithNoAddressForThisAccessIsNotReplaced(t *testing.T) {
 	for _, sibling := range []struct {
 		name     string
-		instance *basev0.NetworkInstance
+		instance *basev1.NetworkInstance
 	}{
 		{"the sibling has an address", nativeAt("http://localhost:2222")},
 		{"the sibling's address is empty", nativeAt("")},
 	} {
 		t.Run(sibling.name, func(t *testing.T) {
-			mappings := []*basev0.NetworkMapping{
+			mappings := []*basev1.NetworkMapping{
 				// The named endpoint is reachable, but not from here.
 				selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 				selectionMapping("admin", "grpc", sibling.instance),
@@ -182,23 +182,23 @@ func TestAnEndpointWithNoAddressForThisAccessIsNotReplaced(t *testing.T) {
 func TestSeveralMappingsForOneEndpointAreSearchedInOrder(t *testing.T) {
 	for _, order := range []struct {
 		name     string
-		mappings []*basev0.NetworkMapping
+		mappings []*basev1.NetworkMapping
 	}{
 		// The sibling comes FIRST in every order: the old scan took the first
 		// mapping matching the reference with an instance for the access, so a
 		// sibling ahead of the named endpoint is exactly the order it answered
 		// wrongly in, and the one a test of this property must use.
-		{"the sibling first, then the access on the first named mapping", []*basev0.NetworkMapping{
+		{"the sibling first, then the access on the first named mapping", []*basev1.NetworkMapping{
 			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 		}},
-		{"the sibling first, then the access on the second named mapping", []*basev0.NetworkMapping{
+		{"the sibling first, then the access on the second named mapping", []*basev1.NetworkMapping{
 			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		}},
-		{"the sibling between the unusable and the usable named mapping", []*basev0.NetworkMapping{
+		{"the sibling between the unusable and the usable named mapping", []*basev1.NetworkMapping{
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
@@ -216,7 +216,7 @@ func TestSeveralMappingsForOneEndpointAreSearchedInOrder(t *testing.T) {
 	// they cannot make the reference ambiguous.
 	t.Run("duplicate mappings of one endpoint are one candidate", func(t *testing.T) {
 		only := resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))}
-		out, err := resolveFor(t, selectionUnique+"/grpc", []*basev0.NetworkMapping{
+		out, err := resolveFor(t, selectionUnique+"/grpc", []*basev1.NetworkMapping{
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		}, resources.NewNativeNetworkAccess(), only)
@@ -236,7 +236,7 @@ func TestSeveralMappingsForOneEndpointAreSearchedInOrder(t *testing.T) {
 // composition names an endpoint it may reach or the producer exports the one it
 // means.
 func TestAnExactNameTheConsumerMayNotReachIsRefusedNotSubstituted(t *testing.T) {
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 	}
@@ -266,7 +266,7 @@ func TestAnExactNameTheConsumerMayNotReachIsRefusedNotSubstituted(t *testing.T) 
 // consumer may reach — and more than one is refused rather than decided by
 // declaration order.
 func TestAnAPIReferenceSeveralEndpointsSatisfyIsRefused(t *testing.T) {
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("primary", "grpc", nativeAt("http://localhost:1111")),
 		selectionMapping("secondary", "grpc", nativeAt("http://localhost:2222")),
 	}
@@ -323,9 +323,9 @@ func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
 
 	// And through the resolution, with the foreign producer's mappings mixed
 	// in: the foreign address is never bound for this reference.
-	foreignMapping := &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: "payments", Service: "ledger", Name: "grpc", Api: "grpc"},
-		Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:3333")},
+	foreignMapping := &basev1.NetworkMapping{
+		Endpoint:  &basev1.Endpoint{Module: "payments", Service: "ledger", Name: "grpc", Api: "grpc"},
+		Instances: []*basev1.NetworkInstance{nativeAt("http://localhost:3333")},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
 		switch unique {
@@ -337,7 +337,7 @@ func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
 		return nil, false
 	})
 	out, err := resolveFor(t, selectionUnique+"/grpc",
-		[]*basev0.NetworkMapping{foreignMapping, selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
+		[]*basev1.NetworkMapping{foreignMapping, selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
 		resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declared})
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:1111", out)
@@ -355,7 +355,7 @@ func TestAnUnidentifiedConsumerIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, resources.ErrConsumerNotIdentified)
 
 	_, err = resolveFor(t, selectionUnique+"/grpc",
-		[]*basev0.NetworkMapping{selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
+		[]*basev1.NetworkMapping{selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
 		resources.NewNativeNetworkAccess(),
 		resources.EndpointSelectionContext{Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))})
 	require.ErrorIs(t, err, resources.ErrConsumerNotIdentified, "and the resolution refuses before reading any mapping")
@@ -375,7 +375,7 @@ func TestTheCheckAndTheResolutionSelectTheSameEndpoint(t *testing.T) {
 		&resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"}, declared)
 	require.Error(t, err, "the check refuses an exact name the consumer may not reach")
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 	}

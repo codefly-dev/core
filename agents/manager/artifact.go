@@ -12,10 +12,10 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/artifactexecution"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/solution"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -26,7 +26,7 @@ import (
 // Release authority and acquisition are checked by composition before this call;
 // loading proves content identity and live compatibility, not deployment authority.
 // No installed agent is resolved, downloaded, replaced, or removed.
-func LoadArtifact(ctx context.Context, path string, execution *basev0.ArtifactExecution, opts ...LoadOption) (*AgentConn, error) {
+func LoadArtifact(ctx context.Context, path string, execution *basev1.ArtifactExecution, opts ...LoadOption) (*AgentConn, error) {
 	request, err := artifactexecution.Prepare(execution)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAgentAdmission, err)
@@ -129,8 +129,8 @@ func stageExecutable(ctx context.Context, path, expected string) (bin, dir strin
 	return bin, dir, nil
 }
 
-func admitArtifact(ctx context.Context, conn *AgentConn, request *basev0.ArtifactExecution) error {
-	info, err := agentv0.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+func admitArtifact(ctx context.Context, conn *AgentConn, request *basev1.ArtifactExecution) error {
+	info, err := agentv1.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv1.AgentInformationRequest{})
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func admitArtifact(ctx context.Context, conn *AgentConn, request *basev0.Artifac
 	}
 	var advertised []string
 	if request.Protocol == artifactexecution.SolutionRender {
-		info, err := solution.NewClient(conn.GRPCConn()).GetSolutionInformation(ctx, solution.CeilingInspect(), &solutionv0.GetSolutionInformationRequest{Artifact: &solutionv0.SolutionArtifact{ArtifactDigest: conn.ArtifactDigest()}})
+		info, err := solution.NewClient(conn.GRPCConn()).GetSolutionInformation(ctx, solution.CeilingInspect(), &solutionv1.GetSolutionInformationRequest{Artifact: &solutionv1.SolutionArtifact{ArtifactDigest: conn.ArtifactDigest()}})
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func admitArtifact(ctx context.Context, conn *AgentConn, request *basev0.Artifac
 		}
 		advertised = info.GetCapabilities().GetExecutionContracts()
 	} else {
-		info, err := builderv0.NewBuilderClient(conn.GRPCConn()).BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{})
+		info, err := builderv1.NewBuilderClient(conn.GRPCConn()).BuildCapabilities(ctx, &builderv1.BuildCapabilitiesRequest{})
 		if err != nil {
 			return err
 		}
@@ -157,25 +157,25 @@ func admitArtifact(ctx context.Context, conn *AgentConn, request *basev0.Artifac
 	return artifactexecution.Check(request, request.Protocol, conn.ArtifactDigest(), advertised)
 }
 
-func executionGate(selected *basev0.ArtifactExecution) grpc.UnaryClientInterceptor {
+func executionGate(selected *basev1.ArtifactExecution) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		var execution *basev0.ArtifactExecution
+		var execution *basev1.ArtifactExecution
 		var protocol string
 		switch method {
-		case agentv0.Agent_GetAgentInformation_FullMethodName, builderv0.Builder_BuildCapabilities_FullMethodName, solutionv0.Solution_GetSolutionInformation_FullMethodName, "/grpc.health.v1.Health/Check":
+		case agentv1.Agent_GetAgentInformation_FullMethodName, builderv1.Builder_BuildCapabilities_FullMethodName, solutionv1.Solution_GetSolutionInformation_FullMethodName, "/grpc.health.v1.Health/Check":
 			return invoke(ctx, method, req, reply, cc, opts...)
-		case builderv0.Builder_Build_FullMethodName:
-			if request, ok := req.(*builderv0.BuildRequest); ok {
+		case builderv1.Builder_Build_FullMethodName:
+			if request, ok := req.(*builderv1.BuildRequest); ok {
 				execution = request.Execution
 			}
 			protocol = artifactexecution.BuilderBuild
-		case builderv0.Builder_Deploy_FullMethodName:
-			if request, ok := req.(*builderv0.DeploymentRequest); ok {
+		case builderv1.Builder_Deploy_FullMethodName:
+			if request, ok := req.(*builderv1.DeploymentRequest); ok {
 				execution = request.Execution
 			}
 			protocol = artifactexecution.BuilderRender
-		case solutionv0.Solution_Render_FullMethodName:
-			if request, ok := req.(*solutionv0.RenderRequest); ok {
+		case solutionv1.Solution_Render_FullMethodName:
+			if request, ok := req.(*solutionv1.RenderRequest); ok {
 				execution = request.Execution
 			}
 			protocol = artifactexecution.SolutionRender

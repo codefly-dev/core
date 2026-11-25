@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/policy"
 )
 
@@ -23,12 +23,12 @@ const (
 	approvalRequestID = "ar-77"
 )
 
-func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
-	return &basev0.WorkScopeV1{ResourceKind: kind, Actions: []string{action}, ResourceIds: []string{resourceID}}
+func workScope(kind, action, resourceID string) *basev1.WorkScopeV1 {
+	return &basev1.WorkScopeV1{ResourceKind: kind, Actions: []string{action}, ResourceIds: []string{resourceID}}
 }
 
-func approvalSignal() *basev0.ApprovalRequiredV1 {
-	return &basev0.ApprovalRequiredV1{
+func approvalSignal() *basev1.ApprovalRequiredV1 {
+	return &basev1.ApprovalRequiredV1{
 		RequestId:      approvalRequestID,
 		RequestedScope: workScope("repo", "merge", "codefly/core"),
 		Subject:        mergeSubject,

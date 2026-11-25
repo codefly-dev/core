@@ -7,7 +7,7 @@ import (
 	"path"
 	"path/filepath"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -182,8 +182,8 @@ func (app *Application) Local(p ...string) string {
 }
 
 // Proto converts to protobuf representation
-func (app *Application) Proto(_ context.Context) (*basev0.Application, error) {
-	proto := &basev0.Application{
+func (app *Application) Proto(_ context.Context) (*basev1.Application, error) {
+	proto := &basev1.Application{
 		Name:        app.Name,
 		Description: app.Description,
 	}
@@ -199,7 +199,7 @@ func (app *Application) Proto(_ context.Context) (*basev0.Application, error) {
 
 	// Convert service dependencies
 	for _, dep := range app.ServiceDependencies {
-		proto.ServiceDependencies = append(proto.ServiceDependencies, &basev0.ServiceReference{
+		proto.ServiceDependencies = append(proto.ServiceDependencies, &basev1.ServiceReference{
 			Name:   dep.Name,
 			Module: dep.Module,
 		})
@@ -207,7 +207,7 @@ func (app *Application) Proto(_ context.Context) (*basev0.Application, error) {
 
 	// Convert application dependencies
 	for _, dep := range app.ApplicationDependencies {
-		proto.ApplicationDependencies = append(proto.ApplicationDependencies, &basev0.ApplicationReference{
+		proto.ApplicationDependencies = append(proto.ApplicationDependencies, &basev1.ApplicationReference{
 			Name:   dep.Name,
 			Module: dep.Module,
 		})
@@ -215,7 +215,7 @@ func (app *Application) Proto(_ context.Context) (*basev0.Application, error) {
 
 	// Convert artifacts
 	for _, art := range app.Artifacts {
-		proto.Artifacts = append(proto.Artifacts, &basev0.Artifact{
+		proto.Artifacts = append(proto.Artifacts, &basev1.Artifact{
 			Name:     art.Name,
 			Type:     art.Type,
 			Platform: art.Platform,

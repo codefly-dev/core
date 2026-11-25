@@ -8,7 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/actions/actions"
 	"github.com/codefly-dev/core/actions/service"
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +70,7 @@ func addDependency(t *testing.T, dir, module, name string, endpoints ...string) 
 	ctx := context.Background()
 	ws, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)
-	action, err := service.NewActionAddServiceDependency(ctx, &actionsv0.AddServiceDependency{
+	action, err := service.NewActionAddServiceDependency(ctx, &actionsv1.AddServiceDependency{
 		Name:             name,
 		Module:           module,
 		DependencyName:   "secrets",

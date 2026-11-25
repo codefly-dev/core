@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/network/urlguard"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/canonical"
@@ -37,16 +37,16 @@ func (o originConfig) urlguardOrigin() urlguard.Origin {
 	return urlguard.Origin{Scheme: o.scheme, Host: o.host, Port: o.port}
 }
 
-func (o originConfig) networkClass() providerv0.PrivateNetworkClass {
+func (o originConfig) networkClass() providerv1.PrivateNetworkClass {
 	switch o.class {
 	case "loopback":
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LOOPBACK
 	case "link-local":
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LINK_LOCAL
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_LINK_LOCAL
 	case "private":
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PRIVATE
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PRIVATE
 	default:
-		return providerv0.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC
+		return providerv1.PrivateNetworkClass_PRIVATE_NETWORK_CLASS_PUBLIC
 	}
 }
 
@@ -188,9 +188,9 @@ const (
 	poisonSecret = "sk_live_1234567890abcdef"
 )
 
-func admittedOriginFor(t *testing.T, o originConfig) *providerv0.AdmittedOrigin {
+func admittedOriginFor(t *testing.T, o originConfig) *providerv1.AdmittedOrigin {
 	t.Helper()
-	origin := &providerv0.AdmittedOrigin{
+	origin := &providerv1.AdmittedOrigin{
 		OriginRuleId:        "api",
 		Scheme:              o.scheme,
 		Host:                o.host,
@@ -203,7 +203,7 @@ func admittedOriginFor(t *testing.T, o originConfig) *providerv0.AdmittedOrigin 
 	return origin
 }
 
-func admittedOrigin(t *testing.T) *providerv0.AdmittedOrigin {
+func admittedOrigin(t *testing.T) *providerv1.AdmittedOrigin {
 	t.Helper()
 	return admittedOriginFor(t, loopbackConfig())
 }
@@ -226,19 +226,19 @@ func descriptorDigest(t *testing.T, m *manifest.Manifest, id string) string {
 	return ""
 }
 
-func pubString(value string) *providerv0.PublicValue {
-	return &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: value}}
+func pubString(value string) *providerv1.PublicValue {
+	return &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: value}}
 }
 
-func boundCreateRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.AdmittedOrigin) *providerv0.PlannedRequest {
+func boundCreateRequest(t *testing.T, m *manifest.Manifest, origin *providerv1.AdmittedOrigin) *providerv1.PlannedRequest {
 	t.Helper()
-	request := &providerv0.PlannedRequest{
+	request := &providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.create",
 		RequestDescriptorDigest: descriptorDigest(t, m, "account.create"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_POST,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_POST,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
-		Body:                    map[string]*providerv0.PublicValue{"name": pubString(remoteID)},
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		Body:                    map[string]*providerv1.PublicValue{"name": pubString(remoteID)},
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
 		ResponsePolicyDigest:    fakeDigest("account-response-policy"),
 		IdempotencyKey:          "idem-1",
 	}
@@ -247,15 +247,15 @@ func boundCreateRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.A
 	return bound
 }
 
-func boundObserveRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.AdmittedOrigin, accountID string) *providerv0.PlannedRequest {
+func boundObserveRequest(t *testing.T, m *manifest.Manifest, origin *providerv1.AdmittedOrigin, accountID string) *providerv1.PlannedRequest {
 	t.Helper()
-	request := &providerv0.PlannedRequest{
+	request := &providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.observe",
 		RequestDescriptorDigest: descriptorDigest(t, m, "account.observe"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_GET,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_GET,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
-		PathParameters:          map[string]*providerv0.PublicValue{"account_id": pubString(accountID)},
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		PathParameters:          map[string]*providerv1.PublicValue{"account_id": pubString(accountID)},
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
 		ResponsePolicyDigest:    fakeDigest("account-response-policy"),
 	}
 	bound, err := canonical.BindPlannedRequestDigest(request)
@@ -263,30 +263,30 @@ func boundObserveRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.
 	return bound
 }
 
-func createAction(t *testing.T, requests ...*providerv0.PlannedRequest) *providerv0.PlanAction {
+func createAction(t *testing.T, requests ...*providerv1.PlannedRequest) *providerv1.PlanAction {
 	t.Helper()
-	action := &providerv0.PlanAction{
+	action := &providerv1.PlanAction{
 		ActionId:            "a1",
 		Position:            0,
-		Type:                providerv0.ActionType_ACTION_TYPE_CREATE,
+		Type:                providerv1.ActionType_ACTION_TYPE_CREATE,
 		ResourceType:        "account",
 		ProspectiveRemoteId: remoteID,
-		Ownership:           providerv0.Ownership_OWNERSHIP_OWNED,
+		Ownership:           providerv1.Ownership_OWNERSHIP_OWNED,
 		Requests:            requests,
 	}
 	require.NoError(t, canonical.ValidatePlanAction(action))
 	return action
 }
 
-func boundDeleteRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.AdmittedOrigin) *providerv0.PlannedRequest {
+func boundDeleteRequest(t *testing.T, m *manifest.Manifest, origin *providerv1.AdmittedOrigin) *providerv1.PlannedRequest {
 	t.Helper()
-	request := &providerv0.PlannedRequest{
+	request := &providerv1.PlannedRequest{
 		RequestDescriptorId:     "account.delete",
 		RequestDescriptorDigest: descriptorDigest(t, m, "account.delete"),
-		Method:                  providerv0.HTTPMethod_HTTP_METHOD_DELETE,
+		Method:                  providerv1.HTTPMethod_HTTP_METHOD_DELETE,
 		AdmittedOriginDigest:    origin.GetAdmissionDigest(),
-		PathParameters:          map[string]*providerv0.PublicValue{"account_id": pubString(remoteID)},
-		CredentialPurposes:      []providerv0.CredentialPurpose{providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
+		PathParameters:          map[string]*providerv1.PublicValue{"account_id": pubString(remoteID)},
+		CredentialPurposes:      []providerv1.CredentialPurpose{providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT},
 		ResponsePolicyDigest:    fakeDigest("deleted-response-policy"),
 		IdempotencyKey:          "idem-del",
 	}
@@ -295,47 +295,47 @@ func boundDeleteRequest(t *testing.T, m *manifest.Manifest, origin *providerv0.A
 	return bound
 }
 
-func deleteAction(t *testing.T, requests ...*providerv0.PlannedRequest) *providerv0.PlanAction {
+func deleteAction(t *testing.T, requests ...*providerv1.PlannedRequest) *providerv1.PlanAction {
 	t.Helper()
-	action := &providerv0.PlanAction{
+	action := &providerv1.PlanAction{
 		ActionId:       "a1",
 		Position:       0,
-		Type:           providerv0.ActionType_ACTION_TYPE_DELETE,
+		Type:           providerv1.ActionType_ACTION_TYPE_DELETE,
 		ResourceType:   "account",
-		RemoteIdentity: &providerv0.RemoteIdentity{Provider: "fixture", ResourceType: "account", RemoteId: remoteID},
-		Ownership:      providerv0.Ownership_OWNERSHIP_OWNED,
+		RemoteIdentity: &providerv1.RemoteIdentity{Provider: "fixture", ResourceType: "account", RemoteId: remoteID},
+		Ownership:      providerv1.Ownership_OWNERSHIP_OWNED,
 		Requests:       requests,
 	}
 	require.NoError(t, canonical.ValidatePlanAction(action))
 	return action
 }
 
-func binding() *providerv0.BindingAddress {
-	return &providerv0.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
+func binding() *providerv1.BindingAddress {
+	return &providerv1.BindingAddress{WorkspaceId: "ws", EnvironmentId: "env", BindingId: "bind"}
 }
 
-func operation() *providerv0.OperationIdentity {
-	return &providerv0.OperationIdentity{OperationId: "op1", AttemptId: "att1", ActionId: "a1", PlanId: "plan1"}
+func operation() *providerv1.OperationIdentity {
+	return &providerv1.OperationIdentity{OperationId: "op1", AttemptId: "att1", ActionId: "a1", PlanId: "plan1"}
 }
 
-func budget() *providerv0.RequestBudget {
-	return &providerv0.RequestBudget{RequestCount: 4, RequestBytes: 8192, ResponseBytes: 65536}
+func budget() *providerv1.RequestBudget {
+	return &providerv1.RequestBudget{RequestCount: 4, RequestBytes: 8192, ResponseBytes: 65536}
 }
 
 // fakeCheckpointer returns a preset durable checkpoint.
 type fakeCheckpointer struct {
-	checkpoint *providerv0.ActionCheckpoint
+	checkpoint *providerv1.ActionCheckpoint
 }
 
-func (c *fakeCheckpointer) Latest(_ context.Context, _ *providerv0.OperationIdentity) (*providerv0.ActionCheckpoint, error) {
+func (c *fakeCheckpointer) Latest(_ context.Context, _ *providerv1.OperationIdentity) (*providerv1.ActionCheckpoint, error) {
 	return c.checkpoint, nil
 }
 
-func checkpoint(id, idempotencyKey string) *providerv0.ActionCheckpoint {
-	return &providerv0.ActionCheckpoint{
+func checkpoint(id, idempotencyKey string) *providerv1.ActionCheckpoint {
+	return &providerv1.ActionCheckpoint{
 		CheckpointId:   id,
 		Operation:      operation(),
-		Delivery:       providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
+		Delivery:       providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
 		IdempotencyKey: idempotencyKey,
 	}
 }
@@ -362,11 +362,11 @@ func dialClientFor(addr string) func(urlguard.Origin, urlguard.Resolution) *http
 type harness struct {
 	origin      originConfig
 	manifest    *manifest.Manifest
-	action      *providerv0.PlanAction
+	action      *providerv1.PlanAction
 	vault       *credentials.Vault
 	sink        *recordingSink
-	admitted    *providerv0.AdmittedOrigin
-	create      *providerv0.PlannedRequest
+	admitted    *providerv1.AdmittedOrigin
+	create      *providerv1.PlannedRequest
 	checkpoints *fakeCheckpointer
 }
 
@@ -394,7 +394,7 @@ func newHarnessOn(t *testing.T, origin originConfig) *harness {
 	}
 }
 
-func (h *harness) mintHandle(t *testing.T, planned *providerv0.PlannedRequest, method providerv0.HTTPMethod) *providerv0.CredentialHandle {
+func (h *harness) mintHandle(t *testing.T, planned *providerv1.PlannedRequest, method providerv1.HTTPMethod) *providerv1.CredentialHandle {
 	t.Helper()
 	handle, err := h.vault.Mint(poisonSecret, credentials.Scope{
 		Principal:      "user",
@@ -404,7 +404,7 @@ func (h *harness) mintHandle(t *testing.T, planned *providerv0.PlannedRequest, m
 		PlanID:         "plan1",
 		ActionID:       "a1",
 		RequestDigest:  planned.GetRequestDigest(),
-		Purpose:        providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		Purpose:        providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
 		Origin:         h.origin.urlguardOrigin(),
 		Method:         method,
 		Injection:      credentials.Injection{Kind: credentials.InjectBearer},
@@ -415,18 +415,18 @@ func (h *harness) mintHandle(t *testing.T, planned *providerv0.PlannedRequest, m
 	return handle
 }
 
-func (h *harness) executeRequest(handle *providerv0.CredentialHandle, planned *providerv0.PlannedRequest) *providerv0.ExecuteRequestRequest {
-	return &providerv0.ExecuteRequestRequest{
-		Context: &providerv0.ProviderContext{
-			Offline:     &providerv0.OfflineProviderContext{Binding: binding()},
-			Credentials: []*providerv0.CredentialHandle{handle},
+func (h *harness) executeRequest(handle *providerv1.CredentialHandle, planned *providerv1.PlannedRequest) *providerv1.ExecuteRequestRequest {
+	return &providerv1.ExecuteRequestRequest{
+		Context: &providerv1.ProviderContext{
+			Offline:     &providerv1.OfflineProviderContext{Binding: binding()},
+			Credentials: []*providerv1.CredentialHandle{handle},
 			Operation:   operation(),
 			Budget:      budget(),
 		},
 		RequestId:         "req-1",
 		Request:           planned,
 		Origin:            h.admitted,
-		CredentialHandles: []*providerv0.CredentialHandle{handle},
+		CredentialHandles: []*providerv1.CredentialHandle{handle},
 	}
 }
 
@@ -449,9 +449,9 @@ type recordingSink struct {
 	stored []string
 }
 
-func (s *recordingSink) Put(_ context.Context, target responsepolicy.SinkTarget, secret string) (*providerv0.OpaqueReference, error) {
+func (s *recordingSink) Put(_ context.Context, target responsepolicy.SinkTarget, secret string) (*providerv1.OpaqueReference, error) {
 	s.stored = append(s.stored, secret)
-	return &providerv0.OpaqueReference{
+	return &providerv1.OpaqueReference{
 		Reference: "capture://" + target.Key,
 		Purpose:   target.Purpose,
 	}, nil

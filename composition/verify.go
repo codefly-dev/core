@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/moduleupdate"
 	"google.golang.org/protobuf/proto"
 )
@@ -21,7 +21,7 @@ type TrustPolicy struct {
 	BuildSigners map[string]map[string]ed25519.PublicKey
 }
 
-func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev0.ContractSnapshot, error) {
+func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev1.ContractSnapshot, error) {
 	evidence, err := release.ContractEvidence(ctx)
 	if err != nil {
 		return nil, err
@@ -46,11 +46,11 @@ func (release *VerifiedRelease) ContractEvidence(ctx context.Context) (*moduleup
 
 // ContractDiff reads update evidence from the authenticated module archive.
 // A digest in an unattested sidecar is not proof that a release contains it.
-func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
+func (release *VerifiedRelease) ContractDiff() (*updatev1.ReleaseDiff, error) {
 	if err := release.prepareUpdate(); err != nil {
 		return nil, err
 	}
-	return proto.Clone(release.updateDiff).(*updatev0.ReleaseDiff), nil
+	return proto.Clone(release.updateDiff).(*updatev1.ReleaseDiff), nil
 }
 
 func (release *VerifiedRelease) prepareUpdate() error {
@@ -74,7 +74,7 @@ func (release *VerifiedRelease) prepareUpdate() error {
 	return nil
 }
 
-func (release *VerifiedRelease) readContractDiff() (*updatev0.ReleaseDiff, error) {
+func (release *VerifiedRelease) readContractDiff() (*updatev1.ReleaseDiff, error) {
 	root, err := os.MkdirTemp("", "codefly-update-evidence-*")
 	if err != nil {
 		return nil, err
@@ -111,13 +111,13 @@ func (release *VerifiedRelease) readContractDiff() (*updatev0.ReleaseDiff, error
 	return diff, nil
 }
 
-func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+func (release *VerifiedRelease) EvaluateUpdate(pin *updatev1.ConsumerPin) *updatev1.UpdateResult {
 	err := release.prepareUpdate()
 	if err != nil {
-		result := &updatev0.UpdateResult{
+		result := &updatev1.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
-			Verdict:      updatev0.Verdict_VERDICT_UNDETERMINED,
-			Undetermined: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
+			Verdict:      updatev1.Verdict_VERDICT_UNDETERMINED,
+			Undetermined: []*updatev1.AffectedItem{{Reason: "could not determine: " + err.Error()}},
 		}
 		if release != nil && release.manifest != nil {
 			result.ToVersion = release.manifest.Version

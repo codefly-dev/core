@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/architecture"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -156,9 +156,9 @@ func TestVisibilityChecksAgreeOnConsumingAll(t *testing.T) {
 	require.NoError(t, err)
 	endpoints, err := producer.DependencyEndpoints()
 	require.NoError(t, err)
-	mappings := make([]*basev0.NetworkMapping, 0, len(endpoints))
+	mappings := make([]*basev1.NetworkMapping, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		mappings = append(mappings, &basev0.NetworkMapping{Endpoint: endpoint})
+		mappings = append(mappings, &basev1.NetworkMapping{Endpoint: endpoint})
 	}
 	resolved, err := resources.ResolveDependencyNetworkMappings(workspace, "consumer", consumer.ServiceDependencies, mappings)
 	require.NoError(t, err)

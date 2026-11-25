@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -174,7 +174,7 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			Id: "codefly.execution", Component: "gateway", Release: "v0.1.23",
 		},
 		Assurance: executionv1.ExecutionAssurance_EXECUTION_ASSURANCE_PLUGIN_EXECUTED,
-		WorkContext: &basev0.WorkContextV1{
+		WorkContext: &basev1.WorkContextV1{
 			Typ: "codefly.work-context/v1", Algorithm: "Ed25519",
 			KeyId: "accounts-key-1", Issuer: "accounts", Audience: "codefly.execution",
 			NotBeforeUnix: started.Add(-time.Minute).Unix(), IssuedAtUnix: started.Add(-time.Minute).Unix(),
@@ -182,7 +182,7 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			AuthorizationRevision: 4, ReplayPolicy: "idempotent",
 			TenantId: "tenant-codefly", OwnerPrincipalId: "principal-owner",
 			TaskId: "task-1", SessionId: "session-child", ParentSessionId: &parentSessionID,
-			AuthorityScopes: []*basev0.WorkScopeV1{{
+			AuthorityScopes: []*basev1.WorkScopeV1{{
 				ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 			}},
 			// The seal and every hop's epoch are required by the schema. A
@@ -191,14 +191,14 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			// making the field required rather than verifier-enforced: a
 			// reader of a receipt sees the installation the authority was held
 			// through, instead of seeing it as optional.
-			Seal: &basev0.WorkSealV1{
+			Seal: &basev1.WorkSealV1{
 				PrincipalEpoch: 2, InstallationId: "installation-1",
 				InstallationRevision: 3,
 			},
-			ActorChain: []*basev0.WorkActorV1{{
+			ActorChain: []*basev1.WorkActorV1{{
 				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",
 				PrincipalEpoch: 1,
-				GrantedScopes: []*basev0.WorkScopeV1{{
+				GrantedScopes: []*basev1.WorkScopeV1{{
 					ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 				}},
 			}},

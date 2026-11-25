@@ -15,8 +15,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/workcontext"
 )
@@ -67,7 +67,7 @@ const (
 )
 
 // ErrNotAnOperation is returned for a method that does not carry the
-// codefly.runnable.v0.operation option. It is an answer, not a failure: a
+// codefly.runnable.v1.operation option. It is an answer, not a failure: a
 // generator walks every method of a service and derives the marked ones.
 var ErrNotAnOperation = errors.New("method is not a Codefly runnable operation")
 
@@ -146,9 +146,9 @@ type OperationSpec struct {
 	// Audience is the trust boundary the runtime mints authority for.
 	Audience string
 	// InvokeScopes are the scopes bound for the call.
-	InvokeScopes []*basev0.WorkScopeV1
+	InvokeScopes []*basev1.WorkScopeV1
 	// LookupScopes are the scopes bound to read an effect receipt.
-	LookupScopes []*basev0.WorkScopeV1
+	LookupScopes []*basev1.WorkScopeV1
 	// LookupMethod is the paired receipt method on the same service, empty when
 	// the SDK's generic receipt lookup answers instead.
 	LookupMethod string
@@ -157,15 +157,15 @@ type OperationSpec struct {
 	MaxInputBytes  uint64
 	MaxOutputBytes uint64
 	// Completion is how the operation's answer arrives.
-	Completion basev0.RunnableExecution_Completion
+	Completion basev1.RunnableExecution_Completion
 	// Tool is how the operation is presented as a tool, never a grant. Every
 	// operation is a tool; a derivation fills this from the method when the
 	// owner wrote none (DefaultTool).
-	Tool *runnablev0.ToolExposure
+	Tool *runnablev1.ToolExposure
 	// Recovery is how an uncertain outcome is resolved, as declared:
 	// RECOVERY_UNKNOWN reads as RECOVERY_RECEIPT (EffectiveRecovery).
-	Recovery basev0.RunnableExecution_Recovery
-	// Declared says the owner wrote the codefly.runnable.v0.operation option;
+	Recovery basev1.RunnableExecution_Recovery
+	// Declared says the owner wrote the codefly.runnable.v1.operation option;
 	// false is an operation derived by default from its authority policy. It
 	// is the derivation's account of itself, for a generator to report, and is
 	// never delivered: a policy is the same policy whoever wrote it.
@@ -174,7 +174,7 @@ type OperationSpec struct {
 	// and actions whose exact resource ids only the installing composition
 	// knows. A spec carrying one is not yet a policy a binding may deliver;
 	// ResolveScopeSlots is the one way to a concrete one.
-	RequiredScopeSlots []*runnablev0.ScopeSlot
+	RequiredScopeSlots []*runnablev1.ScopeSlot
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
@@ -193,7 +193,7 @@ type ServiceOwner struct {
 	Endpoint string
 	// Agent is the owner's pinned service agent: a method an owner already
 	// publishes is built by the owner's own builder, never by a runnable agent.
-	Agent *basev0.Agent
+	Agent *basev1.Agent
 	// Audience is the trust boundary a derived operation's authority is
 	// minted for when the method carries no option naming one. Empty is the
 	// owner's module, which is the audience a module's hop admits.
@@ -215,10 +215,10 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		return nil, fmt.Errorf("%w: method descriptor is required", ErrInvalid)
 	}
 	options, _ := method.Options().(*descriptorpb.MethodOptions)
-	if !proto.HasExtension(options, runnablev0.E_Operation) {
+	if !proto.HasExtension(options, runnablev1.E_Operation) {
 		return nil, fmt.Errorf("%w: %s", ErrNotAnOperation, method.FullName())
 	}
-	declared, _ := proto.GetExtension(options, runnablev0.E_Operation).(*runnablev0.Operation)
+	declared, _ := proto.GetExtension(options, runnablev1.E_Operation).(*runnablev1.Operation)
 	full := FullMethodName(method)
 	// A policy field this core has no name for is a requirement it cannot
 	// honour, not one it may drop: a reader that derived past it would emit a
@@ -234,7 +234,7 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 	// The option's presence is the marking, but every policy field is required:
 	// an attempt budget and an authority nobody chose are not defaults core may
 	// invent on an owner's behalf.
-	if proto.Equal(declared, &runnablev0.Operation{}) {
+	if proto.Equal(declared, &runnablev1.Operation{}) {
 		return nil, fmt.Errorf("%w: %s carries the operation option but declares no execution policy; the option marks the method and its fields state how it runs", ErrInvalid, full)
 	}
 	// AsDuration saturates a Duration outside its valid range instead of
@@ -293,7 +293,7 @@ func OperationForMethod(files *protoregistry.Files, method protoreflect.MethodDe
 		return nil, false, fmt.Errorf("%w: method descriptor is required", ErrInvalid)
 	}
 	options, _ := method.Options().(*descriptorpb.MethodOptions)
-	explicit := options != nil && proto.HasExtension(options, runnablev0.E_Operation)
+	explicit := options != nil && proto.HasExtension(options, runnablev1.E_Operation)
 	if excluded(options) {
 		if explicit {
 			return nil, true, fmt.Errorf("%w: %s both declares an operation and excludes itself from derivation", ErrInvalid, method.FullName())
@@ -349,10 +349,10 @@ func receiptLookupOf(method protoreflect.MethodDescriptor) string {
 	for i := 0; i < methods.Len(); i++ {
 		sibling := methods.Get(i)
 		options, _ := sibling.Options().(*descriptorpb.MethodOptions)
-		if options == nil || !proto.HasExtension(options, runnablev0.E_Operation) {
+		if options == nil || !proto.HasExtension(options, runnablev1.E_Operation) {
 			continue
 		}
-		if declared, isOperation := proto.GetExtension(options, runnablev0.E_Operation).(*runnablev0.Operation); isOperation && declared.GetLookupMethod() == full {
+		if declared, isOperation := proto.GetExtension(options, runnablev1.E_Operation).(*runnablev1.Operation); isOperation && declared.GetLookupMethod() == full {
 			return FullMethodName(sibling)
 		}
 	}
@@ -397,11 +397,11 @@ func validateLookupMethod(method protoreflect.MethodDescriptor, full, lookup str
 // clonedScopes copies the option's scopes out of the descriptor: a spec is
 // handed to a generator that owns what it holds, and a descriptor's options
 // are shared and must not be written through.
-func clonedScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
+func clonedScopes(scopes []*basev1.WorkScopeV1) []*basev1.WorkScopeV1 {
 	if scopes == nil {
 		return nil
 	}
-	cloned := make([]*basev0.WorkScopeV1, 0, len(scopes))
+	cloned := make([]*basev1.WorkScopeV1, 0, len(scopes))
 	for _, scope := range scopes {
 		cloned = append(cloned, proto.CloneOf(scope))
 	}
@@ -448,9 +448,9 @@ func (s *OperationSpec) Validate() error {
 	// relation between two fields of the derived package, and is checked where
 	// both are in view (validateExecution). Here the only question is whether
 	// the owner named one at all.
-	if s.Completion != basev0.RunnableExecution_COMPLETION_CALL && s.Completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+	if s.Completion != basev1.RunnableExecution_COMPLETION_CALL && s.Completion != basev1.RunnableExecution_COMPLETION_SUBMIT {
 		return fmt.Errorf("%w: %s declares no completion mode; %s and %s are the two, and an operation that did not say is not a synchronous one",
-			ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_CALL, basev0.RunnableExecution_COMPLETION_SUBMIT)
+			ErrInvalid, s.Method, basev1.RunnableExecution_COMPLETION_CALL, basev1.RunnableExecution_COMPLETION_SUBMIT)
 	}
 	if err := ValidateToolExposure(s.Tool); err != nil {
 		return err
@@ -465,9 +465,9 @@ func (s *OperationSpec) Validate() error {
 // RECOVERY_RECEIPT: every operation declared before recovery could be stated
 // resolved an uncertain outcome by its receipt, and reading an unstated one
 // any other way could re-run an effect.
-func (s *OperationSpec) EffectiveRecovery() basev0.RunnableExecution_Recovery {
-	if s.Recovery == basev0.RunnableExecution_RECOVERY_UNKNOWN {
-		return basev0.RunnableExecution_RECOVERY_RECEIPT
+func (s *OperationSpec) EffectiveRecovery() basev1.RunnableExecution_Recovery {
+	if s.Recovery == basev1.RunnableExecution_RECOVERY_UNKNOWN {
+		return basev1.RunnableExecution_RECOVERY_RECEIPT
 	}
 	return s.Recovery
 }
@@ -480,18 +480,18 @@ func (s *OperationSpec) EffectiveRecovery() basev0.RunnableExecution_Recovery {
 // mutation presented as recomputable would be re-run on an uncertain outcome.
 func (s *OperationSpec) validateRecovery() error {
 	switch s.Recovery {
-	case basev0.RunnableExecution_RECOVERY_UNKNOWN, basev0.RunnableExecution_RECOVERY_RECEIPT:
+	case basev1.RunnableExecution_RECOVERY_UNKNOWN, basev1.RunnableExecution_RECOVERY_RECEIPT:
 		return nil
-	case basev0.RunnableExecution_RECOVERY_RECOMPUTE:
+	case basev1.RunnableExecution_RECOVERY_RECOMPUTE:
 	default:
 		return fmt.Errorf("%w: %s declares recovery %s, which is not one core defines", ErrInvalid, s.Method, s.Recovery)
 	}
 	switch {
 	case len(s.LookupScopes) > 0 || s.LookupMethod != "":
 		return fmt.Errorf("%w: %s is recomputed and declares a receipt lookup; a read has no effect receipt to look up", ErrInvalid, s.Method)
-	case s.Completion != basev0.RunnableExecution_COMPLETION_CALL:
-		return fmt.Errorf("%w: %s is recomputed and does not answer in the call; %s requires %s", ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_SUBMIT, basev0.RunnableExecution_RECOVERY_RECEIPT)
-	case s.Tool != nil && s.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY:
+	case s.Completion != basev1.RunnableExecution_COMPLETION_CALL:
+		return fmt.Errorf("%w: %s is recomputed and does not answer in the call; %s requires %s", ErrInvalid, s.Method, basev1.RunnableExecution_COMPLETION_SUBMIT, basev1.RunnableExecution_RECOVERY_RECEIPT)
+	case s.Tool != nil && s.Tool.GetEffect() != runnablev1.ToolExposure_EFFECT_READ_ONLY:
 		return fmt.Errorf("%w: %s is recomputed and its tool declares %s; only a read is safe to re-run", ErrInvalid, s.Method, s.Tool.GetEffect())
 	}
 	return nil
@@ -510,7 +510,7 @@ func (s *OperationSpec) authority() authoritySpec {
 		invokeScopes:       s.InvokeScopes,
 		lookupScopes:       s.LookupScopes,
 		requiredScopeSlots: s.RequiredScopeSlots,
-		submitted:          s.Completion == basev0.RunnableExecution_COMPLETION_SUBMIT,
+		submitted:          s.Completion == basev1.RunnableExecution_COMPLETION_SUBMIT,
 	}
 }
 
@@ -539,10 +539,10 @@ type authoritySpec struct {
 	// an installation's binding — so a refusal names the record to correct.
 	origin       string
 	audience     string
-	invokeScopes []*basev0.WorkScopeV1
-	lookupScopes []*basev0.WorkScopeV1
+	invokeScopes []*basev1.WorkScopeV1
+	lookupScopes []*basev1.WorkScopeV1
 	// requiredScopeSlots exists only while an owner declaration awaits selection.
-	requiredScopeSlots []*runnablev0.ScopeSlot
+	requiredScopeSlots []*runnablev1.ScopeSlot
 	// submitted is an operation answering COMPLETION_SUBMIT, whose answer is
 	// learnable only through its receipt. It keeps lookup scopes required until
 	// a runtime mints a receipt lookup under the invoke scopes: installed with
@@ -582,7 +582,7 @@ func (a authoritySpec) validate() error {
 // authority. An unauthorized operation is not a lenient one: with no audience
 // and no scopes there is nothing to mint a child capability from, and the
 // runtime refuses the installation rather than calling without authority.
-func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) error {
+func (a authoritySpec) validateScopes(at string, scopes []*basev1.WorkScopeV1) error {
 	if len(scopes) == 0 && len(a.requiredScopeSlots) > 0 {
 		// The resolver validates again after filling and clearing every slot.
 		// This defers only absence; supplied fixed scopes keep all their checks.
@@ -685,8 +685,8 @@ func methodByFullName(files *protoregistry.Files, fullMethod string) (protorefle
 // Nothing here is authored twice: the contract is the projection of the
 // method's own messages, the implementation is the method itself reached on the
 // owner's endpoint, and the identity is the release the caller is generating.
-func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableLocation, owner ServiceOwner, fullMethod string) (pkg *basev0.RunnablePackage, spec *OperationSpec, err error) {
-	var output *basev0.RunnableSchema
+func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableLocation, owner ServiceOwner, fullMethod string) (pkg *basev1.RunnablePackage, spec *OperationSpec, err error) {
+	var output *basev1.RunnableSchema
 	if location == nil || location.Identity == nil {
 		return nil, nil, fmt.Errorf("%w: the release identity a derived package carries is required", ErrInvalid)
 	}
@@ -700,7 +700,7 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 	}
 	input, err := ProjectMessage(method.Input())
 	if err == nil {
-		var projected *basev0.RunnableSchema
+		var projected *basev1.RunnableSchema
 		if projected, err = ProjectMessage(method.Output()); err == nil {
 			output = projected
 		}
@@ -717,28 +717,28 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: identity: %v", ErrInvalid, err)
 	}
-	pkg, err = PreparePackage(&basev0.RunnablePackage{
+	pkg, err = PreparePackage(&basev1.RunnablePackage{
 		Schema:   PackageSchemaV1,
 		Identity: identity,
 		Agent:    owner.Agent,
-		Contract: &basev0.RunnableContract{Protocol: resources.RunnableServiceProtocolV1, Input: input, Output: output},
-		Execution: &basev0.RunnableExecution{
-			Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
+		Contract: &basev1.RunnableContract{Protocol: resources.RunnableServiceProtocolV1, Input: input, Output: output},
+		Execution: &basev1.RunnableExecution{
+			Facilities:     []*basev1.RunnableFacility{{Kind: basev1.RunnableFacility_SERVICE}},
 			Timeout:        durationpb.New(spec.TotalTimeout),
-			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
+			Cancellation:   basev1.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       spec.EffectiveRecovery(),
 			Completion:     spec.Completion,
 			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
 			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
 		},
-		ServiceOperations: []*basev0.RunnableServiceOperation{{
+		ServiceOperations: []*basev1.RunnableServiceOperation{{
 			Module:        owner.Module,
 			Name:          owner.Service,
 			Endpoint:      owner.Endpoint,
 			Operation:     spec.Method,
 			InputMessage:  string(method.Input().FullName()),
 			OutputMessage: string(method.Output().FullName()),
-			Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+			Adaptation:    basev1.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
 		}},
 	})
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 	"github.com/codefly-dev/core/internal/testgit"
 	"time"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // TestRunPythonTestsStructuredClassifiesInvalidTargetAsSelectionError is the
@@ -53,7 +53,7 @@ class CalculatorTests:
 	if message := response.GetResult().GetMessage(); !strings.HasPrefix(message, "test-selection-error (") || strings.Contains(message, "env-blocked") {
 		t.Fatalf("typed runtime result = %q, want selection error", message)
 	}
-	if response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED || response.GetCounts().GetTotal() != 0 {
+	if response.GetResult().GetState() != runtimev1.TestRunResult_ERRORED || response.GetCounts().GetTotal() != 0 {
 		t.Fatalf("typed runtime result = %+v counts=%+v, want zero-case error", response.GetResult(), response.GetCounts())
 	}
 }

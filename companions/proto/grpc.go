@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
@@ -23,7 +23,7 @@ import (
 // to generate gRPC client code for the given language and endpoints. It is a
 // thin wrapper over GenerateClient: the proto sources come from the endpoints
 // and no facade is emitted.
-func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev0.Endpoint) error {
+func GenerateGRPC(ctx context.Context, language languages.Language, destination string, service string, endpoints ...*basev1.Endpoint) error {
 	w := wool.Get(ctx).In("generateGRPC", wool.Field("destination", destination))
 	var sources []Source
 	for _, endpoint := range endpoints {

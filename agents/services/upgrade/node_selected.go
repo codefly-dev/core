@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // npmSaveExact is the Save of a group whose packages are declared at an exact
@@ -46,10 +46,10 @@ func splitNpmOnly(only []string) (names []string, selected map[string]string) {
 // manifest declares it: exact stays exact, a caret or tilde range keeps its
 // operator. A package no manifest declares is refused: this moves a
 // dependency, it does not add one.
-func npmSelectedInstalls(selected map[string]string, manifests []npmManifest) ([]npmInstallGroup, []*builderv0.UpgradeChange, error) {
+func npmSelectedInstalls(selected map[string]string, manifests []npmManifest) ([]npmInstallGroup, []*builderv1.UpgradeChange, error) {
 	type key struct{ workspace, save string }
 	grouped := map[key][]string{}
-	changed := map[string]*builderv0.UpgradeChange{}
+	changed := map[string]*builderv1.UpgradeChange{}
 	for name, version := range selected {
 		declared := false
 		for _, manifest := range manifests {
@@ -68,7 +68,7 @@ func npmSelectedInstalls(selected map[string]string, manifests []npmManifest) ([
 			k := key{manifest.Workspace, save}
 			grouped[k] = append(grouped[k], name+"@"+version)
 			if _, seen := changed[name]; !seen || manifest.Workspace == "" {
-				changed[name] = &builderv0.UpgradeChange{Package: name, From: from, To: version}
+				changed[name] = &builderv1.UpgradeChange{Package: name, From: from, To: version}
 			}
 		}
 		if !declared {
@@ -90,7 +90,7 @@ func npmSelectedInstalls(selected map[string]string, manifests []npmManifest) ([
 		}
 		return groups[i].Save < groups[j].Save
 	})
-	changes := make([]*builderv0.UpgradeChange, 0, len(changed))
+	changes := make([]*builderv1.UpgradeChange, 0, len(changed))
 	for _, change := range changed {
 		changes = append(changes, change)
 	}

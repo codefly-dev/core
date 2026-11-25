@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // The python plugin owns the distinction between "tests RAN and failed" and "the
@@ -229,7 +229,7 @@ func TestToProtoResponse_EnvErrorIsErroredNotPassed(t *testing.T) {
 		EnvError: &RunEnvError{Reason: "missing-dependency", Detail: "No module named 'werkzeug'"},
 	}
 	resp := run.ToProtoResponse("python", "flask", 0)
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("env-blocked run must be ERRORED, got %v", resp.GetResult().GetState())
 	}
 	if resp.GetCounts().GetTotal() != 0 {
@@ -258,13 +258,13 @@ func TestToProtoResponse_RealFailureStaysFailed(t *testing.T) {
 		Suites: []*StructuredSuite{{
 			Name: "test_x.py", File: "test_x.py",
 			Cases: []*StructuredCase{
-				{Name: "test_a", State: runtimev0.TestCaseState_TEST_CASE_STATE_PASSED},
-				{Name: "test_b", State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED},
+				{Name: "test_a", State: runtimev1.TestCaseState_TEST_CASE_STATE_PASSED},
+				{Name: "test_b", State: runtimev1.TestCaseState_TEST_CASE_STATE_FAILED},
 			},
 		}},
 	}
 	resp := run.ToProtoResponse("python", "x", 0)
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_FAILED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_FAILED {
 		t.Fatalf("a real test failure must be FAILED, got %v", resp.GetResult().GetState())
 	}
 	if resp.GetCounts().GetTotal() != 2 || resp.GetCounts().GetFailed() != 1 {

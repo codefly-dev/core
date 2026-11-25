@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/toolbox/lang"
 )
 
@@ -20,11 +20,11 @@ import (
 // outputs. Each typed RPC returns a known fixture so the round-trip
 // test can assert byte-for-byte equality.
 type fakeTooling struct {
-	toolingv0.UnimplementedToolingServer
+	toolingv1.UnimplementedToolingServer
 }
 
-func (fakeTooling) Test(_ context.Context, req *toolingv0.TestRequest) (*toolingv0.TestResponse, error) {
-	return &toolingv0.TestResponse{
+func (fakeTooling) Test(_ context.Context, req *toolingv1.TestRequest) (*toolingv1.TestResponse, error) {
+	return &toolingv1.TestResponse{
 		Success:     true,
 		Output:      "ok:" + req.Path,
 		TestsRun:    7,
@@ -32,8 +32,8 @@ func (fakeTooling) Test(_ context.Context, req *toolingv0.TestRequest) (*tooling
 	}, nil
 }
 
-func (fakeTooling) ApplyEdit(_ context.Context, req *toolingv0.ApplyEditRequest) (*toolingv0.ApplyEditResponse, error) {
-	return &toolingv0.ApplyEditResponse{
+func (fakeTooling) ApplyEdit(_ context.Context, req *toolingv1.ApplyEditRequest) (*toolingv1.ApplyEditResponse, error) {
+	return &toolingv1.ApplyEditResponse{
 		Success:    true,
 		Content:    req.Replace,
 		Strategy:   req.File + ":" + req.Find,
@@ -47,11 +47,11 @@ func (fakeTooling) ApplyEdit(_ context.Context, req *toolingv0.ApplyEditRequest)
 // ToolingFromToolbox. If this round-trips correctly, Mind sees no
 // difference between calling the real Tooling client and calling
 // through the bridged Toolbox.
-func startBridgedTooling(t *testing.T, fake toolingv0.ToolingServer) (toolingv0.ToolingClient, toolboxv0.ToolboxClient) {
+func startBridgedTooling(t *testing.T, fake toolingv1.ToolingServer) (toolingv1.ToolingClient, toolboxv1.ToolboxClient) {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	toolboxv0.RegisterToolboxServer(srv,
+	toolboxv1.RegisterToolboxServer(srv,
 		lang.NewToolboxFromTooling("fake", "0.0.1", fake))
 	go func() { _ = srv.Serve(listener) }()
 	t.Cleanup(srv.Stop)
@@ -65,7 +65,7 @@ func startBridgedTooling(t *testing.T, fake toolingv0.ToolingServer) (toolingv0.
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	tbClient := toolboxv0.NewToolboxClient(conn)
+	tbClient := toolboxv1.NewToolboxClient(conn)
 	typed := lang.ToolingFromToolbox(tbClient)
 	return typed, tbClient
 }
@@ -74,7 +74,7 @@ func startBridgedTooling(t *testing.T, fake toolingv0.ToolingServer) (toolingv0.
 
 func TestBridge_Identity_FromToolbox(t *testing.T) {
 	_, tb := startBridgedTooling(t, fakeTooling{})
-	id, err := tb.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	id, err := tb.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "fake", id.Name)
 	require.Equal(t, "0.0.1", id.Version)
@@ -82,7 +82,7 @@ func TestBridge_Identity_FromToolbox(t *testing.T) {
 
 func TestBridge_ListTools_ContainsAllConventionalNames(t *testing.T) {
 	_, tb := startBridgedTooling(t, fakeTooling{})
-	resp, err := tb.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	resp, err := tb.ListTools(context.Background(), &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 
 	got := make(map[string]bool, len(resp.Tools))
@@ -100,7 +100,7 @@ func TestBridge_ListTools_ContainsAllConventionalNames(t *testing.T) {
 
 func TestSourceBridgeAdvertisesOnlyImplementedSourceTools(t *testing.T) {
 	bridge := lang.NewSourceToolboxFromTooling("source", "1.0.0", fakeTooling{})
-	listed, err := bridge.ListTools(context.Background(), &toolboxv0.ListToolsRequest{})
+	listed, err := bridge.ListTools(context.Background(), &toolboxv1.ListToolsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, []string{lang.ToolFix, lang.ToolApplyEdit, lang.ToolGetProjectInfo, lang.ToolGetSemanticIndex, lang.ToolGetInstructionIndex}, []string{
 		listed.Tools[0].GetName(), listed.Tools[1].GetName(), listed.Tools[2].GetName(), listed.Tools[3].GetName(), listed.Tools[4].GetName(),
@@ -110,7 +110,7 @@ func TestSourceBridgeAdvertisesOnlyImplementedSourceTools(t *testing.T) {
 	require.Contains(t, properties, "mode")
 	require.Contains(t, properties, "dryRun")
 
-	unsupported, err := bridge.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: lang.ToolTest})
+	unsupported, err := bridge.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: lang.ToolTest})
 	require.NoError(t, err)
 	require.Contains(t, unsupported.GetError(), "ListTools")
 }
@@ -120,7 +120,7 @@ func TestBridge_RoundTrip_ApplyEdit_PreservesRequestEcho(t *testing.T) {
 
 	// Call through the typed wrapper (Mind's perspective).
 	resp, err := typed.ApplyEdit(context.Background(),
-		&toolingv0.ApplyEditRequest{File: "main.go", Find: "old", Replace: "new", FixMode: basev0.FixMode_FIX_MODE_AGGRESSIVE})
+		&toolingv1.ApplyEditRequest{File: "main.go", Find: "old", Replace: "new", FixMode: basev1.FixMode_FIX_MODE_AGGRESSIVE})
 	require.NoError(t, err, "typed ApplyEdit via bridge must succeed")
 
 	require.True(t, resp.Success)
@@ -133,7 +133,7 @@ func TestBridge_RoundTrip_ApplyEdit_PreservesRequestEcho(t *testing.T) {
 func TestBridge_RoundTrip_Test_TypedCounters(t *testing.T) {
 	typed, _ := startBridgedTooling(t, fakeTooling{})
 
-	resp, err := typed.Test(context.Background(), &toolingv0.TestRequest{Path: "pkg/foo"})
+	resp, err := typed.Test(context.Background(), &toolingv1.TestRequest{Path: "pkg/foo"})
 	require.NoError(t, err)
 	require.Equal(t, true, resp.Success,
 		"bool fields must round-trip through structpb without coercion")
@@ -147,7 +147,7 @@ func TestBridge_CallTool_UnknownLangTool_ProducesActionableError(t *testing.T) {
 	_, tb := startBridgedTooling(t, fakeTooling{})
 
 	resp, err := tb.CallTool(context.Background(),
-		&toolboxv0.CallToolRequest{Name: "lang.nonsense"})
+		&toolboxv1.CallToolRequest{Name: "lang.nonsense"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Error)
 	require.Contains(t, resp.Error, "lang.nonsense",
@@ -163,7 +163,7 @@ func TestBridge_DirectCallTool_RawShape(t *testing.T) {
 	_, tb := startBridgedTooling(t, fakeTooling{})
 
 	args := mustStruct(t, map[string]any{"path": "raw/pkg"})
-	resp, err := tb.CallTool(context.Background(), &toolboxv0.CallToolRequest{
+	resp, err := tb.CallTool(context.Background(), &toolboxv1.CallToolRequest{
 		Name: lang.ToolTest, Arguments: args,
 	})
 	require.NoError(t, err)

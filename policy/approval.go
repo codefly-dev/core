@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // approval.go — the approval-required protocol.
@@ -34,7 +34,7 @@ var ErrApprovalRequired = errors.New("policy: approval required")
 type ApprovalRequiredError struct {
 	// Detail names the approval request and exactly the authority a grant
 	// would have to carry: the same tuple a WorkGrantHopV1 pins.
-	Detail *basev0.ApprovalRequiredV1
+	Detail *basev1.ApprovalRequiredV1
 }
 
 // Error implements error.
@@ -62,7 +62,7 @@ func (e *ApprovalRequiredError) GRPCStatus() *status.Status {
 
 // ApprovalRequiredFrom recovers the signal from an error, whether it was
 // returned in-process or came back as a gRPC status from another service.
-func ApprovalRequiredFrom(err error) (*basev0.ApprovalRequiredV1, bool) {
+func ApprovalRequiredFrom(err error) (*basev1.ApprovalRequiredV1, bool) {
 	var signal *ApprovalRequiredError
 	if errors.As(err, &signal) {
 		return signal.Detail, true
@@ -72,7 +72,7 @@ func ApprovalRequiredFrom(err error) (*basev0.ApprovalRequiredV1, bool) {
 		return nil, false
 	}
 	for _, detail := range st.Details() {
-		if required, isApproval := detail.(*basev0.ApprovalRequiredV1); isApproval {
+		if required, isApproval := detail.(*basev1.ApprovalRequiredV1); isApproval {
 			return required, true
 		}
 	}

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // NodeOptions controls the dependency scope and update evidence returned by a
@@ -95,7 +95,7 @@ type npmAudit struct {
 	} `json:"vulnerabilities"`
 }
 
-func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
+func parseNpmAudit(out []byte) ([]*builderv1.AuditFinding, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
@@ -111,7 +111,7 @@ func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 			return nil, err
 		}
 	}
-	var findings []*builderv0.AuditFinding
+	var findings []*builderv1.AuditFinding
 	for _, v := range a.Vulnerabilities {
 		// Each "via" entry is either a string (parent dep) or an object with
 		// {source, name, dependency, title, url, severity}. We pull the title
@@ -128,7 +128,7 @@ func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 				break
 			}
 		}
-		findings = append(findings, &builderv0.AuditFinding{
+		findings = append(findings, &builderv1.AuditFinding{
 			Severity:       npmSeverity(v.Severity),
 			Id:             v.Name,
 			Package:        v.Name,
@@ -147,18 +147,18 @@ func parseNpmAudit(out []byte) ([]*builderv0.AuditFinding, error) {
 	return findings, nil
 }
 
-func npmSeverity(s string) builderv0.AuditFinding_Severity {
+func npmSeverity(s string) builderv1.AuditFinding_Severity {
 	switch strings.ToLower(s) {
 	case "low":
-		return builderv0.AuditFinding_LOW
+		return builderv1.AuditFinding_LOW
 	case "moderate":
-		return builderv0.AuditFinding_MEDIUM
+		return builderv1.AuditFinding_MEDIUM
 	case "high":
-		return builderv0.AuditFinding_HIGH
+		return builderv1.AuditFinding_HIGH
 	case "critical":
-		return builderv0.AuditFinding_CRITICAL
+		return builderv1.AuditFinding_CRITICAL
 	default:
-		return builderv0.AuditFinding_UNKNOWN
+		return builderv1.AuditFinding_UNKNOWN
 	}
 }
 
@@ -180,7 +180,7 @@ type npmOutdatedEntry struct {
 	Latest  string `json:"latest"`
 }
 
-func parseNpmOutdated(out []byte) []*builderv0.OutdatedDep {
+func parseNpmOutdated(out []byte) []*builderv1.OutdatedDep {
 	if len(out) == 0 {
 		return nil
 	}
@@ -188,7 +188,7 @@ func parseNpmOutdated(out []byte) []*builderv0.OutdatedDep {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil
 	}
-	var deps []*builderv0.OutdatedDep
+	var deps []*builderv1.OutdatedDep
 	for name, data := range raw {
 		var entries []npmOutdatedEntry
 		if len(data) > 0 && data[0] == '[' {
@@ -203,7 +203,7 @@ func parseNpmOutdated(out []byte) []*builderv0.OutdatedDep {
 			entries = []npmOutdatedEntry{entry}
 		}
 		e := entries[0]
-		deps = append(deps, &builderv0.OutdatedDep{
+		deps = append(deps, &builderv1.OutdatedDep{
 			Package:     name,
 			Current:     e.Current,
 			LatestSafe:  e.Wanted,

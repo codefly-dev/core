@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestBuildDockerBuildPlanInventoriesRecipeTree(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	}
-	recipes := []*builderv0.DockerBuildRecipe{
+	recipes := []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "app/Dockerfile", Context: ".", Image: "repo/app:v1", Platforms: []string{"linux/amd64", "linux/arm64"}},
 		{Name: "migration", Dockerfile: "migration/Dockerfile", Context: ".", Image: "repo/migration:v1", Platforms: []string{"linux/amd64"}},
 	}
@@ -69,28 +69,28 @@ func TestValidateBuildRequestOutputDirectory(t *testing.T) {
 	require.NoError(t, ValidateBuildRequestOutputDirectory(nil))
 
 	// Empty requires no recipe destination and is valid.
-	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{}))
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv1.BuildRequest{}))
 
 	// An absolute destination honors the contract.
-	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{
+	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv1.BuildRequest{
 		OutputDirectory: filepath.Join(t.TempDir(), "recipes"),
 	}))
 
 	// A relative destination is rejected at the boundary that populates the field.
-	err := ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{OutputDirectory: "recipes/out"})
+	err := ValidateBuildRequestOutputDirectory(&builderv1.BuildRequest{OutputDirectory: "recipes/out"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "absolute")
 }
 
 func TestDockerBuildRequestEnforcesAbsoluteOutputDirectory(t *testing.T) {
 	wrapper := &BuilderWrapper{Base: &Base{Wool: wool.Get(context.Background())}}
-	dockerContext := &builderv0.BuildContext{
-		Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{}},
+	dockerContext := &builderv1.BuildContext{
+		Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: &builderv1.DockerBuildContext{}},
 	}
 
 	// A relative output_directory is rejected before the build proceeds, so the
 	// agent never writes recipes where the caller cannot find them.
-	_, err := wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{
+	_, err := wrapper.DockerBuildRequest(context.Background(), &builderv1.BuildRequest{
 		BuildContext:    dockerContext,
 		OutputDirectory: "recipes/out",
 	})
@@ -98,7 +98,7 @@ func TestDockerBuildRequestEnforcesAbsoluteOutputDirectory(t *testing.T) {
 	require.Contains(t, err.Error(), "absolute")
 
 	// An absolute output_directory passes through to the docker build context.
-	got, err := wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{
+	got, err := wrapper.DockerBuildRequest(context.Background(), &builderv1.BuildRequest{
 		BuildContext:    dockerContext,
 		OutputDirectory: filepath.Join(t.TempDir(), "recipes"),
 	})
@@ -106,7 +106,7 @@ func TestDockerBuildRequestEnforcesAbsoluteOutputDirectory(t *testing.T) {
 	require.NotNil(t, got)
 
 	// No-build requests may omit output_directory.
-	got, err = wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{BuildContext: dockerContext})
+	got, err = wrapper.DockerBuildRequest(context.Background(), &builderv1.BuildRequest{BuildContext: dockerContext})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 }
@@ -131,7 +131,7 @@ func TestBuildDockerBuildPlanRejectsRecipeReferencingMissingFile(t *testing.T) {
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 
-	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+	_, err := BuildDockerBuildPlan(destination, []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "app/Dockerfile", Context: ".", Image: "repo/app:v1"},
 	})
 	require.Error(t, err)
@@ -144,13 +144,13 @@ func TestBuildDockerBuildPlanRejectsRecipePathEscapingOutputDirectory(t *testing
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 
-	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+	_, err := BuildDockerBuildPlan(destination, []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "../Dockerfile", Context: ".", Image: "repo/app:v1"},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "escapes the output directory")
 
-	_, err = BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+	_, err = BuildDockerBuildPlan(destination, []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "Dockerfile", Context: "/etc", Image: "repo/app:v1"},
 	})
 	require.Error(t, err)
@@ -167,7 +167,7 @@ func TestBuildDockerBuildPlanRejectsDuplicateRecipeName(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "one", "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "two", "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 
-	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+	_, err := BuildDockerBuildPlan(destination, []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "one/Dockerfile", Context: ".", Image: "repo/app:v1"},
 		{Name: "app", Dockerfile: "two/Dockerfile", Context: ".", Image: "repo/app:v2"},
 	})
@@ -181,7 +181,7 @@ func TestBuildDockerBuildPlanRejectsDuplicateRecipeName(t *testing.T) {
 func TestVerifyDockerBuildPlanRejectsTamperedRecipe(t *testing.T) {
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
-	recipes := []*builderv0.DockerBuildRecipe{
+	recipes := []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
 	}
 
@@ -203,7 +203,7 @@ func TestVerifyDockerBuildPlanRejectsModeTamper(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 	entrypoint := filepath.Join(destination, "entrypoint.sh")
 	require.NoError(t, os.WriteFile(entrypoint, []byte("#!/bin/sh\necho hi\n"), 0o644))
-	recipes := []*builderv0.DockerBuildRecipe{
+	recipes := []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
 	}
 
@@ -231,7 +231,7 @@ func TestBuildDockerBuildPlanRejectsSymlinkInTree(t *testing.T) {
 		t.Skipf("symlinks unsupported on this platform: %v", err)
 	}
 
-	_, err := BuildDockerBuildPlan(destination, []*builderv0.DockerBuildRecipe{
+	_, err := BuildDockerBuildPlan(destination, []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "Dockerfile", Context: "context", Image: "repo/app:v1"},
 	})
 	require.Error(t, err)
@@ -244,7 +244,7 @@ func TestBuildDockerBuildPlanRejectsSymlinkInTree(t *testing.T) {
 func TestVerifyDockerBuildPlanRejectsAnotherContractByName(t *testing.T) {
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
-	recipes := []*builderv0.DockerBuildRecipe{
+	recipes := []*builderv1.DockerBuildRecipe{
 		{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"},
 	}
 
@@ -275,11 +275,11 @@ func TestVerifyDockerBuildPlanRejectsAnotherContractByName(t *testing.T) {
 func TestVerifyDockerBuildPlanRefusesAnEarlierDigestByContent(t *testing.T) {
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
-	recipes := []*builderv0.DockerBuildRecipe{{
+	recipes := []*builderv1.DockerBuildRecipe{{
 		Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1",
-		ContextRoot:        builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT,
-		GoModuleDownloads:  []*builderv0.GoModuleDownload{{ModuleRoot: "code", ProxyContext: "gomodproxy"}},
-		GitSourceDownloads: []*builderv0.GitSourceDownload{gitSource()},
+		ContextRoot:        builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT,
+		GoModuleDownloads:  []*builderv1.GoModuleDownload{{ModuleRoot: "code", ProxyContext: "gomodproxy"}},
+		GitSourceDownloads: []*builderv1.GitSourceDownload{gitSource()},
 	}}
 	plan, err := BuildDockerBuildPlan(destination, recipes)
 	require.NoError(t, err)
@@ -309,7 +309,7 @@ func TestVerifyDockerBuildPlanRefusesAnEarlierDigestByContent(t *testing.T) {
 
 	// The same holds for a recipe that declares nothing an earlier format
 	// lacked: its earlier digest is still not the current one.
-	plain := []*builderv0.DockerBuildRecipe{{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"}}
+	plain := []*builderv1.DockerBuildRecipe{{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"}}
 	plainPlan, err := BuildDockerBuildPlan(destination, plain)
 	require.NoError(t, err)
 	plainPlan.Digest = recipeDigestCovering(recipeCoversScope, plain, plainPlan.GetFiles(), plainPlan.GetScope())
@@ -324,7 +324,7 @@ func TestVerifyDockerBuildPlanRefusesAnEarlierDigestByContent(t *testing.T) {
 	// The format before plans declared their inventory scope is refused for
 	// that, before its contract is read.
 	plan.Digest = current
-	plan.Scope = builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED
+	plan.Scope = builderv1.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED
 	plan.ContractVersion = "codefly.dev/docker-build-recipe/later"
 	err = VerifyDockerBuildPlan(destination, plan)
 	require.ErrorContains(t, err, "declares no inventory scope")

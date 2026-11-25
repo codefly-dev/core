@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
-func templateLiteral(text string) *basev0.ConfigurationValueTemplateSegment {
-	return &basev0.ConfigurationValueTemplateSegment{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: text}}
+func templateLiteral(text string) *basev1.ConfigurationValueTemplateSegment {
+	return &basev1.ConfigurationValueTemplateSegment{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: text}}
 }
 
-func templateReference(configuration, key string, escape basev0.ConfigurationValueEscape) *basev0.ConfigurationValueTemplateSegment {
-	return &basev0.ConfigurationValueTemplateSegment{Content: &basev0.ConfigurationValueTemplateSegment_Reference{
-		Reference: &basev0.ConfigurationValueReference{Configuration: configuration, Key: key, Escape: escape},
+func templateReference(configuration, key string, escape basev1.ConfigurationValueEscape) *basev1.ConfigurationValueTemplateSegment {
+	return &basev1.ConfigurationValueTemplateSegment{Content: &basev1.ConfigurationValueTemplateSegment_Reference{
+		Reference: &basev1.ConfigurationValueReference{Configuration: configuration, Key: key, Escape: escape},
 	}}
 }
 
@@ -40,7 +40,7 @@ func TestEscapeURLUserinfoIsQueryEscapeWithEncodedSpaces(t *testing.T) {
 	for b := 0; b < 256; b++ {
 		secret := string([]byte{byte(b)})
 		want := strings.ReplaceAll(url.QueryEscape(secret), "+", "%20")
-		got, err := EscapeConfigurationValue(basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO, secret)
+		got, err := EscapeConfigurationValue(basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO, secret)
 		if err != nil {
 			t.Fatalf("escape(byte %d): %v", b, err)
 		}
@@ -50,7 +50,7 @@ func TestEscapeURLUserinfoIsQueryEscapeWithEncodedSpaces(t *testing.T) {
 	}
 	for _, secret := range adversarialSecrets {
 		want := strings.ReplaceAll(url.QueryEscape(secret), "+", "%20")
-		got, err := EscapeConfigurationValue(basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO, secret)
+		got, err := EscapeConfigurationValue(basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO, secret)
 		if err != nil {
 			t.Fatalf("escape(%q): %v", secret, err)
 		}
@@ -63,9 +63,9 @@ func TestEscapeURLUserinfoIsQueryEscapeWithEncodedSpaces(t *testing.T) {
 // An escape this build does not implement must fail, not hand back the value
 // unchanged: the one encoding the producer ruled out is the raw value.
 func TestEscapeRefusesAnEscapeItDoesNotImplement(t *testing.T) {
-	for _, escape := range []basev0.ConfigurationValueEscape{
-		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED,
-		basev0.ConfigurationValueEscape(99),
+	for _, escape := range []basev1.ConfigurationValueEscape{
+		basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED,
+		basev1.ConfigurationValueEscape(99),
 	} {
 		got, err := EscapeConfigurationValue(escape, "p@ss/word")
 		if err == nil {
@@ -77,8 +77,8 @@ func TestEscapeRefusesAnEscapeItDoesNotImplement(t *testing.T) {
 	}
 }
 
-func connectionTemplate(escape basev0.ConfigurationValueEscape) *basev0.ConfigurationValueTemplate {
-	return &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
+func connectionTemplate(escape basev1.ConfigurationValueEscape) *basev1.ConfigurationValueTemplate {
+	return &basev1.ConfigurationValueTemplate{Segments: []*basev1.ConfigurationValueTemplateSegment{
 		// The literals are already interpolated here: a producer writes
 		// ${endpoint:…} in them and InterpolateConfigurationEndpoints resolves it
 		// before a template is ever evaluated.
@@ -89,7 +89,7 @@ func connectionTemplate(escape basev0.ConfigurationValueEscape) *basev0.Configur
 }
 
 func TestEvaluatedConnectionStringRoundTripsThePassword(t *testing.T) {
-	template := connectionTemplate(basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO)
+	template := connectionTemplate(basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO)
 	for _, secret := range adversarialSecrets {
 		assembled, err := EvaluateConfigurationValueTemplate(template, func(configuration, key string) (string, bool) {
 			return secret, configuration == "postgres" && key == "POSTGRES_READ_ONLY_PASSWORD"
@@ -113,7 +113,7 @@ func TestEvaluatedConnectionStringRoundTripsThePassword(t *testing.T) {
 // this secret moves the host: parsers that split userinfo on the first "@" dial
 // evil.example.com with the credential meant for store.example.
 func TestEvaluateRefusesAReferenceThatStatesNoEscape(t *testing.T) {
-	template := connectionTemplate(basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED)
+	template := connectionTemplate(basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED)
 	assembled, err := EvaluateConfigurationValueTemplate(template, func(string, string) (string, bool) {
 		return "pw@evil.example.com:5432/app?x=", true
 	})
@@ -125,7 +125,7 @@ func TestEvaluateRefusesAReferenceThatStatesNoEscape(t *testing.T) {
 	}
 	// Stating NONE explicitly is a producer's choice and still works.
 	verbatim, err := EvaluateConfigurationValueTemplate(
-		connectionTemplate(basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
+		connectionTemplate(basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
 		func(string, string) (string, bool) { return "plain", true })
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +136,8 @@ func TestEvaluateRefusesAReferenceThatStatesNoEscape(t *testing.T) {
 }
 
 func TestEvaluateRefusesAnUnsetReference(t *testing.T) {
-	template := &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
-		templateReference("postgres", "POSTGRES_PASSWORD", basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
+	template := &basev1.ConfigurationValueTemplate{Segments: []*basev1.ConfigurationValueTemplateSegment{
+		templateReference("postgres", "POSTGRES_PASSWORD", basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
 	}}
 	if _, err := EvaluateConfigurationValueTemplate(template, func(string, string) (string, bool) { return "", false }); err == nil {
 		t.Fatal("an unset reference must fail, not assemble an empty value")
@@ -158,15 +158,15 @@ func TestEvaluateRefusesAnUnsetReference(t *testing.T) {
 // scoped to one producer, Match-folded, and reporting not-found for anything a
 // template cannot insert.
 func TestProducerConfigurationValueLookup(t *testing.T) {
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: "mod/store",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "postgres-main",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "POSTGRES_PASSWORD", Value: "hunter2", Secret: true},
 				{Key: "EMPTY", Value: "", Secret: true},
 				{Key: "ASSEMBLED", Secret: true, Template: connectionTemplate(
-					basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE)},
+					basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE)},
 			},
 		}},
 	}
@@ -193,51 +193,51 @@ func TestProducerConfigurationValueLookup(t *testing.T) {
 }
 
 func TestValidateTemplatedConfigurationValue(t *testing.T) {
-	template := &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("x")}}
+	template := &basev1.ConfigurationValueTemplate{Segments: []*basev1.ConfigurationValueTemplateSegment{templateLiteral("x")}}
 	// Named, never a literal number: an escape's wire value is a cross-binary
 	// contract, and a test that spells it 1 keeps passing while its meaning moves.
-	const validEscape = basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO
+	const validEscape = basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO
 	cases := []struct {
 		name  string
-		value *basev0.ConfigurationValue
+		value *basev1.ConfigurationValue
 		ok    bool
 	}{
 		{"nil value", nil, false},
-		{"no template", &basev0.ConfigurationValue{Key: "k", Value: "v"}, true},
-		{"secret without value", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: template}, true},
-		{"not secret", &basev0.ConfigurationValue{Key: "k", Template: template}, false},
-		{"value and template", &basev0.ConfigurationValue{Key: "k", Value: "v", Secret: true, Template: template}, false},
-		{"empty template", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{}}, false},
-		{"empty segment", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{{}},
+		{"no template", &basev1.ConfigurationValue{Key: "k", Value: "v"}, true},
+		{"secret without value", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: template}, true},
+		{"not secret", &basev1.ConfigurationValue{Key: "k", Template: template}, false},
+		{"value and template", &basev1.ConfigurationValue{Key: "k", Value: "v", Secret: true, Template: template}, false},
+		{"empty template", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{}}, false},
+		{"empty segment", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{{}},
 		}}, false},
-		{"incomplete reference", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "", validEscape)},
+		{"incomplete reference", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateReference("postgres", "", validEscape)},
 		}}, false},
-		{"unknown escape", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY", 99)},
+		{"unknown escape", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY", 99)},
 		}}, false},
-		{"unstated escape", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY", 0)},
+		{"unstated escape", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY", 0)},
 		}}, false},
 		// A name a lookup would not resolve to what it reads like: Match folds
 		// case and "-"/"_", never surrounding whitespace, so this validated and
 		// then resolved to nothing.
-		{"padded configuration", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference(" postgres ", "KEY", validEscape)},
+		{"padded configuration", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateReference(" postgres ", "KEY", validEscape)},
 		}}, false},
-		{"padded key", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY\t", validEscape)},
+		{"padded key", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY\t", validEscape)},
 		}}, false},
 		// A literal carrying a target engine's delimiters is valid: escaping it
 		// belongs to the renderer, where the engine is known. The CLI's
 		// ExternalSecrets renderer emits such a literal as a quoted template
 		// string constant, which the engine renders back byte for byte.
-		{"literal opens an action", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("prefix{{ .password }}")},
+		{"literal opens an action", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateLiteral("prefix{{ .password }}")},
 		}}, true},
-		{"literal closes an action", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("trailing }} brace")},
+		{"literal closes an action", &basev1.ConfigurationValue{Key: "k", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+			Segments: []*basev1.ConfigurationValueTemplateSegment{templateLiteral("trailing }} brace")},
 		}}, true},
 	}
 	for _, c := range cases {
@@ -256,10 +256,10 @@ func TestValidateTemplatedConfigurationValue(t *testing.T) {
 // exists to prevent. UNSPECIFIED holds 0 so the one value whose meaning changed
 // when it was introduced is rejected rather than reinterpreted.
 func TestEscapeWireValuesAreFixed(t *testing.T) {
-	for escape, want := range map[basev0.ConfigurationValueEscape]int32{
-		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED:  0,
-		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO: 1,
-		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE:         2,
+	for escape, want := range map[basev1.ConfigurationValueEscape]int32{
+		basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED:  0,
+		basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO: 1,
+		basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE:         2,
 	} {
 		if int32(escape) != want {
 			t.Errorf("%s has wire value %d, want %d — moving it reinterprets a released producer's declarations", escape, int32(escape), want)
@@ -271,9 +271,9 @@ func TestEscapeWireValuesAreFixed(t *testing.T) {
 // semantics, which is what a renderer must reproduce. Rejecting such a literal
 // would refuse a value this evaluator assembles correctly.
 func TestEvaluateCopiesTemplateDelimitersInALiteralVerbatim(t *testing.T) {
-	template := &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
+	template := &basev1.ConfigurationValueTemplate{Segments: []*basev1.ConfigurationValueTemplateSegment{
 		templateLiteral(`a{{ .x }}"b`),
-		templateReference("postgres", "PASSWORD", basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
+		templateReference("postgres", "PASSWORD", basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
 		templateLiteral("}}tail"),
 	}}
 	assembled, err := EvaluateConfigurationValueTemplate(template, func(string, string) (string, bool) { return "v", true })

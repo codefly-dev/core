@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/internal/sensitive"
 	"github.com/codefly-dev/core/wool"
 )
 
 const ConfigurationWorkspace = "_workspace_origin"
 
-func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, name string) bool {
+func HasConfigurationInformation(_ context.Context, conf *basev1.Configuration, name string) bool {
 	for _, info := range conf.Infos {
 		if info.Name == name {
 			return true
@@ -21,7 +21,7 @@ func HasConfigurationInformation(_ context.Context, conf *basev0.Configuration, 
 	return false
 }
 
-func FindServiceConfiguration(_ context.Context, confs []*basev0.Configuration, runtimeContext *basev0.RuntimeContext, unique string) (*basev0.Configuration, error) {
+func FindServiceConfiguration(_ context.Context, confs []*basev1.Configuration, runtimeContext *basev1.RuntimeContext, unique string) (*basev1.Configuration, error) {
 	for _, conf := range confs {
 		if conf.GetRuntimeContext().GetKind() == runtimeContext.GetKind() && conf.Origin == unique {
 			return conf, nil
@@ -36,7 +36,7 @@ func Match(s, other string) bool {
 
 // GetConfigurationValue returns the value of the configuration key.
 // If the configuration or the key is not found, it returns an empty string.
-func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name string, key string) (string, error) {
+func GetConfigurationValue(ctx context.Context, conf *basev1.Configuration, name string, key string) (string, error) {
 	w := wool.Get(ctx).In("GetConfigurationValue")
 	if conf == nil {
 		return "", w.NewError("configuration is nil")
@@ -59,7 +59,7 @@ func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name
 
 // GetConfigurationInformation returns the configuration information that matches the name.
 // If no configuration information is found, it returns nil.
-func GetConfigurationInformation(ctx context.Context, conf *basev0.Configuration, name string) (*basev0.ConfigurationInformation, error) {
+func GetConfigurationInformation(ctx context.Context, conf *basev1.Configuration, name string) (*basev1.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("GetConfigurationValue")
 	if conf == nil {
 		return nil, w.NewError("configuration is nil")
@@ -69,7 +69,7 @@ func GetConfigurationInformation(ctx context.Context, conf *basev0.Configuration
 
 // FilterConfigurationInformation returns the first configuration information that matches the name.
 // If no configuration information is found, it returns nil.
-func FilterConfigurationInformation(_ context.Context, name string, infos ...*basev0.ConfigurationInformation) (*basev0.ConfigurationInformation, error) {
+func FilterConfigurationInformation(_ context.Context, name string, infos ...*basev1.ConfigurationInformation) (*basev1.ConfigurationInformation, error) {
 	for _, info := range infos {
 		if Match(info.Name, name) {
 			return info, nil
@@ -80,7 +80,7 @@ func FilterConfigurationInformation(_ context.Context, name string, infos ...*ba
 
 // ConfigurationValue returns the value of the configuration key.
 // If the configuration or the key is not found, it returns an error.
-func ConfigurationValue(_ context.Context, confInfo *basev0.ConfigurationInformation, key string) (string, error) {
+func ConfigurationValue(_ context.Context, confInfo *basev1.ConfigurationInformation, key string) (string, error) {
 	for _, value := range confInfo.ConfigurationValues {
 		if Match(value.Key, key) {
 			if err := ValidateModuleArtifactValue(value); err != nil {
@@ -99,7 +99,7 @@ func ConfigurationValue(_ context.Context, confInfo *basev0.ConfigurationInforma
 	return "", fmt.Errorf("couldn't find configuration value: %s", key)
 }
 
-func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration, name string) (*basev0.Configuration, error) {
+func FindWorkspaceConfiguration(_ context.Context, confs []*basev1.Configuration, name string) (*basev1.Configuration, error) {
 	for _, conf := range confs {
 		if !Match(conf.Origin, ConfigurationWorkspace) {
 			continue
@@ -111,8 +111,8 @@ func FindWorkspaceConfiguration(_ context.Context, confs []*basev0.Configuration
 	return nil, fmt.Errorf("couldn't find workspace configuration: %s", name)
 }
 
-func FindConfigurations(configurations []*basev0.Configuration, runtime *basev0.RuntimeContext) []*basev0.Configuration {
-	var found []*basev0.Configuration
+func FindConfigurations(configurations []*basev1.Configuration, runtime *basev1.RuntimeContext) []*basev1.Configuration {
+	var found []*basev1.Configuration
 	for _, conf := range configurations {
 		if Match(conf.GetRuntimeContext().GetKind(), runtime.GetKind()) {
 			found = append(found, conf)
@@ -121,7 +121,7 @@ func FindConfigurations(configurations []*basev0.Configuration, runtime *basev0.
 	return found
 }
 
-func ConfigurationsHash(confs ...*basev0.Configuration) string {
+func ConfigurationsHash(confs ...*basev1.Configuration) string {
 	hasher := NewHasher()
 	for _, conf := range confs {
 		hasher.Add(ConfigurationHash(conf))
@@ -129,7 +129,7 @@ func ConfigurationsHash(confs ...*basev0.Configuration) string {
 	return hasher.Hash()
 }
 
-func ConfigurationHash(conf *basev0.Configuration) string {
+func ConfigurationHash(conf *basev1.Configuration) string {
 	hasher := NewHasher()
 	for _, info := range conf.Infos {
 		hasher.Add(ConfigurationInformationHash(info))
@@ -137,11 +137,11 @@ func ConfigurationHash(conf *basev0.Configuration) string {
 	return hasher.Hash()
 }
 
-func ConfigurationInformationHash(info *basev0.ConfigurationInformation) string {
+func ConfigurationInformationHash(info *basev1.ConfigurationInformation) string {
 	return HashString(info.String())
 }
 
-func ConfigurationInformationsHash(infos ...*basev0.ConfigurationInformation) (string, error) {
+func ConfigurationInformationsHash(infos ...*basev1.ConfigurationInformation) (string, error) {
 	hasher := NewHasher()
 	for _, info := range infos {
 		hasher.Add(ConfigurationInformationHash(info))
@@ -149,7 +149,7 @@ func ConfigurationInformationsHash(infos ...*basev0.ConfigurationInformation) (s
 	return hasher.Hash(), nil
 }
 
-func MakeManyConfigurationSummary(confs []*basev0.Configuration) string {
+func MakeManyConfigurationSummary(confs []*basev1.Configuration) string {
 	var summary []string
 	for _, conf := range confs {
 		summary = append(summary, MakeConfigurationSummary(conf))
@@ -157,7 +157,7 @@ func MakeManyConfigurationSummary(confs []*basev0.Configuration) string {
 	return strings.Join(summary, ", ")
 }
 
-func MakeConfigurationSummary(conf *basev0.Configuration) string {
+func MakeConfigurationSummary(conf *basev1.Configuration) string {
 	if conf == nil {
 		return ""
 	}
@@ -169,7 +169,7 @@ func MakeConfigurationSummary(conf *basev0.Configuration) string {
 
 }
 
-func MakeConfigurationInformationSummary(info *basev0.ConfigurationInformation) string {
+func MakeConfigurationInformationSummary(info *basev1.ConfigurationInformation) string {
 	var summary []string
 	for _, value := range info.ConfigurationValues {
 		summary = append(summary, MakeConfigurationValueSummary(value))
@@ -177,7 +177,7 @@ func MakeConfigurationInformationSummary(info *basev0.ConfigurationInformation) 
 	return fmt.Sprintf("%s->%s", info.Name, strings.Join(summary, ", "))
 }
 
-func MakeConfigurationValueSummary(value *basev0.ConfigurationValue) string {
+func MakeConfigurationValueSummary(value *basev1.ConfigurationValue) string {
 	if value == nil {
 		return ""
 	}
@@ -326,8 +326,8 @@ func configRuntimeKind(kind string) string {
 // never panic. The generated `Get*()` accessors are nil-safe (they return the zero
 // value through a nil receiver), so reading the kind via `conf.GetRuntimeContext().
 // GetKind()` yields "" instead of a deref — and nil configs are skipped outright.
-func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) []*basev0.Configuration {
-	var out []*basev0.Configuration
+func FilterConfigurations(configurations []*basev1.Configuration, runtimeContext *basev1.RuntimeContext) []*basev1.Configuration {
+	var out []*basev1.Configuration
 	for _, conf := range configurations {
 		if conf == nil {
 			continue
@@ -339,8 +339,8 @@ func FilterConfigurations(configurations []*basev0.Configuration, runtimeContext
 	return out
 }
 
-func ExtractConfiguration(configurations []*basev0.Configuration, runtimeContext *basev0.RuntimeContext) (*basev0.Configuration, error) {
-	var out *basev0.Configuration
+func ExtractConfiguration(configurations []*basev1.Configuration, runtimeContext *basev1.RuntimeContext) (*basev1.Configuration, error) {
+	var out *basev1.Configuration
 	for _, conf := range configurations {
 		if conf == nil {
 			continue

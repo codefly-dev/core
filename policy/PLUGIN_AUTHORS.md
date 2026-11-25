@@ -156,7 +156,7 @@ audit / display / data filtering, never for authorization decisions.
 ```go
 import "github.com/codefly-dev/core/policy"
 
-func (s *server) CallTool(ctx context.Context, req *toolboxv0.CallToolRequest) (*toolboxv0.CallToolResponse, error) {
+func (s *server) CallTool(ctx context.Context, req *toolboxv1.CallToolRequest) (*toolboxv1.CallToolResponse, error) {
     p := policy.PrincipalFrom(ctx)  // may be nil
 
     // Use p only to choose the already-authorized data partition.
@@ -520,7 +520,7 @@ import (
     "context"
 
     "github.com/codefly-dev/core/agents"
-    toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+    toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
     "github.com/codefly-dev/core/toolbox"
     "github.com/codefly-dev/core/toolbox/registry"
     "github.com/codefly-dev/core/toolbox/respond"
@@ -564,12 +564,12 @@ func (s *server) tools() []*registry.ToolDefinition {
 	}
 }
 
-func (s *server) readPR(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *server) readPR(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	// Call GitHub and return typed content. No permission check here.
 	return respond.Struct(map[string]any{"state": "open"})
 }
 
-func (s *server) mergePR(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+func (s *server) mergePR(ctx context.Context, req *toolboxv1.CallToolRequest) *toolboxv1.CallToolResponse {
 	// Perform the declared operation. The host and Guard already authorized it.
 	return respond.Struct(map[string]any{"merged": true})
 }

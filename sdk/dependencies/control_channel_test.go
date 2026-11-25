@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/sdk/session"
 )
 
@@ -317,7 +317,7 @@ func TestReadinessOverrunIsAttributedToTheStalledDependency(t *testing.T) {
 	if len(pending) != 2 || pending[0].GetService() != "infra/postgres" {
 		t.Fatalf("Pending() = %v, want the dependencies the CLI reported as unready", pending)
 	}
-	if got := pending[0].GetLifecycle(); got != v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE {
+	if got := pending[0].GetLifecycle(); got != v1.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE {
 		t.Fatalf("stalled dependency lifecycle = %s, want the image acquisition stage", got)
 	}
 	if !strings.Contains(err.Error(), "infra/postgres acquiring image") {

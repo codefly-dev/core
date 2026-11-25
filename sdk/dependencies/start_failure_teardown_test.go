@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	v1 "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -130,13 +130,13 @@ func readOnePID(t *testing.T, path string) int {
 
 // stoppingCLI is the control client of a CLI that is already stopping: its
 // control server is gone, so Stop and Destroy are answered by nobody.
-type stoppingCLI struct{ v0.CLIClient }
+type stoppingCLI struct{ v1.CLIClient }
 
-func (stoppingCLI) StopFlow(context.Context, *v0.StopFlowRequest, ...grpc.CallOption) (*v0.StopFlowResponse, error) {
+func (stoppingCLI) StopFlow(context.Context, *v1.StopFlowRequest, ...grpc.CallOption) (*v1.StopFlowResponse, error) {
 	return nil, status.Error(codes.Unavailable, "error reading from server: EOF")
 }
 
-func (stoppingCLI) DestroyFlow(context.Context, *v0.DestroyFlowRequest, ...grpc.CallOption) (*v0.DestroyFlowResponse, error) {
+func (stoppingCLI) DestroyFlow(context.Context, *v1.DestroyFlowRequest, ...grpc.CallOption) (*v1.DestroyFlowResponse, error) {
 	return nil, status.Error(codes.Unavailable, "error reading from server: EOF")
 }
 

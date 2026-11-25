@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -67,7 +67,7 @@ func TestServeRegistersSolution(t *testing.T) {
 	defer cancel()
 	ctx = metadata.AppendToOutgoingContext(ctx, AuthMetadataKey, token)
 
-	resp, err := solutionv0.NewSolutionClient(conn).GetSolutionInformation(ctx, &solutionv0.GetSolutionInformationRequest{})
+	resp, err := solutionv1.NewSolutionClient(conn).GetSolutionInformation(ctx, &solutionv1.GetSolutionInformationRequest{})
 	if err != nil {
 		t.Fatalf("GetSolutionInformation: %v\nagent stderr:\n%s", err, stderr.String())
 	}

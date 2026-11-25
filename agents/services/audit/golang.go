@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // GovulncheckVersion is the scanner revision Codefly resolves when no
@@ -71,7 +71,7 @@ type govulncheckOutput struct {
 	} `json:"osv,omitempty"`
 }
 
-func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding, string, error) {
+func runGovulncheck(ctx context.Context, dir string) ([]*builderv1.AuditFinding, string, error) {
 	name := "govulncheck"
 	args := []string{"-json", "./..."}
 	tool := "govulncheck"
@@ -97,13 +97,13 @@ func runGovulncheck(ctx context.Context, dir string) ([]*builderv0.AuditFinding,
 
 // runGovulncheckParseBytes is the pure JSON-parsing path, exposed for
 // testing without invoking the binary.
-func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
+func runGovulncheckParseBytes(out []byte) ([]*builderv1.AuditFinding, error) {
 	// Build OSV id → summary lookup as we stream.
 	summaries := map[string]string{}
 	// govulncheck emits one finding per reachable call trace. A single
 	// advisory can therefore appear hundreds of times for the same affected
 	// module. Release evidence is advisory/module based, not call-path based.
-	findingsByKey := map[string]*builderv0.AuditFinding{}
+	findingsByKey := map[string]*builderv1.AuditFinding{}
 
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {
@@ -135,8 +135,8 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 			key := msg.Finding.OSV + "\x00" + reachable.Module + "\x00" + reachable.Version
 			finding, exists := findingsByKey[key]
 			if !exists {
-				finding = &builderv0.AuditFinding{
-					Severity:       builderv0.AuditFinding_HIGH, // govulncheck only reports actually-reachable vulns
+				finding = &builderv1.AuditFinding{
+					Severity:       builderv1.AuditFinding_HIGH, // govulncheck only reports actually-reachable vulns
 					Id:             msg.Finding.OSV,
 					Package:        reachable.Module,
 					CurrentVersion: reachable.Version,
@@ -149,7 +149,7 @@ func runGovulncheckParseBytes(out []byte) ([]*builderv0.AuditFinding, error) {
 			}
 		}
 	}
-	findings := make([]*builderv0.AuditFinding, 0, len(findingsByKey))
+	findings := make([]*builderv1.AuditFinding, 0, len(findingsByKey))
 	for _, finding := range findingsByKey {
 		finding.Summary = summaries[finding.Id]
 		findings = append(findings, finding)
@@ -176,7 +176,7 @@ type goListUpdate struct {
 	Indirect bool `json:"Indirect,omitempty"`
 }
 
-func runGoListUpdates(ctx context.Context, dir string) ([]*builderv0.OutdatedDep, error) {
+func runGoListUpdates(ctx context.Context, dir string) ([]*builderv1.OutdatedDep, error) {
 	out, err := runCmd(ctx, dir, "go", "list", "-m", "-u", "-json", "all")
 	if err != nil && len(out) == 0 {
 		// `go list` failed completely; nothing to parse.
@@ -186,8 +186,8 @@ func runGoListUpdates(ctx context.Context, dir string) ([]*builderv0.OutdatedDep
 }
 
 // parseGoListUpdates is the pure JSON-parsing path, exposed for testing.
-func parseGoListUpdates(out []byte) ([]*builderv0.OutdatedDep, error) {
-	var outdated []*builderv0.OutdatedDep
+func parseGoListUpdates(out []byte) ([]*builderv1.OutdatedDep, error) {
+	var outdated []*builderv1.OutdatedDep
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {
 		var m goListUpdate
@@ -199,7 +199,7 @@ func parseGoListUpdates(out []byte) ([]*builderv0.OutdatedDep, error) {
 		if m.Update == nil || m.Indirect {
 			continue
 		}
-		outdated = append(outdated, &builderv0.OutdatedDep{
+		outdated = append(outdated, &builderv1.OutdatedDep{
 			Package: m.Path,
 			Current: m.Version,
 			// go list -u doesn't distinguish patch/minor vs major; treat

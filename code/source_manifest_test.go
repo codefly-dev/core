@@ -11,8 +11,8 @@ import (
 
 	"github.com/codefly-dev/core/internal/testgit"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
@@ -28,8 +28,8 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 		t.Fatalf("create real symlink: %v", err)
 	}
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("GetSourceManifest worktree: %v", err)
@@ -45,18 +45,18 @@ func TestGetSourceManifestWorktreeReturnsBodyFreeExactIdentities(t *testing.T) {
 	if len(entries) != 6 {
 		t.Fatalf("worktree entries = %v, want six source artifacts", sourceManifestEntryPaths(manifest))
 	}
-	assertSourceManifestEntry(t, entries["README.md"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "hello\n")
-	assertSourceManifestEntry(t, entries["bin/run"], 0o100755, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
-	assertSourceManifestEntry(t, entries[".env.example"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "SAFE=true\n")
-	assertSourceManifestEntry(t, entries[".github/workflows/ci.yml"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "name: ci\n")
-	assertSourceManifestEntry(t, entries["readme-link"], 0o120000, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
-	if got := entries["README.md"].GetAttributes(); got.GetLanguage() != basev0.SourceLanguage_SOURCE_LANGUAGE_MARKDOWN || got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_TEXT || got.GetSourceRole() != basev0.SourceRole_SOURCE_ROLE_DOCS || got.GetClassifierVersion() != sourceAttributesClassifierVersion {
+	assertSourceManifestEntry(t, entries["README.md"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "hello\n")
+	assertSourceManifestEntry(t, entries["bin/run"], 0o100755, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
+	assertSourceManifestEntry(t, entries[".env.example"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "SAFE=true\n")
+	assertSourceManifestEntry(t, entries[".github/workflows/ci.yml"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "name: ci\n")
+	assertSourceManifestEntry(t, entries["readme-link"], 0o120000, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
+	if got := entries["README.md"].GetAttributes(); got.GetLanguage() != basev1.SourceLanguage_SOURCE_LANGUAGE_MARKDOWN || got.GetContentKind() != basev1.SourceContentKind_SOURCE_CONTENT_KIND_TEXT || got.GetSourceRole() != basev1.SourceRole_SOURCE_ROLE_DOCS || got.GetClassifierVersion() != sourceAttributesClassifierVersion {
 		t.Fatalf("README attributes = %+v", got)
 	}
-	if got := entries["readme-link"].GetAttributes(); got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK {
+	if got := entries["readme-link"].GetAttributes(); got.GetContentKind() != basev1.SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK {
 		t.Fatalf("symlink attributes = %+v", got)
 	}
-	if got := entries["Cart.cs"].GetAttributes(); got.GetLanguage() != basev0.SourceLanguage_SOURCE_LANGUAGE_CSHARP || got.GetSourceRole() != basev0.SourceRole_SOURCE_ROLE_PRODUCTION {
+	if got := entries["Cart.cs"].GetAttributes(); got.GetLanguage() != basev1.SourceLanguage_SOURCE_LANGUAGE_CSHARP || got.GetSourceRole() != basev1.SourceRole_SOURCE_ROLE_PRODUCTION {
 		t.Fatalf("C# attributes = %+v", got)
 	}
 }
@@ -70,8 +70,8 @@ func TestGetSourceManifestWorktreePreservesTrackedGeneratedDirectory(t *testing.
 	gitSourceManifest(t, root, "add", "vendor/example.com/library/library.go")
 	gitSourceManifest(t, root, "commit", "-m", "tracked vendor source")
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("GetSourceManifest worktree: %v", err)
@@ -80,7 +80,7 @@ func TestGetSourceManifestWorktreePreservesTrackedGeneratedDirectory(t *testing.
 		t.Fatalf("GetSourceManifest worktree failure: %+v", response.GetFailure())
 	}
 	entries := sourceManifestEntriesByPath(response.GetGetSourceManifest())
-	assertSourceManifestEntry(t, entries["vendor/example.com/library/library.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package library\n")
+	assertSourceManifestEntry(t, entries["vendor/example.com/library/library.go"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package library\n")
 	if entries["node_modules/untracked.js"] != nil {
 		t.Fatalf("untracked generated file leaked into worktree manifest: %+v", entries["node_modules/untracked.js"])
 	}
@@ -102,8 +102,8 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	gitSourceManifest(t, root, "commit", "-m", "gitlink")
 	wantRevision := gitSourceManifest(t, root, "rev-parse", "HEAD")
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{Revision: "HEAD"}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{Revision: "HEAD"}},
 	})
 	if err != nil {
 		t.Fatalf("GetSourceManifest revision: %v", err)
@@ -119,26 +119,26 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 	if len(entries) != 4 {
 		t.Fatalf("revision entries = %v, want four Git artifacts", sourceManifestEntryPaths(manifest))
 	}
-	if got := entries["README.md"]; got.GetMode() != 0o100644 || got.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE || got.GetIdentity().GetAlgorithm() != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1 {
+	if got := entries["README.md"]; got.GetMode() != 0o100644 || got.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE || got.GetIdentity().GetAlgorithm() != basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1 {
 		t.Fatalf("README revision entry = %+v", got)
 	}
-	if got := entries["bin/run"]; got.GetMode() != 0o100755 || got.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE {
+	if got := entries["bin/run"]; got.GetMode() != 0o100755 || got.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE {
 		t.Fatalf("executable revision entry = %+v", got)
 	}
-	if got := entries["readme-link"]; got.GetMode() != 0o120000 || got.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
+	if got := entries["readme-link"]; got.GetMode() != 0o120000 || got.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
 		t.Fatalf("symlink revision entry = %+v", got)
 	}
-	if got := entries["modules/dependency"]; got.GetMode() != 0o160000 || got.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || got.GetIdentity().GetAlgorithm() != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 || got.GetIdentity().GetSizeBytes() != -1 {
+	if got := entries["modules/dependency"]; got.GetMode() != 0o160000 || got.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || got.GetIdentity().GetAlgorithm() != basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 || got.GetIdentity().GetSizeBytes() != -1 {
 		t.Fatalf("gitlink revision entry = %+v", got)
 	}
-	if got := entries["modules/dependency"].GetAttributes(); got.GetContentKind() != basev0.SourceContentKind_SOURCE_CONTENT_KIND_GITLINK {
+	if got := entries["modules/dependency"].GetAttributes(); got.GetContentKind() != basev1.SourceContentKind_SOURCE_CONTENT_KIND_GITLINK {
 		t.Fatalf("gitlink attributes = %+v", got)
 	}
 
-	contentResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{
+	contentResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{
 			Revision:     "HEAD",
-			IdentityMode: basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256,
+			IdentityMode: basev1.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256,
 		}},
 	})
 	if err != nil {
@@ -148,10 +148,10 @@ func TestGetSourceManifestRevisionPreservesGitEntryKinds(t *testing.T) {
 		t.Fatalf("GetSourceManifest content identity failure: %+v", contentResponse.GetFailure())
 	}
 	contentEntries := sourceManifestEntriesByPath(contentResponse.GetGetSourceManifest())
-	assertSourceManifestEntry(t, contentEntries["README.md"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "versioned\n")
-	assertSourceManifestEntry(t, contentEntries["bin/run"], 0o100755, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
-	assertSourceManifestEntry(t, contentEntries["readme-link"], 0o120000, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
-	if got := contentEntries["modules/dependency"].GetIdentity().GetAlgorithm(); got != basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 {
+	assertSourceManifestEntry(t, contentEntries["README.md"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "versioned\n")
+	assertSourceManifestEntry(t, contentEntries["bin/run"], 0o100755, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "#!/bin/sh\n")
+	assertSourceManifestEntry(t, contentEntries["readme-link"], 0o120000, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "README.md")
+	if got := contentEntries["modules/dependency"].GetIdentity().GetAlgorithm(); got != basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 {
 		t.Fatalf("content-mode gitlink algorithm = %s", got)
 	}
 }
@@ -167,16 +167,16 @@ func TestGetSourceManifestRevisionRespectsNestedServerRoot(t *testing.T) {
 	gitSourceManifest(t, repository, "commit", "-m", "nested unit")
 
 	server := NewDefaultCodeServer(filepath.Join(repository, "units", "wordcount"))
-	worktreeResponse, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	worktreeResponse, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{}},
 	})
 	if err != nil || worktreeResponse.GetFailure() != nil {
 		t.Fatalf("nested worktree manifest: response=%+v err=%v", worktreeResponse, err)
 	}
-	revisionResponse, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{
+	revisionResponse, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{
 			Revision:     "HEAD",
-			IdentityMode: basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256,
+			IdentityMode: basev1.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256,
 		}},
 	})
 	if err != nil || revisionResponse.GetFailure() != nil {
@@ -190,8 +190,8 @@ func TestGetSourceManifestRevisionRespectsNestedServerRoot(t *testing.T) {
 		t.Fatalf("nested revision paths = %v, want %v", got, want)
 	}
 	entries := sourceManifestEntriesByPath(revisionResponse.GetGetSourceManifest())
-	assertSourceManifestEntry(t, entries["main.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package wordcount\n")
-	assertSourceManifestEntry(t, entries["tests/main_test.go"], 0o100644, basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package tests\n")
+	assertSourceManifestEntry(t, entries["main.go"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package wordcount\n")
+	assertSourceManifestEntry(t, entries["tests/main_test.go"], 0o100644, basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, "package tests\n")
 }
 
 func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *testing.T) {
@@ -212,8 +212,8 @@ func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *test
 	gitSourceManifest(t, root, "-c", "protocol.file.allow=always", "submodule", "add", dependency, "modules/dependency")
 	gitSourceManifest(t, root, "commit", "-am", "submodule")
 
-	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	response, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("GetSourceManifest worktree gitlink: %v", err)
@@ -226,13 +226,13 @@ func TestGetSourceManifestWorktreeTreatsInitializedSubmoduleAsOneGitlink(t *test
 		t.Fatalf("worktree entries = %v, want parent files plus one gitlink", sourceManifestEntryPaths(response.GetGetSourceManifest()))
 	}
 	gitlink := entries["modules/dependency"]
-	if gitlink.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || gitlink.GetMode() != 0o160000 || gitlink.GetIdentity().GetDigest() != wantCommit || gitlink.GetIdentity().GetSizeBytes() != -1 {
+	if gitlink.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK || gitlink.GetMode() != 0o160000 || gitlink.GetIdentity().GetDigest() != wantCommit || gitlink.GetIdentity().GetSizeBytes() != -1 {
 		t.Fatalf("worktree gitlink = %+v", gitlink)
 	}
 
 	writeSourceManifestFile(t, root, "modules/dependency/untracked.go", "package dependency\n", 0o644)
-	dirtyResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetSourceManifest{GetSourceManifest: &codev0.GetSourceManifestRequest{}},
+	dirtyResponse, err := NewDefaultCodeServer(root).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetSourceManifest{GetSourceManifest: &codev1.GetSourceManifestRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("GetSourceManifest dirty gitlink transport: %v", err)
@@ -262,15 +262,15 @@ func gitSourceManifest(t *testing.T, root string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
-func sourceManifestEntriesByPath(value *basev0.SourceManifest) map[string]*basev0.SourceManifestEntry {
-	entries := make(map[string]*basev0.SourceManifestEntry, len(value.GetEntries()))
+func sourceManifestEntriesByPath(value *basev1.SourceManifest) map[string]*basev1.SourceManifestEntry {
+	entries := make(map[string]*basev1.SourceManifestEntry, len(value.GetEntries()))
 	for _, entry := range value.GetEntries() {
 		entries[entry.GetPath()] = entry
 	}
 	return entries
 }
 
-func sourceManifestEntryPaths(value *basev0.SourceManifest) []string {
+func sourceManifestEntryPaths(value *basev1.SourceManifest) []string {
 	paths := make([]string, 0, len(value.GetEntries()))
 	for _, entry := range value.GetEntries() {
 		paths = append(paths, entry.GetPath())
@@ -278,7 +278,7 @@ func sourceManifestEntryPaths(value *basev0.SourceManifest) []string {
 	return paths
 }
 
-func assertSourceManifestEntry(t *testing.T, entry *basev0.SourceManifestEntry, mode uint32, kind basev0.SourceEntryKind, algorithm basev0.SourceIdentityAlgorithm, body string) {
+func assertSourceManifestEntry(t *testing.T, entry *basev1.SourceManifestEntry, mode uint32, kind basev1.SourceEntryKind, algorithm basev1.SourceIdentityAlgorithm, body string) {
 	t.Helper()
 	if entry == nil {
 		t.Fatal("source manifest entry is missing")

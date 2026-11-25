@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -25,16 +25,16 @@ const (
 	kindJSON = "json"
 )
 
-func ConfigurationInformationDataFromFile(ctx context.Context, name string, p string, isSecret bool) (*basev0.ConfigurationInformation, error) {
+func ConfigurationInformationDataFromFile(ctx context.Context, name string, p string, isSecret bool) (*basev1.ConfigurationInformation, error) {
 	w := wool.Get(ctx).In("provider.ConfigurationInformationDataFromFile")
 	content, err := os.ReadFile(p) //nolint:gosec // p is a configuration file of the workspace being read
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot read yaml env file")
 	}
 	extension := filepath.Ext(p)
-	info := &basev0.ConfigurationInformation{
+	info := &basev1.ConfigurationInformation{
 		Name: name,
-		Data: &basev0.ConfigurationData{
+		Data: &basev1.ConfigurationData{
 			Kind:    extension[1:],
 			Content: content,
 			Secret:  isSecret,
@@ -43,7 +43,7 @@ func ConfigurationInformationDataFromFile(ctx context.Context, name string, p st
 	return info, nil
 }
 
-func InformationUnmarshal(info *basev0.ConfigurationInformation, v interface{}) error {
+func InformationUnmarshal(info *basev1.ConfigurationInformation, v interface{}) error {
 	if info.Data == nil {
 		return nil
 	}

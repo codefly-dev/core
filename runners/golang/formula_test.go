@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // writeModule materializes a throwaway Go module for formula tests. File
@@ -105,7 +105,7 @@ func TestRunFormula_HealthySuitePasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_PASSED {
 		t.Fatalf("state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
 	if resp.GetCounts().GetPassed() != 2 || resp.GetCounts().GetFailed() != 0 {
@@ -145,7 +145,7 @@ func TestInvocationReachesCounter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RunFormula attempt %d: %v", attempt, err)
 		}
-		if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED || resp.GetCounts().GetPassed() != 1 {
+		if resp.GetResult().GetState() != runtimev1.TestRunResult_PASSED || resp.GetCounts().GetPassed() != 1 {
 			t.Fatalf("attempt %d state = %s counts=%+v (%s)", attempt, resp.GetResult().GetState(), resp.GetCounts(), resp.GetResult().GetMessage())
 		}
 	}
@@ -164,7 +164,7 @@ func TestRunFormula_FailingTestIsFailedNotBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_FAILED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_FAILED {
 		t.Fatalf("state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
 	if resp.GetCounts().GetPassed() != 2 || resp.GetCounts().GetFailed() != 1 {
@@ -222,7 +222,7 @@ func TestRunFormula_BrokenGoModIsEnvBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("state = %s", resp.GetResult().GetState())
 	}
 	msg := resp.GetResult().GetMessage()
@@ -254,7 +254,7 @@ func TestRunFormula_CompileErrorIsNotEnvBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("state = %s", resp.GetResult().GetState())
 	}
 	if strings.Contains(resp.GetResult().GetMessage(), "env-blocked") {
@@ -282,7 +282,7 @@ func TestRunFormula_SubtestSelectorIsRunPatternNotPackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_PASSED {
 		t.Fatalf("subtest selector must run the subtest, got state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
 	// Exactly the parent + the selected subtest — not "lower", not the
@@ -332,7 +332,7 @@ func TestBad(t *testing.T) { t.Fatal("red") }
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_PASSED {
 		t.Fatalf("./good selector must exclude the failing ./bad package: state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
 	if resp.GetCounts().GetTotal() != 1 || resp.GetCounts().GetPassed() != 1 {
@@ -350,7 +350,7 @@ func TestRunFormula_NoMatchSelectorIsNeverGreen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("a selector matching nothing must not read as a pass: state = %s (%s)", resp.GetResult().GetState(), resp.GetResult().GetMessage())
 	}
 	if !strings.Contains(resp.GetResult().GetMessage(), "test-selection-error ("+EnvErrorNoTestsMatchedSelectors+")") {
@@ -375,7 +375,7 @@ func TestRunFormula_MissingJSONFlagIsInjected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunFormula: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_PASSED || resp.GetCounts().GetPassed() != 2 {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_PASSED || resp.GetCounts().GetPassed() != 2 {
 		t.Fatalf("a formula without -json must still be parsed: state = %s counts = %+v (%s)",
 			resp.GetResult().GetState(), resp.GetCounts(), resp.GetResult().GetMessage())
 	}
@@ -412,7 +412,7 @@ func TestHang(t *testing.T) { time.Sleep(60 * time.Second) }
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
 		t.Fatalf("RunFormula took %s to return after a 5s deadline — process-group kill not effective", elapsed)
 	}
-	if resp.GetResult().GetState() == runtimev0.TestRunResult_PASSED {
+	if resp.GetResult().GetState() == runtimev1.TestRunResult_PASSED {
 		t.Fatalf("a run killed mid-flight must never be PASSED: %s", resp.GetResult().GetMessage())
 	}
 	if !strings.Contains(resp.GetResult().GetMessage(), "interrupted") {

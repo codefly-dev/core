@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 )
 
 type ChangeLevel string
@@ -20,17 +20,17 @@ type ChangeClassification struct {
 	Level        ChangeLevel              `json:"level"`
 	BeforeStage  string                   `json:"beforeStage"`
 	AfterStage   string                   `json:"afterStage"`
-	Undetermined []*updatev0.AffectedItem `json:"undetermined,omitempty"`
+	Undetermined []*updatev1.AffectedItem `json:"undetermined,omitempty"`
 }
 
 // ClassifyContractChange describes publisher-wide contract changes, not whether
 // the implementation is correct or any particular consumer may adopt it.
-func ClassifyContractChange(diff *updatev0.ReleaseDiff) *ChangeClassification {
+func ClassifyContractChange(diff *updatev1.ReleaseDiff) *ChangeClassification {
 	prepared, err := PrepareReleaseDiff(diff)
 	return classifyPrepared(prepared, err)
 }
 
-func ClassifyContractChangeWithSources(diff *updatev0.ReleaseDiff, before, after map[string]ContractSource) *ChangeClassification {
+func ClassifyContractChangeWithSources(diff *updatev1.ReleaseDiff, before, after map[string]ContractSource) *ChangeClassification {
 	prepared, err := PrepareReleaseDiffWithSources(diff, before, after)
 	return classifyPrepared(prepared, err)
 }
@@ -38,31 +38,31 @@ func ClassifyContractChangeWithSources(diff *updatev0.ReleaseDiff, before, after
 func classifyPrepared(prepared *PreparedRelease, err error) *ChangeClassification {
 	result := &ChangeClassification{Level: ChangeUndetermined}
 	if err != nil {
-		result.Undetermined = []*updatev0.AffectedItem{{Reason: err.Error()}}
+		result.Undetermined = []*updatev1.AffectedItem{{Reason: err.Error()}}
 		return result
 	}
 	diff := prepared.diff
 	result.BeforeStage = releaseStage(diff.Before.Version)
 	result.AfterStage = releaseStage(diff.After.Version)
 	if !diff.Before.Complete || !diff.After.Complete {
-		result.Undetermined = []*updatev0.AffectedItem{{Reason: "public contract coverage is incomplete"}}
+		result.Undetermined = []*updatev1.AffectedItem{{Reason: "public contract coverage is incomplete"}}
 		return result
 	}
 	result.Level = ChangePatch
 	for _, change := range diff.Changes {
 		switch change.Kind {
-		case updatev0.ChangeKind_CHANGE_KIND_REMOVED:
+		case updatev1.ChangeKind_CHANGE_KIND_REMOVED:
 			result.Level = ChangeMajor
-		case updatev0.ChangeKind_CHANGE_KIND_ADDED:
+		case updatev1.ChangeKind_CHANGE_KIND_ADDED:
 			if prepared.after[change.Item].RequiredByAll {
-				result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Item: change.Item, Reason: "new universal requirement needs semantic qualification"})
+				result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{Item: change.Item, Reason: "new universal requirement needs semantic qualification"})
 			} else if result.Level == ChangePatch {
 				result.Level = ChangeMinor
 			}
-		case updatev0.ChangeKind_CHANGE_KIND_MODIFIED:
+		case updatev1.ChangeKind_CHANGE_KIND_MODIFIED:
 			semantic, exists := prepared.semantic[change.Item]
 			if !exists || semantic.level == ChangeUndetermined || (!prepared.before[change.Item].RequiredByAll && prepared.after[change.Item].RequiredByAll) {
-				result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Item: change.Item, Reason: "contract content, dependencies or requirements need semantic qualification"})
+				result.Undetermined = append(result.Undetermined, &updatev1.AffectedItem{Item: change.Item, Reason: "contract content, dependencies or requirements need semantic qualification"})
 			} else if semantic.level == ChangeMajor {
 				result.Level = ChangeMajor
 			} else if semantic.level == ChangeMinor && result.Level == ChangePatch {

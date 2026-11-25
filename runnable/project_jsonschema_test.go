@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -39,7 +39,7 @@ func member(schema string) string {
 	return `"Root":` + object(`"value":`+schema)
 }
 
-func projectRoot(t *testing.T, schemas ...string) (*basev0.RunnableSchema, error) {
+func projectRoot(t *testing.T, schemas ...string) (*basev1.RunnableSchema, error) {
 	t.Helper()
 	doc, err := runnable.ParseOpenAPIDocument([]byte(document(schemas...)))
 	require.NoError(t, err)
@@ -76,23 +76,23 @@ func TestProjectJSONSchemaCoversTheBoundedProfile(t *testing.T) {
 		`"Inner":`+object(`"label":{"type":"string"}`))
 	require.NoError(t, err)
 
-	inner := []*basev0.RunnableField{{Name: "label", Type: basev0.RunnableField_STRING}}
-	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-		{Name: "text", Type: basev0.RunnableField_STRING},
-		{Name: "tagged", Type: basev0.RunnableField_STRING},
-		{Name: "flag", Type: basev0.RunnableField_BOOLEAN},
-		{Name: "plain", Type: basev0.RunnableField_INTEGER},
-		{Name: "i32", Type: basev0.RunnableField_INTEGER},
-		{Name: "i64", Type: basev0.RunnableField_INTEGER},
+	inner := []*basev1.RunnableField{{Name: "label", Type: basev1.RunnableField_STRING}}
+	require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+		{Name: "text", Type: basev1.RunnableField_STRING},
+		{Name: "tagged", Type: basev1.RunnableField_STRING},
+		{Name: "flag", Type: basev1.RunnableField_BOOLEAN},
+		{Name: "plain", Type: basev1.RunnableField_INTEGER},
+		{Name: "i32", Type: basev1.RunnableField_INTEGER},
+		{Name: "i64", Type: basev1.RunnableField_INTEGER},
 		// A name outside "required" is a key that may be absent.
-		{Name: "nested", Type: basev0.RunnableField_OBJECT, Optional: true, Fields: inner},
+		{Name: "nested", Type: basev1.RunnableField_OBJECT, Optional: true, Fields: inner},
 		// An array's items carry neither the field's name nor its optionality.
-		{Name: "tags", Type: basev0.RunnableField_ARRAY, Items: &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
-		{Name: "many", Type: basev0.RunnableField_ARRAY, Items: &basev0.RunnableField{Type: basev0.RunnableField_OBJECT, Fields: inner}},
-		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
+		{Name: "tags", Type: basev1.RunnableField_ARRAY, Items: &basev1.RunnableField{Type: basev1.RunnableField_STRING}},
+		{Name: "many", Type: basev1.RunnableField_ARRAY, Items: &basev1.RunnableField{Type: basev1.RunnableField_OBJECT, Fields: inner}},
+		{Name: "note", Type: basev1.RunnableField_STRING, Optional: true},
 	}}, schema), "projected %v", schema)
 
-	contract, err := resources.RunnableContractFromProto(&basev0.RunnableContract{
+	contract, err := resources.RunnableContractFromProto(&basev1.RunnableContract{
 		Protocol: resources.RunnableServiceProtocolV1, Input: schema, Output: schema})
 	require.NoError(t, err)
 	require.NoError(t, contract.Validate())
@@ -126,8 +126,8 @@ func TestProjectJSONSchemaReadsBothSpellingsOfNullable(t *testing.T) {
 		t.Run(spelling.name, func(t *testing.T) {
 			schema, err := projectRoot(t, member(spelling.schema))
 			require.NoError(t, err)
-			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "value", Type: basev0.RunnableField_STRING, Nullable: true},
+			require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+				{Name: "value", Type: basev1.RunnableField_STRING, Nullable: true},
 			}}, schema), "projected %v", schema)
 		})
 	}
@@ -140,25 +140,25 @@ func TestProjectJSONSchemaReadsTheProtoJSONSpellings(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		schema string
-		want   *basev0.RunnableField
+		want   *basev1.RunnableField
 	}{
-		{"timestamp", `{"type":"string","format":"date-time"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "date-time"}},
-		{"bytes", `{"type":"string","format":"byte"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "byte"}},
-		{"int64", `{"type":"string","format":"int64"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64}},
-		{"uint64", `{"type":"string","format":"uint64"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatUint64}},
-		{"duration", `{"type":"string","format":"protobuf-duration"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatProtobufDuration}},
+		{"timestamp", `{"type":"string","format":"date-time"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Format: "date-time"}},
+		{"bytes", `{"type":"string","format":"byte"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Format: "byte"}},
+		{"int64", `{"type":"string","format":"int64"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Format: runnable.FormatInt64}},
+		{"uint64", `{"type":"string","format":"uint64"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Format: runnable.FormatUint64}},
+		{"duration", `{"type":"string","format":"protobuf-duration"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Format: runnable.FormatProtobufDuration}},
 		// JSON Schema's ISO 8601 duration is not proto3 JSON's: a plain string.
-		{"iso duration", `{"type":"string","format":"duration"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
-		{"enum", `{"type":"string","enum":["RED","GREEN"]}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Values: []string{"RED", "GREEN"}}},
-		{"double", `{"type":"number","format":"double"}`, &basev0.RunnableField{Type: basev0.RunnableField_NUMBER}},
-		{"struct", `{"type":"object"}`, &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}},
-		{"map", `{"type":"object","additionalProperties":{"type":"string"}}`, &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}},
+		{"iso duration", `{"type":"string","format":"duration"}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING}},
+		{"enum", `{"type":"string","enum":["RED","GREEN"]}`, &basev1.RunnableField{Type: basev1.RunnableField_STRING, Values: []string{"RED", "GREEN"}}},
+		{"double", `{"type":"number","format":"double"}`, &basev1.RunnableField{Type: basev1.RunnableField_NUMBER}},
+		{"struct", `{"type":"object"}`, &basev1.RunnableField{Type: basev1.RunnableField_JSON, Format: "object"}},
+		{"map", `{"type":"object","additionalProperties":{"type":"string"}}`, &basev1.RunnableField{Type: basev1.RunnableField_JSON, Format: "object"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			schema, err := projectRoot(t, member(test.schema))
 			require.NoError(t, err)
 			test.want.Name = "value"
-			require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{test.want}}, schema), "projected %v", schema)
+			require.True(t, proto.Equal(&basev1.RunnableSchema{Fields: []*basev1.RunnableField{test.want}}, schema), "projected %v", schema)
 		})
 	}
 }

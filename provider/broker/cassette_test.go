@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/cassette"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ func TestExecute_RecordThenReplayIsEnforcementIdentical(t *testing.T) {
 	recSession, err := broker.New(recCfg)
 	require.NoError(t, err)
 
-	recorded, err := recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rec.create))
+	recorded, err := recSession.Execute(context.Background(), rec.executeRequest(rec.mintHandle(t, rec.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rec.create))
 	require.NoError(t, err)
 	require.Equal(t, []string{poisonSecret}, rec.sink.stored)
 
@@ -43,12 +43,12 @@ func TestExecute_RecordThenReplayIsEnforcementIdentical(t *testing.T) {
 	repSession, err := broker.New(repCfg)
 	require.NoError(t, err)
 
-	replayed, err := repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv0.HTTPMethod_HTTP_METHOD_POST), rep.create))
+	replayed, err := repSession.Execute(context.Background(), rep.executeRequest(rep.mintHandle(t, rep.create, providerv1.HTTPMethod_HTTP_METHOD_POST), rep.create))
 	require.NoError(t, err)
 
 	// The replay produced no live capture (the sink was untouched) yet returned
 	// the identical filtered forwarded fields and capture references.
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, replayed.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, replayed.GetDelivery())
 	require.Equal(t, recorded.GetStatusCode(), replayed.GetStatusCode())
 	require.Equal(t, len(recorded.GetForwarded()), len(replayed.GetForwarded()))
 	require.Equal(t, recorded.GetForwarded()[0].GetValue().GetStringValue(), replayed.GetForwarded()[0].GetValue().GetStringValue())
@@ -67,6 +67,6 @@ func TestExecute_ReplayMissingEntryDoesNotHitNetwork(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
+	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST), h.create))
 	require.ErrorContains(t, err, "does not fall back to live")
 }

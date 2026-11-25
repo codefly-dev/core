@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // Python bumps Python deps in dir.
@@ -45,7 +45,7 @@ func Python(ctx context.Context, dir string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed to parse pip output: %w", err)
 	}
 
-	var changes []*builderv0.UpgradeChange
+	var changes []*builderv1.UpgradeChange
 	for _, e := range entries {
 		if !inOnly(e.Name, opts.Only) {
 			continue
@@ -53,7 +53,7 @@ func Python(ctx context.Context, dir string, opts Options) (*Result, error) {
 		if !opts.IncludeMajor && majorOf(e.Version) != majorOf(e.LatestVersion) {
 			continue
 		}
-		changes = append(changes, &builderv0.UpgradeChange{
+		changes = append(changes, &builderv1.UpgradeChange{
 			Package: e.Name, From: e.Version, To: e.LatestVersion,
 		})
 	}
@@ -94,7 +94,7 @@ func majorOf(v string) string {
 // in requirements.txt. Lines that don't match a known package are kept
 // verbatim (comments, -r, -e, --extra-index-url, etc.). If the file
 // doesn't exist, no-op.
-func rewriteRequirements(dir string, changes []*builderv0.UpgradeChange) error {
+func rewriteRequirements(dir string, changes []*builderv1.UpgradeChange) error {
 	path := filepath.Join(dir, "requirements.txt")
 	data, err := os.ReadFile(path)
 	if err != nil {

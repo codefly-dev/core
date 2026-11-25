@@ -10,8 +10,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -33,8 +33,8 @@ const (
 // the tag a pushed one would — so only what the subject declares can decide.
 // An unset kind means registry, so subjects written before the selector existed
 // resolve the way they always did.
-func SourceOf(subject *builderv0.ImageSubject) ImageSource {
-	if subject.GetSource() == builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON {
+func SourceOf(subject *builderv1.ImageSubject) ImageSource {
+	if subject.GetSource() == builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON {
 		return SourceDockerDaemon
 	}
 	return SourceRegistry
@@ -42,11 +42,11 @@ func SourceOf(subject *builderv0.ImageSubject) ImageSource {
 
 // sourceKind is the wire selector for a scanner source, so a caller that
 // resolved an image from its own build states on the subject what it resolved.
-func sourceKind(source ImageSource) builderv0.ImageSourceKind {
+func sourceKind(source ImageSource) builderv1.ImageSourceKind {
 	if source == SourceDockerDaemon {
-		return builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON
+		return builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON
 	}
-	return builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY
+	return builderv1.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY
 }
 
 // ImageRequest is one image and platform to inventory.
@@ -73,7 +73,7 @@ type ImageResult struct {
 // expected digest against the image actually scanned. A reference pin may name
 // a multi-platform index; a Digest field always names the scanned platform (or
 // a local daemon image ID), so the two pins are not interchangeable.
-func ImageForSubject(ctx context.Context, subject *builderv0.ImageSubject) (*ImageResult, error) {
+func ImageForSubject(ctx context.Context, subject *builderv1.ImageSubject) (*ImageResult, error) {
 	if err := RequirePinned(subject); err != nil {
 		return nil, err
 	}
@@ -337,9 +337,9 @@ func bindImageDigest(base *Result, digest string) (*Result, error) {
 	}
 	// Clone rather than mutate: the caller still owns base, and appending a
 	// hash to its root twice would silently change the document digest.
-	root := proto.Clone(source).(*agentv0.Component)
-	root.Type = agentv0.ComponentType_CONTAINER
-	root.Hashes = append(root.Hashes, &agentv0.Hash{
+	root := proto.Clone(source).(*agentv1.Component)
+	root.Type = agentv1.ComponentType_CONTAINER
+	root.Hashes = append(root.Hashes, &agentv1.Hash{
 		Algorithm: "SHA-256",
 		Content:   strings.ToLower(strings.TrimPrefix(digest, "sha256:")),
 	})

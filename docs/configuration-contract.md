@@ -2,7 +2,7 @@
 
 Core owns the generic configuration contract shared by agents and services:
 
-- `codefly.base.v0.Configuration` identifies an origin and runtime context.
+- `codefly.base.v1.Configuration` identifies an origin and runtime context.
 - `ConfigurationInformation` groups string values or structured data.
 - `ConfigurationValue` marks each string value as public or secret.
 - A secret `ConfigurationValue` may carry a `ConfigurationValueTemplate` instead
@@ -106,8 +106,8 @@ See [the boundary and migration decision](core-cli-boundary.md).
 ### Source origins for workspace diagnostics
 
 `ReadWorkspaceConfigurations` returns value-free `Origins` alongside `Infos`.
-The public evidence types are generated `codefly.base.v0` protobuf messages
-from `proto/codefly/base/v0/configuration_evidence.proto`; private trace state
+The public evidence types are generated `codefly.base.v1` protobuf messages
+from `proto/codefly/base/v1/configuration_evidence.proto`; private trace state
 never crosses that boundary.
 Each origin identifies a final group/key's supplying file; structured documents
 have `Document=true` and an empty key. Object identity preserves equal-valued

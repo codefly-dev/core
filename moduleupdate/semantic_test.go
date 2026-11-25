@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/runnable"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -36,9 +36,9 @@ func TestProtobufSourceCompatibilityPreservesOldSnapshotIdentities(t *testing.T)
 			after, afterSource := protobufEvidence(t, next, "1.5.0")
 			diff, err := BuildReleaseDiff(before, after)
 			require.NoError(t, err)
-			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
+			pin := &updatev1.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
 			for _, item := range before.Items {
-				pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
+				pin.Uses = append(pin.Uses, &updatev1.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
 			}
 			if scenario == "tampered source" {
 				afterSource["type"] = beforeSource["type"]
@@ -58,13 +58,13 @@ func TestProtobufSourceCompatibilityPreservesOldSnapshotIdentities(t *testing.T)
 			classification := ClassifyContractChangeWithSources(diff, beforeSource, afterSource)
 			switch scenario {
 			case "optional field":
-				require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
 				require.Equal(t, ChangeMinor, classification.Level)
 			case "incompatible wire type", "removed field":
-				require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_BREAKING, result.Verdict)
 				require.Equal(t, ChangeMajor, classification.Level)
 			default:
-				require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+				require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, result.Verdict)
 				require.Equal(t, ChangeUndetermined, classification.Level)
 			}
 			oldFile, err := protodesc.NewFile(old, nil)
@@ -89,13 +89,13 @@ func TestProtobufSourceCompatibilityPreservesOldSnapshotIdentities(t *testing.T)
 	}
 }
 
-func protobufEvidence(t *testing.T, file *descriptorpb.FileDescriptorProto, version string) (*updatev0.ContractSnapshot, map[string]ContractSource) {
+func protobufEvidence(t *testing.T, file *descriptorpb.FileDescriptorProto, version string) (*updatev1.ContractSnapshot, map[string]ContractSource) {
 	t.Helper()
 	data, err := runnable.CanonicalJSON(file)
 	require.NoError(t, err)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 	method := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("stable method")))
-	snapshot, err := PrepareSnapshot(&updatev0.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true, Items: []*updatev0.ContractItem{{Id: "type", Digest: digest}, {Id: "rpc", Digest: method, Dependencies: []string{"type"}}}})
+	snapshot, err := PrepareSnapshot(&updatev1.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true, Items: []*updatev1.ContractItem{{Id: "type", Digest: digest}, {Id: "rpc", Digest: method, Dependencies: []string{"type"}}}})
 	require.NoError(t, err)
 	return snapshot, map[string]ContractSource{"type": {Format: SourceProtobuf, Content: data}}
 }
@@ -109,10 +109,10 @@ func TestOpenAPISourcePreservesExactNumericRequirements(t *testing.T) {
 				old = `[{}, {"parameters":[{"name":"count","in":"query","schema":` + old + `}]}]`
 				next = `[{}, {"parameters":[{"name":"count","in":"query","schema":` + next + `}]}]`
 			}
-			evidence := func(content, version string) (*updatev0.ContractSnapshot, map[string]ContractSource) {
+			evidence := func(content, version string) (*updatev1.ContractSnapshot, map[string]ContractSource) {
 				source := ContractSource{Format: format, Content: []byte(content)}
-				snapshot, err := PrepareSnapshot(&updatev0.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true,
-					Items: []*updatev0.ContractItem{{Id: "contract", Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(source.Content))}},
+				snapshot, err := PrepareSnapshot(&updatev1.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true,
+					Items: []*updatev1.ContractItem{{Id: "contract", Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(source.Content))}},
 				})
 				require.NoError(t, err)
 				return snapshot, map[string]ContractSource{"contract": source}
@@ -123,10 +123,10 @@ func TestOpenAPISourcePreservesExactNumericRequirements(t *testing.T) {
 			require.NoError(t, err)
 			prepared, err := PrepareReleaseDiffWithSources(diff, beforeSource, afterSource)
 			require.NoError(t, err)
-			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true,
-				Uses: []*updatev0.ContractUse{{Item: "contract", Digest: before.Items[0].Digest}},
+			pin := &updatev1.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true,
+				Uses: []*updatev1.ContractUse{{Item: "contract", Digest: before.Items[0].Digest}},
 			}
-			require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, prepared.Evaluate(pin).Verdict)
+			require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, prepared.Evaluate(pin).Verdict)
 			require.Equal(t, ChangeUndetermined, ClassifyContractChangeWithSources(diff, beforeSource, afterSource).Level)
 		})
 	}
@@ -145,10 +145,10 @@ func TestOpenAPIOperationOverridesUseEffectiveParameters(t *testing.T) {
 		{"add distinct optional parameter", `{}`, `{"parameters":[{"name":"page","in":"query","schema":{"type":"integer"}}]}`, ChangeMinor},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			evidence := func(operation, version string) (*updatev0.ContractSnapshot, map[string]ContractSource) {
+			evidence := func(operation, version string) (*updatev1.ContractSnapshot, map[string]ContractSource) {
 				source := ContractSource{Format: SourceOpenAPIOperation, Content: []byte("[" + inherited + "," + operation + "]")}
-				snapshot, err := PrepareSnapshot(&updatev0.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true,
-					Items: []*updatev0.ContractItem{{Id: "operation", Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(source.Content))}},
+				snapshot, err := PrepareSnapshot(&updatev1.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true,
+					Items: []*updatev1.ContractItem{{Id: "operation", Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(source.Content))}},
 				})
 				require.NoError(t, err)
 				return snapshot, map[string]ContractSource{"operation": source}
@@ -159,16 +159,16 @@ func TestOpenAPIOperationOverridesUseEffectiveParameters(t *testing.T) {
 			require.NoError(t, err)
 			prepared, err := PrepareReleaseDiffWithSources(diff, oldSource, newSource)
 			require.NoError(t, err)
-			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true,
-				Uses: []*updatev0.ContractUse{{Item: "operation", Digest: before.Items[0].Digest}},
+			pin := &updatev1.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true,
+				Uses: []*updatev1.ContractUse{{Item: "operation", Digest: before.Items[0].Digest}},
 			}
 			require.Equal(t, scenario.want, ClassifyContractChangeWithSources(diff, oldSource, newSource).Level)
-			want := updatev0.Verdict_VERDICT_UNDETERMINED
+			want := updatev1.Verdict_VERDICT_UNDETERMINED
 			if scenario.want == ChangePatch {
-				want = updatev0.Verdict_VERDICT_SAFE
+				want = updatev1.Verdict_VERDICT_SAFE
 			}
 			if scenario.want == ChangeMinor {
-				want = updatev0.Verdict_VERDICT_NEW_CAPABILITY
+				want = updatev1.Verdict_VERDICT_NEW_CAPABILITY
 			}
 			require.Equal(t, want, prepared.Evaluate(pin).Verdict)
 		})

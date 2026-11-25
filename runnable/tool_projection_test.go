@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func projectionFixture(t *testing.T, spelling string) *runnablev0.ToolProjection {
+func projectionFixture(t *testing.T, spelling string) *runnablev1.ToolProjection {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "tool-projection", spelling+".json"))
 	require.NoError(t, err)
@@ -26,14 +26,14 @@ func projectionFixture(t *testing.T, spelling string) *runnablev0.ToolProjection
 	return projection
 }
 
-func projectedBinding(t *testing.T) *runnablev0.PreparedBinding {
+func projectedBinding(t *testing.T) *runnablev1.PreparedBinding {
 	t.Helper()
 	binding := connectBinding()
-	binding.Contract.Input.Fields = []*basev0.RunnableField{
-		{Name: "operation_code", Type: basev0.RunnableField_STRING},
-		{Name: "input_json", Type: basev0.RunnableField_STRING},
+	binding.Contract.Input.Fields = []*basev1.RunnableField{
+		{Name: "operation_code", Type: basev1.RunnableField_STRING},
+		{Name: "input_json", Type: basev1.RunnableField_STRING},
 	}
-	binding.Contract.Output.Fields = []*basev0.RunnableField{{Name: "output_json", Type: basev0.RunnableField_STRING}}
+	binding.Contract.Output.Fields = []*basev1.RunnableField{{Name: "output_json", Type: basev1.RunnableField_STRING}}
 	delivered, err := runnable.DecodePrepared(encoded(t, binding))
 	require.NoError(t, err)
 	return delivered
@@ -48,7 +48,7 @@ func assertProjectionFieldsPopulated(t *testing.T, message protoreflect.Message)
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
 		require.Truef(t, message.Has(field), "%s is zero; the fixture must expose dropped fields", field.FullName())
-		if field.Kind() != protoreflect.MessageKind || !strings.HasPrefix(string(field.Message().FullName()), "codefly.runnable.v0.") {
+		if field.Kind() != protoreflect.MessageKind || !strings.HasPrefix(string(field.Message().FullName()), "codefly.runnable.v1.") {
 			continue
 		}
 		if field.IsList() {
@@ -67,7 +67,7 @@ func TestToolProjectionRoundTripsEveryField(t *testing.T) {
 	snake := projectionFixture(t, "snake_case")
 	camel := projectionFixture(t, "lowerCamelCase")
 	require.True(t, proto.Equal(snake, camel), "both spellings must carry the exact same declaration")
-	for _, projection := range []*runnablev0.ToolProjection{snake, camel} {
+	for _, projection := range []*runnablev1.ToolProjection{snake, camel} {
 		assertProjectionFieldsPopulated(t, projection.ProtoReflect())
 		canonical, err := runnable.EncodeToolProjection(projection)
 		require.NoError(t, err)
@@ -101,13 +101,13 @@ func TestToolProjectionDoesNotRequireDirectMethodExposure(t *testing.T) {
 	require.NotEmpty(t, direct.GetName())
 	tools, err := runnable.ToolsFromProjection(binding, projectionFixture(t, "snake_case"))
 	require.NoError(t, err)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, tools[0].Effect)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tools[1].Effect)
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, tools[0].Effect)
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, tools[1].Effect)
 	// A generic exposure does not classify or replace declared tool effects.
 	binding.Policy.Tool = exposedTool()
 	tools, err = runnable.ToolsFromProjection(binding, projectionFixture(t, "snake_case"))
 	require.NoError(t, err)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, tools[0].Effect)
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, tools[0].Effect)
 }
 
 func TestToolProjectionRefusesDirectToolNameCollision(t *testing.T) {
@@ -128,14 +128,14 @@ func TestToolProjectionRefusesDirectToolNameCollision(t *testing.T) {
 }
 
 func TestToolProjectionPermitsAliasesWithDistinctNames(t *testing.T) {
-	for name, change := range map[string]func(*runnablev0.ToolProjection){
-		"shared selector": func(p *runnablev0.ToolProjection) {
+	for name, change := range map[string]func(*runnablev1.ToolProjection){
+		"shared selector": func(p *runnablev1.ToolProjection) {
 			p.Tools[1].Selector = proto.CloneOf(p.Tools[0].Selector)
 		},
-		"shared declaration digest": func(p *runnablev0.ToolProjection) {
+		"shared declaration digest": func(p *runnablev1.ToolProjection) {
 			p.Tools[1].Digest = p.Tools[0].Digest
 		},
-		"alias": func(p *runnablev0.ToolProjection) {
+		"alias": func(p *runnablev1.ToolProjection) {
 			p.Tools[1] = proto.CloneOf(p.Tools[0])
 			p.Tools[1].Name = "inspect_item_alias"
 		},
@@ -154,63 +154,63 @@ func TestToolProjectionPermitsAliasesWithDistinctNames(t *testing.T) {
 }
 
 func TestToolProjectionRejectsMalformedDeclarations(t *testing.T) {
-	tests := map[string]func(*runnablev0.ToolProjection){
-		"no binding":            func(p *runnablev0.ToolProjection) { p.BindingId = "" },
-		"binding whitespace":    func(p *runnablev0.ToolProjection) { p.BindingId = "binding two" },
-		"binding control":       func(p *runnablev0.ToolProjection) { p.BindingId = "binding\x00two" },
-		"long binding":          func(p *runnablev0.ToolProjection) { p.BindingId = strings.Repeat("b", 513) },
-		"invalid UTF-8 binding": func(p *runnablev0.ToolProjection) { p.BindingId = "\xff" },
-		"no contract digest":    func(p *runnablev0.ToolProjection) { p.ContractDigest = "" },
-		"uppercase digest":      func(p *runnablev0.ToolProjection) { p.ContractDigest = "sha256:" + strings.Repeat("A", 64) },
-		"no tools":              func(p *runnablev0.ToolProjection) { p.Tools = nil },
-		"nil tool":              func(p *runnablev0.ToolProjection) { p.Tools[0] = nil },
-		"too many tools": func(p *runnablev0.ToolProjection) {
+	tests := map[string]func(*runnablev1.ToolProjection){
+		"no binding":            func(p *runnablev1.ToolProjection) { p.BindingId = "" },
+		"binding whitespace":    func(p *runnablev1.ToolProjection) { p.BindingId = "binding two" },
+		"binding control":       func(p *runnablev1.ToolProjection) { p.BindingId = "binding\x00two" },
+		"long binding":          func(p *runnablev1.ToolProjection) { p.BindingId = strings.Repeat("b", 513) },
+		"invalid UTF-8 binding": func(p *runnablev1.ToolProjection) { p.BindingId = "\xff" },
+		"no contract digest":    func(p *runnablev1.ToolProjection) { p.ContractDigest = "" },
+		"uppercase digest":      func(p *runnablev1.ToolProjection) { p.ContractDigest = "sha256:" + strings.Repeat("A", 64) },
+		"no tools":              func(p *runnablev1.ToolProjection) { p.Tools = nil },
+		"nil tool":              func(p *runnablev1.ToolProjection) { p.Tools[0] = nil },
+		"too many tools": func(p *runnablev1.ToolProjection) {
 			for len(p.Tools) <= runnable.MaxProjectedTools {
 				p.Tools = append(p.Tools, proto.CloneOf(p.Tools[0]))
 			}
 		},
-		"duplicate name":           func(p *runnablev0.ToolProjection) { p.Tools[1].Name = p.Tools[0].Name },
-		"no name":                  func(p *runnablev0.ToolProjection) { p.Tools[0].Name = "" },
-		"invalid name":             func(p *runnablev0.ToolProjection) { p.Tools[0].Name = "1bad" },
-		"long name":                func(p *runnablev0.ToolProjection) { p.Tools[0].Name = strings.Repeat("a", 65) },
-		"no description":           func(p *runnablev0.ToolProjection) { p.Tools[0].Description = "" },
-		"untrimmed description":    func(p *runnablev0.ToolProjection) { p.Tools[0].Description = " trailing " },
-		"no effect":                func(p *runnablev0.ToolProjection) { p.Tools[0].Effect = runnablev0.ToolExposure_EFFECT_UNSPECIFIED },
-		"unknown effect":           func(p *runnablev0.ToolProjection) { p.Tools[0].Effect = 99 },
-		"no declaration digest":    func(p *runnablev0.ToolProjection) { p.Tools[0].Digest = "" },
-		"short declaration digest": func(p *runnablev0.ToolProjection) { p.Tools[0].Digest = "sha256:bad" },
-		"no selector":              func(p *runnablev0.ToolProjection) { p.Tools[0].Selector = nil },
-		"no selector field":        func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Field = "" },
-		"selector path":            func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Field = "input.operation" },
-		"selector numeric prefix":  func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Field = "1operation" },
-		"long selector field":      func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Field = strings.Repeat("a", 65) },
-		"no selector value":        func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Value = "" },
-		"long selector value":      func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Value = strings.Repeat("a", 513) },
-		"selector control":         func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Value = "read\nitem" },
-		"selector whitespace":      func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Value = " read" },
-		"missing input":            func(p *runnablev0.ToolProjection) { p.Tools[0].InputSchema = nil },
-		"missing output":           func(p *runnablev0.ToolProjection) { p.Tools[0].OutputSchema = nil },
-		"empty schema":             func(p *runnablev0.ToolProjection) { p.Tools[0].OutputSchema = &structpb.Struct{} },
-		"non-object input": func(p *runnablev0.ToolProjection) {
+		"duplicate name":           func(p *runnablev1.ToolProjection) { p.Tools[1].Name = p.Tools[0].Name },
+		"no name":                  func(p *runnablev1.ToolProjection) { p.Tools[0].Name = "" },
+		"invalid name":             func(p *runnablev1.ToolProjection) { p.Tools[0].Name = "1bad" },
+		"long name":                func(p *runnablev1.ToolProjection) { p.Tools[0].Name = strings.Repeat("a", 65) },
+		"no description":           func(p *runnablev1.ToolProjection) { p.Tools[0].Description = "" },
+		"untrimmed description":    func(p *runnablev1.ToolProjection) { p.Tools[0].Description = " trailing " },
+		"no effect":                func(p *runnablev1.ToolProjection) { p.Tools[0].Effect = runnablev1.ToolExposure_EFFECT_UNSPECIFIED },
+		"unknown effect":           func(p *runnablev1.ToolProjection) { p.Tools[0].Effect = 99 },
+		"no declaration digest":    func(p *runnablev1.ToolProjection) { p.Tools[0].Digest = "" },
+		"short declaration digest": func(p *runnablev1.ToolProjection) { p.Tools[0].Digest = "sha256:bad" },
+		"no selector":              func(p *runnablev1.ToolProjection) { p.Tools[0].Selector = nil },
+		"no selector field":        func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Field = "" },
+		"selector path":            func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Field = "input.operation" },
+		"selector numeric prefix":  func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Field = "1operation" },
+		"long selector field":      func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Field = strings.Repeat("a", 65) },
+		"no selector value":        func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Value = "" },
+		"long selector value":      func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Value = strings.Repeat("a", 513) },
+		"selector control":         func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Value = "read\nitem" },
+		"selector whitespace":      func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Value = " read" },
+		"missing input":            func(p *runnablev1.ToolProjection) { p.Tools[0].InputSchema = nil },
+		"missing output":           func(p *runnablev1.ToolProjection) { p.Tools[0].OutputSchema = nil },
+		"empty schema":             func(p *runnablev1.ToolProjection) { p.Tools[0].OutputSchema = &structpb.Struct{} },
+		"non-object input": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].InputSchema.Fields["type"] = structpb.NewStringValue("string")
 		},
-		"malformed schema": func(p *runnablev0.ToolProjection) {
+		"malformed schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].OutputSchema.Fields["type"] = structpb.NewStringValue("not-a-type")
 		},
-		"external schema": func(p *runnablev0.ToolProjection) {
+		"external schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].InputSchema.Fields["$ref"] = structpb.NewStringValue("https://example.invalid/schema.json")
 		},
-		"filesystem schema": func(p *runnablev0.ToolProjection) {
+		"filesystem schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].OutputSchema.Fields["$ref"] = structpb.NewStringValue("file:///schema.json")
 		},
-		"oversized schema": func(p *runnablev0.ToolProjection) {
+		"oversized schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].InputSchema.Fields["description"] = structpb.NewStringValue(strings.Repeat("a", runnable.MaxToolSchemaBytes))
 		},
-		"oversized projection": func(p *runnablev0.ToolProjection) {
+		"oversized projection": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].InputSchema.Fields["description"] = structpb.NewStringValue(strings.Repeat("a", runnable.MaxToolProjectionBytes))
 		},
-		"unknown binary field": func(p *runnablev0.ToolProjection) { p.ProtoReflect().SetUnknown([]byte{0xa0, 0x06, 1}) },
-		"unknown nested field": func(p *runnablev0.ToolProjection) {
+		"unknown binary field": func(p *runnablev1.ToolProjection) { p.ProtoReflect().SetUnknown([]byte{0xa0, 0x06, 1}) },
+		"unknown nested field": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].Selector.ProtoReflect().SetUnknown([]byte{0xa0, 0x06, 1})
 		},
 	}
@@ -229,33 +229,33 @@ func TestToolProjectionRejectsMalformedDeclarations(t *testing.T) {
 }
 
 func TestToolProjectionChecksTheEntirePreparedBinding(t *testing.T) {
-	tests := map[string]func(*runnablev0.PreparedBinding, *runnablev0.ToolProjection){
-		"different contract": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) { p.ContractDigest = digestA },
-		"tampered contract": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
-			b.Contract.Input.Fields[0].Type = basev0.RunnableField_BOOLEAN
+	tests := map[string]func(*runnablev1.PreparedBinding, *runnablev1.ToolProjection){
+		"different contract": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) { p.ContractDigest = digestA },
+		"tampered contract": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
+			b.Contract.Input.Fields[0].Type = basev1.RunnableField_BOOLEAN
 		},
-		"changed route": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
+		"changed route": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
 			b.Call.GetConnect().Procedure = "/acme.items.v1.Items/Cancel"
 		},
-		"invalid policy": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) { b.Policy.Audience = "" },
-		"unresolved slots": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
-			b.Policy.RequiredScopeSlots = []*runnablev0.ScopeSlot{{Name: "model"}}
+		"invalid policy": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) { b.Policy.Audience = "" },
+		"unresolved slots": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
+			b.Policy.RequiredScopeSlots = []*runnablev1.ScopeSlot{{Name: "model"}}
 		},
-		"invalid generic exposure": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
-			b.Policy.Tool = &runnablev0.ToolExposure{}
+		"invalid generic exposure": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
+			b.Policy.Tool = &runnablev1.ToolExposure{}
 		},
-		"absent selector field": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
+		"absent selector field": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
 			p.Tools[1].Selector.Field = "missing"
 		},
-		"non-string selector field": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
-			b.Contract.Input.Fields[0].Type = basev0.RunnableField_BOOLEAN
+		"non-string selector field": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
+			b.Contract.Input.Fields[0].Type = basev1.RunnableField_BOOLEAN
 			var err error
 			b.ContractDigest, err = runnable.ContractDigest(b.Contract)
 			require.NoError(t, err)
 			p.ContractDigest = b.ContractDigest
 		},
-		"nested selector field": func(b *runnablev0.PreparedBinding, p *runnablev0.ToolProjection) {
-			b.Contract.Input.Fields = []*basev0.RunnableField{{Name: "envelope", Type: basev0.RunnableField_OBJECT, Fields: b.Contract.Input.Fields}}
+		"nested selector field": func(b *runnablev1.PreparedBinding, p *runnablev1.ToolProjection) {
+			b.Contract.Input.Fields = []*basev1.RunnableField{{Name: "envelope", Type: basev1.RunnableField_OBJECT, Fields: b.Contract.Input.Fields}}
 			var err error
 			b.ContractDigest, err = runnable.ContractDigest(b.Contract)
 			require.NoError(t, err)
@@ -306,20 +306,20 @@ func TestToolProjectionAdmissionMustFreezeMoreThanDigests(t *testing.T) {
 	admitted := projectionFixture(t, "snake_case")
 	frozen, err := runnable.EncodeToolProjection(admitted)
 	require.NoError(t, err)
-	for name, change := range map[string]func(*runnablev0.ToolProjection){
-		"binding reference": func(p *runnablev0.ToolProjection) { p.BindingId = "another__invoke" },
-		"name":              func(p *runnablev0.ToolProjection) { p.Tools[0].Name = "inspect_other" },
-		"description":       func(p *runnablev0.ToolProjection) { p.Tools[0].Description = "A changed description." },
-		"effect":            func(p *runnablev0.ToolProjection) { p.Tools[0].Effect = runnablev0.ToolExposure_EFFECT_MUTATION },
-		"input schema": func(p *runnablev0.ToolProjection) {
+	for name, change := range map[string]func(*runnablev1.ToolProjection){
+		"binding reference": func(p *runnablev1.ToolProjection) { p.BindingId = "another__invoke" },
+		"name":              func(p *runnablev1.ToolProjection) { p.Tools[0].Name = "inspect_other" },
+		"description":       func(p *runnablev1.ToolProjection) { p.Tools[0].Description = "A changed description." },
+		"effect":            func(p *runnablev1.ToolProjection) { p.Tools[0].Effect = runnablev1.ToolExposure_EFFECT_MUTATION },
+		"input schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].InputSchema.Fields["additionalProperties"] = structpb.NewBoolValue(true)
 		},
-		"output schema": func(p *runnablev0.ToolProjection) {
+		"output schema": func(p *runnablev1.ToolProjection) {
 			p.Tools[0].OutputSchema.Fields["additionalProperties"] = structpb.NewBoolValue(true)
 		},
-		"selector field":     func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Field = "input_json" },
-		"selector value":     func(p *runnablev0.ToolProjection) { p.Tools[0].Selector.Value = "inspect.v2" },
-		"declaration digest": func(p *runnablev0.ToolProjection) { p.Tools[0].Digest = digestC },
+		"selector field":     func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Field = "input_json" },
+		"selector value":     func(p *runnablev1.ToolProjection) { p.Tools[0].Selector.Value = "inspect.v2" },
+		"declaration digest": func(p *runnablev1.ToolProjection) { p.Tools[0].Digest = digestC },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := proto.CloneOf(admitted)

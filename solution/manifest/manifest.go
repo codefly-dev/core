@@ -26,7 +26,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	modulecontract "github.com/codefly-dev/core/contracts/module"
-	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
+	solutionv1 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -500,7 +500,7 @@ func (m *Manifest) Digest() (string, error) {
 // digest, and every lifecycle operation the runtime advertises must have been
 // declared in the packaged manifest. A runtime may implement a subset of the
 // declared operations, but never one the audited manifest did not declare.
-func (m *Manifest) AdmitInformation(info *solutionv0.GetSolutionInformationResponse) error {
+func (m *Manifest) AdmitInformation(info *solutionv1.GetSolutionInformationResponse) error {
 	if info == nil {
 		return fmt.Errorf("solution information is required")
 	}

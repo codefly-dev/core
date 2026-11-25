@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 func TestGoCodeServerProjectInfoUsesDeclaredDependenciesWithoutDownload(t *testing.T) {
@@ -19,8 +19,8 @@ func TestGoCodeServerProjectInfoUsesDeclaredDependenciesWithoutDownload(t *testi
 		t.Fatal(err)
 	}
 
-	response, err := NewGoCodeServer(dir, nil).Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := NewGoCodeServer(dir, nil).Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +47,8 @@ func TestGoCodeServer_GetProjectInfo_RealRepos(t *testing.T) {
 			dir := EnsureRepo(t, repo)
 			srv := NewGoCodeServer(dir, nil)
 
-			resp, err := srv.Execute(context.Background(), &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+			resp, err := srv.Execute(context.Background(), &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -89,8 +89,8 @@ func TestGoCodeServer_ListDependencies_RealRepos(t *testing.T) {
 			dir := EnsureRepo(t, repo)
 			srv := NewGoCodeServer(dir, nil)
 
-			resp, err := srv.Execute(context.Background(), &codev0.CodeRequest{
-				Operation: &codev0.CodeRequest_ListDependencies{ListDependencies: &codev0.ListDependenciesRequest{}},
+			resp, err := srv.Execute(context.Background(), &codev1.CodeRequest{
+				Operation: &codev1.CodeRequest_ListDependencies{ListDependencies: &codev1.ListDependenciesRequest{}},
 			})
 			if err != nil {
 				t.Fatal(err)

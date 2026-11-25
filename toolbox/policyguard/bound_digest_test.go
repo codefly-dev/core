@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/policy/testharness"
 	"github.com/codefly-dev/core/toolbox"
@@ -17,14 +17,14 @@ import (
 	"github.com/codefly-dev/core/toolbox/policyguard"
 )
 
-func boundRequest(t *testing.T, subject string) *toolboxv0.CallToolRequest {
+func boundRequest(t *testing.T, subject string) *toolboxv1.CallToolRequest {
 	t.Helper()
 	arguments, err := structpb.NewStruct(map[string]any{"subject": subject})
 	require.NoError(t, err)
-	return &toolboxv0.CallToolRequest{Name: conformance.IdentityTool, Arguments: arguments}
+	return &toolboxv1.CallToolRequest{Name: conformance.IdentityTool, Arguments: arguments}
 }
 
-func boundToken(t *testing.T, secret []byte, request *toolboxv0.CallToolRequest, catalogDigest, requestDigest string) string {
+func boundToken(t *testing.T, secret []byte, request *toolboxv1.CallToolRequest, catalogDigest, requestDigest string) string {
 	t.Helper()
 	token, _, err := policy.Mint(policy.MintInput{
 		Principal:     &policy.Principal{ID: "user-1", Kind: policy.KindHuman, OrgID: "org-1"},
@@ -38,18 +38,18 @@ func boundToken(t *testing.T, secret []byte, request *toolboxv0.CallToolRequest,
 	return token
 }
 
-func approvedCatalogDigest(t *testing.T, server toolboxv0.ToolboxServer, request *toolboxv0.CallToolRequest) string {
+func approvedCatalogDigest(t *testing.T, server toolboxv1.ToolboxServer, request *toolboxv1.CallToolRequest) string {
 	t.Helper()
 	snapshot, err := toolbox.SnapshotServer(context.Background(), server)
 	require.NoError(t, err)
-	description, err := server.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: request.GetName()})
+	description, err := server.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: request.GetName()})
 	require.NoError(t, err)
 	approved, err := snapshot.ApproveTool(request.GetName(), description)
 	require.NoError(t, err)
 	return approved.Digest
 }
 
-func callWithToken(t *testing.T, guard *policyguard.Guard, request *toolboxv0.CallToolRequest, token string) *toolboxv0.CallToolResponse {
+func callWithToken(t *testing.T, guard *policyguard.Guard, request *toolboxv1.CallToolRequest, token string) *toolboxv1.CallToolResponse {
 	t.Helper()
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(policy.ScopedAuthMetadataKey, token))
 	response, err := guard.CallTool(ctx, request)
@@ -114,7 +114,7 @@ func TestGuardConsumesSingleUseTokenEvenWhenHandlerTimesOut(t *testing.T) {
 	server := conformance.New(conformance.FixtureVersion)
 	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": 500})
 	require.NoError(t, err)
-	request := &toolboxv0.CallToolRequest{Name: conformance.WaitTool, Arguments: arguments}
+	request := &toolboxv1.CallToolRequest{Name: conformance.WaitTool, Arguments: arguments}
 	requestDigest, err := toolbox.DigestCallToolRequest(request)
 	require.NoError(t, err)
 	guard := policyguard.NewWithScopedAuth(server, testharness.NewFakeDeny(),
@@ -174,7 +174,7 @@ func TestGuardBindsNamedQueryAndResultBudgetCaveats(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	request := &toolboxv0.CallToolRequest{Name: conformance.IdentityTool, Arguments: arguments}
+	request := &toolboxv1.CallToolRequest{Name: conformance.IdentityTool, Arguments: arguments}
 	requestDigest, err := toolbox.DigestCallToolRequest(request)
 	require.NoError(t, err)
 	catalogDigest := approvedCatalogDigest(t, server, request)

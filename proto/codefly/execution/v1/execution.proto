@@ -2,7 +2,7 @@ syntax = "proto3";
 package codefly.execution.v1;
 
 import "buf/validate/validate.proto";
-import "codefly/base/v0/work_context.proto";
+import "codefly/base/v1/work_context.proto";
 import "google/protobuf/timestamp.proto";
 
 // ExecutionStage is one causally ordered fact in an execution attempt.
@@ -59,7 +59,7 @@ message ExecutionReceiptV1 {
   // assurance states which boundary directly observed the effect.
   ExecutionAssurance assurance = 8 [(buf.validate.field).enum.defined_only = true];
   // work_context is a verified claims snapshot, not the signed bearer token.
-  codefly.base.v0.WorkContextV1 work_context = 9 [(buf.validate.field).required = true];
+  codefly.base.v1.WorkContextV1 work_context = 9 [(buf.validate.field).required = true];
   // work_context_sha256 binds the snapshot to the admitted signed token.
   string work_context_sha256 = 10 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
   // target identifies the Codefly workspace/service boundary.

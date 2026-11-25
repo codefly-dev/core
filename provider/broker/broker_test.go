@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/broker"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/stretchr/testify/require"
@@ -43,11 +43,11 @@ func TestExecute_CreateFiltersAndCapturesSecret(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	response, err := session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
 
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED, response.GetDelivery())
 	require.Equal(t, uint32(http.StatusOK), response.GetStatusCode())
 
 	// The secret was captured to the sink and never forwarded.
@@ -80,7 +80,7 @@ func TestExecute_RejectsMutatingRequestInReadOnlyContext(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.ErrorContains(t, err, "read-only")
 	require.Empty(t, h.sink.stored)
@@ -101,7 +101,7 @@ func TestExecute_WrongResourceIDInPathRejected(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, observe, providerv0.HTTPMethod_HTTP_METHOD_GET)
+	handle := h.mintHandle(t, observe, providerv1.HTTPMethod_HTTP_METHOD_GET)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle, observe))
 	require.ErrorContains(t, err, "planned remote id")
 	require.Empty(t, h.sink.stored)
@@ -116,7 +116,7 @@ func TestExecute_MissingCheckpointRefusesSend(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.ErrorContains(t, err, "durable checkpoint is required")
 }
@@ -125,17 +125,17 @@ func TestExecute_BudgetExhausted(t *testing.T) {
 	h := newHarness(t)
 	server := accountServer(t, nil)
 	cfg := h.config(false)
-	cfg.Budget = &providerv0.RequestBudget{RequestCount: 1, RequestBytes: 8192, ResponseBytes: 65536}
+	cfg.Budget = &providerv1.RequestBudget{RequestCount: 1, RequestBytes: 8192, ResponseBytes: 65536}
 	cfg.ClientFor = dialClientFor(serverAddr(t, server))
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
 
 	// Budget is now exhausted; a second call is refused before send.
-	handle2 := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle2 := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle2, h.create))
 	require.ErrorContains(t, err, "budget is exhausted")
 }
@@ -149,10 +149,10 @@ func TestExecute_TimeoutBeforeSendIsNotSent(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	response, err := session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT, response.GetDelivery())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT, response.GetDelivery())
 }
 
 func TestExecute_LostResponseIsSentOutcomeUnknown(t *testing.T) {
@@ -184,11 +184,11 @@ func TestExecute_LostResponseIsSentOutcomeUnknown(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	response, err := session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
-	require.Equal(t, providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN, response.GetDelivery())
-	require.Equal(t, providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN, response.GetCertainty())
+	require.Equal(t, providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN, response.GetDelivery())
+	require.Equal(t, providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN, response.GetCertainty())
 }
 
 func TestExecute_CaptureMustBeCheckpointedBeforeNext(t *testing.T) {
@@ -199,20 +199,20 @@ func TestExecute_CaptureMustBeCheckpointedBeforeNext(t *testing.T) {
 	session, err := broker.New(cfg)
 	require.NoError(t, err)
 
-	handle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle, h.create))
 	require.NoError(t, err)
 	require.Equal(t, []string{poisonSecret}, h.sink.stored)
 
 	// The capture gate is armed: a second request against the same checkpoint is
 	// refused until a newer checkpoint acknowledges the capture.
-	handle2 := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle2 := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle2, h.create))
 	require.ErrorContains(t, err, "capture must be checkpointed")
 
 	// A newer checkpoint releases the gate.
 	h.checkpoints.checkpoint = checkpoint("cp2", "idem-1")
-	handle3 := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	handle3 := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	_, err = session.Execute(context.Background(), h.executeRequest(handle3, h.create))
 	require.NoError(t, err)
 }
@@ -235,7 +235,7 @@ func TestExecute_CredentialCannotBeReusedOnAnotherRequest(t *testing.T) {
 	session, err = broker.New(cfg)
 	require.NoError(t, err)
 
-	createHandle := h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST)
+	createHandle := h.mintHandle(t, h.create, providerv1.HTTPMethod_HTTP_METHOD_POST)
 	// Present the create handle while executing the observe request.
 	request := h.executeRequest(createHandle, observe)
 	request.Request = observe

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 )
 
 // Message is one chat turn.
@@ -30,15 +30,15 @@ type ChatRequest struct {
 // body renders the request as descriptor-allowed body fields. PlannedChat
 // screens content and validates the fields against the target descriptor; this
 // method does neither.
-func (r ChatRequest) body() map[string]*providerv0.PublicValue {
-	messages := make([]*providerv0.PublicValue, 0, len(r.Messages))
+func (r ChatRequest) body() map[string]*providerv1.PublicValue {
+	messages := make([]*providerv1.PublicValue, 0, len(r.Messages))
 	for _, message := range r.Messages {
-		messages = append(messages, objectValue(map[string]*providerv0.PublicValue{
+		messages = append(messages, objectValue(map[string]*providerv1.PublicValue{
 			"role":    stringValue(message.Role),
 			"content": stringValue(message.Content),
 		}))
 	}
-	body := map[string]*providerv0.PublicValue{
+	body := map[string]*providerv1.PublicValue{
 		"model":      stringValue(r.Model),
 		"messages":   listValue(messages),
 		"max_tokens": integerValue(r.MaxTokens),
@@ -95,7 +95,7 @@ type ChatDelta struct {
 
 // DecodeEvent types a single filtered stream event, for a caller wiring the
 // broker's live OnStreamEvent callback to typed deltas as they arrive.
-func DecodeEvent(event *providerv0.FilteredEvent) ChatDelta {
+func DecodeEvent(event *providerv1.FilteredEvent) ChatDelta {
 	delta := ChatDelta{EventType: event.GetEventType(), Terminal: event.GetTerminal()}
 	for _, field := range event.GetForwarded() {
 		if isStreamText(field.GetSelector()) {
@@ -122,7 +122,7 @@ type ChatStream struct {
 
 // DecodeChat decodes a whole non-streaming chat response from the filtered
 // forwarded fields.
-func DecodeChat(response *providerv0.ExecuteRequestResponse) (*ChatResponse, error) {
+func DecodeChat(response *providerv1.ExecuteRequestResponse) (*ChatResponse, error) {
 	if len(response.GetEvents()) > 0 {
 		return nil, fmt.Errorf("response is a stream; use DecodeChatStream")
 	}
@@ -141,7 +141,7 @@ func DecodeChat(response *providerv0.ExecuteRequestResponse) (*ChatResponse, err
 
 // DecodeChatStream reconstructs the ordered typed stream from the filtered
 // events. The assembled Text concatenates every text delta in event order.
-func DecodeChatStream(response *providerv0.ExecuteRequestResponse) (*ChatStream, error) {
+func DecodeChatStream(response *providerv1.ExecuteRequestResponse) (*ChatStream, error) {
 	if len(response.GetEvents()) == 0 {
 		return nil, fmt.Errorf("response is not a stream; use DecodeChat")
 	}
@@ -170,7 +170,7 @@ func DecodeChatStream(response *providerv0.ExecuteRequestResponse) (*ChatStream,
 
 // applyChatField maps one non-text forwarded field onto the decoded stop reason
 // and usage, covering both the Anthropic and OpenAI response shapes.
-func applyChatField(field *providerv0.FilteredField, stopReason *string, usage *Usage) {
+func applyChatField(field *providerv1.FilteredField, stopReason *string, usage *Usage) {
 	selector := field.GetSelector()
 	if _, ok := indexBetween(selector, "$.choices[", "].finish_reason"); ok {
 		*stopReason = field.GetValue().GetStringValue()

@@ -3,13 +3,13 @@ package services
 import (
 	"context"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
 
 // NetworkInstanceForRestRouteGroup finds the proper network mapping for a given REST route group
-func NetworkInstanceForRestRouteGroup(ctx context.Context, mappings []*basev0.NetworkMapping, group *resources.RestRouteGroup, networkAccess *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
+func NetworkInstanceForRestRouteGroup(ctx context.Context, mappings []*basev1.NetworkMapping, group *resources.RestRouteGroup, networkAccess *basev1.NetworkAccess) (*basev1.NetworkInstance, error) {
 	w := wool.Get(ctx).In("services.NetworkMappingForRoute")
 	for _, m := range mappings {
 		if rest := resources.IsRest(ctx, m.Endpoint); rest == nil {

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/require"
@@ -54,11 +54,11 @@ func TestVerifiedReleaseContractDiff(t *testing.T) {
 	loaded, err := fixture.verified.ContractDiff()
 	require.NoError(t, err)
 	require.Equal(t, "0.2.0", loaded.After.Version)
-	result := fixture.verified.EvaluateUpdate(&updatev0.ConsumerPin{
+	result := fixture.verified.EvaluateUpdate(&updatev1.ConsumerPin{
 		SchemaVersion: 1, Consumer: "deployment", Module: testPackage, Version: baseline.Version,
 		SnapshotDigest: baseline.Digest, UsageComplete: true,
 	})
-	require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
+	require.Equal(t, updatev1.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
 	require.Equal(t, "api/accounts/rest#GET /watch", result.Capabilities[0].Item)
 
 	t.Run("cached evidence is isolated and needs no filesystem", func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestVerifiedReleaseContractDiff(t *testing.T) {
 		_, err := fixture.verified.ContractDiff()
 		require.ErrorContains(t, err, "missing contracts/update.codefly.json")
 		result := fixture.verified.EvaluateUpdate(nil)
-		require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+		require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, result.Verdict)
 		require.Equal(t, "0.2.0", result.ToVersion)
 		require.Contains(t, result.Undetermined[0].Reason, "could not determine: module release is missing")
 	})
@@ -506,7 +506,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	require.NoError(t, <-readerErrors)
 	require.NoError(t, err)
 	require.False(t, updated.Applied)
-	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, updated.Report.ConsumerCompatibility.Verdict)
+	require.Equal(t, updatev1.Verdict_VERDICT_UNDETERMINED, updated.Report.ConsumerCompatibility.Verdict)
 	require.Contains(t, updated.Report.String(), "consumer usage evidence is required")
 	require.Equal(t, string(priorLock), readFile(t, filepath.Join(moduleDir, LockFileName)))
 	rolledBackProjection, err := engine.Rollback(ctx, moduleDir, priorLock)

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ import (
 // validateRenderedConfigMap runs the public restricted validator over a real
 // kustomize overlay carrying one ConfigMap with the given data key, as an
 // agent-produced tree reaches it.
-func validateRenderedConfigMap(t *testing.T, key string) *builderv0.KubernetesManifestValidation {
+func validateRenderedConfigMap(t *testing.T, key string) *builderv1.KubernetesManifestValidation {
 	t.Helper()
 	root := t.TempDir()
 	overlay := filepath.Join(root, "overlays", "test")
@@ -23,7 +23,7 @@ func validateRenderedConfigMap(t *testing.T, key string) *builderv0.KubernetesMa
 	require.NoError(t, os.WriteFile(filepath.Join(overlay, "kustomization.yaml"), []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: [config-map.yaml]\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(overlay, "config-map.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: example\n  namespace: example\ndata:\n  "+key+": synthetic-fixture\n"), 0o600))
 	return services.ValidateKubernetesManifestTree(context.Background(), root, "test", "example",
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, false, "", "")
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, false, "", "")
 }
 
 // The restricted validator holds a rendered tree to the same carrier boundary
@@ -48,7 +48,7 @@ func TestRestrictedValidatorHoldsTheCarrierBoundary(t *testing.T) {
 			require.True(t, resources.IsSensitiveEnvironmentVariable(key), "the classifier calls it sensitive")
 			got := validateRenderedConfigMap(t, key)
 			require.False(t, got.GetRestricted())
-			require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_FAILED, got.GetStaticValidation())
+			require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_FAILED, got.GetStaticValidation())
 			require.Len(t, got.GetViolations(), 1)
 			require.Contains(t, got.GetViolations()[0], "contains credential-like key")
 		})
@@ -65,7 +65,7 @@ func TestRestrictedValidatorHoldsTheCarrierBoundary(t *testing.T) {
 			require.False(t, resources.IsSensitiveEnvironmentVariable(key), "the classifier calls it public")
 			got := validateRenderedConfigMap(t, key)
 			require.Empty(t, got.GetViolations())
-			require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, got.GetStaticValidation())
+			require.Equal(t, builderv1.KubernetesManifestValidation_STATUS_PASSED, got.GetStaticValidation())
 			require.True(t, got.GetRestricted())
 		})
 	}

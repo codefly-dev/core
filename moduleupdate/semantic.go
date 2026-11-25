@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"slices"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -28,7 +28,7 @@ type ContractSource struct {
 }
 
 type ContractEvidence struct {
-	Snapshot *updatev0.ContractSnapshot
+	Snapshot *updatev1.ContractSnapshot
 	Sources  map[string]ContractSource
 }
 
@@ -37,14 +37,14 @@ type semanticChange struct {
 	reason string
 }
 
-func PrepareReleaseDiffWithSources(diff *updatev0.ReleaseDiff, before, after map[string]ContractSource) (*PreparedRelease, error) {
+func PrepareReleaseDiffWithSources(diff *updatev1.ReleaseDiff, before, after map[string]ContractSource) (*PreparedRelease, error) {
 	prepared, err := PrepareReleaseDiff(diff)
 	if err != nil {
 		return nil, err
 	}
 	for _, pair := range []struct {
 		sources map[string]ContractSource
-		items   map[string]*updatev0.ContractItem
+		items   map[string]*updatev1.ContractItem
 	}{{before, prepared.before}, {after, prepared.after}} {
 		for _, id := range slices.Sorted(maps.Keys(pair.sources)) {
 			source := pair.sources[id]
@@ -56,7 +56,7 @@ func PrepareReleaseDiffWithSources(diff *updatev0.ReleaseDiff, before, after map
 	}
 	prepared.semantic = make(map[string]semanticChange)
 	for _, change := range prepared.diff.Changes {
-		if change.Kind != updatev0.ChangeKind_CHANGE_KIND_MODIFIED {
+		if change.Kind != updatev1.ChangeKind_CHANGE_KIND_MODIFIED {
 			continue
 		}
 		old, oldOK := before[change.Item]

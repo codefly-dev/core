@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func TestNormalizeDiagnosticsRemovesOnlyRuntimeOwnedIdentities(t *testing.T) {
@@ -23,7 +23,7 @@ func TestNormalizeDiagnosticsRemovesOnlyRuntimeOwnedIdentities(t *testing.T) {
 			Name: root + "/testing/test_mark.py", File: root + "/testing/test_mark.py",
 			Cases: []*StructuredCase{{
 				Name: "test_case", FullName: "test_mod.test_case", File: root + "/testing/test_mark.py",
-				State: runtimev0.TestCaseState_TEST_CASE_STATE_FAILED, Output: diagnostic,
+				State: runtimev1.TestCaseState_TEST_CASE_STATE_FAILED, Output: diagnostic,
 				Failure: &StructuredFailure{Message: "object at 0x10835df60", Detail: diagnostic},
 			}},
 		}},

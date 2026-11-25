@@ -8,7 +8,7 @@ import (
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
@@ -158,10 +158,10 @@ layout: modules
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 			},
 		},
@@ -202,10 +202,10 @@ layout: modules
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
 			},
@@ -251,10 +251,10 @@ layout: modules
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 				{Address: "http://sidecar.solution-edge.svc.cluster.local:8080", Access: resources.NewContainerNetworkAccess()},
 			},
@@ -312,10 +312,10 @@ layout: modules
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 			},
 		},
@@ -459,10 +459,10 @@ layout: modules
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{
+			Endpoint: &basev1.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
 			},

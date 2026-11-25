@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 func requireNoOverride(t *testing.T, wrapper *RuntimeWrapper, key string) {
@@ -21,7 +21,7 @@ func requireNoOverride(t *testing.T, wrapper *RuntimeWrapper, key string) {
 func TestRuntimeOverridesFromInitReachAServiceThatIsNeverStarted(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
 
@@ -31,10 +31,10 @@ func TestRuntimeOverridesFromInitReachAServiceThatIsNeverStarted(t *testing.T) {
 func TestRuntimeOverridesSurviveAStartThatCarriesNone(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
-	wrapper.SetOverridesFromStart((&runtimev0.StartRequest{}).GetOverrides())
+	wrapper.SetOverridesFromStart((&runtimev1.StartRequest{}).GetOverrides())
 
 	require.Contains(t, serviceEnvironment(t, wrapper), "CODEFLY__API_CONSUMES=documents:notes/documents/api")
 }
@@ -43,8 +43,8 @@ func TestRuntimeOverridesSurviveAStartThatCarriesNone(t *testing.T) {
 func TestRuntimeOverridesFallBackToStartWhenInitCarriesNone(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{}).GetOverrides())
-	wrapper.SetOverridesFromStart((&runtimev0.StartRequest{
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{}).GetOverrides())
+	wrapper.SetOverridesFromStart((&runtimev1.StartRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "documents:notes/documents/api"},
 	}).GetOverrides())
 
@@ -57,10 +57,10 @@ func TestRuntimeOverridesFallBackToStartWhenInitCarriesNone(t *testing.T) {
 func TestRuntimeOverridesKeepTheInitValueOverStart(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "from-init"},
 	}).GetOverrides())
-	wrapper.SetOverridesFromStart((&runtimev0.StartRequest{
+	wrapper.SetOverridesFromStart((&runtimev1.StartRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "from-start"},
 	}).GetOverrides())
 
@@ -71,7 +71,7 @@ func TestRuntimeOverridesKeepTheInitValueOverStart(t *testing.T) {
 func TestRuntimeOverridesAbsentWhenNoneAreInjected(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{}).GetOverrides())
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{}).GetOverrides())
 
 	requireNoOverride(t, wrapper, "CODEFLY__API_CONSUMES")
 }
@@ -108,7 +108,7 @@ func TestRuntimeOverridesAreClearedWhenAReusedAgentIsInitedWithoutAny(t *testing
 	wrapper := fixtureRuntimeWrapper()
 
 	wrapper.SetOverridesFromInit(map[string]string{"CODEFLY__API_CONSUMES": "first"})
-	wrapper.SetOverridesFromInit((&runtimev0.InitRequest{}).GetOverrides())
+	wrapper.SetOverridesFromInit((&runtimev1.InitRequest{}).GetOverrides())
 
 	requireNoOverride(t, wrapper, "CODEFLY__API_CONSUMES")
 }
@@ -119,7 +119,7 @@ func TestRuntimeOverridesSurviveADirectEnvironmentStampFromStart(t *testing.T) {
 	wrapper := fixtureRuntimeWrapper()
 
 	wrapper.SetOverridesFromInit(map[string]string{"CODEFLY__API_CONSUMES": "from-init"})
-	wrapper.EnvironmentVariables.SetOverrides((&runtimev0.StartRequest{
+	wrapper.EnvironmentVariables.SetOverrides((&runtimev1.StartRequest{
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "from-start"},
 	}).GetOverrides())
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/companion"
@@ -17,7 +17,7 @@ import (
 
 // GenerateOpenAPI runs the OpenAPI generator in a companion (golden wrapper)
 // to produce client code for the given language.
-func GenerateOpenAPI(ctx context.Context, language languages.Language, destination string, _ string, endpoints ...*basev0.Endpoint) error {
+func GenerateOpenAPI(ctx context.Context, language languages.Language, destination string, _ string, endpoints ...*basev1.Endpoint) error {
 	w := wool.Get(ctx).In("generateOpenAPI", wool.Field("destination", destination))
 	_, err := shared.CheckDirectoryOrCreate(ctx, destination)
 	if err != nil {

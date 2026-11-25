@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -21,7 +21,7 @@ func TestRuntimeInitImageWire(t *testing.T) {
 		{name: "policy belongs to the agent", image: "service:latest"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			request := &runtimev0.InitRequest{RuntimeImage: tc.image}
+			request := &runtimev1.InitRequest{RuntimeImage: tc.image}
 			wire, err := proto.Marshal(request)
 			require.NoError(t, err)
 			// Field 10 is length-delimited (0x52). These fixtures fit a one-byte
@@ -31,7 +31,7 @@ func TestRuntimeInitImageWire(t *testing.T) {
 				expected = append([]byte{0x52, byte(len(tc.image))}, []byte(tc.image)...)
 			}
 			require.Equal(t, expected, wire)
-			var restored runtimev0.InitRequest
+			var restored runtimev1.InitRequest
 			require.NoError(t, proto.Unmarshal(wire, &restored))
 			require.Equal(t, tc.image, restored.GetRuntimeImage())
 			require.True(t, proto.Equal(request, &restored))

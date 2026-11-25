@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
-var Conf = &basev0.Configuration{
+var Conf = &basev1.Configuration{
 	Origin: resources.ConfigurationWorkspace,
-	Infos: []*basev0.ConfigurationInformation{
+	Infos: []*basev1.ConfigurationInformation{
 		{
 			Name: "something",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{
 					Key:   "global",
 					Value: "true",
@@ -24,12 +24,12 @@ var Conf = &basev0.Configuration{
 	},
 }
 
-var serviceConf = &basev0.Configuration{
+var serviceConf = &basev1.Configuration{
 	Origin: "app/svc",
-	Infos: []*basev0.ConfigurationInformation{
+	Infos: []*basev1.ConfigurationInformation{
 		{
 			Name: "connection",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{
 					Key:   "url",
 					Value: "http://localhost:8080",
@@ -75,11 +75,11 @@ func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
 }
 
 func TestConfigurationEnvironmentKeysNormalizeHyphens(t *testing.T) {
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: "coordination/work-coordinator",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "mutation-permit",
-			ConfigurationValues: []*basev0.ConfigurationValue{{
+			ConfigurationValues: []*basev1.ConfigurationValue{{
 				Key: "ed25519-seed-base64", Value: "redacted", Secret: true,
 			}},
 		}},

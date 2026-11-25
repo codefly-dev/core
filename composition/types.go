@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	updatev1 "github.com/codefly-dev/core/generated/go/codefly/update/v1"
 	"github.com/codefly-dev/core/moduleupdate"
 )
 
@@ -282,7 +282,7 @@ type VerifiedRelease struct {
 	manifest   *PackageManifest
 	digest     string
 	updateMu   sync.Mutex
-	updateDiff *updatev0.ReleaseDiff
+	updateDiff *updatev1.ReleaseDiff
 	update     *moduleupdate.PreparedRelease
 }
 

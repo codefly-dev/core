@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // playwrightEnvelope is the JSON shape Playwright emits with
@@ -162,8 +162,8 @@ func buildPlaywrightCase(spec playwrightSpec, t playwrightTest, file string, tru
 	final := t.Results[len(t.Results)-1]
 	c.Duration = time.Duration(final.Duration) * time.Millisecond
 
-	if c.State == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-		c.State == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+	if c.State == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+		c.State == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 		detail := buildPlaywrightDetail(final)
 		truncated := false
 		capped := capOutput(detail, &truncated)
@@ -187,8 +187,8 @@ func buildPlaywrightCase(spec playwrightSpec, t playwrightTest, file string, tru
 				State:    mapPlaywrightResultStatus(res.Status),
 				Duration: time.Duration(res.Duration) * time.Millisecond,
 			}
-			if r.State == runtimev0.TestCaseState_TEST_CASE_STATE_FAILED ||
-				r.State == runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED {
+			if r.State == runtimev1.TestCaseState_TEST_CASE_STATE_FAILED ||
+				r.State == runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED {
 				detail := buildPlaywrightDetail(res)
 				r.Failure = &StructuredFailure{
 					Message: extractFirstLine(detail),
@@ -208,48 +208,48 @@ func buildPlaywrightCase(spec playwrightSpec, t playwrightTest, file string, tru
 // expected (typically passed). "unexpected" = the test failed when
 // expected to pass (or vice versa for retry tests). "flaky" = passed
 // after retries.
-func mapPlaywrightOutcome(s string) runtimev0.TestCaseState {
+func mapPlaywrightOutcome(s string) runtimev1.TestCaseState {
 	switch s {
 	case "expected":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED
 	case "unexpected":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 	case "flaky":
 		// Flaky = eventually passed. Surface as PASSED but with
 		// retries[] populated so consumers can flag the test for
 		// quarantine.
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED
 	case "skipped":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED
 	default:
-		return runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED
 	}
 }
 
 // mapPlaywrightResultStatus maps a per-attempt status to TestCaseState.
-func mapPlaywrightResultStatus(s string) runtimev0.TestCaseState {
+func mapPlaywrightResultStatus(s string) runtimev1.TestCaseState {
 	switch s {
 	case "passed":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_PASSED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_PASSED
 	case "failed":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 	case "timedOut":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_FAILED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_FAILED
 	case "skipped":
-		return runtimev0.TestCaseState_TEST_CASE_STATE_SKIPPED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_SKIPPED
 	default:
-		return runtimev0.TestCaseState_TEST_CASE_STATE_ERRORED
+		return runtimev1.TestCaseState_TEST_CASE_STATE_ERRORED
 	}
 }
 
 // classifyPlaywrightStatus picks the FailureKind from the per-result
 // status when the case failed.
-func classifyPlaywrightStatus(s string) runtimev0.TestFailureKind {
+func classifyPlaywrightStatus(s string) runtimev1.TestFailureKind {
 	switch s {
 	case "timedOut":
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_TIMEOUT
 	default:
-		return runtimev0.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
+		return runtimev1.TestFailureKind_TEST_FAILURE_KIND_ASSERTION
 	}
 }
 

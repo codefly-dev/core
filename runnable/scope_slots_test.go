@@ -9,8 +9,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
@@ -18,36 +18,36 @@ import (
 // or tool operation cannot spell alone: the owner names two slots and states
 // what it needs of them; which kinds, actions and ids fill them is the
 // composition's.
-func slottedOperation() *runnablev0.Operation {
+func slottedOperation() *runnablev1.Operation {
 	declared := declaredOperation()
-	declared.RequiredScopeSlots = []*runnablev0.ScopeSlot{
+	declared.RequiredScopeSlots = []*runnablev1.ScopeSlot{
 		{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true},
 		{Name: "tools"},
 	}
 	return declared
 }
 
-func scope(kind string, ids []string, actions ...string) *basev0.WorkScopeV1 {
-	return &basev0.WorkScopeV1{ResourceKind: kind, Actions: actions, ResourceIds: ids}
+func scope(kind string, ids []string, actions ...string) *basev1.WorkScopeV1 {
+	return &basev1.WorkScopeV1{ResourceKind: kind, Actions: actions, ResourceIds: ids}
 }
 
 // slotSelections is a composition's answer: a model kind another module
 // defines, and two tool kinds in their owners' own vocabularies, one of which
 // has no read-only action and so binds no lookup.
-func slotSelections() []*runnablev0.ScopeSelection {
-	return []*runnablev0.ScopeSelection{
+func slotSelections() []*runnablev1.ScopeSelection {
+	return []*runnablev1.ScopeSelection{
 		{
 			Slot:   "model",
-			Invoke: []*basev0.WorkScopeV1{scope("assistant/model", []string{"model-a", "model-b"}, "invoke", "read")},
-			Lookup: []*basev0.WorkScopeV1{scope("assistant/model", []string{"model-a", "model-b"}, "read")},
+			Invoke: []*basev1.WorkScopeV1{scope("assistant/model", []string{"model-a", "model-b"}, "invoke", "read")},
+			Lookup: []*basev1.WorkScopeV1{scope("assistant/model", []string{"model-a", "model-b"}, "read")},
 		},
 		{
 			Slot: "tools",
-			Invoke: []*basev0.WorkScopeV1{
+			Invoke: []*basev1.WorkScopeV1{
 				scope("acme.tool/search", []string{"search-1"}, "call"),
 				scope("acme.tool/calendar", []string{"cal-1", "cal-2"}, "call", "read"),
 			},
-			Lookup: []*basev0.WorkScopeV1{scope("acme.tool/calendar", []string{"cal-1"}, "read")},
+			Lookup: []*basev1.WorkScopeV1{scope("acme.tool/calendar", []string{"cal-1"}, "read")},
 		},
 	}
 }
@@ -59,10 +59,10 @@ func slottedSpec(t *testing.T) *runnable.OperationSpec {
 	return spec
 }
 
-func bindingFor(spec *runnable.OperationSpec) *runnablev0.PreparedBinding {
+func bindingFor(spec *runnable.OperationSpec) *runnablev1.PreparedBinding {
 	binding := connectBinding()
 	binding.Operation.Spelling = applyText
-	binding.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: applyText}}
+	binding.Call.Route = &runnablev1.PreparedCall_Connect{Connect: &runnablev1.ConnectProcedure{Procedure: applyText}}
 	binding.Policy = spec.Policy()
 	return binding
 }
@@ -144,18 +144,18 @@ func TestAnOperationWithoutSlotsRefusesASelection(t *testing.T) {
 }
 
 func TestScopeSlotDeclarationsAreRefusedWhenMalformed(t *testing.T) {
-	tests := map[string]func(*runnablev0.Operation){
-		"no name":                   func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].Name = "" },
-		"name beginning with digit": func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].Name = "1model" },
-		"name with a dash":          func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].Name = "model-a" },
-		"duplicate name":            func(o *runnablev0.Operation) { o.RequiredScopeSlots[1].Name = "model" },
-		"wildcard required action":  func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{"*"} },
-		"blank required action":     func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{" read"} },
-		"repeated required action":  func(o *runnablev0.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{"read", "read"} },
-		"more slots than scopes may be bound": func(o *runnablev0.Operation) {
+	tests := map[string]func(*runnablev1.Operation){
+		"no name":                   func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].Name = "" },
+		"name beginning with digit": func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].Name = "1model" },
+		"name with a dash":          func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].Name = "model-a" },
+		"duplicate name":            func(o *runnablev1.Operation) { o.RequiredScopeSlots[1].Name = "model" },
+		"wildcard required action":  func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{"*"} },
+		"blank required action":     func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{" read"} },
+		"repeated required action":  func(o *runnablev1.Operation) { o.RequiredScopeSlots[0].RequiredActions = []string{"read", "read"} },
+		"more slots than scopes may be bound": func(o *runnablev1.Operation) {
 			o.RequiredScopeSlots = nil
 			for i := 0; i <= runnable.MaxScopes; i++ {
-				o.RequiredScopeSlots = append(o.RequiredScopeSlots, &runnablev0.ScopeSlot{Name: fmt.Sprintf("slot_%d", i)})
+				o.RequiredScopeSlots = append(o.RequiredScopeSlots, &runnablev1.ScopeSlot{Name: fmt.Sprintf("slot_%d", i)})
 			}
 		},
 	}
@@ -189,10 +189,10 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 			Backoff:        time.Second,
 			RetryableCodes: []string{"UNAVAILABLE"},
 			Audience:       "documents.ingestion",
-			InvokeScopes:   []*basev0.WorkScopeV1{scope("documents", nil, "ingest", "read")},
-			LookupScopes:   []*basev0.WorkScopeV1{scope("documents", nil, "read")},
-			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
-			RequiredScopeSlots: []*runnablev0.ScopeSlot{
+			InvokeScopes:   []*basev1.WorkScopeV1{scope("documents", nil, "ingest", "read")},
+			LookupScopes:   []*basev1.WorkScopeV1{scope("documents", nil, "read")},
+			Completion:     basev1.RunnableExecution_COMPLETION_CALL,
+			RequiredScopeSlots: []*runnablev1.ScopeSlot{
 				{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true},
 				{Name: "tools"},
 			},
@@ -208,16 +208,16 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 	// declaration rule, applied first, can be what refuses it.
 	type refusal struct {
 		change     func(*runnable.OperationSpec)
-		selections []*runnablev0.ScopeSelection
+		selections []*runnablev1.ScopeSelection
 		rule       string
 	}
-	empty := &runnablev0.ScopeSelection{Slot: "", Invoke: []*basev0.WorkScopeV1{scope("assistant/model", []string{"model-a"}, "invoke", "read")}, Lookup: []*basev0.WorkScopeV1{scope("assistant/model", []string{"model-a"}, "read")}}
+	empty := &runnablev1.ScopeSelection{Slot: "", Invoke: []*basev1.WorkScopeV1{scope("assistant/model", []string{"model-a"}, "invoke", "read")}, Lookup: []*basev1.WorkScopeV1{scope("assistant/model", []string{"model-a"}, "read")}}
 	tests := map[string]refusal{
 		"empty slot name answered by an empty name": {
 			func(s *runnable.OperationSpec) {
-				s.RequiredScopeSlots = []*runnablev0.ScopeSlot{{Name: "", RequiredActions: []string{"invoke", "read"}, Lookup: true}}
+				s.RequiredScopeSlots = []*runnablev1.ScopeSlot{{Name: "", RequiredActions: []string{"invoke", "read"}, Lookup: true}}
 			},
-			[]*runnablev0.ScopeSelection{empty},
+			[]*runnablev1.ScopeSelection{empty},
 			`declares a scope slot named ""`},
 		"duplicate required action": {
 			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[0].RequiredActions = []string{"read", "read"} },
@@ -225,9 +225,9 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 			`scope slot "model" requires action "read" twice`},
 		"wildcard required action": {
 			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[1].RequiredActions = []string{"*"} },
-			func() []*runnablev0.ScopeSelection {
+			func() []*runnablev1.ScopeSelection {
 				s := slotSelections()
-				s[1].Invoke = []*basev0.WorkScopeV1{scope("acme.tool/search", []string{"search-1"}, "*")}
+				s[1].Invoke = []*basev1.WorkScopeV1{scope("acme.tool/search", []string{"search-1"}, "*")}
 				s[1].Lookup = nil
 				return s
 			}(),
@@ -238,7 +238,7 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 			`declares scope slot "model" twice`},
 		"malformed slot name": {
 			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[1].Name = "-tools" },
-			func() []*runnablev0.ScopeSelection { s := slotSelections(); s[1].Slot = "-tools"; return s }(),
+			func() []*runnablev1.ScopeSelection { s := slotSelections(); s[1].Slot = "-tools"; return s }(),
 			`declares a scope slot named "-tools"`},
 		"an invalid fixed policy as well": {
 			func(s *runnable.OperationSpec) { s.Audience = "" },
@@ -267,117 +267,117 @@ func TestScopeSelectionsAreRefusedWhenTheyDoNotAnswerTheSlots(t *testing.T) {
 	// policy validation that runs afterwards and refuses the same input with
 	// another reason.
 	type refusal struct {
-		change func([]*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection
+		change func([]*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection
 		rule   string
 	}
 	tests := map[string]refusal{
-		"unknown slot": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
-			return append(s, &runnablev0.ScopeSelection{Slot: "other", Invoke: []*basev0.WorkScopeV1{scope("x", []string{"1"}, "do")}})
+		"unknown slot": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
+			return append(s, &runnablev1.ScopeSelection{Slot: "other", Invoke: []*basev1.WorkScopeV1{scope("x", []string{"1"}, "do")}})
 		}, `selects scope slot "other", which it does not declare`},
-		"missing slot":   {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return s[:1] }, `declares required scope slot "tools" but no ScopeSelection was supplied for it`},
-		"nothing at all": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return nil }, `declares required scope slot "model" but no ScopeSelection was supplied for it`},
-		"selected twice": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return append(s, s[1]) }, `scope slot "tools" is selected twice`},
-		"no invoke scope": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"missing slot":   {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection { return s[:1] }, `declares required scope slot "tools" but no ScopeSelection was supplied for it`},
+		"nothing at all": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection { return nil }, `declares required scope slot "model" but no ScopeSelection was supplied for it`},
+		"selected twice": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection { return append(s, s[1]) }, `scope slot "tools" is selected twice`},
+		"no invoke scope": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke = nil
 			s[1].Lookup = nil
 			return s
 		}, `scope slot "tools" is selected with no invoke scope`},
-		"wildcard kind": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"wildcard kind": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceKind = "*"
 			return s
 		}, `resource kind "*", which is not an exact kind`},
-		"glob kind": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"glob kind": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceKind = "acme.tool/*"
 			return s
 		}, `which is not an exact kind`},
-		"kind of a fixed scope": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"kind of a fixed scope": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceKind = "documents"
 			return s
 		}, `selects kind "documents", which a fixed invoke scope already binds`},
-		"kind selected twice": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"kind selected twice": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[1].ResourceKind = "acme.tool/search"
 			s[1].Lookup = nil
 			return s
 		}, `scope slot "tools" selects kind "acme.tool/search" twice`},
-		"kind in two slots": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"kind in two slots": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceKind = "assistant/model"
 			return s
 		}, `scope slots "model" and "tools" both select kind "assistant/model"`},
-		"no ids (wildcard)": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"no ids (wildcard)": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceIds = nil
 			return s
 		}, `names no resource id; a slot is never a wildcard`},
-		"wildcard id": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"wildcard id": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceIds = []string{"*"}
 			return s
 		}, `resource id "*", which is not an exact id`},
-		"glob id": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"glob id": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceIds = []string{"search-*"}
 			return s
 		}, `which is not an exact id`},
-		"blank id": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"blank id": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceIds = []string{" search-1"}
 			return s
 		}, `which is not an exact id`},
-		"repeated id": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"repeated id": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceIds = []string{"search-1", "search-1"}
 			return s
 		}, `scope slot "tools" invoke scope over kind "acme.tool/search" names resource id "search-1" twice`},
-		"an owner in the selection": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"an owner in the selection": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].ResourceOwnerId = "principal-u"
 			return s
 		}, `scope slot "tools" invoke scope over kind "acme.tool/search" selects resource owner "principal-u" in the composition's selection; owner-scoped parent:`},
-		"an owner in a lookup selection": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"an owner in a lookup selection": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup[0].ResourceOwnerId = "principal-u"
 			return s
 		}, `lookup scope over kind "acme.tool/calendar" selects resource owner "principal-u" in the composition's selection; owner-scoped parent:`},
-		"no actions": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"no actions": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].Actions = nil
 			return s
 		}, `names 0 actions; between 1 and`},
-		"wildcard action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"wildcard action": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].Actions = []string{"*"}
 			return s
 		}, `names action "*", which is not an exact action`},
-		"repeated action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"repeated action": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Invoke[0].Actions = []string{"call", "call"}
 			return s
 		}, `names action "call" twice`},
 		// The lookup is kept so that only the required-action rule can refuse this.
-		"missing required action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"missing required action": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Invoke[0].Actions = []string{"read"}
 			return s
 		}, `selects kind "assistant/model" without action "invoke", which the owner requires`},
-		"missing required lookup": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { s[0].Lookup = nil; return s }, `with no lookup scope, which the owner requires`},
-		"required lookup narrower": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"missing required lookup": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection { s[0].Lookup = nil; return s }, `with no lookup scope, which the owner requires`},
+		"required lookup narrower": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup[0].ResourceIds = []string{"model-a"}
 			return s
 		}, `requires its lookup scope over kind "assistant/model" to name the same exact ids`},
-		"lookup not read-only": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup not read-only": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup[0].Actions = []string{"read", "invoke"}
 			return s
 		}, `lookup scope over kind "assistant/model" is not read-only`},
-		"lookup action not read": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup action not read": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[0].Lookup[0].Actions = []string{"invoke"}
 			return s
 		}, `is not read-only`},
-		"lookup ids not covered": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup ids not covered": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup[0].ResourceIds = []string{"cal-9"}
 			return s
 		}, `names resource id "cal-9", which its invoke scope does not cover`},
-		"lookup over an unselected kind": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup over an unselected kind": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup[0].ResourceKind = "acme.tool/mail"
 			return s
 		}, `selects a lookup scope over kind "acme.tool/mail", which none of its invoke scopes names`},
-		"lookup over a kind without read": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup over a kind without read": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup = append(s[1].Lookup, scope("acme.tool/search", []string{"search-1"}, "read"))
 			return s
 		}, `lookup scope over kind "acme.tool/search" is not covered: its invoke scope does not grant "read"`},
-		"two lookups over one kind": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"two lookups over one kind": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup = append(s[1].Lookup, scope("acme.tool/calendar", []string{"cal-2"}, "read"))
 			return s
 		}, `selects two lookup scopes over kind "acme.tool/calendar"`},
-		"lookup with no ids": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+		"lookup with no ids": {func(s []*runnablev1.ScopeSelection) []*runnablev1.ScopeSelection {
 			s[1].Lookup[0].ResourceIds = nil
 			return s
 		}, `lookup scope over kind "acme.tool/calendar" names no resource id`},

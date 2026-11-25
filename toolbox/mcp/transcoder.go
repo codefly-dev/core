@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 )
 
 // JSONRPCVersion is pinned in every reply. Per JSON-RPC 2.0 spec
@@ -34,12 +34,12 @@ const (
 	codeInternalError  = -32603
 )
 
-// Transcoder wraps a toolboxv0.ToolboxClient and serves the MCP
+// Transcoder wraps a toolboxv1.ToolboxClient and serves the MCP
 // JSON-RPC protocol against it. One Transcoder owns one client;
 // concurrent Serve calls against the same Transcoder are NOT safe
 // (writes would interleave on the shared Writer).
 type Transcoder struct {
-	client toolboxv0.ToolboxClient
+	client toolboxv1.ToolboxClient
 
 	// writeMu serializes JSON-RPC writes. Multiple in-flight requests
 	// from the client could otherwise race on Writer.Write and
@@ -51,7 +51,7 @@ type Transcoder struct {
 // client must already be connected (e.g. host.Plugin.Client()).
 // Closing the underlying connection is the caller's responsibility;
 // Transcoder doesn't own the lifecycle.
-func New(client toolboxv0.ToolboxClient) *Transcoder {
+func New(client toolboxv1.ToolboxClient) *Transcoder {
 	return &Transcoder{client: client}
 }
 
@@ -154,7 +154,7 @@ func (t *Transcoder) replyOrError(
 // --- Handlers ----------------------------------------------------
 
 func (t *Transcoder) handleInitialize(ctx context.Context) (any, error) {
-	id, err := t.client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	id, err := t.client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox Identity: %w", err)
 	}
@@ -182,7 +182,7 @@ func (t *Transcoder) handleInitialize(ctx context.Context) (any, error) {
 }
 
 func (t *Transcoder) handleListTools(ctx context.Context) (any, error) {
-	resp, err := t.client.ListTools(ctx, &toolboxv0.ListToolsRequest{})
+	resp, err := t.client.ListTools(ctx, &toolboxv1.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox ListTools: %w", err)
 	}
@@ -227,7 +227,7 @@ func (t *Transcoder) handleCallTool(ctx context.Context, raw json.RawMessage) (a
 		args = s
 	}
 
-	resp, err := t.client.CallTool(ctx, &toolboxv0.CallToolRequest{
+	resp, err := t.client.CallTool(ctx, &toolboxv1.CallToolRequest{
 		Name:      params.Name,
 		Arguments: args,
 	})
@@ -283,7 +283,7 @@ func (t *Transcoder) handleCallTool(ctx context.Context, raw json.RawMessage) (a
 }
 
 func (t *Transcoder) handleListResources(ctx context.Context) (any, error) {
-	resp, err := t.client.ListResources(ctx, &toolboxv0.ListResourcesRequest{})
+	resp, err := t.client.ListResources(ctx, &toolboxv1.ListResourcesRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox ListResources: %w", err)
 	}
@@ -312,7 +312,7 @@ func (t *Transcoder) handleReadResource(ctx context.Context, raw json.RawMessage
 		return nil, fmt.Errorf("resources/read: uri is required")
 	}
 
-	resp, err := t.client.ReadResource(ctx, &toolboxv0.ReadResourceRequest{Uri: params.URI})
+	resp, err := t.client.ReadResource(ctx, &toolboxv1.ReadResourceRequest{Uri: params.URI})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox ReadResource: %w", err)
 	}
@@ -348,7 +348,7 @@ func (t *Transcoder) handleReadResource(ctx context.Context, raw json.RawMessage
 }
 
 func (t *Transcoder) handleListPrompts(ctx context.Context) (any, error) {
-	resp, err := t.client.ListPrompts(ctx, &toolboxv0.ListPromptsRequest{})
+	resp, err := t.client.ListPrompts(ctx, &toolboxv1.ListPromptsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("toolbox ListPrompts: %w", err)
 	}
@@ -392,7 +392,7 @@ func (t *Transcoder) handleGetPrompt(ctx context.Context, raw json.RawMessage) (
 		}
 		args = s
 	}
-	resp, err := t.client.GetPrompt(ctx, &toolboxv0.GetPromptRequest{
+	resp, err := t.client.GetPrompt(ctx, &toolboxv1.GetPromptRequest{
 		Name:      params.Name,
 		Arguments: args,
 	})

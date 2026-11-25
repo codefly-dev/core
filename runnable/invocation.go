@@ -9,21 +9,21 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // PrepareInvocation clones inv and validates it against the verified package
 // it invokes. Unlike a package or a binding an invocation is not
 // content-addressed: it names one call against an installed binding rather
 // than an immutable installation fact, so there is no digest to populate.
-func PrepareInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) (*basev0.RunnableInvocation, error) {
+func PrepareInvocation(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage) (*basev1.RunnableInvocation, error) {
 	if inv == nil {
 		return nil, fmt.Errorf("%w: invocation is required", ErrInvalid)
 	}
 	if err := VerifyPackage(pkg); err != nil {
 		return nil, err
 	}
-	prepared := &basev0.RunnableInvocation{}
+	prepared := &basev1.RunnableInvocation{}
 	proto.Merge(prepared, inv)
 	if err := validateInvocation(prepared, pkg); err != nil {
 		return nil, err
@@ -35,8 +35,8 @@ func PrepareInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePacka
 // Its error is what makes an outcome SERVED_INVOCATION_INTEGRITY rather than a
 // completion, so every caller of a served operation draws that line in the same
 // place.
-func ParseResult(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) (*basev0.RunnableResult, error) {
-	result := &basev0.RunnableResult{}
+func ParseResult(document []byte, inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage) (*basev1.RunnableResult, error) {
+	result := &basev1.RunnableResult{}
 	// A field this core does not know belongs to an implementation generated
 	// from newer sources. Rejecting it would turn every invocation of that
 	// runnable into an uncertain outcome, recomputing pure work and
@@ -52,7 +52,7 @@ func ParseResult(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.Ru
 	return result, nil
 }
 
-func validateInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) error {
+func validateInvocation(inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage) error {
 	if err := validator.Validate(inv); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -71,16 +71,16 @@ func validateInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePack
 	if declared := pkg.GetExecution().GetTimeout().AsDuration(); budget > declared {
 		return fmt.Errorf("%w: invocation allows %s but the package declares a timeout of %s", ErrInvalid, budget, declared)
 	}
-	if pkg.GetExecution().GetRecovery() == basev0.RunnableExecution_RECOVERY_RECEIPT && inv.GetEffectId() == "" {
+	if pkg.GetExecution().GetRecovery() == basev1.RunnableExecution_RECOVERY_RECEIPT && inv.GetEffectId() == "" {
 		return fmt.Errorf("%w: package declares %s, so the invocation must carry the effect identity an uncertain outcome is resolved with",
-			ErrInvalid, basev0.RunnableExecution_RECOVERY_RECEIPT)
+			ErrInvalid, basev1.RunnableExecution_RECOVERY_RECEIPT)
 	}
 	if callback := inv.GetCallback(); callback != nil {
 		// A reporting address is meaningful only for work that answers later.
 		// Carried on a call-mode invocation it would describe a report nothing
 		// ever sends, and a caller waiting on it would wait forever for the
 		// answer it already received in the reply.
-		if completion := pkg.GetExecution().GetCompletion(); completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+		if completion := pkg.GetExecution().GetCompletion(); completion != basev1.RunnableExecution_COMPLETION_SUBMIT {
 			return fmt.Errorf("%w: invocation presents a callback address but the package declares %s, which answers in the reply to the call",
 				ErrInvalid, completion)
 		}
@@ -91,7 +91,7 @@ func validateInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePack
 	return validatePayload("input", inv.GetInput(), pkg.GetExecution().GetMaxInputBytes())
 }
 
-func validateResult(result *basev0.RunnableResult, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) error {
+func validateResult(result *basev1.RunnableResult, inv *basev1.RunnableInvocation, pkg *basev1.RunnablePackage) error {
 	if err := validator.Validate(result); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -102,12 +102,12 @@ func validateResult(result *basev0.RunnableResult, inv *basev0.RunnableInvocatio
 		return fmt.Errorf("%w: result belongs to invocation %q, not %q", ErrInvalid, result.GetInvocationId(), inv.GetInvocationId())
 	}
 	switch result.GetStatus() {
-	case basev0.RunnableResult_SUCCEEDED:
+	case basev1.RunnableResult_SUCCEEDED:
 		if result.GetError() != nil {
 			return fmt.Errorf("%w: a succeeded result carries no error", ErrInvalid)
 		}
 		return validatePayload("output", result.GetOutput(), pkg.GetExecution().GetMaxOutputBytes())
-	case basev0.RunnableResult_FAILED:
+	case basev1.RunnableResult_FAILED:
 		if len(result.GetOutput()) > 0 {
 			return fmt.Errorf("%w: a failed result carries no output", ErrInvalid)
 		}
@@ -115,7 +115,7 @@ func validateResult(result *basev0.RunnableResult, inv *basev0.RunnableInvocatio
 			return fmt.Errorf("%w: a failed result requires the handler's failure code", ErrInvalid)
 		}
 		return nil
-	case basev0.RunnableResult_INTERRUPTED:
+	case basev1.RunnableResult_INTERRUPTED:
 		if len(result.GetOutput()) > 0 {
 			return fmt.Errorf("%w: an interrupted result carries no output", ErrInvalid)
 		}

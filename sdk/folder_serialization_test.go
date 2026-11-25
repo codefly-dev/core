@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	utils "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
+	utils "github.com/codefly-dev/core/generated/go/codefly/cli/v1"
 	"github.com/codefly-dev/core/sdk"
 	"github.com/stretchr/testify/require"
 )

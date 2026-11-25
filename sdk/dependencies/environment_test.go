@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/solution/manifest"
 )
@@ -384,7 +384,7 @@ func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
 // chose, secret or not: the point of the channel is that the runtime reading it
 // knows only that name.
 func TestProcessVariablesKeepTheNameTheCLIChose(t *testing.T) {
-	variables, err := processVariables([]*basev0.ConfigurationValue{
+	variables, err := processVariables([]*basev1.ConfigurationValue{
 		{Key: manifest.APIConsumesEnvironmentVariable, Value: "shop/store"},
 		{Key: "CODEFLY__MODULE_REGISTRATION_SECRETS", Value: "registration-token", Secret: true},
 	})
@@ -416,18 +416,18 @@ func TestProcessVariablesKeepTheNameTheCLIChose(t *testing.T) {
 func TestUnusableProcessVariableFailsResolution(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string
-		values []*basev0.ConfigurationValue
+		values []*basev1.ConfigurationValue
 	}{
-		{"empty name", []*basev0.ConfigurationValue{{Key: "", Value: "secret-value"}}},
-		{"path outside the namespace", []*basev0.ConfigurationValue{{Key: "PATH", Value: "secret-value"}}},
-		{"home outside the namespace", []*basev0.ConfigurationValue{{Key: "HOME", Value: "secret-value"}}},
-		{"near miss on the namespace", []*basev0.ConfigurationValue{{Key: "CODEFLY_API", Value: "secret-value"}}},
-		{"equals in name", []*basev0.ConfigurationValue{{Key: "CODEFLY__A=B", Value: "secret-value"}}},
-		{"same name twice", []*basev0.ConfigurationValue{
+		{"empty name", []*basev1.ConfigurationValue{{Key: "", Value: "secret-value"}}},
+		{"path outside the namespace", []*basev1.ConfigurationValue{{Key: "PATH", Value: "secret-value"}}},
+		{"home outside the namespace", []*basev1.ConfigurationValue{{Key: "HOME", Value: "secret-value"}}},
+		{"near miss on the namespace", []*basev1.ConfigurationValue{{Key: "CODEFLY_API", Value: "secret-value"}}},
+		{"equals in name", []*basev1.ConfigurationValue{{Key: "CODEFLY__A=B", Value: "secret-value"}}},
+		{"same name twice", []*basev1.ConfigurationValue{
 			{Key: "CODEFLY__A", Value: "first"},
 			{Key: "CODEFLY__A", Value: "secret-value"},
 		}},
-		{"NUL in value", []*basev0.ConfigurationValue{{Key: "CODEFLY__A", Value: "secret\x00value"}}},
+		{"NUL in value", []*basev1.ConfigurationValue{{Key: "CODEFLY__A", Value: "secret\x00value"}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := processVariables(testCase.values)

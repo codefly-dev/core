@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/manifest"
 	"github.com/codefly-dev/core/provider/responsepolicy"
 )
@@ -47,6 +47,6 @@ func FuzzFilter(f *testing.F) {
 
 type fuzzSink struct{}
 
-func (fuzzSink) Put(_ context.Context, target responsepolicy.SinkTarget, _ string) (*providerv0.OpaqueReference, error) {
-	return &providerv0.OpaqueReference{Reference: "capture://" + target.Key, Purpose: target.Purpose}, nil
+func (fuzzSink) Put(_ context.Context, target responsepolicy.SinkTarget, _ string) (*providerv1.OpaqueReference, error) {
+	return &providerv1.OpaqueReference{Reference: "capture://" + target.Key, Purpose: target.Purpose}, nil
 }

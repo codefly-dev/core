@@ -10,20 +10,20 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
-func renderWithConfiguration(t *testing.T, profile builderv0.KubernetesOutputProfile, configurations ...*basev0.Configuration) (string, *builderv0.DeploymentResponse, error) {
+func renderWithConfiguration(t *testing.T, profile builderv1.KubernetesOutputProfile, configurations ...*basev1.Configuration) (string, *builderv1.DeploymentResponse, error) {
 	t.Helper()
 	return renderPrepared(t, profile, nil, configurations...)
 }
 
-func renderPrepared(t *testing.T, profile builderv0.KubernetesOutputProfile, prepare func(context.Context, *KustomizeDeploymentContext) error, configurations ...*basev0.Configuration) (string, *builderv0.DeploymentResponse, error) {
+func renderPrepared(t *testing.T, profile builderv1.KubernetesOutputProfile, prepare func(context.Context, *KustomizeDeploymentContext) error, configurations ...*basev1.Configuration) (string, *builderv1.DeploymentResponse, error) {
 	t.Helper()
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
@@ -41,9 +41,9 @@ func renderPrepared(t *testing.T, profile builderv0.KubernetesOutputProfile, pre
 	builder := &BuilderWrapper{Base: base}
 	base.Builder = builder
 	destination := t.TempDir()
-	response, err := builder.DeployKustomize(ctx, &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{Kubernetes: &builderv0.KubernetesDeployment{
+	response, err := builder.DeployKustomize(ctx, &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: "test"},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{Kubernetes: &builderv1.KubernetesDeployment{
 			Namespace: "codefly", Destination: destination, Profile: profile,
 		}}},
 		DependenciesConfigurations: configurations,
@@ -79,18 +79,18 @@ func readDocuments(t *testing.T, path string) []map[string]any {
 // stays inline; no environment value reaches Linux's 128 KiB limit; and the
 // render still passes the restricted manifest contract.
 func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
-	info := &basev0.ConfigurationInformation{Name: "catalog"}
+	info := &basev1.ConfigurationInformation{Name: "catalog"}
 	for i := 0; i < 4; i++ {
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("BUNDLE_%02d", i), Value: strings.Repeat(fmt.Sprintf("%d", i), resources.MaxEnvironmentStringBytes+1)},
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("BUNDLE_%02d", i), Value: strings.Repeat(fmt.Sprintf("%d", i), resources.MaxEnvironmentStringBytes+1)},
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
 		)
 	}
-	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	configuration := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
 
-	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
+	destination, response, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	require.True(t, response.GetDeployment().GetKubernetes().GetValidation().GetRestricted(), response.GetDeployment().GetKubernetes().GetValidation().GetViolations())
 
 	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
@@ -131,18 +131,18 @@ func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
 // limit renders: the largest reach it as mounted files, the rest inline, and
 // the ConfigMap the container loads as environment stays under the limit.
 func TestARenderedWorkloadWithManyInlineValuesAboveTheLimitSpillsTheLargest(t *testing.T) {
-	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	info := &basev1.ConfigurationInformation{Name: "bindings"}
 	// Every value is under the file threshold: none is delivered by file
 	// unless the environment as a whole would be refused.
 	for i := 0; i < 30; i++ {
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", i), Value: strings.Repeat("v", 20<<10)})
 	}
-	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	configuration := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
 
-	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
+	destination, response, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
 	total := 0
@@ -170,20 +170,20 @@ func TestARenderCountsThePathsOfSecretsDeliveredByFile(t *testing.T) {
 	}
 	// Alone the configuration fits, so only the secrets' paths push the
 	// environment over the limit.
-	info := &basev0.ConfigurationInformation{Name: "bindings"}
+	info := &basev1.ConfigurationInformation{Name: "bindings"}
 	for configured := 0; configured < resources.MaxCarriedEnvironmentBytes-secretPaths/2; configured += 20 << 10 {
 		info.ConfigurationValues = append(info.ConfigurationValues,
-			&basev0.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", len(info.ConfigurationValues)), Value: strings.Repeat("v", 20<<10)})
+			&basev1.ConfigurationValue{Key: fmt.Sprintf("OPERATION_%02d", len(info.ConfigurationValues)), Value: strings.Repeat("v", 20<<10)})
 	}
-	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+	configuration := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
 
-	destination, response, err := renderPrepared(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+	destination, response, err := renderPrepared(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 		func(_ context.Context, deployment *KustomizeDeploymentContext) error {
 			deployment.AddSecrets(secrets...)
 			return nil
 		}, configuration)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	// The container loads both as its environment; a Secret's values are base64.
 	total := 0
@@ -201,10 +201,10 @@ func TestARenderCountsThePathsOfSecretsDeliveredByFile(t *testing.T) {
 // A workload with nothing large renders exactly as before: no file manifest,
 // no volume.
 func TestARenderWithoutLargeValuesMountsNothing(t *testing.T) {
-	small := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "settings", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "mode", Value: "fast"}},
+	small := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "settings", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "mode", Value: "fast"}},
 	}}}
-	destination, _, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, small)
+	destination, _, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, small)
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
 	require.True(t, os.IsNotExist(err))
@@ -214,14 +214,14 @@ func TestARenderWithoutLargeValuesMountsNothing(t *testing.T) {
 }
 
 func TestRenderedEnvironmentCountsEffectiveBindings(t *testing.T) {
-	info := &basev0.ConfigurationInformation{Name: "runnable-bindings"}
+	info := &basev1.ConfigurationInformation{Name: "runnable-bindings"}
 	for i := 0; i < 134; i++ {
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{Key: fmt.Sprintf("OP_%03d", i), Value: strings.Repeat("x", 2800)})
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev1.ConfigurationValue{Key: fmt.Sprintf("OP_%03d", i), Value: strings.Repeat("x", 2800)})
 	}
-	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
-	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration, configuration)
+	configuration := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}}
+	destination, response, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration, configuration)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
 	for _, value := range info.ConfigurationValues {
 		require.Equal(t, value.Value, environment[resources.ConfigurationValueEnvironmentKey(configuration, info.Name, value)])
@@ -236,7 +236,7 @@ func TestRenderedEnvironmentNormalizesBeforeFileSplit(t *testing.T) {
 	small := resources.Env(key, "last")
 	for _, fileWins := range []bool{false, true} {
 		t.Run(fmt.Sprint(fileWins), func(t *testing.T) {
-			destination, response, err := renderPrepared(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, func(_ context.Context, d *KustomizeDeploymentContext) error {
+			destination, response, err := renderPrepared(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, func(_ context.Context, d *KustomizeDeploymentContext) error {
 				if fileWins {
 					d.AddConfigMap(small, large, large)
 				} else {
@@ -245,7 +245,7 @@ func TestRenderedEnvironmentNormalizesBeforeFileSplit(t *testing.T) {
 				return nil
 			})
 			require.NoError(t, err)
-			require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+			require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 			environment := readDocuments(t, filepath.Join(destination, "base", "config-map.yaml"))[0]["data"].(map[string]any)
 			if fileWins {
 				require.NotContains(t, environment, key)
@@ -264,12 +264,12 @@ func TestRenderedEnvironmentNormalizesBeforeFileSplit(t *testing.T) {
 // readable by the pod's group and nobody else, never a ConfigMap entry.
 func TestALargeSecretIsDeliveredByASecretVolume(t *testing.T) {
 	large := strings.Repeat("s", resources.FileCarrierThreshold+1)
-	secret := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "vault", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bundle", Value: large, Secret: true}},
+	secret := &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "vault", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "bundle", Value: large, Secret: true}},
 	}}}
-	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1, secret)
+	destination, response, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1, secret)
 	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	require.Equal(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 
 	files := readDocuments(t, filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
 	require.Len(t, files, 1)
@@ -348,14 +348,14 @@ func TestASecretCarrierFollowsThePodsSecurityContext(t *testing.T) {
 
 // A file object the API server would refuse fails the render instead.
 func TestAFileCarrierObjectAboveTheObjectLimitFailsTheRender(t *testing.T) {
-	info := &basev0.ConfigurationInformation{Name: "huge"}
+	info := &basev1.ConfigurationInformation{Name: "huge"}
 	for i := 0; i < 20; i++ {
-		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{Key: "part" + strings.Repeat("x", i), Value: strings.Repeat("v", 64<<10)})
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev1.ConfigurationValue{Key: "part" + strings.Repeat("x", i), Value: strings.Repeat("v", 64<<10)})
 	}
-	_, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-		&basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}})
+	_, response, err := renderWithConfiguration(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		&basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{info}})
 	require.NoError(t, err)
-	require.NotEqual(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.NotEqual(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "object limit")
 }
 
@@ -364,13 +364,13 @@ func TestAFileCarrierObjectAboveTheObjectLimitFailsTheRender(t *testing.T) {
 // container with fails the render, naming the key, instead of reaching the
 // cluster as a crash-looping pod.
 func TestARenderWhoseEnvironmentExceedsTheLinuxStringLimitFails(t *testing.T) {
-	_, response, err := renderPrepared(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+	_, response, err := renderPrepared(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 		func(_ context.Context, deployment *KustomizeDeploymentContext) error {
 			deployment.ConfigMap = append(deployment.ConfigMap, resources.Env("CODEFLY__PLUGIN_VALUE", strings.Repeat("v", resources.MaxEnvironmentStringBytes)))
 			return nil
 		})
 	require.NoError(t, err)
-	require.NotEqual(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState())
+	require.NotEqual(t, builderv1.DeploymentStatus_SUCCESS, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "CODEFLY__PLUGIN_VALUE")
 	require.Contains(t, response.GetState().GetMessage(), "MAX_ARG_STRLEN")
 }

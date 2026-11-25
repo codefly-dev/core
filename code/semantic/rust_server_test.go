@@ -6,21 +6,21 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/code"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 )
 
 func TestRustCodeServerGetProjectInfoSingleCrate(t *testing.T) {
 	root := filepath.Join("..", "testdata", "rust", "single")
 	server := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New()))
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := response.GetFailure(); failure.GetCode() != basev0.FailureCode_FAILURE_CODE_UNSPECIFIED {
+	if failure := response.GetFailure(); failure.GetCode() != basev1.FailureCode_FAILURE_CODE_UNSPECIFIED {
 		t.Fatalf("GetProjectInfo failure = %+v", failure)
 	}
 	info := response.GetGetProjectInfo()
@@ -41,11 +41,11 @@ func TestRustCodeServerGetProjectInfoSingleCrate(t *testing.T) {
 
 func TestRustCodeServerScopesCargoWorkspaceToMemberCodeUnit(t *testing.T) {
 	root := filepath.Join("..", "testdata", "rust", "workspace", "alpha")
-	response, err := code.NewSourceTooling(code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New()))).GetProjectInfo(t.Context(), &toolingv0.GetProjectInfoRequest{})
+	response, err := code.NewSourceTooling(code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New()))).GetProjectInfo(t.Context(), &toolingv1.GetProjectInfoRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := response.GetFailure(); failure.GetCode() != basev0.FailureCode_FAILURE_CODE_UNSPECIFIED {
+	if failure := response.GetFailure(); failure.GetCode() != basev1.FailureCode_FAILURE_CODE_UNSPECIFIED {
 		t.Fatalf("GetProjectInfo failure = %+v", failure)
 	}
 	if response.GetModule() != "alpha" || len(response.GetPackages()) != 1 || response.GetPackages()[0].GetName() != "alpha" {
@@ -67,13 +67,13 @@ func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
 	if err := os.CopyFS(root, os.DirFS(fixture)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := response.GetFailure(); failure.GetCode() != basev0.FailureCode_FAILURE_CODE_UNSPECIFIED {
+	if failure := response.GetFailure(); failure.GetCode() != basev1.FailureCode_FAILURE_CODE_UNSPECIFIED {
 		t.Fatalf("GetProjectInfo failure = %+v", failure)
 	}
 	info := response.GetGetProjectInfo()
@@ -90,13 +90,13 @@ func TestRustCodeServerGetProjectInfoCargoWorkspace(t *testing.T) {
 
 func TestRustCodeServerMalformedManifestFailsClosed(t *testing.T) {
 	root := filepath.Join("..", "testdata", "rust", "malformed")
-	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := code.NewRustCodeServer(root, code.WithSemanticAnalyzer(New())).Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := response.GetFailure(); failure.GetCode() != basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED || failure.GetRetryable() {
+	if failure := response.GetFailure(); failure.GetCode() != basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED || failure.GetRetryable() {
 		t.Fatalf("malformed manifest failure = %+v, want non-retryable process failure", failure)
 	}
 	if response.GetGetProjectInfo().GetLanguage() != "rust" {

@@ -6,21 +6,21 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/conformance"
 	"github.com/codefly-dev/core/toolbox/policyguard"
 )
 
-func call(t *testing.T, server toolboxv0.ToolboxServer, name string) *toolboxv0.CallToolResponse {
+func call(t *testing.T, server toolboxv1.ToolboxServer, name string) *toolboxv1.CallToolResponse {
 	t.Helper()
-	response, err := server.CallTool(context.Background(), &toolboxv0.CallToolRequest{Name: name})
+	response, err := server.CallTool(context.Background(), &toolboxv1.CallToolRequest{Name: name})
 	require.NoError(t, err)
 	return response
 }
 
-func structured(t *testing.T, response *toolboxv0.CallToolResponse) map[string]any {
+func structured(t *testing.T, response *toolboxv1.CallToolResponse) map[string]any {
 	t.Helper()
 	require.Empty(t, response.Error)
 	require.Len(t, response.Content, 1)
@@ -31,13 +31,13 @@ func structured(t *testing.T, response *toolboxv0.CallToolResponse) map[string]a
 func TestFixtureDiscoveryDescriptionAndStructuredResult(t *testing.T) {
 	server := conformance.New(conformance.FixtureVersion)
 
-	identity, err := server.Identity(context.Background(), &toolboxv0.IdentityRequest{})
+	identity, err := server.Identity(context.Background(), &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, conformance.FixtureName, identity.Name)
 	require.Equal(t, conformance.FixtureVersion, identity.Version)
 	require.NotEmpty(t, identity.Description)
 
-	summaries, err := server.ListToolSummaries(context.Background(), &toolboxv0.ListToolSummariesRequest{})
+	summaries, err := server.ListToolSummaries(context.Background(), &toolboxv1.ListToolSummariesRequest{})
 	require.NoError(t, err)
 	require.Len(t, summaries.Tools, 6)
 	for _, summary := range summaries.Tools {
@@ -45,7 +45,7 @@ func TestFixtureDiscoveryDescriptionAndStructuredResult(t *testing.T) {
 		require.NotEmpty(t, summary.Description)
 	}
 
-	description, err := server.DescribeTool(context.Background(), &toolboxv0.DescribeToolRequest{Name: conformance.IdentityTool})
+	description, err := server.DescribeTool(context.Background(), &toolboxv1.DescribeToolRequest{Name: conformance.IdentityTool})
 	require.NoError(t, err)
 	require.Empty(t, description.Error)
 	require.Equal(t, conformance.IdentityTool, description.Tool.Name)

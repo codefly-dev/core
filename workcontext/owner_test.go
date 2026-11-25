@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
-func owned(kind string, actions, ids []string, owner string) *basev0.WorkScopeV1 {
+func owned(kind string, actions, ids []string, owner string) *basev1.WorkScopeV1 {
 	s := scope(kind, actions, ids)
 	s.ResourceOwnerId = owner
 	return s
@@ -27,20 +27,20 @@ func owned(kind string, actions, ids []string, owner string) *basev0.WorkScopeV1
 // owner-selected scope.
 func TestScopeContained_ResourceOwner(t *testing.T) {
 	for name, tc := range map[string]struct {
-		child     *basev0.WorkScopeV1
-		parents   []*basev0.WorkScopeV1
+		child     *basev1.WorkScopeV1
+		parents   []*basev1.WorkScopeV1
 		contained bool
 	}{
-		"the same owner":                         {owned("doc", []string{"read"}, nil, "u"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, true},
-		"ids within the owner":                   {owned("doc", []string{"read"}, []string{"a"}, "u"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, true},
-		"an owner added to a whole kind":         {owned("doc", []string{"read"}, nil, "u"), []*basev0.WorkScopeV1{scope("doc", []string{"read"}, nil)}, true},
-		"an owner added to named ids":            {owned("doc", []string{"read"}, []string{"a"}, "u"), []*basev0.WorkScopeV1{scope("doc", []string{"read"}, []string{"a"})}, true},
-		"another owner":                          {owned("doc", []string{"read"}, nil, "v"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
-		"the owner dropped":                      {scope("doc", []string{"read"}, nil), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
-		"an id asked without its owner":          {scope("doc", []string{"read"}, []string{"a"}), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
-		"the owner's ids widened":                {owned("doc", []string{"read"}, nil, "u"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "u")}, false},
-		"an id outside the owner's":              {owned("doc", []string{"read"}, []string{"b"}, "u"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "u")}, false},
-		"another owner's row beside a plain row": {owned("doc", []string{"read"}, []string{"a"}, "v"), []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "u"), scope("doc", []string{"read"}, []string{"a"})}, true},
+		"the same owner":                         {owned("doc", []string{"read"}, nil, "u"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, true},
+		"ids within the owner":                   {owned("doc", []string{"read"}, []string{"a"}, "u"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, true},
+		"an owner added to a whole kind":         {owned("doc", []string{"read"}, nil, "u"), []*basev1.WorkScopeV1{scope("doc", []string{"read"}, nil)}, true},
+		"an owner added to named ids":            {owned("doc", []string{"read"}, []string{"a"}, "u"), []*basev1.WorkScopeV1{scope("doc", []string{"read"}, []string{"a"})}, true},
+		"another owner":                          {owned("doc", []string{"read"}, nil, "v"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
+		"the owner dropped":                      {scope("doc", []string{"read"}, nil), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
+		"an id asked without its owner":          {scope("doc", []string{"read"}, []string{"a"}), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u")}, false},
+		"the owner's ids widened":                {owned("doc", []string{"read"}, nil, "u"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "u")}, false},
+		"an id outside the owner's":              {owned("doc", []string{"read"}, []string{"b"}, "u"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "u")}, false},
+		"another owner's row beside a plain row": {owned("doc", []string{"read"}, []string{"a"}, "v"), []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "u"), scope("doc", []string{"read"}, []string{"a"})}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.contained, workcontext.ScopeContained(tc.child, tc.parents))
@@ -53,7 +53,7 @@ func TestScopeContained_ResourceOwner(t *testing.T) {
 // schema refuses never mints.
 func TestOwnerSelectedScopesMintVerifyAndAttenuate(t *testing.T) {
 	h := newHarness(t)
-	start := func(scopes ...*basev0.WorkScopeV1) (string, error) {
+	start := func(scopes ...*basev1.WorkScopeV1) (string, error) {
 		token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
 			InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 			OrganizationID: organization, TaskID: taskID, Audience: audience, AuthorityScopes: scopes, TTL: time.Hour,
@@ -65,7 +65,7 @@ func TestOwnerSelectedScopesMintVerifyAndAttenuate(t *testing.T) {
 	parent := h.mustVerify(audience, token)
 	require.Equal(t, "principal-u", parent.EffectiveScopes()[0].GetResourceOwnerId())
 
-	child := func(scopes ...*basev0.WorkScopeV1) error {
+	child := func(scopes ...*basev1.WorkScopeV1) error {
 		_, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
 			PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0", DelegationID: "d-1",
 			GrantedScopes: scopes, Audience: audience, TTL: 30 * time.Minute,
@@ -87,13 +87,13 @@ func TestVerifyRefusesAHopThatDropsOrChangesTheOwner(t *testing.T) {
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 		OrganizationID: organization, TaskID: taskID, Audience: audience, TTL: time.Hour,
-		AuthorityScopes: []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, "principal-u")},
+		AuthorityScopes: []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, "principal-u")},
 	})
 	require.NoError(t, err)
 	parent := h.mustVerify(audience, token)
 	sound, signed, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0", DelegationID: "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "principal-u")},
+		GrantedScopes: []*basev1.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, "principal-u")},
 		Audience:      audience, TTL: 30 * time.Minute,
 	})
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestVerifyRefusesAHopThatDropsOrChangesTheOwner(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			altered := proto.CloneOf(signed)
 			hop := altered.GetActorChain()[len(altered.GetActorChain())-1]
-			hop.GrantedScopes = []*basev0.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, owner)}
+			hop.GrantedScopes = []*basev1.WorkScopeV1{owned("doc", []string{"read"}, []string{"a"}, owner)}
 			_, err := h.verify(audience, h.resign(altered))
 			require.ErrorIs(t, err, workcontext.ErrInvalid)
 			require.ErrorContains(t, err, "widens authority")
@@ -146,7 +146,7 @@ func TestResourceOwnerSchema(t *testing.T) {
 		_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
 			InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 			OrganizationID: organization, TaskID: taskID, Audience: audience, TTL: time.Hour,
-			AuthorityScopes: []*basev0.WorkScopeV1{owned("doc", []string{"read"}, nil, owner)},
+			AuthorityScopes: []*basev1.WorkScopeV1{owned("doc", []string{"read"}, nil, owner)},
 		})
 		return err
 	}
@@ -168,10 +168,10 @@ func TestResourceOwnerSchema(t *testing.T) {
 // under an owner-scoped parent by inheriting the parent's owner; it never
 // guesses one, never replaces one someone wrote, and never widens.
 func TestInheritResourceOwner(t *testing.T) {
-	rows := func(scopes ...*basev0.WorkScopeV1) []*basev0.WorkScopeV1 { return scopes }
+	rows := func(scopes ...*basev1.WorkScopeV1) []*basev1.WorkScopeV1 { return scopes }
 	for name, tc := range map[string]struct {
-		requested, parent []*basev0.WorkScopeV1
-		want              []*basev0.WorkScopeV1
+		requested, parent []*basev1.WorkScopeV1
+		want              []*basev1.WorkScopeV1
 		refusal           string
 	}{
 		"an owner-less parent keeps the scope as written": {
@@ -279,12 +279,12 @@ func TestInheritResourceOwnerMintsUnderAnOwnerScopedParent(t *testing.T) {
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 		OrganizationID: organization, TaskID: taskID, Audience: audience, TTL: time.Hour,
-		AuthorityScopes: []*basev0.WorkScopeV1{owned("doc", []string{"read", "write"}, nil, "principal-u")},
+		AuthorityScopes: []*basev1.WorkScopeV1{owned("doc", []string{"read", "write"}, nil, "principal-u")},
 	})
 	require.NoError(t, err)
 	parent := h.mustVerify(audience, token)
-	operation := []*basev0.WorkScopeV1{scope("doc", []string{"read"}, nil)}
-	mint := func(scopes []*basev0.WorkScopeV1) (string, error) {
+	operation := []*basev1.WorkScopeV1{scope("doc", []string{"read"}, nil)}
+	mint := func(scopes []*basev1.WorkScopeV1) (string, error) {
 		child, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
 			PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0", DelegationID: "d-1",
 			GrantedScopes: scopes, Audience: audience, TTL: 30 * time.Minute,
@@ -302,8 +302,8 @@ func TestInheritResourceOwnerMintsUnderAnOwnerScopedParent(t *testing.T) {
 	require.Equal(t, "principal-u", verified.EffectiveScopes()[0].GetResourceOwnerId())
 }
 
-func cloneScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
-	cloned := make([]*basev0.WorkScopeV1, len(scopes))
+func cloneScopes(scopes []*basev1.WorkScopeV1) []*basev1.WorkScopeV1 {
+	cloned := make([]*basev1.WorkScopeV1, len(scopes))
 	for i, s := range scopes {
 		cloned[i] = proto.CloneOf(s)
 	}

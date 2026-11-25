@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,7 +102,7 @@ func TestPackageLockResultHonorsDevAndDependencyGraph(t *testing.T) {
 	require.Len(t, result.Bom.GetComponents()[1].GetHashes(), 1)
 
 	root := result.Bom.GetMetadata().GetComponent().GetBomRef()
-	var rootDependency *agentv0.Dependency
+	var rootDependency *agentv1.Dependency
 	for _, dependency := range result.Bom.GetDependencies() {
 		if dependency.GetRef() == root {
 			rootDependency = dependency
@@ -122,7 +122,7 @@ func TestParseCycloneDX(t *testing.T) {
 }`
 	result, err := parseCycloneDX([]byte(document), "uv-cyclonedx1.5", "PYTHON")
 	require.NoError(t, err)
-	require.Equal(t, agentv0.ComponentType_MODULE, result.Bom.GetMetadata().GetComponent().GetType())
+	require.Equal(t, agentv1.ComponentType_MODULE, result.Bom.GetMetadata().GetComponent().GetType())
 	require.Equal(t, []string{"MIT"}, result.Bom.GetComponents()[0].GetLicenses())
 	require.NotEmpty(t, result.SHA256)
 }
@@ -177,8 +177,8 @@ func TestParseSwiftDependenciesProducesResolvedGraph(t *testing.T) {
 }
 
 func TestAttachArtifactAndMarshalCycloneDXJSON(t *testing.T) {
-	root := &agentv0.Component{Name: "module", Type: agentv0.ComponentType_MODULE, Purl: "pkg:golang/example.com/module", BomRef: "pkg:golang/example.com/module"}
-	base, err := finish(root, nil, []*agentv0.Dependency{{Ref: root.BomRef}}, "go-list", "GO")
+	root := &agentv1.Component{Name: "module", Type: agentv1.ComponentType_MODULE, Purl: "pkg:golang/example.com/module", BomRef: "pkg:golang/example.com/module"}
+	base, err := finish(root, nil, []*agentv1.Dependency{{Ref: root.BomRef}}, "go-list", "GO")
 	require.NoError(t, err)
 	release, err := AttachArtifact(base, Artifact{
 		Publisher: "codefly.dev",
@@ -188,7 +188,7 @@ func TestAttachArtifactAndMarshalCycloneDXJSON(t *testing.T) {
 		SHA256:    strings.Repeat("a", 64),
 	})
 	require.NoError(t, err)
-	require.Equal(t, agentv0.ComponentType_APPLICATION, release.Bom.GetMetadata().GetComponent().GetType())
+	require.Equal(t, agentv1.ComponentType_APPLICATION, release.Bom.GetMetadata().GetComponent().GetType())
 	require.Equal(t, "SHA-256", release.Bom.GetMetadata().GetComponent().GetHashes()[0].GetAlgorithm())
 
 	payload, err := MarshalCycloneDXJSON(release.Bom)
@@ -203,7 +203,7 @@ func TestAttachArtifactAndMarshalCycloneDXJSON(t *testing.T) {
 }
 
 func TestMarshalCycloneDXJSONPreservesLicenseExpression(t *testing.T) {
-	root := &agentv0.Component{Name: "crate", Type: agentv0.ComponentType_MODULE, Purl: "pkg:cargo/crate@1.0.0", BomRef: "pkg:cargo/crate@1.0.0", Licenses: []string{"MIT OR Apache-2.0"}}
+	root := &agentv1.Component{Name: "crate", Type: agentv1.ComponentType_MODULE, Purl: "pkg:cargo/crate@1.0.0", BomRef: "pkg:cargo/crate@1.0.0", Licenses: []string{"MIT OR Apache-2.0"}}
 	result, err := finish(root, nil, nil, "cargo-metadata", "RUST")
 	require.NoError(t, err)
 	payload, err := MarshalCycloneDXJSON(result.Bom)

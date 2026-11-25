@@ -4,24 +4,24 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
 
-func authorityConf(key, value string) *basev0.Configuration {
-	return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: key, Value: value}},
+func authorityConf(key, value string) *basev1.Configuration {
+	return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: key, Value: value}},
 	}}}
 }
 
-func authorityTemplated(key string, literals ...string) *basev0.Configuration {
-	var segments []*basev0.ConfigurationValueTemplateSegment
+func authorityTemplated(key string, literals ...string) *basev1.Configuration {
+	var segments []*basev1.ConfigurationValueTemplateSegment
 	for _, literal := range literals {
-		segments = append(segments, &basev0.ConfigurationValueTemplateSegment{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: literal}})
+		segments = append(segments, &basev1.ConfigurationValueTemplateSegment{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: literal}})
 	}
-	return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{
-		Name: "authority", ConfigurationValues: []*basev0.ConfigurationValue{{Key: key, Template: &basev0.ConfigurationValueTemplate{Segments: segments}}},
+	return &basev1.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{
+		Name: "authority", ConfigurationValues: []*basev1.ConfigurationValue{{Key: key, Template: &basev1.ConfigurationValueTemplate{Segments: segments}}},
 	}}}
 }
 
@@ -35,7 +35,7 @@ func TestAnInvalidDeclarationAmongAPICandidatesIsNeverDiscarded(t *testing.T) {
 	hidden := selectionEndpoint("hidden", "grpc", "private")
 	broken := selectionEndpoint("broken", "grpc", "pubilc")
 	public := selectionEndpoint("open", "grpc", "public")
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("hidden", "grpc", nativeAt("http://localhost:1")),
 		selectionMapping("broken", "grpc", nativeAt("http://localhost:2")),
 		selectionMapping("open", "grpc", nativeAt("http://localhost:3")),
@@ -54,7 +54,7 @@ func TestAnInvalidDeclarationAmongAPICandidatesIsNeverDiscarded(t *testing.T) {
 
 			consumer := resources.WithConsumer("payments", declaredBy(declared...))
 			ref := "${endpoint:" + selectionUnique + "/grpc}"
-			for kind, conf := range map[string]*basev0.Configuration{
+			for kind, conf := range map[string]*basev1.Configuration{
 				"plain":     authorityConf("address", ref),
 				"templated": authorityTemplated("address", "grpc://"+ref),
 			} {
@@ -80,7 +80,7 @@ func TestAStrictReadReportsADenialOverAnUnavailabilityWhateverTheOrder(t *testin
 	))
 	missing := "${endpoint:" + selectionUnique + "/missing}"
 	hidden := "${endpoint:" + selectionUnique + "/hidden}"
-	for name, conf := range map[string]*basev0.Configuration{
+	for name, conf := range map[string]*basev1.Configuration{
 		"missing then hidden":             authorityConf("addresses", missing+","+hidden),
 		"hidden then missing":             authorityConf("addresses", hidden+","+missing),
 		"missing literal, hidden literal": authorityTemplated("addresses", missing, hidden),
@@ -110,7 +110,7 @@ func TestTheOwningModuleDoesNotBypassAnInvalidDeclaration(t *testing.T) {
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
 	own := resources.WithConsumer(selectionModule, declaredBy(selectionEndpoint("grpc", "grpc", "pubilc")))
 	ref := "${endpoint:" + selectionUnique + "/grpc}"
-	for name, mappings := range map[string][]*basev0.NetworkMapping{
+	for name, mappings := range map[string][]*basev1.NetworkMapping{
 		"with a mapping":    {selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
 		"without a mapping": nil,
 	} {
@@ -128,7 +128,7 @@ func TestAnUnknownProducerIsRefusedOnTheRunWidePath(t *testing.T) {
 	ctx := context.Background()
 	inRun := resources.WithRunProducers(func(string) bool { return true })
 	unknown := resources.WithConsumer("payments", func(string) ([]*resources.Endpoint, bool) { return nil, false })
-	for name, conf := range map[string]*basev0.Configuration{
+	for name, conf := range map[string]*basev1.Configuration{
 		"plain":     authorityConf("address", "${endpoint:nowhere/x/grpc}"),
 		"templated": authorityTemplated("address", "grpc://${endpoint:nowhere/x/grpc}"),
 	} {
@@ -161,7 +161,7 @@ func TestAMalformedEndpointMarkerIsRefusedNotDeliveredOrOmitted(t *testing.T) {
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
 	consumer := resources.WithConsumer("payments", declaredBy(selectionEndpoint("hidden", "grpc", "private")))
 	hidden := "${endpoint:" + selectionUnique + "/hidden}"
-	for name, conf := range map[string]*basev0.Configuration{
+	for name, conf := range map[string]*basev1.Configuration{
 		"empty marker alone":              authorityConf("address", "${endpoint:}"),
 		"unterminated marker alone":       authorityConf("address", "${endpoint:"+selectionUnique+"/grpc"),
 		"empty marker beside an omission": authorityConf("address", "${endpoint:},"+hidden),
@@ -187,7 +187,7 @@ func TestAMalformedEndpointMarkerIsRefusedNotDeliveredOrOmitted(t *testing.T) {
 func TestConflictingMappingMetadataIsRefusedInEitherOrder(t *testing.T) {
 	selection := resources.EndpointSelectionContext{ConsumerModule: "payments",
 		Declared: declaredBy(selectionEndpoint("rpc", "grpc", "public"))}
-	for name, mappings := range map[string][]*basev0.NetworkMapping{
+	for name, mappings := range map[string][]*basev1.NetworkMapping{
 		"conflict first": {selectionMapping("rpc", "http", nativeAt("http://localhost:8080")), selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))},
 		"conflict last":  {selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090")), selectionMapping("rpc", "http", nativeAt("http://localhost:8080"))},
 	} {
@@ -224,7 +224,7 @@ func TestTextAroundAWellFormedReferenceIsNotAMarker(t *testing.T) {
 	ctx := context.Background()
 	selection := resources.EndpointSelectionContext{ConsumerModule: "payments",
 		Declared: declaredBy(selectionEndpoint("rpc", "grpc", "public"))}
-	mappings := []*basev0.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
+	mappings := []*basev1.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
 	for name, value := range map[string]string{
 		"a dollar before and a brace after": "$${endpoint:" + selectionUnique + "/rpc}{endpoint:tail",
 		"prefix split by two references":    "${endpoint:" + selectionUnique + "/rpc}${endpoint:" + selectionUnique + "/rpc}",
@@ -276,7 +276,7 @@ func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
 			_, err = resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{})
 			require.Error(t, err, "an incomplete selection refuses")
 			require.NotContains(t, err.Error(), secret, "and names no value doing so")
-			for _, conf := range []*basev0.Configuration{authorityConf("credential", value), authorityTemplated("credential", value)} {
+			for _, conf := range []*basev1.Configuration{authorityConf("credential", value), authorityTemplated("credential", value)} {
 				conf.Infos[0].ConfigurationValues[0].Secret = true
 				_, err = resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun, consumer)
 				require.Error(t, err)
@@ -339,7 +339,7 @@ func TestARefusalNeverPrintsTheModuleTheReferenceNamed(t *testing.T) {
 	// the second literal is "reference 3 of 3" — after the value's one and the
 	// first literal's one — however the parts are rendered.
 	public := declaredBy(selectionEndpoint("rpc", "grpc", "public"), selectionEndpoint("hidden", "grpc", "private"))
-	mappings := []*basev0.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
+	mappings := []*basev1.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
 	templated := authorityTemplated("address", "a=${endpoint:"+selectionUnique+"/rpc}", "b=${endpoint:"+selectionUnique+"/hidden}")
 	templated.Infos[0].ConfigurationValues[0].Value = "${endpoint:" + selectionUnique + "/rpc}"
 	_, err = resources.InterpolateConfigurationEndpoints(ctx, templated, mappings, resources.NewNativeNetworkAccess(),
@@ -353,10 +353,10 @@ func TestARefusalNeverPrintsTheModuleTheReferenceNamed(t *testing.T) {
 func TestLocationIsTheOnlyRecordOfWhereAnEndpointLives(t *testing.T) {
 	spelled := &resources.Endpoint{Module: "infra", Service: "db", Name: "tcp", API: "tcp", Visibility: "external"}
 	require.False(t, spelled.External())
-	require.False(t, resources.IsExternalEndpoint(&basev0.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Visibility: "external"}))
+	require.False(t, resources.IsExternalEndpoint(&basev1.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Visibility: "external"}))
 	located := &resources.Endpoint{Module: "infra", Service: "db", Name: "tcp", API: "tcp", Visibility: resources.VisibilityPrivate, Location: resources.LocationExternal}
 	require.True(t, located.External())
-	require.True(t, resources.IsExternalEndpoint(&basev0.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Location: resources.LocationExternal}))
+	require.True(t, resources.IsExternalEndpoint(&basev1.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Location: resources.LocationExternal}))
 }
 
 // The whole declaration is judged at every typed boundary, not only when YAML
@@ -385,10 +385,10 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 			// The wire carries no allow-list, so the typed boundary judges the
 			// other two faults; an authored list never reaches it.
 			if broken.AllowModules == nil {
-				typed := &basev0.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, Exposure: broken.Exposure}
+				typed := &basev1.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, Exposure: broken.Exposure}
 				dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
 				for _, consumer := range []string{"platform", "payments"} {
-					_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, []*basev0.Endpoint{typed})
+					_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, []*basev1.Endpoint{typed})
 					require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "wiring for %s", consumer)
 				}
 			}
@@ -406,7 +406,7 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 	// The schema carries the exposure vocabulary itself, so a typed endpoint
 	// that never went through this package's conversion is refused on the wire
 	// too.
-	typed := &basev0.Endpoint{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: "ingress"}
+	typed := &basev1.Endpoint{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: "ingress"}
 	require.Error(t, resources.Validate(typed), "the schema refuses an exposure outside the model's list")
 }
 
@@ -415,13 +415,13 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 // producer's manifest, not a verdict on the consumer, and a "consumes all"
 // dependency never drops it as though it had been denied.
 func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
-	endpoints := []*basev0.Endpoint{
+	endpoints := []*basev1.Endpoint{
 		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 		{Module: "platform", Service: "api", Name: "broken", Api: "http", Visibility: "pubilc"},
 	}
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: endpoints[0], Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:9090")}},
-		{Endpoint: endpoints[1], Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:8080")}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: endpoints[0], Instances: []*basev1.NetworkInstance{nativeAt("http://localhost:9090")}},
+		{Endpoint: endpoints[1], Instances: []*basev1.NetworkInstance{nativeAt("http://localhost:8080")}},
 	}
 	dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
 	for _, consumer := range []string{"platform", "payments"} {

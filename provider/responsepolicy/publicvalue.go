@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 )
 
@@ -15,21 +15,21 @@ import (
 // Every string is checked against the secret heuristic: a FORWARD_SAFE field
 // that carries a secret-shaped literal is drift and fails closed rather than
 // forwarding the bytes.
-func toPublicValue(value any) (*providerv0.PublicValue, error) {
+func toPublicValue(value any) (*providerv1.PublicValue, error) {
 	switch v := value.(type) {
 	case nil:
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_NullValue{NullValue: true}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_NullValue{NullValue: true}}, nil
 	case bool:
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_BoolValue{BoolValue: v}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_BoolValue{BoolValue: v}}, nil
 	case string:
 		if configuration.LooksSecret(v) {
 			return nil, fmt.Errorf("forwarded field carries a secret-shaped literal")
 		}
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_StringValue{StringValue: v}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_StringValue{StringValue: v}}, nil
 	case json.Number:
 		return numberToPublicValue(v)
 	case []any:
-		list := &providerv0.PublicList{Values: make([]*providerv0.PublicValue, 0, len(v))}
+		list := &providerv1.PublicList{Values: make([]*providerv1.PublicValue, 0, len(v))}
 		for _, item := range v {
 			converted, err := toPublicValue(item)
 			if err != nil {
@@ -37,9 +37,9 @@ func toPublicValue(value any) (*providerv0.PublicValue, error) {
 			}
 			list.Values = append(list.Values, converted)
 		}
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_ListValue{ListValue: list}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_ListValue{ListValue: list}}, nil
 	case map[string]any:
-		object := &providerv0.PublicObject{Fields: make(map[string]*providerv0.PublicValue, len(v))}
+		object := &providerv1.PublicObject{Fields: make(map[string]*providerv1.PublicValue, len(v))}
 		keys := make([]string, 0, len(v))
 		for key := range v {
 			keys = append(keys, key)
@@ -52,7 +52,7 @@ func toPublicValue(value any) (*providerv0.PublicValue, error) {
 			}
 			object.Fields[key] = converted
 		}
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_ObjectValue{ObjectValue: object}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_ObjectValue{ObjectValue: object}}, nil
 	default:
 		return nil, fmt.Errorf("unsupported response value type %T", value)
 	}
@@ -61,16 +61,16 @@ func toPublicValue(value any) (*providerv0.PublicValue, error) {
 // numberToPublicValue renders a JSON number as either a signed integer or a
 // canonical base-ten decimal. Exponent forms and non-canonical spellings fail
 // closed so a forwarded number has exactly one representation.
-func numberToPublicValue(number json.Number) (*providerv0.PublicValue, error) {
+func numberToPublicValue(number json.Number) (*providerv1.PublicValue, error) {
 	raw := string(number)
 	if integer, err := strconv.ParseInt(raw, 10, 64); err == nil && strconv.FormatInt(integer, 10) == raw {
-		return &providerv0.PublicValue{Kind: &providerv0.PublicValue_IntegerValue{IntegerValue: integer}}, nil
+		return &providerv1.PublicValue{Kind: &providerv1.PublicValue_IntegerValue{IntegerValue: integer}}, nil
 	}
 	decimal, err := canonicalDecimal(raw)
 	if err != nil {
 		return nil, err
 	}
-	return &providerv0.PublicValue{Kind: &providerv0.PublicValue_DecimalValue{DecimalValue: decimal}}, nil
+	return &providerv1.PublicValue{Kind: &providerv1.PublicValue_DecimalValue{DecimalValue: decimal}}, nil
 }
 
 // canonicalDecimal normalizes a plain decimal string to the canonical form

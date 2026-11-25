@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -22,24 +22,24 @@ const applyText = "/documents.ingest.v1.IngestionService/ApplyText"
 
 // declaredOperation is the policy document-store installs for its text
 // operation, written as the option the method would carry.
-func declaredOperation() *runnablev0.Operation {
-	return &runnablev0.Operation{
+func declaredOperation() *runnablev1.Operation {
+	return &runnablev1.Operation{
 		AttemptTimeout: durationpb.New(10 * time.Second),
 		TotalTimeout:   durationpb.New(time.Minute),
 		MaxAttempts:    1,
 		Backoff:        durationpb.New(time.Second),
 		RetryableCodes: []string{"UNAVAILABLE"},
 		Audience:       "documents.ingestion",
-		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}}},
-		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}}},
+		InvokeScopes:   []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}}},
+		LookupScopes:   []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}}},
 		LookupMethod:   "/documents.ingest.v1.IngestionService/LookupText",
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+		Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 	}
 }
 
 // ingestion mirrors module-document-store's published ingestion schema, whose
 // hand-written Runnable package is the oracle this derivation has to reproduce.
-func ingestion(declared *runnablev0.Operation, methods ...*descriptorpb.MethodDescriptorProto) fileSpec {
+func ingestion(declared *runnablev1.Operation, methods ...*descriptorpb.MethodDescriptorProto) fileSpec {
 	request := message("ApplyTextRequest",
 		scalar("origin", 1, tString),
 		scalar("container", 2, tString),
@@ -75,13 +75,13 @@ func ingestion(declared *runnablev0.Operation, methods ...*descriptorpb.MethodDe
 	return fileSpec{
 		name:     "documents/ingest/v1/ingestion.proto",
 		pkg:      "documents.ingest.v1",
-		imports:  []string{"codefly/runnable/v0/options.proto"},
+		imports:  []string{"codefly/runnable/v1/options.proto"},
 		messages: []*descriptorpb.DescriptorProto{request, response, lookupRequest, lookupResponse},
 		services: []*descriptorpb.ServiceDescriptorProto{service("IngestionService", methods...)},
 	}
 }
 
-func ingestionFiles(t *testing.T, declared *runnablev0.Operation, methods ...*descriptorpb.MethodDescriptorProto) *protoregistry.Files {
+func ingestionFiles(t *testing.T, declared *runnablev1.Operation, methods ...*descriptorpb.MethodDescriptorProto) *protoregistry.Files {
 	t.Helper()
 	return registry(t, compile(t, ingestion(declared, methods...)))
 }
@@ -99,11 +99,11 @@ func ingestOwner() runnable.ServiceOwner {
 		Module:   "documents",
 		Service:  "runtime-worker",
 		Endpoint: "grpc",
-		Agent:    &basev0.Agent{Kind: basev0.Agent_SERVICE, Name: "go", Version: "0.0.48", Publisher: "codefly.dev"},
+		Agent:    &basev1.Agent{Kind: basev1.Agent_SERVICE, Name: "go", Version: "0.0.48", Publisher: "codefly.dev"},
 	}
 }
 
-func derivedIngestion(t *testing.T) (*basev0.RunnablePackage, *runnable.OperationSpec) {
+func derivedIngestion(t *testing.T) (*basev1.RunnablePackage, *runnable.OperationSpec) {
 	t.Helper()
 	pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declaredOperation()), ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
@@ -135,47 +135,47 @@ func TestPackageFromMethodIsByteStable(t *testing.T) {
 // builder states the contract's defaults rather than inventing an owner's
 // budget. Everything the method does determine is compared as it stands.
 func TestPackageFromMethodReproducesTheHandWrittenOracle(t *testing.T) {
-	handWritten, err := runnable.PreparePackage(&basev0.RunnablePackage{
+	handWritten, err := runnable.PreparePackage(&basev1.RunnablePackage{
 		Schema:   runnable.PackageSchemaV1,
-		Identity: &basev0.RunnableIdentity{Workspace: "module-document-store", Module: "documents", Name: "ingest-text", Version: "0.1.0"},
-		Agent:    &basev0.Agent{Kind: basev0.Agent_SERVICE, Name: "go", Version: "0.0.48", Publisher: "codefly.dev"},
-		Contract: &basev0.RunnableContract{
+		Identity: &basev1.RunnableIdentity{Workspace: "module-document-store", Module: "documents", Name: "ingest-text", Version: "0.1.0"},
+		Agent:    &basev1.Agent{Kind: basev1.Agent_SERVICE, Name: "go", Version: "0.0.48", Publisher: "codefly.dev"},
+		Contract: &basev1.RunnableContract{
 			Protocol: resources.RunnableServiceProtocolV1,
-			Input: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "origin", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "container", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "ref", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "path", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "revision", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "commit", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "cursor", Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
-				{Name: "contentType", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "text", Type: basev0.RunnableField_STRING, Optional: true},
+			Input: &basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+				{Name: "origin", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "container", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "ref", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "path", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "revision", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "commit", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "cursor", Type: basev1.RunnableField_STRING, Format: runnable.FormatInt64, Optional: true},
+				{Name: "contentType", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "text", Type: basev1.RunnableField_STRING, Optional: true},
 			}},
-			Output: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
-				{Name: "reference", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "contentHash", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "effectDigest", Type: basev0.RunnableField_STRING, Optional: true},
-				{Name: "minted", Type: basev0.RunnableField_BOOLEAN, Optional: true},
-				{Name: "skipped", Type: basev0.RunnableField_BOOLEAN, Optional: true},
-				{Name: "quarantined", Type: basev0.RunnableField_BOOLEAN, Optional: true},
+			Output: &basev1.RunnableSchema{Fields: []*basev1.RunnableField{
+				{Name: "reference", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "contentHash", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "effectDigest", Type: basev1.RunnableField_STRING, Optional: true},
+				{Name: "minted", Type: basev1.RunnableField_BOOLEAN, Optional: true},
+				{Name: "skipped", Type: basev1.RunnableField_BOOLEAN, Optional: true},
+				{Name: "quarantined", Type: basev1.RunnableField_BOOLEAN, Optional: true},
 			}},
 		},
-		Execution: &basev0.RunnableExecution{
-			Facilities:     []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}},
+		Execution: &basev1.RunnableExecution{
+			Facilities:     []*basev1.RunnableFacility{{Kind: basev1.RunnableFacility_SERVICE}},
 			Timeout:        durationpb.New(time.Minute),
-			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
-			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
-			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
+			Cancellation:   basev1.RunnableExecution_CANCELLATION_NONE,
+			Recovery:       basev1.RunnableExecution_RECOVERY_RECEIPT,
+			Completion:     basev1.RunnableExecution_COMPLETION_CALL,
 			MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 		},
-		ServiceOperations: []*basev0.RunnableServiceOperation{{
+		ServiceOperations: []*basev1.RunnableServiceOperation{{
 			Module: "documents", Name: "runtime-worker", Endpoint: "grpc",
 			Operation:     applyText,
 			InputMessage:  "documents.ingest.v1.ApplyTextRequest",
 			OutputMessage: "documents.ingest.v1.ApplyTextResponse",
-			Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+			Adaptation:    basev1.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
 		}},
 	})
 	require.NoError(t, err)
@@ -220,85 +220,85 @@ func TestOperationFromMethodRejectsStreaming(t *testing.T) {
 }
 
 func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
-	documents := func(actions ...string) []*basev0.WorkScopeV1 {
-		return []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: actions}}
+	documents := func(actions ...string) []*basev1.WorkScopeV1 {
+		return []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: actions}}
 	}
 	for _, test := range []struct {
 		name    string
-		mutate  func(*runnablev0.Operation)
+		mutate  func(*runnablev1.Operation)
 		because string
 	}{
-		{"attempt too short", func(o *runnablev0.Operation) { o.AttemptTimeout = durationpb.New(999 * time.Millisecond) }, "attempt_timeout"},
-		{"attempt too long", func(o *runnablev0.Operation) {
+		{"attempt too short", func(o *runnablev1.Operation) { o.AttemptTimeout = durationpb.New(999 * time.Millisecond) }, "attempt_timeout"},
+		{"attempt too long", func(o *runnablev1.Operation) {
 			o.AttemptTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
 			o.TotalTimeout = durationpb.New(runnable.MaxAttemptTimeout + time.Second)
 		}, "attempt_timeout"},
-		{"total shorter than attempt", func(o *runnablev0.Operation) { o.TotalTimeout = durationpb.New(time.Second) }, "shorter than one attempt"},
-		{"no attempt", func(o *runnablev0.Operation) { o.MaxAttempts = 0 }, "max_attempts"},
-		{"too many attempts", func(o *runnablev0.Operation) { o.MaxAttempts = 6 }, "max_attempts"},
-		{"backoff too short", func(o *runnablev0.Operation) { o.Backoff = durationpb.New(50 * time.Millisecond) }, "backoff"},
-		{"backoff too long", func(o *runnablev0.Operation) { o.Backoff = durationpb.New(2 * time.Minute) }, "backoff"},
-		{"too many retryable codes", func(o *runnablev0.Operation) {
+		{"total shorter than attempt", func(o *runnablev1.Operation) { o.TotalTimeout = durationpb.New(time.Second) }, "shorter than one attempt"},
+		{"no attempt", func(o *runnablev1.Operation) { o.MaxAttempts = 0 }, "max_attempts"},
+		{"too many attempts", func(o *runnablev1.Operation) { o.MaxAttempts = 6 }, "max_attempts"},
+		{"backoff too short", func(o *runnablev1.Operation) { o.Backoff = durationpb.New(50 * time.Millisecond) }, "backoff"},
+		{"backoff too long", func(o *runnablev1.Operation) { o.Backoff = durationpb.New(2 * time.Minute) }, "backoff"},
+		{"too many retryable codes", func(o *runnablev1.Operation) {
 			o.RetryableCodes = make([]string, runnable.MaxRetryableCodes+1)
 			for i := range o.RetryableCodes {
 				o.RetryableCodes[i] = "UNAVAILABLE"
 			}
 		}, "retryable codes"},
-		{"unknown retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"FLAKY"} }, `"FLAKY"`},
-		{"lowercase retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"unavailable"} }, `"unavailable"`},
-		{"repeated retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"UNAVAILABLE", "UNAVAILABLE"} }, "twice"},
-		{"scope without a kind", func(o *runnablev0.Operation) { o.InvokeScopes = []*basev0.WorkScopeV1{{Actions: []string{"ingest"}}} }, "is not a usable name"},
-		{"scope without an action", func(o *runnablev0.Operation) { o.InvokeScopes = documents() }, "names 0 actions"},
-		{"scope declared twice", func(o *runnablev0.Operation) {
-			o.InvokeScopes = append(o.InvokeScopes, &basev0.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}})
+		{"unknown retryable code", func(o *runnablev1.Operation) { o.RetryableCodes = []string{"FLAKY"} }, `"FLAKY"`},
+		{"lowercase retryable code", func(o *runnablev1.Operation) { o.RetryableCodes = []string{"unavailable"} }, `"unavailable"`},
+		{"repeated retryable code", func(o *runnablev1.Operation) { o.RetryableCodes = []string{"UNAVAILABLE", "UNAVAILABLE"} }, "twice"},
+		{"scope without a kind", func(o *runnablev1.Operation) { o.InvokeScopes = []*basev1.WorkScopeV1{{Actions: []string{"ingest"}}} }, "is not a usable name"},
+		{"scope without an action", func(o *runnablev1.Operation) { o.InvokeScopes = documents() }, "names 0 actions"},
+		{"scope declared twice", func(o *runnablev1.Operation) {
+			o.InvokeScopes = append(o.InvokeScopes, &basev1.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}})
 		}, "twice"},
-		{"lookup scope is not read-only", func(o *runnablev0.Operation) { o.LookupScopes = documents("read", "ingest") }, "not read-only"},
-		{"lookup scope writes", func(o *runnablev0.Operation) {
+		{"lookup scope is not read-only", func(o *runnablev1.Operation) { o.LookupScopes = documents("read", "ingest") }, "not read-only"},
+		{"lookup scope writes", func(o *runnablev1.Operation) {
 			o.InvokeScopes = documents("ingest", "purge")
 			o.LookupScopes = documents("purge")
 		}, "not read-only"},
-		{"lookup scope reaches another kind", func(o *runnablev0.Operation) {
-			o.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "receipts", Actions: []string{"read"}}}
+		{"lookup scope reaches another kind", func(o *runnablev1.Operation) {
+			o.LookupScopes = []*basev1.WorkScopeV1{{ResourceKind: "receipts", Actions: []string{"read"}}}
 		}, "not covered"},
-		{"lookup scope holds an unheld action", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest") }, "not covered"},
-		{"lookup scope widens explicit ids", func(o *runnablev0.Operation) {
-			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one"}}}
-			o.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}, ResourceIds: []string{"two"}}}
+		{"lookup scope holds an unheld action", func(o *runnablev1.Operation) { o.InvokeScopes = documents("ingest") }, "not covered"},
+		{"lookup scope widens explicit ids", func(o *runnablev1.Operation) {
+			o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one"}}}
+			o.LookupScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}, ResourceIds: []string{"two"}}}
 		}, "not covered"},
-		{"lookup scope widens a narrowed set", func(o *runnablev0.Operation) {
-			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one"}}}
+		{"lookup scope widens a narrowed set", func(o *runnablev1.Operation) {
+			o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one"}}}
 		}, "not covered"},
 		// The runtime refuses to install an operation with no audience and no
 		// scopes, so a descriptor declaring none must not generate one.
-		{"no audience", func(o *runnablev0.Operation) { o.Audience = "" }, "audience"},
-		{"untrimmed audience", func(o *runnablev0.Operation) { o.Audience = " documents.ingestion " }, "audience"},
-		{"overlong audience", func(o *runnablev0.Operation) { o.Audience = strings.Repeat("a", runnable.MaxAudienceLength+1) }, "audience"},
-		{"no invoke scopes", func(o *runnablev0.Operation) { o.InvokeScopes = nil }, "declares no invoke_scopes and no required_scope_slots"},
-		{"too many scopes", func(o *runnablev0.Operation) {
-			o.InvokeScopes = make([]*basev0.WorkScopeV1, 0, runnable.MaxScopes+1)
+		{"no audience", func(o *runnablev1.Operation) { o.Audience = "" }, "audience"},
+		{"untrimmed audience", func(o *runnablev1.Operation) { o.Audience = " documents.ingestion " }, "audience"},
+		{"overlong audience", func(o *runnablev1.Operation) { o.Audience = strings.Repeat("a", runnable.MaxAudienceLength+1) }, "audience"},
+		{"no invoke scopes", func(o *runnablev1.Operation) { o.InvokeScopes = nil }, "declares no invoke_scopes and no required_scope_slots"},
+		{"too many scopes", func(o *runnablev1.Operation) {
+			o.InvokeScopes = make([]*basev1.WorkScopeV1, 0, runnable.MaxScopes+1)
 			for i := range runnable.MaxScopes + 1 {
-				o.InvokeScopes = append(o.InvokeScopes, &basev0.WorkScopeV1{ResourceKind: fmt.Sprintf("kind-%d", i), Actions: []string{"read"}})
+				o.InvokeScopes = append(o.InvokeScopes, &basev1.WorkScopeV1{ResourceKind: fmt.Sprintf("kind-%d", i), Actions: []string{"read"}})
 			}
 		}, "invoke_scopes"},
-		{"blank action", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", " ") }, `action " "`},
-		{"action with a newline", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", "a\nb") }, "not a usable value"},
-		{"repeated action", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", "read") }, "twice"},
-		{"too many resource ids", func(o *runnablev0.Operation) {
+		{"blank action", func(o *runnablev1.Operation) { o.InvokeScopes = documents("ingest", "read", " ") }, `action " "`},
+		{"action with a newline", func(o *runnablev1.Operation) { o.InvokeScopes = documents("ingest", "read", "a\nb") }, "not a usable value"},
+		{"repeated action", func(o *runnablev1.Operation) { o.InvokeScopes = documents("ingest", "read", "read") }, "twice"},
+		{"too many resource ids", func(o *runnablev1.Operation) {
 			ids := make([]string, 0, runnable.MaxScopeResourceIds+1)
 			for i := range runnable.MaxScopeResourceIds + 1 {
 				ids = append(ids, fmt.Sprintf("doc-%d", i))
 			}
-			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: ids}}
+			o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: ids}}
 		}, "resource ids"},
-		{"a declared resource owner", func(o *runnablev0.Operation) {
-			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceOwnerId: "principal-u"}}
+		{"a declared resource owner", func(o *runnablev1.Operation) {
+			o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceOwnerId: "principal-u"}}
 		}, "selects resource owner \"principal-u\" in its declaration; owner-scoped parent:"},
-		{"repeated resource id", func(o *runnablev0.Operation) {
-			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one", "one"}}}
+		{"repeated resource id", func(o *runnablev1.Operation) {
+			o.InvokeScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one", "one"}}}
 		}, "twice"},
 		// AsDuration saturates instead of reporting, so an unreadable duration
 		// used to become 292 years.
-		{"unreadable duration", func(o *runnablev0.Operation) {
+		{"unreadable duration", func(o *runnablev1.Operation) {
 			o.TotalTimeout = &durationpb.Duration{Seconds: 999999999999999}
 		}, "is not a valid duration"},
 	} {
@@ -315,7 +315,7 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 
 func TestOperationFromMethodAcceptsAWildcardParentNarrowedByLookup(t *testing.T) {
 	declared := declaredOperation()
-	declared.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}, ResourceIds: []string{"one"}}}
+	declared.LookupScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}, ResourceIds: []string{"one"}}}
 	_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
 	require.Equal(t, []string{"one"}, spec.LookupScopes[0].GetResourceIds())
@@ -368,7 +368,7 @@ func TestPackageFromMethodRequiresAReleaseIdentity(t *testing.T) {
 
 func TestPackageFromMethodRejectsAnUnpinnedOwnerAgent(t *testing.T) {
 	owner := ingestOwner()
-	owner.Agent = &basev0.Agent{Kind: basev0.Agent_SERVICE, Name: "go", Version: "latest", Publisher: "codefly.dev"}
+	owner.Agent = &basev1.Agent{Kind: basev1.Agent_SERVICE, Name: "go", Version: "latest", Publisher: "codefly.dev"}
 	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declaredOperation()), ingestLocation(), owner, applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "must be pinned")
@@ -419,7 +419,7 @@ func TestOperationFromMethodValidatesThePairedLookupMethod(t *testing.T) {
 }
 
 func TestOperationFromMethodRejectsAnEmptyPolicy(t *testing.T) {
-	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, &runnablev0.Operation{}), ingestLocation(), ingestOwner(), applyText)
+	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, &runnablev1.Operation{}), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "declares no execution policy")
 }
@@ -478,9 +478,9 @@ func TestPackageFromMethodCarriesTheDeclaredPayloadBounds(t *testing.T) {
 	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxInputBytes())
 	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxOutputBytes())
 
-	for _, over := range []func(*runnablev0.Operation){
-		func(o *runnablev0.Operation) { o.MaxInputBytes = resources.DefaultRunnablePayloadBytes + 1 },
-		func(o *runnablev0.Operation) { o.MaxOutputBytes = resources.DefaultRunnablePayloadBytes + 1 },
+	for _, over := range []func(*runnablev1.Operation){
+		func(o *runnablev1.Operation) { o.MaxInputBytes = resources.DefaultRunnablePayloadBytes + 1 },
+		func(o *runnablev1.Operation) { o.MaxOutputBytes = resources.DefaultRunnablePayloadBytes + 1 },
 	} {
 		declared := declaredOperation()
 		over(declared)

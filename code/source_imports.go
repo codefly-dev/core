@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // errNoSemanticAnalyzer marks a source-import failure caused by a missing
@@ -31,7 +31,7 @@ var errNoSemanticAnalyzer = errors.New("source-semantics analyzer not installed"
 // inspectSourceImports returns a deterministic per-file import inventory. Go is
 // parsed with the standard library; other languages require an installed
 // semantic analyzer.
-func (s *DefaultCodeServer) inspectSourceImports(ctx context.Context, root, language string) ([]*codev0.SourceFileInfo, error) {
+func (s *DefaultCodeServer) inspectSourceImports(ctx context.Context, root, language string) ([]*codev1.SourceFileInfo, error) {
 	if language == "go" {
 		return inspectGoSourceImports(ctx, s.FS, root)
 	}
@@ -47,7 +47,7 @@ func (s *DefaultCodeServer) inspectSourceImports(ctx context.Context, root, lang
 // a complete file, and reporting a partial inventory as whole is the failure
 // this inspection exists to prevent. A server assembled without an analyzer
 // therefore declines rather than guesses, and the caller takes the inventory.
-func (s *DefaultCodeServer) inspectOptionalSourceImports(ctx context.Context, root, language string) ([]*codev0.SourceFileInfo, bool, error) {
+func (s *DefaultCodeServer) inspectOptionalSourceImports(ctx context.Context, root, language string) ([]*codev1.SourceFileInfo, bool, error) {
 	files, err := s.inspectSourceImports(ctx, root, language)
 	if errors.Is(err, errNoSemanticAnalyzer) {
 		return nil, true, nil
@@ -58,8 +58,8 @@ func (s *DefaultCodeServer) inspectOptionalSourceImports(ctx context.Context, ro
 	return files, false, nil
 }
 
-func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev0.SourceFileInfo, error) {
-	result := make([]*codev0.SourceFileInfo, 0)
+func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev1.SourceFileInfo, error) {
+	result := make([]*codev1.SourceFileInfo, 0)
 	err := vfs.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -96,7 +96,7 @@ func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev
 			}
 			imports = append(imports, value)
 		}
-		result = append(result, &codev0.SourceFileInfo{Path: relative, Imports: CanonicalImports(imports)})
+		result = append(result, &codev1.SourceFileInfo{Path: relative, Imports: CanonicalImports(imports)})
 		return nil
 	})
 	if err != nil {

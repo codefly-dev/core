@@ -8,7 +8,7 @@ import (
 	"slices"
 	"sort"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/manifest"
 	"google.golang.org/protobuf/proto"
@@ -50,18 +50,18 @@ func Digest(message proto.Message) (string, error) {
 	return digest(data), nil
 }
 
-func BindingDesiredStateDigest(desired *providerv0.BindingDesiredState) (string, error) {
+func BindingDesiredStateDigest(desired *providerv1.BindingDesiredState) (string, error) {
 	if desired == nil {
 		return "", fmt.Errorf("binding desired state is required")
 	}
-	clone := proto.Clone(desired).(*providerv0.BindingDesiredState)
+	clone := proto.Clone(desired).(*providerv1.BindingDesiredState)
 	if err := sortByCanonicalBytes(clone.CredentialReferences); err != nil {
 		return "", err
 	}
 	return Digest(clone)
 }
 
-func MaterialObservationDigest(observation *providerv0.MaterialObservation) (string, error) {
+func MaterialObservationDigest(observation *providerv1.MaterialObservation) (string, error) {
 	if observation == nil {
 		return "", fmt.Errorf("material observation is required")
 	}
@@ -71,25 +71,25 @@ func MaterialObservationDigest(observation *providerv0.MaterialObservation) (str
 	if !observation.GetComplete() && observation.GetNextCursor() == "" {
 		return "", fmt.Errorf("incomplete material observation requires next_cursor")
 	}
-	clone := proto.Clone(observation).(*providerv0.MaterialObservation)
+	clone := proto.Clone(observation).(*providerv1.MaterialObservation)
 	if err := sortByCanonicalBytes(clone.Resources); err != nil {
 		return "", err
 	}
 	return Digest(clone)
 }
 
-func ObserveResponseMaterialDigest(response *providerv0.ObserveResponse) (string, error) {
+func ObserveResponseMaterialDigest(response *providerv1.ObserveResponse) (string, error) {
 	if response == nil {
 		return "", fmt.Errorf("observe response is required")
 	}
 	return MaterialObservationDigest(response.GetMaterial())
 }
 
-func OrderedPlanDigest(plan *providerv0.OrderedPlan) (string, error) {
+func OrderedPlanDigest(plan *providerv1.OrderedPlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("ordered plan is required")
 	}
-	clone := proto.Clone(plan).(*providerv0.OrderedPlan)
+	clone := proto.Clone(plan).(*providerv1.OrderedPlan)
 	clone.PlanDigest = ""
 	seen := make(map[string]struct{}, len(clone.Actions))
 	for index, action := range clone.Actions {
@@ -113,7 +113,7 @@ func OrderedPlanDigest(plan *providerv0.OrderedPlan) (string, error) {
 	return Digest(clone)
 }
 
-func ValidatePlanAction(action *providerv0.PlanAction) error {
+func ValidatePlanAction(action *providerv1.PlanAction) error {
 	if action == nil {
 		return fmt.Errorf("plan action is required")
 	}
@@ -121,21 +121,21 @@ func ValidatePlanAction(action *providerv0.PlanAction) error {
 		return fmt.Errorf("plan action identity and resource type are required")
 	}
 	switch action.GetType() {
-	case providerv0.ActionType_ACTION_TYPE_CREATE, providerv0.ActionType_ACTION_TYPE_REPLACE:
+	case providerv1.ActionType_ACTION_TYPE_CREATE, providerv1.ActionType_ACTION_TYPE_REPLACE:
 		if action.GetProspectiveRemoteId() == "" {
 			return fmt.Errorf("create and replace actions require a prospective remote id")
 		}
-	case providerv0.ActionType_ACTION_TYPE_UPDATE, providerv0.ActionType_ACTION_TYPE_DELETE,
-		providerv0.ActionType_ACTION_TYPE_IMPORT, providerv0.ActionType_ACTION_TYPE_MANUAL,
-		providerv0.ActionType_ACTION_TYPE_BLOCKED, providerv0.ActionType_ACTION_TYPE_NO_OP,
-		providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT:
+	case providerv1.ActionType_ACTION_TYPE_UPDATE, providerv1.ActionType_ACTION_TYPE_DELETE,
+		providerv1.ActionType_ACTION_TYPE_IMPORT, providerv1.ActionType_ACTION_TYPE_MANUAL,
+		providerv1.ActionType_ACTION_TYPE_BLOCKED, providerv1.ActionType_ACTION_TYPE_NO_OP,
+		providerv1.ActionType_ACTION_TYPE_PROJECT_OUTPUT:
 	default:
 		return fmt.Errorf("unknown plan action type %d", action.GetType())
 	}
 	switch action.GetOwnership() {
-	case providerv0.Ownership_OWNERSHIP_UNSPECIFIED, providerv0.Ownership_OWNERSHIP_OBSERVED,
-		providerv0.Ownership_OWNERSHIP_OWNED, providerv0.Ownership_OWNERSHIP_ADOPTED,
-		providerv0.Ownership_OWNERSHIP_UNMANAGED:
+	case providerv1.Ownership_OWNERSHIP_UNSPECIFIED, providerv1.Ownership_OWNERSHIP_OBSERVED,
+		providerv1.Ownership_OWNERSHIP_OWNED, providerv1.Ownership_OWNERSHIP_ADOPTED,
+		providerv1.Ownership_OWNERSHIP_UNMANAGED:
 	default:
 		return fmt.Errorf("unknown plan action ownership %d", action.GetOwnership())
 	}
@@ -148,7 +148,7 @@ func ValidatePlanAction(action *providerv0.PlanAction) error {
 			return fmt.Errorf("planned request %d digest mismatch", index)
 		}
 	}
-	if action.GetType() == providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT {
+	if action.GetType() == providerv1.ActionType_ACTION_TYPE_PROJECT_OUTPUT {
 		if len(action.GetRequests()) != 0 {
 			return fmt.Errorf("project output action cannot contain broker requests")
 		}
@@ -169,11 +169,11 @@ func ValidatePlanAction(action *providerv0.PlanAction) error {
 	return nil
 }
 
-func BindOrderedPlanDigest(plan *providerv0.OrderedPlan) (*providerv0.OrderedPlan, error) {
+func BindOrderedPlanDigest(plan *providerv1.OrderedPlan) (*providerv1.OrderedPlan, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("ordered plan is required")
 	}
-	clone := proto.Clone(plan).(*providerv0.OrderedPlan)
+	clone := proto.Clone(plan).(*providerv1.OrderedPlan)
 	computed, err := OrderedPlanDigest(clone)
 	if err != nil {
 		return nil, err
@@ -185,23 +185,23 @@ func BindOrderedPlanDigest(plan *providerv0.OrderedPlan) (*providerv0.OrderedPla
 	return clone, nil
 }
 
-func OutputTargetDigest(target *providerv0.OutputTarget) (string, error) {
+func OutputTargetDigest(target *providerv1.OutputTarget) (string, error) {
 	return Digest(target)
 }
 
-func OutputProposalDigest(proposal *providerv0.OutputProposal) (string, error) {
+func OutputProposalDigest(proposal *providerv1.OutputProposal) (string, error) {
 	if proposal == nil {
 		return "", fmt.Errorf("output proposal is required")
 	}
 	if err := configuration.NewRegistry().ValidateProposal(proposal); err != nil {
 		return "", err
 	}
-	clone := proto.Clone(proposal).(*providerv0.OutputProposal)
+	clone := proto.Clone(proposal).(*providerv1.OutputProposal)
 	clone.Digest = ""
 	return Digest(clone)
 }
 
-func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
+func PlannedRequestDigest(request *providerv1.PlannedRequest) (string, error) {
 	if request == nil {
 		return "", fmt.Errorf("planned request is required")
 	}
@@ -212,22 +212,22 @@ func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
 		return "", fmt.Errorf("planned request descriptor, origin, and response policy are required")
 	}
 	switch request.GetMethod() {
-	case providerv0.HTTPMethod_HTTP_METHOD_GET, providerv0.HTTPMethod_HTTP_METHOD_HEAD:
-	case providerv0.HTTPMethod_HTTP_METHOD_POST, providerv0.HTTPMethod_HTTP_METHOD_PUT,
-		providerv0.HTTPMethod_HTTP_METHOD_PATCH, providerv0.HTTPMethod_HTTP_METHOD_DELETE:
+	case providerv1.HTTPMethod_HTTP_METHOD_GET, providerv1.HTTPMethod_HTTP_METHOD_HEAD:
+	case providerv1.HTTPMethod_HTTP_METHOD_POST, providerv1.HTTPMethod_HTTP_METHOD_PUT,
+		providerv1.HTTPMethod_HTTP_METHOD_PATCH, providerv1.HTTPMethod_HTTP_METHOD_DELETE:
 		if request.GetIdempotencyKey() == "" {
 			return "", fmt.Errorf("mutating planned request requires an idempotency key")
 		}
 	default:
 		return "", fmt.Errorf("unknown planned request method %d", request.GetMethod())
 	}
-	seenPurposes := make(map[providerv0.CredentialPurpose]struct{}, len(request.GetCredentialPurposes()))
+	seenPurposes := make(map[providerv1.CredentialPurpose]struct{}, len(request.GetCredentialPurposes()))
 	for _, purpose := range request.GetCredentialPurposes() {
 		switch purpose {
-		case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+		case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 		default:
 			return "", fmt.Errorf("unknown planned request credential purpose %d", purpose)
 		}
@@ -236,7 +236,7 @@ func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
 		}
 		seenPurposes[purpose] = struct{}{}
 	}
-	clone := proto.Clone(request).(*providerv0.PlannedRequest)
+	clone := proto.Clone(request).(*providerv1.PlannedRequest)
 	clone.RequestDigest = ""
 	// Credential purposes are a set (duplicates are rejected above and
 	// ValidateExecuteRequest compares them unordered), so the digest must not
@@ -245,11 +245,11 @@ func PlannedRequestDigest(request *providerv0.PlannedRequest) (string, error) {
 	return Digest(clone)
 }
 
-func BindPlannedRequestDigest(request *providerv0.PlannedRequest) (*providerv0.PlannedRequest, error) {
+func BindPlannedRequestDigest(request *providerv1.PlannedRequest) (*providerv1.PlannedRequest, error) {
 	if request == nil {
 		return nil, fmt.Errorf("planned request is required")
 	}
-	clone := proto.Clone(request).(*providerv0.PlannedRequest)
+	clone := proto.Clone(request).(*providerv1.PlannedRequest)
 	computed, err := PlannedRequestDigest(clone)
 	if err != nil {
 		return nil, err
@@ -261,7 +261,7 @@ func BindPlannedRequestDigest(request *providerv0.PlannedRequest) (*providerv0.P
 	return clone, nil
 }
 
-func ValidateExecuteRequest(action *providerv0.PlanAction, request *providerv0.ExecuteRequestRequest) error {
+func ValidateExecuteRequest(action *providerv1.PlanAction, request *providerv1.ExecuteRequestRequest) error {
 	if err := ValidatePlanAction(action); err != nil {
 		return err
 	}
@@ -297,14 +297,14 @@ func ValidateExecuteRequest(action *providerv0.PlanAction, request *providerv0.E
 		request.GetOrigin().GetAdmissionDigest() != originDigest {
 		return fmt.Errorf("execute request origin does not match admitted origin")
 	}
-	contextHandles := make(map[string]providerv0.CredentialPurpose, len(request.GetContext().GetCredentials()))
+	contextHandles := make(map[string]providerv1.CredentialPurpose, len(request.GetContext().GetCredentials()))
 	for _, handle := range request.GetContext().GetCredentials() {
 		if handle.GetHandle() == "" {
 			return fmt.Errorf("provider context contains an empty credential handle")
 		}
 		contextHandles[handle.GetHandle()] = handle.GetPurpose()
 	}
-	requestPurposes := make(map[providerv0.CredentialPurpose]struct{}, len(request.GetCredentialHandles()))
+	requestPurposes := make(map[providerv1.CredentialPurpose]struct{}, len(request.GetCredentialHandles()))
 	for _, handle := range request.GetCredentialHandles() {
 		purpose, exists := contextHandles[handle.GetHandle()]
 		if !exists || purpose != handle.GetPurpose() {
@@ -326,20 +326,20 @@ func ValidateExecuteRequest(action *providerv0.PlanAction, request *providerv0.E
 	return nil
 }
 
-func StateGenerationDigest(generation *providerv0.StateGeneration) (string, error) {
+func StateGenerationDigest(generation *providerv1.StateGeneration) (string, error) {
 	return Digest(generation)
 }
 
-func AdmittedOriginDigest(origin *providerv0.AdmittedOrigin) (string, error) {
+func AdmittedOriginDigest(origin *providerv1.AdmittedOrigin) (string, error) {
 	if origin == nil {
 		return "", fmt.Errorf("admitted origin is required")
 	}
-	clone := proto.Clone(origin).(*providerv0.AdmittedOrigin)
+	clone := proto.Clone(origin).(*providerv1.AdmittedOrigin)
 	clone.AdmissionDigest = ""
 	return Digest(clone)
 }
 
-func PolicyApprovalInputDigest(input *providerv0.PolicyApprovalInput) (string, error) {
+func PolicyApprovalInputDigest(input *providerv1.PolicyApprovalInput) (string, error) {
 	return Digest(input)
 }
 
@@ -393,7 +393,7 @@ func rejectUnknownFields(message protoreflect.Message) error {
 }
 
 func validatePublicValues(message protoreflect.Message) error {
-	if message.Descriptor().FullName() == "codefly.services.provider.v0.PublicValue" {
+	if message.Descriptor().FullName() == "codefly.services.provider.v1.PublicValue" {
 		kind := message.WhichOneof(message.Descriptor().Oneofs().ByName("kind"))
 		if kind == nil {
 			return fmt.Errorf("public value kind is required")
@@ -415,16 +415,16 @@ func validatePublicValues(message protoreflect.Message) error {
 			}
 		}
 	}
-	if message.Descriptor().FullName() == "codefly.services.provider.v0.OpaqueReference" {
-		reference := message.Interface().(*providerv0.OpaqueReference)
+	if message.Descriptor().FullName() == "codefly.services.provider.v1.OpaqueReference" {
+		reference := message.Interface().(*providerv1.OpaqueReference)
 		if err := configuration.ValidateOpaqueReference(reference.GetReference()); err != nil {
 			return err
 		}
 		switch reference.GetPurpose() {
-		case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-			providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+		case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+			providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 		default:
 			return fmt.Errorf("opaque reference has unknown credential purpose")
 		}

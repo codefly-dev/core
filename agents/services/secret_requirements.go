@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -64,8 +64,8 @@ func (missing MissingSecretConfiguration) String() string {
 // missing.
 func MissingServiceSecretConfigurations(
 	serviceUnique string,
-	profile builderv0.KubernetesOutputProfile,
-	capabilities *builderv0.BuildCapabilitiesResponse,
+	profile builderv1.KubernetesOutputProfile,
+	capabilities *builderv1.BuildCapabilitiesResponse,
 	delivered []string,
 ) ([]MissingSecretConfiguration, error) {
 	if !slices.Contains(capabilities.GetExecutionContracts(), SecretRequirementsContract) {
@@ -107,7 +107,7 @@ func MissingServiceSecretConfigurations(
 // requiredForProfile reports whether a declared requirement applies to the
 // profile about to be rendered. An agent that names no profile requires the
 // group in every one.
-func requiredForProfile(required *builderv0.RequiredSecretConfiguration, profile builderv0.KubernetesOutputProfile) bool {
+func requiredForProfile(required *builderv1.RequiredSecretConfiguration, profile builderv1.KubernetesOutputProfile) bool {
 	profiles := required.GetProfiles()
 	return len(profiles) == 0 || slices.Contains(profiles, profile)
 }
@@ -132,7 +132,7 @@ func sortKeysTogether(entry *MissingSecretConfiguration) {
 // on: an unnamed group, or a group with no keys. An agent advertising the
 // contract and declaring an empty group tells the host a credential is required
 // without naming it, which is worse than declaring nothing.
-func ValidateRequiredSecretConfiguration(required *builderv0.RequiredSecretConfiguration) error {
+func ValidateRequiredSecretConfiguration(required *builderv1.RequiredSecretConfiguration) error {
 	if strings.TrimSpace(required.GetConfiguration()) == "" {
 		return fmt.Errorf("a required secret configuration must name its group")
 	}

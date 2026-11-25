@@ -29,7 +29,7 @@ import (
 	"strings"
 	"sync"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 )
 
@@ -41,7 +41,7 @@ type Address struct {
 	Environment string
 	Binding     string
 	Provider    string
-	Purpose     providerv0.CredentialPurpose
+	Purpose     providerv1.CredentialPurpose
 	Name        string
 }
 
@@ -74,10 +74,10 @@ type Sink interface {
 	// and returns an opaque reference to it. Re-putting the value already stored
 	// for the target is idempotent and returns the same reference; putting a
 	// different value rotates to a new version.
-	PutDurable(target string, value []byte) (*providerv0.OpaqueReference, error)
+	PutDurable(target string, value []byte) (*providerv1.OpaqueReference, error)
 	// Lookup recovers the durable value for host use. It never returns a value
 	// to provider code. A one-time secret is consumed on the first Lookup.
-	Lookup(ref *providerv0.OpaqueReference) ([]byte, error)
+	Lookup(ref *providerv1.OpaqueReference) ([]byte, error)
 	// AbortUnused removes a still-unfilled reservation. It refuses to remove a
 	// reservation whose value has already been made durable.
 	AbortUnused(target string) error
@@ -103,7 +103,7 @@ type AuditEvent struct {
 	Environment string
 	Binding     string
 	Provider    string
-	Purpose     providerv0.CredentialPurpose
+	Purpose     providerv1.CredentialPurpose
 	Name        string
 	Reference   string
 	Version     uint64
@@ -172,7 +172,7 @@ func (m *Memory) Prepare(addr Address, oneTime bool) (Reservation, error) {
 	return Reservation{address: addr, target: target, oneTime: oneTime}, nil
 }
 
-func (m *Memory) PutDurable(target string, value []byte) (*providerv0.OpaqueReference, error) {
+func (m *Memory) PutDurable(target string, value []byte) (*providerv1.OpaqueReference, error) {
 	if len(value) == 0 {
 		return nil, fmt.Errorf("durable secret value is required")
 	}
@@ -213,7 +213,7 @@ func (m *Memory) PutDurable(target string, value []byte) (*providerv0.OpaqueRefe
 	return stored.opaque(addrHash), nil
 }
 
-func (m *Memory) Lookup(ref *providerv0.OpaqueReference) ([]byte, error) {
+func (m *Memory) Lookup(ref *providerv1.OpaqueReference) ([]byte, error) {
 	if ref == nil || ref.GetReference() == "" {
 		return nil, fmt.Errorf("opaque reference is required")
 	}
@@ -260,7 +260,7 @@ func (m *Memory) AbortUnused(target string) error {
 
 // Revoke removes a durable secret. It is the only path that deletes durable
 // material and is audited distinctly from an unused-reservation abort.
-func (m *Memory) Revoke(ref *providerv0.OpaqueReference) error {
+func (m *Memory) Revoke(ref *providerv1.OpaqueReference) error {
 	if ref == nil || ref.GetReference() == "" {
 		return fmt.Errorf("opaque reference is required")
 	}
@@ -305,8 +305,8 @@ func (m *Memory) record(op AuditOp, addr Address, ref string, version uint64, fi
 	})
 }
 
-func (s *secret) opaque(addrHash string) *providerv0.OpaqueReference {
-	return &providerv0.OpaqueReference{
+func (s *secret) opaque(addrHash string) *providerv1.OpaqueReference {
+	return &providerv1.OpaqueReference{
 		Reference:       s.reference(addrHash),
 		Purpose:         s.address.Purpose,
 		SafeFingerprint: s.fingerprint,
@@ -335,10 +335,10 @@ func (a Address) validate() error {
 		}
 	}
 	switch a.Purpose {
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 		return nil
 	default:
 		return fmt.Errorf("sink address purpose is required")

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 )
 
 // BuildUvArgs is the data→command translation. These tests prove the command
@@ -155,7 +155,7 @@ func TestSpecFromFormulaMaterializesJUnitRunner(t *testing.T) {
 		t.Fatalf("JUnit adapter did not materialize: %+v\n%s", run.EnvError, run.RawOutput)
 	}
 	response := run.ToProtoResponse("formula", "", 0)
-	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+	if response.GetResult().GetState() != runtimev1.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
 		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
 	}
 }
@@ -243,7 +243,7 @@ class DeclaredExtraTest(unittest.TestCase):
 		t.Fatalf("setup.cfg extra was not materialized: %+v\n%s", run.EnvError, run.RawOutput)
 	}
 	response := run.ToProtoResponse("formula", "", 0)
-	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+	if response.GetResult().GetState() != runtimev1.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
 		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
 	}
 }
@@ -313,7 +313,7 @@ class LegacyExtraTest(unittest.TestCase):
 		t.Fatalf("legacy editable environment did not materialize: %+v\n%s", run.EnvError, run.RawOutput)
 	}
 	response := run.ToProtoResponse("formula", "", 0)
-	if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+	if response.GetResult().GetState() != runtimev1.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
 		t.Fatalf("result = %+v, counts = %+v\n%s", response.GetResult(), response.GetCounts(), run.RawOutput)
 	}
 }
@@ -468,7 +468,7 @@ func TestRunFormulaStructured_ZeroTestsExecutedIsEnvError(t *testing.T) {
 		t.Fatalf("detail must name the treacherous exit 0, got %q", run.EnvError.Detail)
 	}
 	resp := run.ToProtoResponse("formula", "", 0)
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_ERRORED {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("zero-tests run must be ERRORED, got %v", resp.GetResult().GetState())
 	}
 }
@@ -601,7 +601,7 @@ func TestRunFormulaStructured_CwdMovesRunDirectory(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	resp := run.ToProtoResponse("formula", "", 0)
-	if state := resp.GetResult().GetState(); state != runtimev0.TestRunResult_ERRORED {
+	if state := resp.GetResult().GetState(); state != runtimev1.TestRunResult_ERRORED {
 		t.Fatalf("root-run must be ERRORED (wrong cwd), got %v\nraw: %s", state, run.RawOutput)
 	}
 	if resp.GetCounts().GetPassed() != 0 {

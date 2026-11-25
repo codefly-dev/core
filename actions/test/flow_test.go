@@ -17,7 +17,7 @@ import (
 	"github.com/codefly-dev/core/actions/workspace"
 
 	"github.com/codefly-dev/core/actions/actions"
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ func TestWorkspaceFlatLayout(t *testing.T) {
 	var err error
 
 	Name := "test-flat-workspace"
-	action, err = workspace.NewActionNewWorkspace(ctx, &actionsv0.NewWorkspace{
+	action, err = workspace.NewActionNewWorkspace(ctx, &actionsv1.NewWorkspace{
 		Name:   Name,
 		Path:   p,
 		Layout: resources.LayoutKindFlat,
@@ -91,7 +91,7 @@ func TestWorkspaceFlatLayout(t *testing.T) {
 	}
 
 	// Create a new Module should get an error
-	action, err = module.NewActionAddModule(ctx, &actionsv0.NewModule{
+	action, err = module.NewActionAddModule(ctx, &actionsv1.NewModule{
 		Name: "should get error",
 	})
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestWorkspaceFlatLayout(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a Service
-	action, err = service.NewActionAddService(ctx, &actionsv0.AddService{
+	action, err = service.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:  "service-test",
 		Agent: agentTest(),
 	})
@@ -148,7 +148,7 @@ func TestModuleLayout(t *testing.T) {
 	var err error
 
 	Name := "test-flat-workspace"
-	action, err = workspace.NewActionNewWorkspace(ctx, &actionsv0.NewWorkspace{
+	action, err = workspace.NewActionNewWorkspace(ctx, &actionsv1.NewWorkspace{
 		Name:   Name,
 		Path:   p,
 		Layout: resources.LayoutKindModules,
@@ -194,7 +194,7 @@ func TestModuleLayout(t *testing.T) {
 	}
 
 	// Create a new Module should get an error
-	action, err = module.NewActionAddModule(ctx, &actionsv0.NewModule{
+	action, err = module.NewActionAddModule(ctx, &actionsv1.NewModule{
 		Name: "module-test",
 	})
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestModuleLayout(t *testing.T) {
 	require.Error(t, err)
 
 	// Create a Service
-	action, err = service.NewActionAddService(ctx, &actionsv0.AddService{
+	action, err = service.NewActionAddService(ctx, &actionsv1.AddService{
 		Name:  "service-test",
 		Agent: agentTest(),
 	})

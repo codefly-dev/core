@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
 	"github.com/codefly-dev/core/toolbox/registry"
 )
 
@@ -23,7 +23,7 @@ func TestToolDefinition_ProjectsToAllThreeShapes(t *testing.T) {
 		Tags:               []string{"test", "destructive"},
 		Idempotency:        "side_effecting",
 		ErrorModes:         "fails when X",
-		Examples: []*toolboxv0.ToolExample{
+		Examples: []*toolboxv1.ToolExample{
 			{Description: "show usage", Arguments: exampleArgs, ExpectedOutcome: "returns success"},
 		},
 	}

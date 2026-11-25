@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Grant is the issuer's record of one approval decision. Core carries it
@@ -23,7 +23,7 @@ type Grant struct {
 
 	// Scope is exactly what the approval adds: one action on one resource
 	// of one kind.
-	Scope *basev0.WorkScopeV1
+	Scope *basev1.WorkScopeV1
 
 	// Subject is what the grant is pinned to, in the engine's own
 	// vocabulary.

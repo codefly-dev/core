@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 // Artifact identifies one compiled agent binary to wrap around a source-module
@@ -27,7 +27,7 @@ func AttachArtifact(base *Result, artifact Artifact) (*Result, error) {
 	if base == nil || base.Bom == nil || base.Bom.GetMetadata().GetComponent() == nil {
 		return nil, fmt.Errorf("source SBOM has no root component")
 	}
-	bom := proto.Clone(base.Bom).(*agentv0.Bom)
+	bom := proto.Clone(base.Bom).(*agentv1.Bom)
 	sourceRoot := bom.Metadata.Component
 	components := append(bom.Components, sourceRoot)
 	purl := fmt.Sprintf("pkg:generic/%s/%s@%s", url.PathEscape(artifact.Publisher), url.PathEscape(artifact.Name), url.PathEscape(artifact.Version))
@@ -37,19 +37,19 @@ func AttachArtifact(base *Result, artifact Artifact) (*Result, error) {
 			purl += "?arch=" + url.QueryEscape(parts[1]) + "&os=" + url.QueryEscape(parts[0])
 		}
 	}
-	root := &agentv0.Component{
+	root := &agentv1.Component{
 		Name:    artifact.Name,
 		Group:   artifact.Publisher,
 		Version: artifact.Version,
-		Type:    agentv0.ComponentType_APPLICATION,
+		Type:    agentv1.ComponentType_APPLICATION,
 		Purl:    purl,
 		BomRef:  purl,
-		Hashes: []*agentv0.Hash{{
+		Hashes: []*agentv1.Hash{{
 			Algorithm: "SHA-256",
 			Content:   strings.ToLower(artifact.SHA256),
 		}},
 	}
-	dependencies := append(bom.Dependencies, &agentv0.Dependency{Ref: root.BomRef, DependsOn: []string{sourceRoot.BomRef}})
+	dependencies := append(bom.Dependencies, &agentv1.Dependency{Ref: root.BomRef, DependsOn: []string{sourceRoot.BomRef}})
 	return finish(root, components, dependencies, "codefly-agent-build+"+base.Tool, base.Language)
 }
 
@@ -107,7 +107,7 @@ type jsonDependency struct {
 
 // MarshalCycloneDXJSON emits standards-shaped CycloneDX 1.5 JSON. It uses
 // structs rather than maps so the byte stream and digest remain deterministic.
-func MarshalCycloneDXJSON(bom *agentv0.Bom) ([]byte, error) {
+func MarshalCycloneDXJSON(bom *agentv1.Bom) ([]byte, error) {
 	if bom == nil || bom.GetMetadata().GetComponent() == nil {
 		return nil, fmt.Errorf("CycloneDX BOM has no metadata component")
 	}
@@ -133,7 +133,7 @@ func MarshalCycloneDXJSON(bom *agentv0.Bom) ([]byte, error) {
 	return json.MarshalIndent(document, "", "  ")
 }
 
-func toJSONComponent(component *agentv0.Component) jsonComponent {
+func toJSONComponent(component *agentv1.Component) jsonComponent {
 	value := jsonComponent{
 		Type:    cycloneDXType(component.GetType()),
 		BomRef:  component.GetBomRef(),
@@ -161,15 +161,15 @@ func isLicenseExpression(value string) bool {
 	return strings.Contains(value, " OR ") || strings.Contains(value, " AND ") || strings.Contains(value, " WITH ") || strings.ContainsAny(value, "()")
 }
 
-func cycloneDXType(componentType agentv0.ComponentType) string {
+func cycloneDXType(componentType agentv1.ComponentType) string {
 	switch componentType {
-	case agentv0.ComponentType_APPLICATION:
+	case agentv1.ComponentType_APPLICATION:
 		return "application"
-	case agentv0.ComponentType_FRAMEWORK:
+	case agentv1.ComponentType_FRAMEWORK:
 		return "framework"
-	case agentv0.ComponentType_MODULE:
+	case agentv1.ComponentType_MODULE:
 		return "application"
-	case agentv0.ComponentType_CONTAINER:
+	case agentv1.ComponentType_CONTAINER:
 		return "container"
 	default:
 		return "library"

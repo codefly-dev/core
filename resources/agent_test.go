@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
 )
@@ -29,7 +29,7 @@ func TestAgentIdentityBoundaries(t *testing.T) {
 						case "version":
 							a.Version = invalid
 						}
-						_, err := resources.AgentFromProto(&basev0.Agent{Kind: registration.ProtoKind, Publisher: a.Publisher, Name: a.Name, Version: a.Version})
+						_, err := resources.AgentFromProto(&basev1.Agent{Kind: registration.ProtoKind, Publisher: a.Publisher, Name: a.Name, Version: a.Version})
 						require.Error(t, err)
 						location, err := a.Path(ctx)
 						require.Error(t, err)

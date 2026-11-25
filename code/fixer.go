@@ -3,7 +3,7 @@ package code
 import (
 	"context"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // FixInput is the complete, in-memory source snapshot passed to a language
@@ -13,7 +13,7 @@ import (
 type FixInput struct {
 	Path    string
 	Content []byte
-	Mode    basev0.FixMode
+	Mode    basev1.FixMode
 }
 
 // FixResult is the language-aware rewrite and its evidence.

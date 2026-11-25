@@ -4,13 +4,13 @@ import (
 	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/resources"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"google.golang.org/grpc"
 )
 
 // RuntimeAgent is the client-side wrapper for the Runtime gRPC service.
 type RuntimeAgent struct {
-	runtimev0.RuntimeClient
+	runtimev1.RuntimeClient
 	Agent       *resources.Agent
 	ProcessInfo *manager.ProcessInfo
 
@@ -21,6 +21,6 @@ type RuntimeAgent struct {
 // NewRuntimeAgentClient creates a RuntimeAgent from an existing gRPC connection.
 func NewRuntimeAgentClient(conn *grpc.ClientConn) *RuntimeAgent {
 	return &RuntimeAgent{
-		RuntimeClient: runtimev0.NewRuntimeClient(conn),
+		RuntimeClient: runtimev1.NewRuntimeClient(conn),
 	}
 }

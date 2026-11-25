@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +12,7 @@ import (
 func TestCommandRegistry_Register(t *testing.T) {
 	r := NewCommandRegistry()
 
-	r.Register(&agentv0.CommandDefinition{
+	r.Register(&agentv1.CommandDefinition{
 		Name:        "test-cmd",
 		Description: "A test command",
 		Tags:        []string{"test"},
@@ -29,7 +29,7 @@ func TestCommandRegistry_Register(t *testing.T) {
 func TestCommandRegistry_Aliases(t *testing.T) {
 	r := NewCommandRegistry()
 
-	r.Register(&agentv0.CommandDefinition{
+	r.Register(&agentv1.CommandDefinition{
 		Name:    "generate",
 		Aliases: []string{"gen", "g"},
 	}, func(ctx context.Context, args []string) (string, error) {
@@ -58,7 +58,7 @@ func TestCommandRegistry_Aliases(t *testing.T) {
 func TestCommandRegistry_Run(t *testing.T) {
 	r := NewCommandRegistry()
 
-	r.Register(&agentv0.CommandDefinition{
+	r.Register(&agentv1.CommandDefinition{
 		Name: "echo",
 	}, func(ctx context.Context, args []string) (string, error) {
 		if len(args) > 0 {
@@ -86,7 +86,7 @@ func TestCommandRegistry_UnknownCommand(t *testing.T) {
 
 func TestBase_ListCommands_Empty(t *testing.T) {
 	b := &Base{}
-	resp, err := b.ListCommands(context.Background(), &agentv0.ListCommandsRequest{})
+	resp, err := b.ListCommands(context.Background(), &agentv1.ListCommandsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, resp.Commands)
 }
@@ -94,7 +94,7 @@ func TestBase_ListCommands_Empty(t *testing.T) {
 func TestBaseShellCommandsRequireExplicitOptIn(t *testing.T) {
 	b := &Base{}
 	b.RegisterBaseCommands()
-	resp, err := b.ListCommands(context.Background(), &agentv0.ListCommandsRequest{})
+	resp, err := b.ListCommands(context.Background(), &agentv1.ListCommandsRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Commands, 2)
 	for _, command := range resp.Commands {
@@ -104,7 +104,7 @@ func TestBaseShellCommandsRequireExplicitOptIn(t *testing.T) {
 
 func TestBase_RunPluginCommand_NoCommands(t *testing.T) {
 	b := &Base{}
-	resp, err := b.RunPluginCommand(context.Background(), &agentv0.RunPluginCommandRequest{
+	resp, err := b.RunPluginCommand(context.Background(), &agentv1.RunPluginCommandRequest{
 		Command: "test",
 	})
 	require.NoError(t, err)
@@ -114,13 +114,13 @@ func TestBase_RunPluginCommand_NoCommands(t *testing.T) {
 
 func TestBase_RegisterAndRun(t *testing.T) {
 	b := &Base{}
-	b.RegisterCommand(&agentv0.CommandDefinition{
+	b.RegisterCommand(&agentv1.CommandDefinition{
 		Name: "greet",
 	}, func(ctx context.Context, args []string) (string, error) {
 		return "hello " + args[0], nil
 	})
 
-	resp, err := b.RunPluginCommand(context.Background(), &agentv0.RunPluginCommandRequest{
+	resp, err := b.RunPluginCommand(context.Background(), &agentv1.RunPluginCommandRequest{
 		Command: "greet",
 		Args:    []string{"world"},
 	})
@@ -129,7 +129,7 @@ func TestBase_RegisterAndRun(t *testing.T) {
 	assert.Equal(t, "hello world", resp.Output)
 
 	// List should include it
-	listResp, err := b.ListCommands(context.Background(), &agentv0.ListCommandsRequest{})
+	listResp, err := b.ListCommands(context.Background(), &agentv1.ListCommandsRequest{})
 	require.NoError(t, err)
 	assert.Len(t, listResp.Commands, 1)
 }

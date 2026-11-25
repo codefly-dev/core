@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/code"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // Language returns the semantic language name for path and whether typed symbol
@@ -38,7 +38,7 @@ func (a *Analyzer) DeclarationSpans(ctx context.Context, path string, body []byt
 		return nil, fmt.Errorf("syntax tree contains errors")
 	}
 	packageName := semanticPackage(definition.name, path, root, body)
-	var symbols []*basev0.SemanticSymbol
+	var symbols []*basev1.SemanticSymbol
 	var projections []semanticSymbolProjection
 	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols, &projections)
 	spans := make([]code.SymbolSpan, 0, len(projections))

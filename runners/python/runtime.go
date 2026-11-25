@@ -3,13 +3,13 @@ package python
 import (
 	"os/exec"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
 // SetPythonRuntimeContext determines the runtime context based on the
 // requested context and available Python toolchain (uv).
-func SetPythonRuntimeContext(runtimeContext *basev0.RuntimeContext) *basev0.RuntimeContext {
+func SetPythonRuntimeContext(runtimeContext *basev1.RuntimeContext) *basev1.RuntimeContext {
 	if runtimeContext.Kind == resources.RuntimeContextNix {
 		return resources.NewRuntimeContextNix()
 	}

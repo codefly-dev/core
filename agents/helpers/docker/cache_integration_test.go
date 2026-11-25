@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -112,7 +112,7 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 			require.NoError(t, os.CopyFS(root, os.DirFS(filepath.Join("testdata", "cache", fixture.name))))
 			config := filepath.Join(t.TempDir(), "buildkitd.toml")
 			require.NoError(t, os.WriteFile(config, []byte(fmt.Sprintf("[registry.\"%s:5000\"]\n  http = true\n", registry)), 0600))
-			policy := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "workspace/" + fixture.name + "/app/trusted", Imports: []string{registry + ":5000/cache"}, Exports: []string{registry + ":5000/cache"}}
+			policy := &builderv1.BuildCacheOptions{Backend: "registry", Scope: "workspace/" + fixture.name + "/app/trusted", Imports: []string{registry + ":5000/cache"}, Exports: []string{registry + ":5000/cache"}}
 			first, last := 0, 4
 			if phase == "cold" {
 				last = 0

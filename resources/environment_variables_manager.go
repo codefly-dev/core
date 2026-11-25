@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -71,7 +71,7 @@ func EffectiveEnvironmentVariables(sets ...[]*EnvironmentVariable) []*Environmen
 
 type EnvironmentVariableManager struct {
 	// Environment
-	environment *basev0.Environment
+	environment *basev1.Environment
 
 	// What we are running
 	workspace string
@@ -80,10 +80,10 @@ type EnvironmentVariableManager struct {
 	version   string
 
 	// How we are running
-	runtimeContext *basev0.RuntimeContext
+	runtimeContext *basev1.RuntimeContext
 
-	configurations    []*basev0.Configuration
-	rawConfigurations []*basev0.Configuration
+	configurations    []*basev1.Configuration
+	rawConfigurations []*basev1.Configuration
 
 	endpoints []*EndpointAccess
 
@@ -143,7 +143,7 @@ func cloneEnvironmentVariables(values []*EnvironmentVariable) []*EnvironmentVari
 	return result
 }
 
-func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev0.Environment) {
+func (holder *EnvironmentVariableManager) SetEnvironment(environment *basev1.Environment) {
 	holder.environment = environment
 }
 
@@ -251,7 +251,7 @@ func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) 
 	return envs, nil
 }
 
-func (holder *EnvironmentVariableManager) SetIdentity(identity *basev0.ServiceIdentity) {
+func (holder *EnvironmentVariableManager) SetIdentity(identity *basev1.ServiceIdentity) {
 	holder.module = identity.Module
 	holder.service = identity.Name
 	holder.workspace = identity.Workspace
@@ -346,11 +346,11 @@ func VersionAsEnvironmentVariable(version string) *EnvironmentVariable {
 
 const RuntimeContextPrefix = "CODEFLY__RUNTIME_CONTEXT"
 
-func RuntimeContextAsEnvironmentVariable(runtimeContext *basev0.RuntimeContext) *EnvironmentVariable {
+func RuntimeContextAsEnvironmentVariable(runtimeContext *basev1.RuntimeContext) *EnvironmentVariable {
 	return Env(RuntimeContextPrefix, runtimeContext.Kind)
 }
 
-func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev0.RuntimeContext) {
+func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *basev1.RuntimeContext) {
 	holder.runtimeContext = runtimeContext
 }
 
@@ -398,7 +398,7 @@ func (holder *EnvironmentVariableManager) Secrets() ([]*EnvironmentVariable, err
 	return envs, nil
 }
 
-func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
+func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, configurations ...*basev1.Configuration) error {
 	for _, conf := range configurations {
 		if conf != nil {
 			holder.configurations = append(holder.configurations, conf)
@@ -407,7 +407,7 @@ func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, c
 	return nil
 }
 
-func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
+func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context, configurations ...*basev1.Configuration) error {
 	for _, conf := range configurations {
 		for _, info := range conf.GetInfos() {
 			if info.GetData() != nil {
@@ -424,8 +424,8 @@ func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context
 }
 
 type EndpointAccess struct {
-	Endpoint        *basev0.Endpoint
-	NetworkInstance *basev0.NetworkInstance
+	Endpoint        *basev1.Endpoint
+	NetworkInstance *basev1.NetworkInstance
 	prefix          string
 }
 
@@ -441,7 +441,7 @@ func MakeEndpointAccessSummary(endpointAccess *EndpointAccess) string {
 	return fmt.Sprintf("%s::%s", MakeEndpointSummary(endpointAccess.Endpoint), MakeNetworkInstanceSummary(endpointAccess.NetworkInstance))
 }
 
-func MakeNetworkInstanceSummary(instance *basev0.NetworkInstance) string {
+func MakeNetworkInstanceSummary(instance *basev1.NetworkInstance) string {
 	return fmt.Sprintf("%s::%s", instance.Address, instance.Access.Kind)
 }
 
@@ -467,7 +467,7 @@ func WithNonPublicEnvironmentVariablePrefix(prefix string) EnvironmentVariableOp
 // prefix picks the public prefix for a mapping whose endpoint is addressed from
 // outside the workspace (exposed): the prefix classifies an ADDRESS, so it
 // follows exposure and never visibility.
-func prefix(nm *basev0.NetworkMapping, opt *EnvironmentVariableOptions) string {
+func prefix(nm *basev1.NetworkMapping, opt *EnvironmentVariableOptions) string {
 	// Nil-safe: a mapping without an endpoint is treated as non-public, never a panic.
 	if nm != nil && IsExposedEndpoint(nm.Endpoint) {
 		return opt.publicPrefix
@@ -483,7 +483,7 @@ func createEnvironmentVariableOptions(opts ...EnvironmentVariableOption) *Enviro
 	return options
 }
 
-func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) error {
+func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mappings []*basev1.NetworkMapping, networkAccess *basev1.NetworkAccess, opts ...EnvironmentVariableOption) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddEndpoints")
 	opt := createEnvironmentVariableOptions(opts...)
 	for _, mp := range mappings {
@@ -520,7 +520,7 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 // two can never be confused. Callers pass the access their peers use: container
 // access for a Kubernetes render (the in-cluster Service DNS name), and the
 // runtime's own access for a local run.
-func (holder *EnvironmentVariableManager) AddSelfEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
+func (holder *EnvironmentVariableManager) AddSelfEndpoints(ctx context.Context, mappings []*basev1.NetworkMapping, networkAccess *basev1.NetworkAccess) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddSelfEndpoints")
 	for _, mp := range mappings {
 		if mp == nil || mp.Endpoint == nil {
@@ -616,12 +616,12 @@ func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []str
 }
 
 type RestRouteAccess struct {
-	endpoint *basev0.Endpoint
-	route    *basev0.RestRoute
+	endpoint *basev1.Endpoint
+	route    *basev1.RestRoute
 	prefix   string
 }
 
-func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) ([]*RestRouteAccess, error) {
+func ExtractRestRoutes(ctx context.Context, mappings []*basev1.NetworkMapping, networkAccess *basev1.NetworkAccess, opts ...EnvironmentVariableOption) ([]*RestRouteAccess, error) {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.ExtractRestRoutes")
 	opt := createEnvironmentVariableOptions(opts...)
 	var result []*RestRouteAccess
@@ -652,7 +652,7 @@ func ExtractRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, n
 	return result, nil
 }
 
-func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess, opts ...EnvironmentVariableOption) error {
+func (holder *EnvironmentVariableManager) AddRestRoutes(ctx context.Context, mappings []*basev1.NetworkMapping, networkAccess *basev1.NetworkAccess, opts ...EnvironmentVariableOption) error {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddRestRoutes")
 	routes, err := ExtractRestRoutes(ctx, mappings, networkAccess, opts...)
 	if err != nil {
@@ -669,17 +669,17 @@ func (holder *EnvironmentVariableManager) AddEnvironmentVariable(ctx context.Con
 
 const EnvironmentPrefix = "CODEFLY__ENVIRONMENT"
 
-func EnvironmentAsEnvironmentVariable(env *basev0.Environment) *EnvironmentVariable {
+func EnvironmentAsEnvironmentVariable(env *basev1.Environment) *EnvironmentVariable {
 	return Env(EnvironmentPrefix, env.Name)
 }
 
 const NamingScopePrefix = "CODEFLY__NAMING_SCOPE"
 
-func NamingScopeAsEnvironmentVariable(env *basev0.Environment) *EnvironmentVariable {
+func NamingScopeAsEnvironmentVariable(env *basev1.Environment) *EnvironmentVariable {
 	return Env(NamingScopePrefix, env.NamingScope)
 }
 
-func IsLocal(environment *basev0.Environment) bool {
+func IsLocal(environment *basev1.Environment) bool {
 	return environment.Name == "local"
 }
 
@@ -876,7 +876,7 @@ const (
 // emitting it, like the restricted deployment gate looking for the secret
 // reference that will deliver a templated value, goes through this rather than
 // rebuilding the name and drifting from it.
-func ConfigurationValueEnvironmentKey(conf *basev0.Configuration, informationName string, value *basev0.ConfigurationValue) string {
+func ConfigurationValueEnvironmentKey(conf *basev1.Configuration, informationName string, value *basev1.ConfigurationValue) string {
 	key := fmt.Sprintf("%s__%s__%s", ConfigurationEnvironmentKeyPrefix(conf), NameToKey(informationName), NameToKey(value.GetKey()))
 	if !value.GetSecret() {
 		return key
@@ -887,11 +887,11 @@ func ConfigurationValueEnvironmentKey(conf *basev0.Configuration, informationNam
 
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
 // the secret flag decides if we return secret or regular values
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, environment string, secret bool) ([]*EnvironmentVariable, error) {
+func ConfigurationAsEnvironmentVariables(conf *basev1.Configuration, environment string, secret bool) ([]*EnvironmentVariable, error) {
 	return configurationAsEnvironmentVariables(conf, environment, secret, deliverConfigurationTemplateByValue)
 }
 
-func configurationAsEnvironmentVariables(conf *basev0.Configuration, environment string, secret bool, delivery configurationTemplateDelivery) ([]*EnvironmentVariable, error) {
+func configurationAsEnvironmentVariables(conf *basev1.Configuration, environment string, secret bool, delivery configurationTemplateDelivery) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
 	if conf == nil {
 		return env, nil
@@ -933,7 +933,7 @@ func configurationAsEnvironmentVariables(conf *basev0.Configuration, environment
 
 // ConfigurationAsRawEnvironmentVariables preserves explicitly named flat keys.
 // Structured documents require a scoped carrier and cannot use this path.
-func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) ([]*EnvironmentVariable, error) {
+func ConfigurationAsRawEnvironmentVariables(conf *basev1.Configuration) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
 	for _, info := range conf.GetInfos() {
 		if info == nil {
@@ -979,7 +979,7 @@ func NameToKey(name string) string {
 	return strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
-func ConfigurationEnvironmentKeyPrefix(conf *basev0.Configuration) string {
+func ConfigurationEnvironmentKeyPrefix(conf *basev1.Configuration) string {
 	if conf.Origin == ConfigurationWorkspace {
 		return WorkspaceConfigurationPrefix
 	}
@@ -1013,7 +1013,7 @@ func RestRoutesAsEnvironmentVariable(restRoute *RestRouteAccess) (*EnvironmentVa
 	return Env(key, restRoute.endpoint.Visibility), nil
 }
 
-func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev0.RestRoute) (string, error) {
+func RestRouteEnvironmentVariableKey(info *EndpointInformation, route *basev1.RestRoute) (string, error) {
 	key := EndpointAsEnvironmentVariableKeyBase(info)
 	// Add path
 	key = fmt.Sprintf("%s__%s", RestRoutePrefix, key)

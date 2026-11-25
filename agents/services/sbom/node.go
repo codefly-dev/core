@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 type packageLock struct {
@@ -57,11 +57,11 @@ func packageLockResult(lock *packageLock, includeDev bool) (*Result, error) {
 	rootEntry := lock.Packages[""]
 	rootName := first(rootEntry.Name, lock.Name)
 	rootVersion := first(rootEntry.Version, lock.Version)
-	root := nodeComponent(rootName, rootVersion, rootEntry, agentv0.ComponentType_MODULE)
+	root := nodeComponent(rootName, rootVersion, rootEntry, agentv1.ComponentType_MODULE)
 	root.BomRef = first(root.Purl, "application:"+rootName)
 
-	componentsByPath := map[string]*agentv0.Component{}
-	var components []*agentv0.Component
+	componentsByPath := map[string]*agentv1.Component{}
+	var components []*agentv1.Component
 	paths := make([]string, 0, len(lock.Packages))
 	for packagePath := range lock.Packages {
 		if packagePath != "" {
@@ -78,13 +78,13 @@ func packageLockResult(lock *packageLock, includeDev bool) (*Result, error) {
 		if name == "" || entry.Version == "" {
 			continue
 		}
-		component := nodeComponent(name, entry.Version, entry, agentv0.ComponentType_LIBRARY)
+		component := nodeComponent(name, entry.Version, entry, agentv1.ComponentType_LIBRARY)
 		componentsByPath[packagePath] = component
 		components = append(components, component)
 	}
 
-	dependencies := make([]*agentv0.Dependency, 0, len(components)+1)
-	dependencies = append(dependencies, &agentv0.Dependency{
+	dependencies := make([]*agentv1.Dependency, 0, len(components)+1)
+	dependencies = append(dependencies, &agentv1.Dependency{
 		Ref:       root.BomRef,
 		DependsOn: nodeDependencyRefs(lock.Packages, componentsByPath, "", rootEntry.Dependencies),
 	})
@@ -93,7 +93,7 @@ func packageLockResult(lock *packageLock, includeDev bool) (*Result, error) {
 		if !ok {
 			continue
 		}
-		dependencies = append(dependencies, &agentv0.Dependency{
+		dependencies = append(dependencies, &agentv1.Dependency{
 			Ref:       component.BomRef,
 			DependsOn: nodeDependencyRefs(lock.Packages, componentsByPath, packagePath, lock.Packages[packagePath].Dependencies),
 		})
@@ -101,7 +101,7 @@ func packageLockResult(lock *packageLock, includeDev bool) (*Result, error) {
 	return finish(root, components, dependencies, fmt.Sprintf("package-lock-v%d", lock.LockfileVersion), "TYPESCRIPT")
 }
 
-func nodeComponent(name, version string, entry packageLockPackage, componentType agentv0.ComponentType) *agentv0.Component {
+func nodeComponent(name, version string, entry packageLockPackage, componentType agentv1.ComponentType) *agentv1.Component {
 	group, shortName := splitName(name)
 	purlName := name
 	if strings.HasPrefix(purlName, "@") {
@@ -111,7 +111,7 @@ func nodeComponent(name, version string, entry packageLockPackage, componentType
 	if version != "" {
 		purl += "@" + version
 	}
-	component := &agentv0.Component{
+	component := &agentv1.Component{
 		Name:    shortName,
 		Group:   group,
 		Version: version,
@@ -123,7 +123,7 @@ func nodeComponent(name, version string, entry packageLockPackage, componentType
 		component.Licenses = []string{entry.License}
 	}
 	if hash := integrityHash(entry.Integrity); hash != nil {
-		component.Hashes = []*agentv0.Hash{hash}
+		component.Hashes = []*agentv1.Hash{hash}
 	}
 	return component
 }
@@ -136,7 +136,7 @@ func nodeNameFromPath(packagePath string) string {
 	return ""
 }
 
-func nodeDependencyRefs(all map[string]packageLockPackage, included map[string]*agentv0.Component, packagePath string, declared map[string]string) []string {
+func nodeDependencyRefs(all map[string]packageLockPackage, included map[string]*agentv1.Component, packagePath string, declared map[string]string) []string {
 	refs := make([]string, 0, len(declared))
 	for name := range declared {
 		resolved := resolveNodePackage(all, packagePath, name)
@@ -168,7 +168,7 @@ func resolveNodePackage(all map[string]packageLockPackage, packagePath, name str
 	}
 }
 
-func integrityHash(value string) *agentv0.Hash {
+func integrityHash(value string) *agentv1.Hash {
 	algorithm, encoded, ok := strings.Cut(value, "-")
 	if !ok {
 		return nil
@@ -192,7 +192,7 @@ func integrityHash(value string) *agentv0.Hash {
 	default:
 		return nil
 	}
-	return &agentv0.Hash{Algorithm: canonical, Content: hex.EncodeToString(raw)}
+	return &agentv1.Hash{Algorithm: canonical, Content: hex.EncodeToString(raw)}
 }
 
 func first(values ...string) string {

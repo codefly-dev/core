@@ -5,21 +5,21 @@ import (
 	"testing"
 
 	agentservices "github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
 
 type recordingRuntimeClient struct {
-	runtimev0.RuntimeClient
-	request *runtimev0.StartRequest
+	runtimev1.RuntimeClient
+	request *runtimev1.StartRequest
 }
 
-func (client *recordingRuntimeClient) Start(_ context.Context, request *runtimev0.StartRequest, _ ...grpc.CallOption) (*runtimev0.StartResponse, error) {
+func (client *recordingRuntimeClient) Start(_ context.Context, request *runtimev1.StartRequest, _ ...grpc.CallOption) (*runtimev1.StartResponse, error) {
 	client.request = request
-	return &runtimev0.StartResponse{Status: &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED}}, nil
+	return &runtimev1.StartResponse{Status: &runtimev1.StartStatus{State: runtimev1.StartStatus_STARTED}}, nil
 }
 
 func TestRuntimeStartForwardsOnlyDeclaredDependencyMappings(t *testing.T) {
@@ -36,9 +36,9 @@ func TestRuntimeStartForwardsOnlyDeclaredDependencyMappings(t *testing.T) {
 	// The unconsumed sibling is private on purpose: narrowing happens before
 	// visibility is judged, so an endpoint this service never named must not
 	// decide whether it may start.
-	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}},
+	request := &runtimev1.StartRequest{DependenciesNetworkMappings: []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}},
 	}}
 
 	_, err := instance.Start(context.Background(), request)
@@ -63,8 +63,8 @@ func TestRuntimeStartRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "platform"}, {Name: "saas"}}}, Module: &resources.Module{Name: "platform"}, Service: service},
 		Runtime:  &agentservices.RuntimeAgent{RuntimeClient: client},
 	}
-	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
+	request := &runtimev1.StartRequest{DependenciesNetworkMappings: []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
 	}}
 
 	_, err := instance.Start(context.Background(), request)
@@ -84,8 +84,8 @@ func TestRuntimeStartAllowsDependencyOnAllowListedEndpoint(t *testing.T) {
 		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "platform"}, {Name: "saas"}}}, Module: &resources.Module{Name: "platform"}, Service: service},
 		Runtime:  &agentservices.RuntimeAgent{RuntimeClient: client},
 	}
-	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{
+	request := &runtimev1.StartRequest{DependenciesNetworkMappings: []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{
 			Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc",
 			Visibility: resources.VisibilityInternal,
 		}},

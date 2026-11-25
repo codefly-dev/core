@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
 // ErrNeedsIssuer is returned when a check can only be answered by the party
@@ -62,7 +62,7 @@ type Authenticated struct {
 }
 
 // Context is the authenticated claims snapshot.
-func (a *Authenticated) Context() *basev0.WorkContextV1 { return a.verified.Context() }
+func (a *Authenticated) Context() *basev1.WorkContextV1 { return a.verified.Context() }
 
 // Encoded is the token exactly as presented.
 func (a *Authenticated) Encoded() string { return a.verified.Encoded() }
@@ -71,10 +71,10 @@ func (a *Authenticated) Encoded() string { return a.verified.Encoded() }
 func (a *Authenticated) SHA256() string { return a.verified.SHA256() }
 
 // Actor is the current actor's hop, or nil when the owner acts directly.
-func (a *Authenticated) Actor() *basev0.WorkActorV1 { return a.verified.Actor() }
+func (a *Authenticated) Actor() *basev1.WorkActorV1 { return a.verified.Actor() }
 
 // EffectiveScopes are the scopes the current actor holds.
-func (a *Authenticated) EffectiveScopes() []*basev0.WorkScopeV1 { return a.verified.EffectiveScopes() }
+func (a *Authenticated) EffectiveScopes() []*basev1.WorkScopeV1 { return a.verified.EffectiveScopes() }
 
 // RequireBinding is (*Verified).RequireBinding, for the verify-only answer.
 //

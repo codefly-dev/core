@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 // CommandHandler is a function that executes a registered command.
@@ -13,7 +13,7 @@ type CommandHandler func(ctx context.Context, args []string) (string, error)
 
 // Command pairs a definition with its handler.
 type Command struct {
-	Definition *agentv0.CommandDefinition
+	Definition *agentv1.CommandDefinition
 	Handler    CommandHandler
 }
 
@@ -28,7 +28,7 @@ func NewCommandRegistry() *CommandRegistry {
 }
 
 // Register adds a command to the registry.
-func (r *CommandRegistry) Register(def *agentv0.CommandDefinition, handler CommandHandler) {
+func (r *CommandRegistry) Register(def *agentv1.CommandDefinition, handler CommandHandler) {
 	r.commands[def.Name] = &Command{Definition: def, Handler: handler}
 	// Also register aliases
 	for _, alias := range def.Aliases {
@@ -37,10 +37,10 @@ func (r *CommandRegistry) Register(def *agentv0.CommandDefinition, handler Comma
 }
 
 // ListCommands returns all registered command definitions.
-func (r *CommandRegistry) ListCommands() []*agentv0.CommandDefinition {
+func (r *CommandRegistry) ListCommands() []*agentv1.CommandDefinition {
 	// Deduplicate (aliases point to same command)
 	seen := make(map[string]bool)
-	var defs []*agentv0.CommandDefinition
+	var defs []*agentv1.CommandDefinition
 	for _, cmd := range r.commands {
 		if !seen[cmd.Definition.Name] {
 			seen[cmd.Definition.Name] = true
@@ -71,7 +71,7 @@ func (s *Base) RegisterBaseCommands() {
 	// MUST be marked Destructive, otherwise a policy/auto-approval layer that
 	// trusts non-destructive commands would grant arbitrary command execution
 	// (rm -rf, git push, …) under a "diagnostic" label.
-	s.RegisterCommand(&agentv0.CommandDefinition{
+	s.RegisterCommand(&agentv1.CommandDefinition{
 		Name:        "bash",
 		Description: "Run a shell command in the service directory (NOT sandboxed; may modify files)",
 		Usage:       `bash {"cmd": "ls -la"}`,
@@ -79,7 +79,7 @@ func (s *Base) RegisterBaseCommands() {
 		Destructive: true,
 	}, s.cmdBash)
 
-	s.RegisterCommand(&agentv0.CommandDefinition{
+	s.RegisterCommand(&agentv1.CommandDefinition{
 		Name:        "bash_write",
 		Description: "Run a shell command that may modify files in the service directory",
 		Usage:       `bash_write {"cmd": "go mod tidy"}`,
@@ -102,39 +102,39 @@ func (s *Base) cmdBash(ctx context.Context, args []string) (string, error) {
 }
 
 // RegisterCommand registers a command on the agent's base.
-func (s *Base) RegisterCommand(def *agentv0.CommandDefinition, handler CommandHandler) {
+func (s *Base) RegisterCommand(def *agentv1.CommandDefinition, handler CommandHandler) {
 	if s.commands == nil {
 		s.commands = NewCommandRegistry()
 	}
 	s.commands.Register(def, handler)
 }
 
-// ListCommands implements agentv0.AgentServer.
-func (s *Base) ListCommands(_ context.Context, _ *agentv0.ListCommandsRequest) (*agentv0.ListCommandsResponse, error) {
+// ListCommands implements agentv1.AgentServer.
+func (s *Base) ListCommands(_ context.Context, _ *agentv1.ListCommandsRequest) (*agentv1.ListCommandsResponse, error) {
 	if s.commands == nil {
-		return &agentv0.ListCommandsResponse{}, nil
+		return &agentv1.ListCommandsResponse{}, nil
 	}
-	return &agentv0.ListCommandsResponse{
+	return &agentv1.ListCommandsResponse{
 		Commands: s.commands.ListCommands(),
 	}, nil
 }
 
-// RunPluginCommand implements agentv0.AgentServer.
-func (s *Base) RunPluginCommand(ctx context.Context, req *agentv0.RunPluginCommandRequest) (*agentv0.RunPluginCommandResponse, error) {
+// RunPluginCommand implements agentv1.AgentServer.
+func (s *Base) RunPluginCommand(ctx context.Context, req *agentv1.RunPluginCommandRequest) (*agentv1.RunPluginCommandResponse, error) {
 	if s.commands == nil {
-		return &agentv0.RunPluginCommandResponse{
+		return &agentv1.RunPluginCommandResponse{
 			Success: false,
 			Error:   "no commands registered",
 		}, nil
 	}
 	output, err := s.commands.Run(ctx, req.Command, req.Args)
 	if err != nil {
-		return &agentv0.RunPluginCommandResponse{
+		return &agentv1.RunPluginCommandResponse{
 			Success: false,
 			Error:   err.Error(),
 		}, nil
 	}
-	return &agentv0.RunPluginCommandResponse{
+	return &agentv1.RunPluginCommandResponse{
 		Success: true,
 		Output:  output,
 	}, nil

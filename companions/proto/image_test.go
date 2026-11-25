@@ -340,8 +340,8 @@ func TestRemoveForeignOutputOnEmptyDestination(t *testing.T) {
 // proto under the same path stays its own.
 func TestCodeflyNamespacesAreForeignForGoAlone(t *testing.T) {
 	const hopModule = "github.com/codefly-dev/authority/libraries/hop/go"
-	base := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/base/v0/agent.proto"), Package: googleproto.String("codefly.base.v0"),
-		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0")}}
+	base := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/base/v1/agent.proto"), Package: googleproto.String("codefly.base.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/core/generated/go/codefly/base/v1;basev1")}}
 	hop := &descriptorpb.FileDescriptorProto{Name: googleproto.String("authority/hop/v1/policy.proto"), Package: googleproto.String("authority.hop.v1"),
 		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String(hopModule + "/gen/authority/hop/v1;hopv1")}}
 	own := &descriptorpb.FileDescriptorProto{Name: googleproto.String("documents/v1/api.proto"), Package: googleproto.String("documents.v1")}
@@ -370,15 +370,15 @@ func TestCodeflyNamespacesAreForeignForGoAlone(t *testing.T) {
 		foreign := file.GetName() == base.GetName() || file.GetName() == hop.GetName()
 		require.Equal(t, foreign, isMarkedAsImport(file), file.GetName())
 	}
-	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0", overrides["codefly/base/v0/agent.proto"])
+	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/base/v1;basev1", overrides["codefly/base/v1/agent.proto"])
 	require.Equal(t, hopModule+"/gen/authority/hop/v1;hopv1", overrides["authority/hop/v1/policy.proto"])
 	require.NotContains(t, overrides, "authority/hop/v1/notes.proto")
 
 	// Codefly's own protos declare no go_package: the override is the managed
 	// prefix they are generated under, by directory.
-	runnable := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/runnable/v0/options.proto"), Package: googleproto.String("codefly.runnable.v0")}
+	runnable := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/runnable/v1/options.proto"), Package: googleproto.String("codefly.runnable.v1")}
 	data, overrides, err = MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{runnable}}), languages.GO)
 	require.NoError(t, err)
-	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/runnable/v0", overrides["codefly/runnable/v0/options.proto"])
+	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/runnable/v1", overrides["codefly/runnable/v1/options.proto"])
 	_ = data
 }

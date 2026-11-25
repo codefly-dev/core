@@ -3,7 +3,7 @@ package resources_test
 import (
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/stretchr/testify/require"
@@ -34,9 +34,9 @@ func TestResolveDependencyNetworkMappingsKeepsOnlyNamedEndpoint(t *testing.T) {
 		Name:      "accounts",
 		Endpoints: []*resources.EndpointReference{{Name: "usage"}},
 	}
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC}},
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC}},
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
 	}
 
 	resolved, err := resources.ResolveDependencyNetworkMappings(composition("saas"), "saas", []*resources.ServiceDependency{dependency}, mappings)
@@ -63,8 +63,8 @@ func TestResolveDependencyNetworkMappingsSelectsUniqueAPIReference(t *testing.T)
 		Name:      "accounts",
 		Endpoints: []*resources.EndpointReference{{API: standards.GRPC}},
 	}
-	mappings := []*basev0.NetworkMapping{
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
+	mappings := []*basev1.NetworkMapping{
+		{Endpoint: &basev1.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC}},
 	}
 
 	resolved, err := resources.ResolveDependencyNetworkMappings(composition("saas"), "saas", []*resources.ServiceDependency{dependency}, mappings)

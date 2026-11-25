@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -126,13 +126,13 @@ func TestDecodeRefusesAnUnsealedCapabilityBeforeItIsSent(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	unsealed := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	unsealed := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	unsealed.Seal = nil
 	_, err := workcontext.Decode(h.resign(unsealed))
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 
-	noEpoch := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
-	noEpoch.ActorChain = []*basev0.WorkActorV1{{
+	noEpoch := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
+	noEpoch.ActorChain = []*basev1.WorkActorV1{{
 		PrincipalId: agentID, PrincipalKind: "agent",
 		AgentId: proto.String("fixture.test/agent:1.0.0"), DelegationId: "d-1",
 	}}
@@ -313,7 +313,7 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience, TTL: 30 * 24 * time.Hour,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
@@ -439,7 +439,7 @@ func TestTheDecodePathHoldsItsOwnBoundsOnEveryEntrypoint(t *testing.T) {
 	require.NotEqual(t, canonical, noncanonical)
 
 	// It really is the same message: nothing but the byte comparison differs.
-	roundTripped := &basev0.WorkContextV1{}
+	roundTripped := &basev1.WorkContextV1{}
 	require.NoError(t, proto.Unmarshal(noncanonical, roundTripped),
 		"the encoding must be one Unmarshal ACCEPTS, or the test proves a different refusal")
 	require.True(t, proto.Equal(claims, roundTripped), "the claims are identical")

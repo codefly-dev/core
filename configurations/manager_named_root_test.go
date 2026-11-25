@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -70,17 +70,17 @@ modules:
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
 		return authority, unique == "platform/authority"
 	})
-	mapping := func(name, address string) *basev0.NetworkMapping {
-		return &basev0.NetworkMapping{
-			Endpoint:  &basev0.Endpoint{Module: "platform", Service: "authority", Name: name, Api: "grpc"},
-			Instances: []*basev0.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}},
+	mapping := func(name, address string) *basev1.NetworkMapping {
+		return &basev1.NetworkMapping{
+			Endpoint:  &basev1.Endpoint{Module: "platform", Service: "authority", Name: name, Api: "grpc"},
+			Instances: []*basev1.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}},
 		}
 	}
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
 	manager = manager.ForConsumerModule("payments", declared)
 	manager.WithLoader(loader).
-		WithNetworkMappings([]*basev0.NetworkMapping{
+		WithNetworkMappings([]*basev1.NetworkMapping{
 			mapping("hidden", "http://localhost:1"),
 			mapping("primary", "http://localhost:2"),
 			mapping("secondary", "http://localhost:3"),
@@ -148,7 +148,7 @@ func TestTheCompositionRootReadWithoutNamesStillRefusesTheFirstFault(t *testing.
 }
 
 // rootValues flattens delivered configurations to group/key → value.
-func rootValues(t *testing.T, confs []*basev0.Configuration) map[string]string {
+func rootValues(t *testing.T, confs []*basev1.Configuration) map[string]string {
 	t.Helper()
 	values := make(map[string]string)
 	for _, conf := range confs {

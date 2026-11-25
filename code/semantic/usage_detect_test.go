@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	usagecontract "github.com/codefly-dev/core/contracts/usage"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // A usage contract's detect clauses are matched against the index this
@@ -133,12 +133,12 @@ def connect(dsn):
 			t.Fatal(err)
 		}
 	}
-	response, err := newSemanticServer(root).Execute(t.Context(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev0.GetSemanticIndexRequest{}}})
+	response, err := newSemanticServer(root).Execute(t.Context(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_GetSemanticIndex{GetSemanticIndex: &codev1.GetSemanticIndexRequest{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	index := response.GetGetSemanticIndex()
-	if index == nil || index.GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
+	if index == nil || index.GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE {
 		t.Fatalf("semantic index = %v, failure = %v", index, response.GetFailure())
 	}
 	type found struct {

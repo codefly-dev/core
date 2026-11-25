@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runnablev1 "github.com/codefly-dev/core/generated/go/codefly/runnable/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
@@ -108,20 +108,20 @@ func TestAMethodDeclaringOnlyItsAuthorityPolicyIsAReadTool(t *testing.T) {
 	files := hopFiles(t, hopMethod(t, hopPolicyFile(t), "ApplyText", false, requirement{"documents", []string{"read"}}))
 	pkg, spec, err := runnable.PackageFromMethod(files, ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, spec.Recovery)
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, spec.Recovery)
 	require.Empty(t, spec.LookupScopes)
 	require.Empty(t, spec.LookupMethod)
 	require.Equal(t, "documents", spec.Audience, "the audience defaults to the owner's module")
-	require.True(t, proto.Equal(&basev0.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}}, spec.InvokeScopes[0]))
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
+	require.True(t, proto.Equal(&basev1.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}}, spec.InvokeScopes[0]))
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
 	require.Equal(t, "ApplyText", spec.Tool.GetName())
 
 	// The policy delivers: a prepared binding carries it and presents it as a
 	// read-only tool, with no receipt lookup to wire.
 	tool, err := runnable.ToolFromPrepared(preparedFor(t, spec))
 	require.NoError(t, err)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, tool.GetEffect())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, tool.GetEffect())
 }
 
 // Anything that is not a read is a mutation resolved by its receipt, read
@@ -133,30 +133,30 @@ func TestAMethodWhosePolicyWritesIsAMutationToolResolvedByItsReceipt(t *testing.
 		requirement{"documents", []string{"write"}}, requirement{"documents.collection", []string{"read"}}))
 	pkg, spec, err := runnable.PackageFromMethod(files, ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, spec.Tool.GetEffect())
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, spec.Tool.GetEffect())
 	require.Empty(t, spec.LookupMethod, "the SDK's generic receipt lookup answers")
 	require.EqualValues(t, 1, spec.MaxAttempts)
 	require.Empty(t, spec.RetryableCodes)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, spec.Recovery, "stated, so the receipt is read under invoke")
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECEIPT, spec.Recovery, "stated, so the receipt is read under invoke")
 	require.Equal(t, []string{"write"}, spec.InvokeScopes[0].GetActions(), "no read is added to a written kind")
 	require.Equal(t, []string{"read"}, spec.InvokeScopes[1].GetActions())
 	require.Empty(t, spec.LookupScopes)
 	tool, err := runnable.ToolFromPrepared(preparedFor(t, spec))
 	require.NoError(t, err)
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
 }
 
 func TestMethodsADefaultDerivationLeavesAlone(t *testing.T) {
 	policyFile := hopPolicyFile(t)
 	excluded := hopMethod(t, policyFile, "ApplyText", false, requirement{"documents", []string{"read"}})
-	proto.SetExtension(excluded.Options, runnablev0.E_Exclude, true)
+	proto.SetExtension(excluded.Options, runnablev1.E_Exclude, true)
 	_, _, err := runnable.PackageFromMethod(hopFiles(t, excluded), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrNotAnOperation)
 
 	both := hopMethod(t, policyFile, "ApplyText", false, requirement{"documents", []string{"read"}})
-	proto.SetExtension(both.Options, runnablev0.E_Exclude, true)
-	proto.SetExtension(both.Options, runnablev0.E_Operation, declaredOperation())
+	proto.SetExtension(both.Options, runnablev1.E_Exclude, true)
+	proto.SetExtension(both.Options, runnablev1.E_Operation, declaredOperation())
 	_, _, err = runnable.PackageFromMethod(hopFiles(t, both), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 
@@ -179,43 +179,43 @@ func TestAnExplicitOperationIsPresentedFromItsMethod(t *testing.T) {
 	_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declaredOperation()), ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
 	require.Equal(t, "ApplyText", spec.Tool.GetName())
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, spec.Tool.GetEffect(), "no policy is never read-only")
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_UNKNOWN, spec.Recovery)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, spec.EffectiveRecovery())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_MUTATION, spec.Tool.GetEffect(), "no policy is never read-only")
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_UNKNOWN, spec.Recovery)
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECEIPT, spec.EffectiveRecovery())
 }
 
 func TestARecomputedOperationCarriesNoReceipt(t *testing.T) {
-	for name, change := range map[string]func(*runnablev0.Operation){
-		"lookup scopes": func(o *runnablev0.Operation) {},
-		"lookup method": func(o *runnablev0.Operation) { o.LookupScopes = nil },
-		"submit": func(o *runnablev0.Operation) {
+	for name, change := range map[string]func(*runnablev1.Operation){
+		"lookup scopes": func(o *runnablev1.Operation) {},
+		"lookup method": func(o *runnablev1.Operation) { o.LookupScopes = nil },
+		"submit": func(o *runnablev1.Operation) {
 			o.LookupScopes, o.LookupMethod = nil, ""
-			o.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+			o.Completion = basev1.RunnableExecution_COMPLETION_SUBMIT
 		},
-		"mutation tool": func(o *runnablev0.Operation) {
+		"mutation tool": func(o *runnablev1.Operation) {
 			o.LookupScopes, o.LookupMethod = nil, ""
-			o.Tool = &runnablev0.ToolExposure{Name: "apply", Description: "Applies.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION}
+			o.Tool = &runnablev1.ToolExposure{Name: "apply", Description: "Applies.", Effect: runnablev1.ToolExposure_EFFECT_MUTATION}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			declared := declaredOperation()
-			declared.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+			declared.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
 			change(declared)
 			_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 		})
 	}
 	declared := declaredOperation()
-	declared.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+	declared.Recovery = basev1.RunnableExecution_RECOVERY_RECOMPUTE
 	declared.LookupScopes, declared.LookupMethod = nil, ""
 	pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
-	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
+	require.Equal(t, runnablev1.ToolExposure_EFFECT_READ_ONLY, spec.Tool.GetEffect())
 }
 
 // preparedFor delivers a derived spec the way a composition does.
-func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev0.PreparedBinding {
+func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev1.PreparedBinding {
 	t.Helper()
 	binding := bindingFor(spec)
 	binding.Schema = runnable.PreparedSchema
@@ -230,19 +230,19 @@ func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev0.Prepare
 // says or leaves unsaid: one rule, because the installed package carries only
 // the recovery in effect. Declared lookup scopes keep every rule.
 func TestAnEmptyLookupIsIdentityBoundWhateverRecoverySays(t *testing.T) {
-	for _, recovery := range []basev0.RunnableExecution_Recovery{basev0.RunnableExecution_RECOVERY_UNKNOWN, basev0.RunnableExecution_RECOVERY_RECEIPT} {
+	for _, recovery := range []basev1.RunnableExecution_Recovery{basev1.RunnableExecution_RECOVERY_UNKNOWN, basev1.RunnableExecution_RECOVERY_RECEIPT} {
 		declared := declaredOperation()
 		declared.LookupScopes, declared.LookupMethod = nil, ""
 		declared.Recovery = recovery
 		pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 		require.NoError(t, err)
-		require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
+		require.Equal(t, basev1.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
 		require.Empty(t, spec.LookupScopes)
 		require.Empty(t, preparedFor(t, spec).GetPolicy().GetLookupScopes())
 	}
 
 	declared := declaredOperation()
-	declared.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest"}}}
+	declared.LookupScopes = []*basev1.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest"}}}
 	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "not read-only")
@@ -251,14 +251,14 @@ func TestAnEmptyLookupIsIdentityBoundWhateverRecoverySays(t *testing.T) {
 // Both derived forms install on the runtime: a recomputed read and a receipt
 // mutation, each with no lookup scopes (r86 B2).
 func TestTheRuntimeInstallsBothDerivedForms(t *testing.T) {
-	for _, recovery := range []basev0.RunnableExecution_Recovery{basev0.RunnableExecution_RECOVERY_RECOMPUTE, basev0.RunnableExecution_RECOVERY_RECEIPT} {
+	for _, recovery := range []basev1.RunnableExecution_Recovery{basev1.RunnableExecution_RECOVERY_RECOMPUTE, basev1.RunnableExecution_RECOVERY_RECEIPT} {
 		t.Run(recovery.String(), func(t *testing.T) {
 			declared := ownerHandlerPackage(t)
 			declared.Execution.Recovery = recovery
 			pkg, err := runnable.PreparePackage(declared)
 			require.NoError(t, err)
-			binding := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
-			binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+			binding := sampleBinding(pkg, nil, basev1.RunnableFacility_SERVICE)
+			binding.Implementation = &basev1.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
 			binding.Authority.LookupScopes = nil
 			installed, err := runnable.PrepareBinding(binding, pkg)
 			require.NoError(t, err)
@@ -273,11 +273,11 @@ func TestTheRuntimeInstallsBothDerivedForms(t *testing.T) {
 
 // workContext is a context owned by owner through the named actors; an actor
 // spelled "principal/agent" carries an agent id.
-func workContext(owner string, actors ...string) *basev0.WorkContextV1 {
-	wc := &basev0.WorkContextV1{OwnerPrincipalId: owner}
+func workContext(owner string, actors ...string) *basev1.WorkContextV1 {
+	wc := &basev1.WorkContextV1{OwnerPrincipalId: owner}
 	for _, actor := range actors {
 		principal, agent, _ := strings.Cut(actor, "/")
-		hop := &basev0.WorkActorV1{PrincipalId: principal, PrincipalKind: "agent"}
+		hop := &basev1.WorkActorV1{PrincipalId: principal, PrincipalKind: "agent"}
 		if agent != "" {
 			hop.AgentId = proto.String(agent)
 		}
@@ -289,16 +289,16 @@ func workContext(owner string, actors ...string) *basev0.WorkContextV1 {
 // A receipt belongs to the caller that made the effect: owner and acting
 // principal both, then the authority it is read under (r86 B1).
 func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
-	write := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"write"}}}
-	read := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"read"}}}
-	identityBound := &runnablev0.Operation{InvokeScopes: write, Recovery: basev0.RunnableExecution_RECOVERY_RECEIPT}
+	write := []*basev1.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"write"}}}
+	read := []*basev1.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"read"}}}
+	identityBound := &runnablev1.Operation{InvokeScopes: write, Recovery: basev1.RunnableExecution_RECOVERY_RECEIPT}
 
 	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "assistant/answer-agent", "runtime-worker"))
 	require.NoError(t, err)
 	require.Equal(t, "ana", recorded.GetOwnerPrincipalId())
 	require.Len(t, recorded.GetActors(), 2)
 	require.Equal(t, "answer-agent", recorded.GetActors()[0].GetAgentId())
-	caller := func(actors ...string) *basev0.WorkContextV1 { return workContext("ana", actors...) }
+	caller := func(actors ...string) *basev1.WorkContextV1 { return workContext("ana", actors...) }
 	chain := []string{"assistant/answer-agent", "runtime-worker"}
 
 	require.NoError(t, runnable.AdmitReceiptLookup(identityBound, recorded, caller(chain...), write))
@@ -322,10 +322,10 @@ func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
 			return runnable.AdmitReceiptLookup(identityBound, nil, caller(chain...), write)
 		},
 		"a recomputed read, which keeps no receipt": func() error {
-			return runnable.AdmitReceiptLookup(&runnablev0.Operation{InvokeScopes: read, Recovery: basev0.RunnableExecution_RECOVERY_RECOMPUTE}, recorded, caller(chain...), read)
+			return runnable.AdmitReceiptLookup(&runnablev1.Operation{InvokeScopes: read, Recovery: basev1.RunnableExecution_RECOVERY_RECOMPUTE}, recorded, caller(chain...), read)
 		},
 		"declared lookup scopes the caller does not hold": func() error {
-			declared := &runnablev0.Operation{InvokeScopes: write, LookupScopes: read}
+			declared := &runnablev1.Operation{InvokeScopes: write, LookupScopes: read}
 			return runnable.AdmitReceiptLookup(declared, recorded, caller(chain...), write)
 		},
 	} {
@@ -369,7 +369,7 @@ func TestAReceiptIsReplayedOnlyToTheCallerThatMadeIt(t *testing.T) {
 	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "assistant/answer-agent"))
 	require.NoError(t, err)
 	require.NoError(t, runnable.AdmitReceiptReplay(recorded, workContext("ana", "assistant/answer-agent")))
-	for _, other := range []*basev0.WorkContextV1{
+	for _, other := range []*basev1.WorkContextV1{
 		workContext("bob", "assistant/answer-agent"),
 		workContext("ana", "assistant/other-agent"),
 		workContext("ana"),
@@ -387,19 +387,19 @@ func TestAReceiptIsReplayedOnlyToTheCallerThatMadeIt(t *testing.T) {
 // (r100 m-C), at declaration and at install.
 func TestASubmittedOperationKeepsItsLookupScopes(t *testing.T) {
 	declared := declaredOperation()
-	declared.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+	declared.Completion = basev1.RunnableExecution_COMPLETION_SUBMIT
 	declared.LookupScopes = nil
 	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "lookup_scopes")
 
 	pkgDeclared := ownerHandlerPackage(t)
-	pkgDeclared.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
-	pkgDeclared.Execution.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+	pkgDeclared.Execution.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
+	pkgDeclared.Execution.Completion = basev1.RunnableExecution_COMPLETION_SUBMIT
 	pkg, err := runnable.PreparePackage(pkgDeclared)
 	require.NoError(t, err)
-	binding := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
-	binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+	binding := sampleBinding(pkg, nil, basev1.RunnableFacility_SERVICE)
+	binding.Implementation = &basev1.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
 	binding.Authority.LookupScopes = nil
 	_, err = runnable.PrepareBinding(binding, pkg)
 	require.ErrorIs(t, err, runnable.ErrInvalid)

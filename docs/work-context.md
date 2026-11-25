@@ -1,6 +1,6 @@
 # Work Context: the canonical identity model
 
-`codefly.base.v0.WorkContextV1` is the identity and authority carrier for one
+`codefly.base.v1.WorkContextV1` is the identity and authority carrier for one
 Task/Session hop. It is signed, immutable, and already travels over both gRPC
 metadata and HTTP (`wool.WorkContextHeader`). Everything else in core that
 talks about *who is acting* is derived from a verified one rather than

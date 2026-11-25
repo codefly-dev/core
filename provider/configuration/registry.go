@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 )
 
 const (
@@ -114,7 +114,7 @@ type Value struct {
 }
 
 type HostAttestations struct {
-	OpaqueReferences []*providerv0.OpaqueReference
+	OpaqueReferences []*providerv1.OpaqueReference
 }
 
 type ValidationContext struct {
@@ -271,7 +271,7 @@ func (r *Registry) Validate(id string, values map[string]Value, context Validati
 	return nil
 }
 
-func (r *Registry) ValidateProposal(proposal *providerv0.OutputProposal) error {
+func (r *Registry) ValidateProposal(proposal *providerv1.OutputProposal) error {
 	if proposal == nil {
 		return fmt.Errorf("output proposal is required")
 	}
@@ -299,7 +299,7 @@ func (r *Registry) ValidateProposal(proposal *providerv0.OutputProposal) error {
 	return nil
 }
 
-func validateProposalValue(name string, declaration Key, value *providerv0.OutputValue) error {
+func validateProposalValue(name string, declaration Key, value *providerv1.OutputValue) error {
 	if value == nil {
 		return fmt.Errorf("%s value is required", name)
 	}
@@ -327,7 +327,7 @@ func validateProposalValue(name string, declaration Key, value *providerv0.Outpu
 	}
 	switch declaration.Type {
 	case ValueString:
-		kind, ok := public.GetKind().(*providerv0.PublicValue_StringValue)
+		kind, ok := public.GetKind().(*providerv1.PublicValue_StringValue)
 		if !ok {
 			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
 		}
@@ -338,7 +338,7 @@ func validateProposalValue(name string, declaration Key, value *providerv0.Outpu
 			return fmt.Errorf("%s contains a secret-shaped value in a public or browser field", name)
 		}
 	case ValueEndpointReference:
-		kind, ok := public.GetKind().(*providerv0.PublicValue_StringValue)
+		kind, ok := public.GetKind().(*providerv1.PublicValue_StringValue)
 		if !ok {
 			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
 		}
@@ -346,11 +346,11 @@ func validateProposalValue(name string, declaration Key, value *providerv0.Outpu
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	case ValueBoolean:
-		if _, ok := public.GetKind().(*providerv0.PublicValue_BoolValue); !ok {
+		if _, ok := public.GetKind().(*providerv1.PublicValue_BoolValue); !ok {
 			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
 		}
 	case ValueInteger:
-		if _, ok := public.GetKind().(*providerv0.PublicValue_IntegerValue); !ok {
+		if _, ok := public.GetKind().(*providerv1.PublicValue_IntegerValue); !ok {
 			return fmt.Errorf("%s type does not match schema type %q", name, declaration.Type)
 		}
 	default:
@@ -359,15 +359,15 @@ func validateProposalValue(name string, declaration Key, value *providerv0.Outpu
 	return nil
 }
 
-func credentialPurposeFromProto(purpose providerv0.CredentialPurpose) (CredentialPurpose, bool) {
+func credentialPurposeFromProto(purpose providerv1.CredentialPurpose) (CredentialPurpose, bool) {
 	switch purpose {
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT:
 		return PurposeManagement, true
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME:
 		return PurposeRuntime, true
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD:
 		return PurposeBuild, true
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 		return PurposeWebhookVerification, true
 	default:
 		return "", false
@@ -565,7 +565,7 @@ func validConsumer(consumer ConsumerClass) bool {
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-func opaqueReference(value string, attestations []*providerv0.OpaqueReference) *providerv0.OpaqueReference {
+func opaqueReference(value string, attestations []*providerv1.OpaqueReference) *providerv1.OpaqueReference {
 	for _, attestation := range attestations {
 		if attestation != nil && attestation.GetReference() == value {
 			return attestation

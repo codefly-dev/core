@@ -22,23 +22,23 @@ import (
 	"strconv"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
-func (s *DefaultCodeServer) getSourceManifest(ctx context.Context, req *codev0.GetSourceManifestRequest) (*codev0.CodeResponse, error) {
+func (s *DefaultCodeServer) getSourceManifest(ctx context.Context, req *codev1.GetSourceManifestRequest) (*codev1.CodeResponse, error) {
 	if req == nil {
-		req = &codev0.GetSourceManifestRequest{}
+		req = &codev1.GetSourceManifestRequest{}
 	}
 	var (
-		value *basev0.SourceManifest
+		value *basev1.SourceManifest
 		err   error
 	)
 	identityMode := req.GetIdentityMode()
-	if identityMode != basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_NATIVE && identityMode != basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 {
+	if identityMode != basev1.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_NATIVE && identityMode != basev1.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 {
 		return codeFailure(
-			&codev0.CodeResponse{Result: &codev0.CodeResponse_GetSourceManifest{GetSourceManifest: &basev0.SourceManifest{}}},
-			basev0.FailureCode_FAILURE_CODE_INVALID_ARGUMENT,
+			&codev1.CodeResponse{Result: &codev1.CodeResponse_GetSourceManifest{GetSourceManifest: &basev1.SourceManifest{}}},
+			basev1.FailureCode_FAILURE_CODE_INVALID_ARGUMENT,
 			"code.get-source-manifest",
 			fmt.Sprintf("unsupported source manifest identity mode %s", identityMode),
 		), nil
@@ -53,21 +53,21 @@ func (s *DefaultCodeServer) getSourceManifest(ctx context.Context, req *codev0.G
 	}
 	if err != nil {
 		return codeFailure(
-			&codev0.CodeResponse{Result: &codev0.CodeResponse_GetSourceManifest{GetSourceManifest: &basev0.SourceManifest{}}},
-			basev0.FailureCode_FAILURE_CODE_IO_FAILED,
+			&codev1.CodeResponse{Result: &codev1.CodeResponse_GetSourceManifest{GetSourceManifest: &basev1.SourceManifest{}}},
+			basev1.FailureCode_FAILURE_CODE_IO_FAILED,
 			"code.get-source-manifest",
 			err.Error(),
 		), nil
 	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_GetSourceManifest{GetSourceManifest: value}}, nil
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_GetSourceManifest{GetSourceManifest: value}}, nil
 }
 
-func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0.SourceManifest, error) {
+func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev1.SourceManifest, error) {
 	gitlinks, trackedDirectories, err := s.worktreeGitState(ctx)
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]*basev0.SourceManifestEntry, 0, 256+len(gitlinks))
+	entries := make([]*basev1.SourceManifestEntry, 0, 256+len(gitlinks))
 	for _, entry := range gitlinks {
 		entries = append(entries, entry)
 	}
@@ -127,10 +127,10 @@ func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0
 			return fmt.Errorf("source changed while hashing %s: metadata size %d, read %d", relative, info.Size(), len(body))
 		}
 		digest := sha256.Sum256(body)
-		entries = append(entries, &basev0.SourceManifestEntry{
+		entries = append(entries, &basev1.SourceManifestEntry{
 			Path: relative, Mode: mode, Kind: kind,
-			Identity: &basev0.SourceIdentity{
-				Algorithm: basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256,
+			Identity: &basev1.SourceIdentity{
+				Algorithm: basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256,
 				Digest:    hex.EncodeToString(digest[:]), SizeBytes: int64(len(body)),
 			},
 			Attributes: classifySourceAttributes(relative, kind, body, true),
@@ -141,22 +141,22 @@ func (s *DefaultCodeServer) worktreeSourceManifest(ctx context.Context) (*basev0
 		return nil, err
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].GetPath() < entries[j].GetPath() })
-	return &basev0.SourceManifest{Entries: entries}, nil
+	return &basev1.SourceManifest{Entries: entries}, nil
 }
 
 // worktreeGitState asks Git for tracked paths before walking the filesystem.
 // Gitlinks remain one project leaf, while trackedDirectories prevents the
 // generic generated-directory policy from hiding committed project content.
-func (s *DefaultCodeServer) worktreeGitState(ctx context.Context) (map[string]*basev0.SourceManifestEntry, map[string]struct{}, error) {
+func (s *DefaultCodeServer) worktreeGitState(ctx context.Context) (map[string]*basev1.SourceManifestEntry, map[string]struct{}, error) {
 	inside, err := s.runGit(ctx, "rev-parse", "--is-inside-work-tree")
 	if err != nil || strings.TrimSpace(inside) != "true" {
-		return map[string]*basev0.SourceManifestEntry{}, map[string]struct{}{}, nil
+		return map[string]*basev1.SourceManifestEntry{}, map[string]struct{}{}, nil
 	}
 	output, err := s.runGit(ctx, "ls-files", "--stage", "-z", "--", ".")
 	if err != nil {
 		return nil, nil, fmt.Errorf("source manifest Git index: %w", err)
 	}
-	result := map[string]*basev0.SourceManifestEntry{}
+	result := map[string]*basev1.SourceManifestEntry{}
 	trackedDirectories := map[string]struct{}{}
 	for _, record := range strings.Split(output, "\x00") {
 		if record == "" {
@@ -199,9 +199,9 @@ func (s *DefaultCodeServer) worktreeGitState(ctx context.Context) (map[string]*b
 		if identityErr != nil {
 			return nil, nil, fmt.Errorf("source manifest: gitlink %s: %w", name, identityErr)
 		}
-		result[name] = &basev0.SourceManifestEntry{
+		result[name] = &basev1.SourceManifestEntry{
 			Path: name, Mode: 0o160000, Kind: kind,
-			Identity:   &basev0.SourceIdentity{Algorithm: algorithm, Digest: digest, SizeBytes: -1},
+			Identity:   &basev1.SourceIdentity{Algorithm: algorithm, Digest: digest, SizeBytes: -1},
 			Attributes: classifySourceAttributes(name, kind, nil, false),
 		}
 	}
@@ -217,8 +217,8 @@ func sourceEntryInfo(vfs VFS, path string, entry fs.DirEntry) (os.FileInfo, erro
 	return entry.Info()
 }
 
-func sourceEntryIdentityBytes(vfs VFS, path string, kind basev0.SourceEntryKind) ([]byte, error) {
-	if kind != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
+func sourceEntryIdentityBytes(vfs VFS, path string, kind basev1.SourceEntryKind) ([]byte, error) {
+	if kind != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
 		return vfs.ReadFile(path)
 	}
 	source, ok := vfs.(interface{ Readlink(string) (string, error) })
@@ -229,21 +229,21 @@ func sourceEntryIdentityBytes(vfs VFS, path string, kind basev0.SourceEntryKind)
 	return []byte(target), err
 }
 
-func worktreeEntryKind(mode os.FileMode) (basev0.SourceEntryKind, uint32, error) {
+func worktreeEntryKind(mode os.FileMode) (basev1.SourceEntryKind, uint32, error) {
 	switch {
 	case mode&os.ModeSymlink != 0:
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, 0o120000, nil
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, 0o120000, nil
 	case mode.IsRegular():
 		if mode.Perm()&0o111 != 0 {
-			return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, 0o100755, nil
+			return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, 0o100755, nil
 		}
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, 0o100644, nil
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, 0o100644, nil
 	default:
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED, 0, fmt.Errorf("unsupported source entry mode %s", mode)
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED, 0, fmt.Errorf("unsupported source entry mode %s", mode)
 	}
 }
 
-func (s *DefaultCodeServer) revisionSourceManifest(ctx context.Context, revision string, identityMode basev0.SourceManifestIdentityMode) (*basev0.SourceManifest, error) {
+func (s *DefaultCodeServer) revisionSourceManifest(ctx context.Context, revision string, identityMode basev1.SourceManifestIdentityMode) (*basev1.SourceManifest, error) {
 	resolved, err := s.runGit(ctx, "rev-parse", "--verify", revision+"^{commit}")
 	if err != nil {
 		return nil, err
@@ -261,7 +261,7 @@ func (s *DefaultCodeServer) revisionSourceManifest(ctx context.Context, revision
 		return nil, err
 	}
 	records := strings.Split(output, "\x00")
-	entries := make([]*basev0.SourceManifestEntry, 0, len(records))
+	entries := make([]*basev1.SourceManifestEntry, 0, len(records))
 	for _, record := range records {
 		if record == "" {
 			continue
@@ -272,16 +272,16 @@ func (s *DefaultCodeServer) revisionSourceManifest(ctx context.Context, revision
 		}
 		entries = append(entries, entry)
 	}
-	if identityMode == basev0.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 {
+	if identityMode == basev1.SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 {
 		if err := s.normalizeRevisionContentIdentities(ctx, entries); err != nil {
 			return nil, err
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].GetPath() < entries[j].GetPath() })
-	return &basev0.SourceManifest{Revision: resolved, Entries: entries}, nil
+	return &basev1.SourceManifest{Revision: resolved, Entries: entries}, nil
 }
 
-func parseRevisionManifestEntry(record string) (*basev0.SourceManifestEntry, error) {
+func parseRevisionManifestEntry(record string) (*basev1.SourceManifestEntry, error) {
 	header, path, found := strings.Cut(record, "\t")
 	if !found || path == "" {
 		return nil, fmt.Errorf("invalid Git tree record %q", record)
@@ -305,9 +305,9 @@ func parseRevisionManifestEntry(record string) (*basev0.SourceManifestEntry, err
 	if err != nil {
 		return nil, err
 	}
-	entry := &basev0.SourceManifestEntry{
+	entry := &basev1.SourceManifestEntry{
 		Path: filepath.ToSlash(path), Mode: uint32(modeValue), Kind: kind,
-		Identity: &basev0.SourceIdentity{Algorithm: algorithm, Digest: fields[2], SizeBytes: size},
+		Identity: &basev1.SourceIdentity{Algorithm: algorithm, Digest: fields[2], SizeBytes: size},
 	}
 	entry.Attributes = classifySourceAttributes(entry.GetPath(), kind, nil, false)
 	return entry, nil
@@ -317,11 +317,11 @@ func parseRevisionManifestEntry(record string) (*basev0.SourceManifestEntry, err
 // cat-file process. Bytes remain inside Codefly; only SHA-256 identities and
 // versioned attributes are returned to the caller. Gitlinks retain their
 // native commit-object identities because they do not name file content.
-func (s *DefaultCodeServer) normalizeRevisionContentIdentities(ctx context.Context, entries []*basev0.SourceManifestEntry) error {
-	targets := make([]*basev0.SourceManifestEntry, 0, len(entries))
+func (s *DefaultCodeServer) normalizeRevisionContentIdentities(ctx context.Context, entries []*basev1.SourceManifestEntry) error {
+	targets := make([]*basev1.SourceManifestEntry, 0, len(entries))
 	var requests strings.Builder
 	for _, entry := range entries {
-		if entry.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE && entry.GetKind() != basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
+		if entry.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE && entry.GetKind() != basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK {
 			continue
 		}
 		targets = append(targets, entry)
@@ -375,8 +375,8 @@ func (s *DefaultCodeServer) normalizeRevisionContentIdentities(ctx context.Conte
 			return fmt.Errorf("git cat-file separator for %s is invalid", entry.GetPath())
 		}
 		digest := sha256.Sum256(body)
-		entry.Identity = &basev0.SourceIdentity{
-			Algorithm: basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256,
+		entry.Identity = &basev1.SourceIdentity{
+			Algorithm: basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256,
 			Digest:    hex.EncodeToString(digest[:]),
 			SizeBytes: size,
 		}
@@ -390,29 +390,29 @@ func (s *DefaultCodeServer) normalizeRevisionContentIdentities(ctx context.Conte
 	return nil
 }
 
-func revisionEntryIdentity(mode, objectType, digest string) (basev0.SourceEntryKind, basev0.SourceIdentityAlgorithm, error) {
+func revisionEntryIdentity(mode, objectType, digest string) (basev1.SourceEntryKind, basev1.SourceIdentityAlgorithm, error) {
 	sha256Repository := len(digest) == 64
-	algorithm := func(blob bool) basev0.SourceIdentityAlgorithm {
+	algorithm := func(blob bool) basev1.SourceIdentityAlgorithm {
 		if blob && sha256Repository {
-			return basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256
+			return basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256
 		}
 		if blob {
-			return basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1
+			return basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1
 		}
 		if sha256Repository {
-			return basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256
+			return basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256
 		}
-		return basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1
+		return basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1
 	}
 	switch {
 	case objectType == "blob" && (mode == "100644" || mode == "100755"):
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, algorithm(true), nil
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_FILE, algorithm(true), nil
 	case objectType == "blob" && mode == "120000":
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, algorithm(true), nil
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK, algorithm(true), nil
 	case objectType == "commit" && mode == "160000":
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK, algorithm(false), nil
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK, algorithm(false), nil
 	default:
-		return basev0.SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED, basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED,
+		return basev1.SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED, basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED,
 			fmt.Errorf("unsupported Git tree entry mode=%q type=%q", mode, objectType)
 	}
 }

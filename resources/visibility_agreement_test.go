@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -14,14 +14,14 @@ import (
 // per mapping. Going through Service.LoadEndpoints rather than hand-writing the
 // protos is the point — a divergence in the visibility the runtime observes
 // would show up here and nowhere else.
-func runtimeMappingsFor(ctx context.Context, t *testing.T, workspaceDir, module, service string) []*basev0.NetworkMapping {
+func runtimeMappingsFor(ctx context.Context, t *testing.T, workspaceDir, module, service string) []*basev1.NetworkMapping {
 	t.Helper()
 	endpoints, err := loadService(ctx, t, workspaceDir, module, service).LoadEndpoints(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, endpoints, "producer reported no endpoints")
-	mappings := make([]*basev0.NetworkMapping, 0, len(endpoints))
+	mappings := make([]*basev1.NetworkMapping, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		mappings = append(mappings, &basev0.NetworkMapping{Endpoint: endpoint})
+		mappings = append(mappings, &basev1.NetworkMapping{Endpoint: endpoint})
 	}
 	return mappings
 }

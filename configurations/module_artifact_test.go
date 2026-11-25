@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -28,7 +28,7 @@ func TestModuleArtifactPerLoadAcquiresActualFilesOnce(t *testing.T) {
 	root, ws := artifactFixture(t)
 	env := &resources.Environment{Name: "local"}
 	reads := 0
-	resolve := func(_ context.Context, ref *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	resolve := func(_ context.Context, ref *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		reads++
 		return os.ReadFile(filepath.Join(root, ref.Path))
 	}
@@ -37,7 +37,7 @@ func TestModuleArtifactPerLoadAcquiresActualFilesOnce(t *testing.T) {
 	reader.WithModuleArtifactResolver(resolve)
 	require.NoError(t, reader.Load(ctx, env))
 	require.Equal(t, 1, reads)
-	original := proto.Clone(reader.Configurations()[0]).(*basev0.Configuration)
+	original := proto.Clone(reader.Configurations()[0]).(*basev1.Configuration)
 	a := original.Infos[0].ConfigurationValues[0]
 	require.NotNil(t, a.ResolvedModuleArtifact)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "public.json"), []byte("next\nexact\n"), 0600))
@@ -83,7 +83,7 @@ func TestModuleArtifactAddRemoveAndMissingResolver(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "configurations/shared/install.env"), []byte("UNCHANGED=ordinary\n"), 0600))
 	reader, err := NewConfigurationLocalReader(ctx, ws)
 	require.NoError(t, err)
-	reader.WithModuleArtifactResolver(func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	reader.WithModuleArtifactResolver(func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	})
 	require.NoError(t, reader.Load(ctx, env)) // empty
@@ -111,9 +111,9 @@ func TestModuleArtifactStrictDeclarationsAndLiteralTransition(t *testing.T) {
 			require.NotContains(t, err.Error(), "PRIVATE-CANARY")
 		})
 	}
-	for _, literal := range []*basev0.ConfigurationValue{{Key: "CONFIG", Value: "public"}, {Key: "CONFIG", Value: ProfileValueMarker, Secret: true}, {Key: "CONFIG", Value: "prefix" + ProfileValueMarker}} {
+	for _, literal := range []*basev1.ConfigurationValue{{Key: "CONFIG", Value: "public"}, {Key: "CONFIG", Value: ProfileValueMarker, Secret: true}, {Key: "CONFIG", Value: "prefix" + ProfileValueMarker}} {
 		root, _ := artifactFixture(t)
-		_, err := loadModuleArtifactBindings(t.Context(), filepath.Join(root, "configurations/local"), []*basev0.ConfigurationInformation{{Name: "install", ConfigurationValues: []*basev0.ConfigurationValue{literal}}})
+		_, err := loadModuleArtifactBindings(t.Context(), filepath.Join(root, "configurations/local"), []*basev1.ConfigurationInformation{{Name: "install", ConfigurationValues: []*basev1.ConfigurationValue{literal}}})
 		require.Error(t, err)
 	}
 	root, _ := artifactFixture(t)
@@ -130,7 +130,7 @@ func TestModuleArtifactInvocationAndEvidenceIngress(t *testing.T) {
 	root, ws := artifactFixture(t)
 	reader, err := NewConfigurationLocalReader(ctx, ws)
 	require.NoError(t, err)
-	reader.WithModuleArtifactResolver(func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	reader.WithModuleArtifactResolver(func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	})
 	encoded, err := resources.EncodeWorkspaceConfigurationOverrides([]resources.WorkspaceConfigurationOverride{{Name: "INSTALL", Key: "config", Value: "same"}})
@@ -141,25 +141,25 @@ func TestModuleArtifactInvocationAndEvidenceIngress(t *testing.T) {
 		_, err := resources.DecodeWorkspaceConfigurationOverrides(encoded)
 		require.Error(t, err)
 	}
-	evidence := &basev0.Configuration{Infos: []*basev0.ConfigurationInformation{{ConfigurationValues: []*basev0.ConfigurationValue{{Key: "K", ResolvedModuleArtifact: &basev0.ResolvedConfigurationModuleArtifact{}}}}}}
-	require.Error(t, resolveModuleArtifacts(ctx, []*basev0.Configuration{evidence}, nil))
+	evidence := &basev1.Configuration{Infos: []*basev1.ConfigurationInformation{{ConfigurationValues: []*basev1.ConfigurationValue{{Key: "K", ResolvedModuleArtifact: &basev1.ResolvedConfigurationModuleArtifact{}}}}}}
+	require.Error(t, resolveModuleArtifacts(ctx, []*basev1.Configuration{evidence}, nil))
 }
 
 func TestModuleArtifactReferenceReplacementAndOverrideChecks(t *testing.T) {
-	ref := func(p string) *basev0.ConfigurationInformation {
-		return &basev0.ConfigurationInformation{Name: "g", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "K", ModuleArtifact: &basev0.ConfigurationModuleArtifactReference{Module: "m", Path: p}}}}
+	ref := func(p string) *basev1.ConfigurationInformation {
+		return &basev1.ConfigurationInformation{Name: "g", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "K", ModuleArtifact: &basev1.ConfigurationModuleArtifactReference{Module: "m", Path: p}}}}
 	}
 	overlay := newProfileOverlay()
-	require.NoError(t, overlay.add("base", []*basev0.ConfigurationInformation{ref("a")}))
-	require.NoError(t, overlay.add("derived", []*basev0.ConfigurationInformation{ref("b")}))
+	require.NoError(t, overlay.add("base", []*basev1.ConfigurationInformation{ref("a")}))
+	require.NoError(t, overlay.add("derived", []*basev1.ConfigurationInformation{ref("b")}))
 	require.Equal(t, "b", overlay.infos[0].ConfigurationValues[0].ModuleArtifact.Path)
-	literal := &basev0.ConfigurationInformation{Name: "g", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "k", Value: "a"}}}
-	require.Error(t, overlay.add("later", []*basev0.ConfigurationInformation{literal}))
+	literal := &basev1.ConfigurationInformation{Name: "g", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "k", Value: "a"}}}
+	require.Error(t, overlay.add("later", []*basev1.ConfigurationInformation{literal}))
 	_, err := overlayWorkspaceConfigurationOverride(ref("a"), literal, "m")
 	require.Error(t, err)
-	_, err = applyServiceConfigurationOverrides(map[string]*basev0.Configuration{"m/s": {Origin: "m/s", Infos: []*basev0.ConfigurationInformation{ref("a")}}}, []string{"m/s"}, `[{"service":"m/s","name":"g","key":"K","value":"a"}]`)
+	_, err = applyServiceConfigurationOverrides(map[string]*basev1.Configuration{"m/s": {Origin: "m/s", Infos: []*basev1.ConfigurationInformation{ref("a")}}}, []string{"m/s"}, `[{"service":"m/s","name":"g","key":"K","value":"a"}]`)
 	require.Error(t, err)
-	require.Error(t, checkArtifactOverlay(ref("a"), &basev0.ConfigurationInformation{Name: "g", Data: &basev0.ConfigurationData{}}, true))
+	require.Error(t, checkArtifactOverlay(ref("a"), &basev1.ConfigurationInformation{Name: "g", Data: &basev1.ConfigurationData{}}, true))
 }
 
 func TestModuleArtifactComposedScopeAndDiscardedLiteral(t *testing.T) {
@@ -176,7 +176,7 @@ func TestModuleArtifactComposedScopeAndDiscardedLiteral(t *testing.T) {
 	write("public.json", "public\nbytes\n")
 	ws, err := resources.LoadWorkspaceFromDir(t.Context(), filepath.Join(root, "solution"))
 	require.NoError(t, err)
-	resolver := func(_ context.Context, r *basev0.ConfigurationModuleArtifactReference) ([]byte, error) {
+	resolver := func(_ context.Context, r *basev1.ConfigurationModuleArtifactReference) ([]byte, error) {
 		return os.ReadFile(filepath.Join(root, r.Path))
 	}
 	provided, err := ReadWorkspaceConfigurations(t.Context(), ws, resources.LocalEnvironment(), resolver)

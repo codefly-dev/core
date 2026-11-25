@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/configuration"
 	"github.com/codefly-dev/core/provider/sdk"
 	"github.com/codefly-dev/core/provider/sink"
@@ -28,7 +28,7 @@ func runtimeAddress(name string) sink.Address {
 		Environment: "production",
 		Binding:     "billing-stripe",
 		Provider:    "stripe",
-		Purpose:     providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		Purpose:     providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
 		Name:        name,
 	}
 }
@@ -57,7 +57,7 @@ func TestPutDurableCapturesAndHostRecovers(t *testing.T) {
 	ref, err := s.PutDurable(reservation.Target(), value)
 	require.NoError(t, err)
 	require.NoError(t, configuration.ValidateOpaqueReference(ref.GetReference()))
-	require.Equal(t, providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, ref.GetPurpose())
+	require.Equal(t, providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, ref.GetPurpose())
 	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, ref.GetSafeFingerprint())
 	require.NotContains(t, ref.GetReference(), string(value))
 
@@ -245,7 +245,7 @@ func TestLookupRejectsPurposeMismatch(t *testing.T) {
 	ref, err := s.PutDurable(reservation.Target(), []byte("sk_live_scoped"))
 	require.NoError(t, err)
 
-	ref.Purpose = providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT
+	ref.Purpose = providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT
 	_, err = s.Lookup(ref)
 	require.Error(t, err)
 }
@@ -275,7 +275,7 @@ func TestAuditLogsOperationsWithoutValues(t *testing.T) {
 func TestAddressValidation(t *testing.T) {
 	s := newMemory(t)
 	for name, addr := range map[string]sink.Address{
-		"missing consumer":    {Environment: "prod", Binding: "b", Provider: "p", Purpose: providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, Name: "n"},
+		"missing consumer":    {Environment: "prod", Binding: "b", Provider: "p", Purpose: providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME, Name: "n"},
 		"missing purpose":     {Consumer: "c", Environment: "prod", Binding: "b", Provider: "p", Name: "n"},
 		"secret-shaped scope": runtimeSecretShaped(),
 	} {
@@ -297,7 +297,7 @@ func TestSinkReferenceFlowsThroughCaptureResult(t *testing.T) {
 	ref, err := s.PutDurable(reservation.Target(), []byte("sk_live_capture"))
 	require.NoError(t, err)
 
-	result := &providerv0.CaptureResult{
+	result := &providerv1.CaptureResult{
 		CaptureId:     "capture-1",
 		Selector:      "v1:$.secret",
 		SinkReference: ref,

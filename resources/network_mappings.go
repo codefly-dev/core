@@ -9,23 +9,23 @@ import (
 
 	"github.com/codefly-dev/core/standards"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
-func NewNativeNetworkAccess() *basev0.NetworkAccess {
-	return &basev0.NetworkAccess{
+func NewNativeNetworkAccess() *basev1.NetworkAccess {
+	return &basev1.NetworkAccess{
 		Kind: NetworkAccessNative,
 	}
 }
 
-func NewContainerNetworkAccess() *basev0.NetworkAccess {
-	return &basev0.NetworkAccess{
+func NewContainerNetworkAccess() *basev1.NetworkAccess {
+	return &basev1.NetworkAccess{
 		Kind: NetworkAccessContainer,
 	}
 }
 
-func NewPublicNetworkAccess() *basev0.NetworkAccess {
-	return &basev0.NetworkAccess{
+func NewPublicNetworkAccess() *basev1.NetworkAccess {
+	return &basev1.NetworkAccess{
 		Kind: NetworkAccessPublic,
 	}
 }
@@ -50,16 +50,16 @@ func DefaultNetworkInstance(api string) *NetworkInstance {
 	return instance
 }
 
-func NewNetworkInstance(hostname string, port uint16) *basev0.NetworkInstance {
-	return &basev0.NetworkInstance{
+func NewNetworkInstance(hostname string, port uint16) *basev1.NetworkInstance {
+	return &basev1.NetworkInstance{
 		Hostname: hostname,
 		Host:     fmt.Sprintf("%s:%d", hostname, port),
 		Port:     uint32(port),
 		Address:  fmt.Sprintf("%s:%d", hostname, port),
 	}
 }
-func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev0.NetworkInstance {
-	instance := &basev0.NetworkInstance{
+func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev1.NetworkInstance {
+	instance := &basev1.NetworkInstance{
 		Hostname: hostname,
 		Port:     uint32(port),
 		Host:     fmt.Sprintf("%s:%d", hostname, port),
@@ -75,7 +75,7 @@ func NewHTTPNetworkInstance(hostname string, port uint16, secured bool) *basev0.
 // endpointMatches compares two endpoints by identity. Nil-safe: these protos come
 // from another process, so a nil endpoint (at any level) must never panic — it just
 // doesn't match. (An agent must never panic on the shape of its inputs.)
-func endpointMatches(a, b *basev0.Endpoint) bool {
+func endpointMatches(a, b *basev1.Endpoint) bool {
 	if a == nil || b == nil {
 		return false
 	}
@@ -84,14 +84,14 @@ func endpointMatches(a, b *basev0.Endpoint) bool {
 
 // accessKindMatches reports whether an instance's access kind equals the requested
 // one, tolerating nil at every level (nil instance / nil Access / nil networkAccess).
-func accessKindMatches(instance *basev0.NetworkInstance, networkAccess *basev0.NetworkAccess) bool {
+func accessKindMatches(instance *basev1.NetworkInstance, networkAccess *basev1.NetworkAccess) bool {
 	if instance == nil || instance.Access == nil || networkAccess == nil {
 		return false
 	}
 	return instance.Access.Kind == networkAccess.Kind
 }
 
-func FilterNetworkInstance(_ context.Context, instances []*basev0.NetworkInstance, networkAccess *basev0.NetworkAccess) *basev0.NetworkInstance {
+func FilterNetworkInstance(_ context.Context, instances []*basev1.NetworkInstance, networkAccess *basev1.NetworkAccess) *basev1.NetworkInstance {
 	for _, instance := range instances {
 		if accessKindMatches(instance, networkAccess) {
 			return instance
@@ -100,7 +100,7 @@ func FilterNetworkInstance(_ context.Context, instances []*basev0.NetworkInstanc
 	return nil
 }
 
-func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint, networkAccess *basev0.NetworkAccess) (*basev0.NetworkInstance, error) {
+func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev1.NetworkMapping, endpoint *basev1.Endpoint, networkAccess *basev1.NetworkAccess) (*basev1.NetworkInstance, error) {
 	w := wool.Get(ctx).In("FindNetworkInstanceInNetworkMappings")
 	if endpoint == nil {
 		return nil, w.NewError("can't find network instance for a nil endpoint")
@@ -138,7 +138,7 @@ func FindNetworkInstanceInNetworkMappings(ctx context.Context, mappings []*basev
 		EndpointFromProto(endpoint).Unique(), wanted, len(available), available)
 }
 
-func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, endpoint *basev0.Endpoint) (*basev0.NetworkMapping, error) {
+func FindNetworkMapping(ctx context.Context, mappings []*basev1.NetworkMapping, endpoint *basev1.Endpoint) (*basev1.NetworkMapping, error) {
 	w := wool.Get(ctx).In("FindNetworkMapping")
 	if endpoint == nil {
 		return nil, w.NewError("can't find network instance for a nil endpoint")
@@ -166,8 +166,8 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 // the one that composed its module. There is no selecting from what another holder judged: a holder
 // that can find no composition refuses the addresses as unjudged
 // (ErrUnjudgedProvenance) rather than wiring them.
-func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
-	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
+func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule string, dependencies []*ServiceDependency, mappings []*basev1.NetworkMapping) ([]*basev1.NetworkMapping, error) {
+	endpoints := make([]*basev1.Endpoint, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
 			return nil, fmt.Errorf("dependency network mapping is missing its endpoint")
@@ -193,7 +193,7 @@ func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule stri
 			selected[EndpointDestination(endpoint)] = struct{}{}
 		}
 	}
-	var resolved []*basev0.NetworkMapping
+	var resolved []*basev1.NetworkMapping
 	for _, mapping := range mappings {
 		if _, ok := selected[EndpointDestination(mapping.Endpoint)]; ok {
 			resolved = append(resolved, mapping)
@@ -202,7 +202,7 @@ func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule stri
 	return resolved, nil
 }
 
-func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
+func MakeManyNetworkMappingSummary(mappings []*basev1.NetworkMapping) string {
 	var results []string
 	for _, mapping := range mappings {
 		results = append(results, MakeNetworkMappingSummary(mapping))
@@ -210,7 +210,7 @@ func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	return strings.Join(results, ", ")
 }
 
-func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
+func MakeNetworkMappingSummary(mapping *basev1.NetworkMapping) string {
 	var summaries []string
 	for _, instance := range mapping.Instances {
 		summaries = append(summaries, NetworkInstanceSummary(instance))
@@ -218,15 +218,15 @@ func MakeNetworkMappingSummary(mapping *basev0.NetworkMapping) string {
 	return fmt.Sprintf("%s:%s", EndpointDestination(mapping.Endpoint), strings.Join(summaries, ", "))
 }
 
-func NetworkInstanceSummary(value *basev0.NetworkInstance) string {
+func NetworkInstanceSummary(value *basev1.NetworkInstance) string {
 	return fmt.Sprintf("%s:%d (%s)", value.Hostname, value.Port, value.Access.Kind)
 }
 
-func networkMappingHash(n *basev0.NetworkMapping) string {
+func networkMappingHash(n *basev1.NetworkMapping) string {
 	return HashString(n.String())
 }
 
-func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) string {
+func NetworkMappingHash(networkMappings ...*basev1.NetworkMapping) string {
 	hasher := NewHasher()
 	for _, networkMapping := range networkMappings {
 		hasher.Add(networkMappingHash(networkMapping))
@@ -234,12 +234,12 @@ func NetworkMappingHash(networkMappings ...*basev0.NetworkMapping) string {
 	return hasher.Hash()
 }
 
-func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) []*basev0.NetworkMapping {
-	var results []*basev0.NetworkMapping
+func LocalizeNetworkMapping(mappings []*basev1.NetworkMapping, hostname string) []*basev1.NetworkMapping {
+	var results []*basev1.NetworkMapping
 	for _, mapping := range mappings {
-		var instances []*basev0.NetworkInstance
+		var instances []*basev1.NetworkInstance
 		for _, instance := range mapping.Instances {
-			instances = append(instances, &basev0.NetworkInstance{
+			instances = append(instances, &basev1.NetworkInstance{
 				Hostname: hostname,
 				Host:     fmt.Sprintf("%s:%d", hostname, instance.Port),
 				Port:     instance.Port,
@@ -247,7 +247,7 @@ func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) 
 				Access:   instance.Access,
 			})
 		}
-		results = append(results, &basev0.NetworkMapping{
+		results = append(results, &basev1.NetworkMapping{
 			Endpoint:  mapping.Endpoint,
 			Instances: instances,
 		})
@@ -260,9 +260,9 @@ func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) 
 // workspace — an exposed endpoint, or an external one, which lives there — from
 // the rest. It is an ADDRESSING split, keyed on exposure and location; a
 // visibility says who may call and never where an address is.
-func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, []*basev0.NetworkMapping, error) {
-	var public []*basev0.NetworkMapping
-	var nonPublic []*basev0.NetworkMapping
+func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev1.NetworkMapping) ([]*basev1.NetworkMapping, []*basev1.NetworkMapping, error) {
+	var public []*basev1.NetworkMapping
+	var nonPublic []*basev1.NetworkMapping
 	for _, mapping := range mappings {
 		// A mapping is handed out by its declaration, so the declaration is
 		// judged whole here as on every proto ingress.

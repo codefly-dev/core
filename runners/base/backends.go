@@ -3,7 +3,7 @@ package base
 import (
 	"os/exec"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 )
 
 // BackendSupport declares which execution backends a plugin is CAPABLE of, so
@@ -32,7 +32,7 @@ type BackendSupport struct {
 // DOCKER only when the docker CLI exists. An EMPTY result means nothing is
 // runnable here — the CLI turns that into an actionable "no runtime backend
 // available" error rather than failing deep in startup.
-func (s BackendSupport) ResolveBackends() []*agentv0.Backend {
+func (s BackendSupport) ResolveBackends() []*agentv1.Backend {
 	return s.resolveBackends(CheckNixInstalled, IsNixSupported, DockerInstalled)
 }
 
@@ -40,16 +40,16 @@ func (s BackendSupport) resolveBackends(
 	nixInstalled func() bool,
 	nixSupported func() bool,
 	dockerInstalled func() bool,
-) []*agentv0.Backend {
-	var out []*agentv0.Backend
+) []*agentv1.Backend {
+	var out []*agentv1.Backend
 	if s.Local != nil && s.Local() {
-		out = append(out, &agentv0.Backend{Type: agentv0.Backend_LOCAL})
+		out = append(out, &agentv1.Backend{Type: agentv1.Backend_LOCAL})
 	}
 	if s.Nix && nixInstalled() && nixSupported() {
-		out = append(out, &agentv0.Backend{Type: agentv0.Backend_NIX})
+		out = append(out, &agentv1.Backend{Type: agentv1.Backend_NIX})
 	}
 	if s.Docker && dockerInstalled() {
-		out = append(out, &agentv0.Backend{Type: agentv0.Backend_DOCKER})
+		out = append(out, &agentv1.Backend{Type: agentv1.Backend_DOCKER})
 	}
 	return out
 }

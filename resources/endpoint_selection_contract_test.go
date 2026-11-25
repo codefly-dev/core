@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +46,7 @@ func TestBindingHoldsTheMappingToTheSelectedAPI(t *testing.T) {
 	selection := resources.EndpointSelectionContext{ConsumerModule: "payments",
 		Declared: declaredBy(selectionEndpoint("rpc", "grpc", "public"))}
 
-	_, err := resolveFor(t, selectionUnique+"/rpc", []*basev0.NetworkMapping{
+	_, err := resolveFor(t, selectionUnique+"/rpc", []*basev1.NetworkMapping{
 		selectionMapping("rpc", "http", nativeAt("http://localhost:8080")),
 		selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090")),
 	}, resources.NewNativeNetworkAccess(), selection)
@@ -54,7 +54,7 @@ func TestBindingHoldsTheMappingToTheSelectedAPI(t *testing.T) {
 	require.Contains(t, err.Error(), "conflicting mapping metadata")
 	require.NotContains(t, err.Error(), "localhost:8080")
 
-	out, err := resolveFor(t, selectionUnique+"/rpc::grpc", []*basev0.NetworkMapping{
+	out, err := resolveFor(t, selectionUnique+"/rpc::grpc", []*basev1.NetworkMapping{
 		selectionMapping("rpc", "", nativeAt("http://localhost:9090")),
 	}, resources.NewNativeNetworkAccess(), selection)
 	require.NoError(t, err, "a mapping stating no API is the declared endpoint")
@@ -82,17 +82,17 @@ func TestAnUnknownProducerAndAnEmptyManifestAreDistinctRefusals(t *testing.T) {
 // a consumer of this package could not get right by ordering the mappings it
 // handed over, because the two references need opposite orders.
 func TestTwoReferencesIntoOneProducerAreEachAnsweredByTheEndpointTheyName(t *testing.T) {
-	conf := &basev0.Configuration{
+	conf := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "authority",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "primary", Value: "${endpoint:" + selectionUnique + "/grpc}"},
 				{Key: "secondary", Value: "${endpoint:" + selectionUnique + "/admin}"},
 			},
 		}},
 	}
-	for name, mappings := range map[string][]*basev0.NetworkMapping{
+	for name, mappings := range map[string][]*basev1.NetworkMapping{
 		"admin first": {
 			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
@@ -120,15 +120,15 @@ func TestTwoReferencesIntoOneProducerAreEachAnsweredByTheEndpointTheyName(t *tes
 func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testing.T) {
 	ctx := context.Background()
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
-	mappings := []*basev0.NetworkMapping{
+	mappings := []*basev1.NetworkMapping{
 		selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 	}
-	ambiguous := &basev0.Configuration{
+	ambiguous := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name:                "authority",
-			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "address", Value: "${endpoint:" + selectionUnique + "/rest}"}},
+			ConfigurationValues: []*basev1.ConfigurationValue{{Key: "address", Value: "${endpoint:" + selectionUnique + "/rest}"}},
 		}},
 	}
 	// `rest` names no endpoint: the API matches are all three public siblings.
@@ -142,12 +142,12 @@ func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testin
 
 	// And a template literal carrying the same reference is refused the same
 	// way: the fault does not hide inside an assembly.
-	templated := &basev0.Configuration{
+	templated := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "authority",
-			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "dsn", Template: &basev0.ConfigurationValueTemplate{
-				Segments: []*basev0.ConfigurationValueTemplateSegment{{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "grpc://${endpoint:" + selectionUnique + "/rest}/x"}}},
+			ConfigurationValues: []*basev1.ConfigurationValue{{Key: "dsn", Template: &basev1.ConfigurationValueTemplate{
+				Segments: []*basev1.ConfigurationValueTemplateSegment{{Content: &basev1.ConfigurationValueTemplateSegment_Literal{Literal: "grpc://${endpoint:" + selectionUnique + "/rest}/x"}}},
 			}}},
 		}},
 	}
@@ -157,11 +157,11 @@ func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testin
 	// Whereas an endpoint this consumer may not reach IS a per-consumer
 	// omission: the value was not for it, and nothing else of the
 	// configuration is lost.
-	private := &basev0.Configuration{
+	private := &basev1.Configuration{
 		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "authority",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "address", Value: "${endpoint:" + selectionUnique + "/grpc}"},
 				{Key: "public", Value: "${endpoint:" + selectionUnique + "/admin}"},
 			},

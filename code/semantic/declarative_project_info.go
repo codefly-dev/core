@@ -19,13 +19,13 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/codefly-dev/core/code"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // InspectProject fills declarative project metadata for a JVM or .NET code
 // unit. Other languages are rejected: their inspection belongs to a dedicated
 // language agent.
-func (a *Analyzer) InspectProject(ctx context.Context, fs code.VFS, sourceDir, language string, info *codev0.GetProjectInfoResponse) error {
+func (a *Analyzer) InspectProject(ctx context.Context, fs code.VFS, sourceDir, language string, info *codev1.GetProjectInfoResponse) error {
 	switch language {
 	case "jvm":
 		return a.inspectJVMProject(ctx, fs, sourceDir, info)
@@ -36,7 +36,7 @@ func (a *Analyzer) InspectProject(ctx context.Context, fs code.VFS, sourceDir, l
 	}
 }
 
-func (a *Analyzer) inspectJVMProject(ctx context.Context, fs code.VFS, sourceDir string, info *codev0.GetProjectInfoResponse) error {
+func (a *Analyzer) inspectJVMProject(ctx context.Context, fs code.VFS, sourceDir string, info *codev1.GetProjectInfoResponse) error {
 	if data, err := fs.ReadFile(filepath.Join(sourceDir, "pom.xml")); err == nil {
 		if err := inspectMavenProject(data, info); err != nil {
 			return fmt.Errorf("inspect pom.xml: %w", err)
@@ -125,7 +125,7 @@ type mavenDependency struct {
 	Version    string `xml:"version"`
 }
 
-func inspectMavenProject(data []byte, info *codev0.GetProjectInfoResponse) error {
+func inspectMavenProject(data []byte, info *codev1.GetProjectInfoResponse) error {
 	var project mavenProject
 	if err := xml.Unmarshal(data, &project); err != nil {
 		return err
@@ -146,14 +146,14 @@ func inspectMavenProject(data []byte, info *codev0.GetProjectInfoResponse) error
 		if name == "" {
 			continue
 		}
-		info.Dependencies = append(info.Dependencies, &codev0.Dependency{
+		info.Dependencies = append(info.Dependencies, &codev1.Dependency{
 			Name: name, Version: resolveManifestProperty(strings.TrimSpace(dependency.Version), project.Properties.Values), Direct: true,
 		})
 	}
 	return nil
 }
 
-func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Language, info *codev0.GetProjectInfoResponse) error {
+func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Language, info *codev1.GetProjectInfoResponse) error {
 	tree, err := parseSyntaxTree(ctx, language, data)
 	if err != nil {
 		return err
@@ -195,7 +195,7 @@ func inspectGradleProject(ctx context.Context, data []byte, language *sitter.Lan
 			return
 		}
 		seen[key] = struct{}{}
-		info.Dependencies = append(info.Dependencies, &codev0.Dependency{Name: name, Version: version, Direct: true})
+		info.Dependencies = append(info.Dependencies, &codev1.Dependency{Name: name, Version: version, Direct: true})
 	})
 	return nil
 }
@@ -287,7 +287,7 @@ func resolveManifestProperty(value string, properties map[string]string) string 
 	return value
 }
 
-func (a *Analyzer) inspectDotNetProject(ctx context.Context, fs code.VFS, sourceDir string, info *codev0.GetProjectInfoResponse) error {
+func (a *Analyzer) inspectDotNetProject(ctx context.Context, fs code.VFS, sourceDir string, info *codev1.GetProjectInfoResponse) error {
 	var manifests []string
 	err := fs.WalkDir(sourceDir, func(filename string, entry osfs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -342,7 +342,7 @@ func (a *Analyzer) inspectDotNetProject(ctx context.Context, fs code.VFS, source
 				continue
 			}
 			seen[key] = struct{}{}
-			info.Dependencies = append(info.Dependencies, &codev0.Dependency{Name: name, Version: version, Direct: true})
+			info.Dependencies = append(info.Dependencies, &codev1.Dependency{Name: name, Version: version, Direct: true})
 		}
 	}
 	if len(frameworks) == 1 {
@@ -371,7 +371,7 @@ type dotNetPackageReference struct {
 	VersionElement string `xml:"Version"`
 }
 
-func packagesFromSourceFiles(files []*codev0.SourceFileInfo) []*codev0.PackageInfo {
+func packagesFromSourceFiles(files []*codev1.SourceFileInfo) []*codev1.PackageInfo {
 	type accumulator struct {
 		files   []string
 		imports []string
@@ -396,11 +396,11 @@ func packagesFromSourceFiles(files []*codev0.SourceFileInfo) []*codev0.PackageIn
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	result := make([]*codev0.PackageInfo, 0, len(paths))
+	result := make([]*codev1.PackageInfo, 0, len(paths))
 	for _, path := range paths {
 		value := byPath[path]
 		sort.Strings(value.files)
-		result = append(result, &codev0.PackageInfo{
+		result = append(result, &codev1.PackageInfo{
 			Name: path, RelativePath: path, Files: value.files, Imports: code.CanonicalImports(value.imports),
 		})
 	}

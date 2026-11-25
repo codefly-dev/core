@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/agents/contract"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -23,9 +23,9 @@ var ErrNoRuntimeBackend = errors.New("no runtime backend available")
 //
 // Completeness is the difference between an agent that can run nowhere here and
 // an agent that said nothing; on the wire both are an empty repeated field.
-func (instance *Instance) DeclaredBackends() ([]agentv0.Backend_Type, bool) {
+func (instance *Instance) DeclaredBackends() ([]agentv1.Backend_Type, bool) {
 	declared := instance.Info.GetSupportedBackends()
-	backends := make([]agentv0.Backend_Type, 0, len(declared))
+	backends := make([]agentv1.Backend_Type, 0, len(declared))
 	for _, backend := range declared {
 		backends = append(backends, backend.GetType())
 	}
@@ -66,12 +66,12 @@ type RuntimeContextRequest struct {
 	// in its preference order. A caller that subtracts its own facts here makes
 	// them indistinguishable from the agent's, and every diagnostic downstream
 	// then blames the agent for the caller's state: pass Unavailable instead.
-	Backends []agentv0.Backend_Type
+	Backends []agentv1.Backend_Type
 	// Unavailable are declared backends the caller knows cannot be used right
 	// now — a Docker engine that is installed but not running. Core reconciles
 	// a declaration and probes nothing, so this is the only way host state
 	// reaches the plan, and it stays attributable to the caller that supplied it.
-	Unavailable []agentv0.Backend_Type
+	Unavailable []agentv1.Backend_Type
 	// Complete is the second result of Instance.DeclaredBackends.
 	Complete bool
 }
@@ -111,7 +111,7 @@ type RuntimeContextRefusal struct {
 	// have been planned. It is empty when the agent declared it can use no
 	// backend here at all: that is the agent's own verdict and nothing the
 	// caller can remedy, and the two cases are told apart by this field.
-	Unavailable []agentv0.Backend_Type
+	Unavailable []agentv1.Backend_Type
 }
 
 // NoRuntimeBackendError names every service no runtime context could be planned
@@ -189,7 +189,7 @@ func PlanRuntimeContexts(requests []RuntimeContextRequest) ([]RuntimeContextDeci
 			}
 		}
 		decision.LeavesContainerImage = decision.Context != resources.RuntimeContextContainer &&
-			(request.Requested == resources.RuntimeContextContainer || slices.Contains(unusable, agentv0.Backend_DOCKER))
+			(request.Requested == resources.RuntimeContextContainer || slices.Contains(unusable, agentv1.Backend_DOCKER))
 		decisions[i] = decision
 	}
 	if len(refused) > 0 {
@@ -202,7 +202,7 @@ func PlanRuntimeContexts(requests []RuntimeContextRequest) ([]RuntimeContextDeci
 // used right now and those the caller reported unusable, preserving the agent's
 // preference order. A backend this host has no runtime context for — an agent
 // built against a newer schema — is dropped from both rather than guessed at.
-func partitionBackends(request RuntimeContextRequest) (usable, unusable []agentv0.Backend_Type) {
+func partitionBackends(request RuntimeContextRequest) (usable, unusable []agentv1.Backend_Type) {
 	for _, backend := range request.Backends {
 		if runtimeContextForBackend(backend) == "" {
 			continue
@@ -218,13 +218,13 @@ func partitionBackends(request RuntimeContextRequest) (usable, unusable []agentv
 
 // runtimeContextForBackend is the runtime context a service runs in on a
 // backend, empty for a backend this host has no context for.
-func runtimeContextForBackend(backend agentv0.Backend_Type) string {
+func runtimeContextForBackend(backend agentv1.Backend_Type) string {
 	switch backend {
-	case agentv0.Backend_LOCAL:
+	case agentv1.Backend_LOCAL:
 		return resources.RuntimeContextNative
-	case agentv0.Backend_NIX:
+	case agentv1.Backend_NIX:
 		return resources.RuntimeContextNix
-	case agentv0.Backend_DOCKER:
+	case agentv1.Backend_DOCKER:
 		return resources.RuntimeContextContainer
 	default:
 		return ""
@@ -234,22 +234,22 @@ func runtimeContextForBackend(backend agentv0.Backend_Type) string {
 // backendForRuntimeContext is the backend a requested runtime context needs.
 // "free" names none and accepts any, so it matches no declared backend and
 // falls through to the agent's own preference.
-func backendForRuntimeContext(runtimeContext string) agentv0.Backend_Type {
+func backendForRuntimeContext(runtimeContext string) agentv1.Backend_Type {
 	switch runtimeContext {
 	case resources.RuntimeContextNative:
-		return agentv0.Backend_LOCAL
+		return agentv1.Backend_LOCAL
 	case resources.RuntimeContextNix:
-		return agentv0.Backend_NIX
+		return agentv1.Backend_NIX
 	case resources.RuntimeContextContainer:
-		return agentv0.Backend_DOCKER
+		return agentv1.Backend_DOCKER
 	default:
-		return agentv0.Backend_UNKNOWN
+		return agentv1.Backend_UNKNOWN
 	}
 }
 
 // runtimeContextsForBackends names backends in the vocabulary the user typed on
 // the command line, rather than the wire's.
-func runtimeContextsForBackends(backends []agentv0.Backend_Type) []string {
+func runtimeContextsForBackends(backends []agentv1.Backend_Type) []string {
 	contexts := make([]string, 0, len(backends))
 	for _, backend := range backends {
 		if context := runtimeContextForBackend(backend); context != "" {

@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 )
@@ -118,27 +118,27 @@ func TestInterfaceSaveRoundTrips(t *testing.T) {
 	require.Equal(t, widgets, reloaded)
 }
 
-func connection(values ...*basev0.ConfigurationValue) *basev0.Configuration {
-	return &basev0.Configuration{
+func connection(values ...*basev1.ConfigurationValue) *basev1.Configuration {
+	return &basev1.Configuration{
 		Origin: "platform/redis",
-		Infos:  []*basev0.ConfigurationInformation{{Name: "connection", ConfigurationValues: values}},
+		Infos:  []*basev1.ConfigurationInformation{{Name: "connection", ConfigurationValues: values}},
 	}
 }
 
 func TestCapabilityConfigurationMustConform(t *testing.T) {
 	cache := loadDefinition(t, cacheDefinitionDir)
-	url := &basev0.ConfigurationValue{Key: "url", Value: "redis://cache:6379"}
-	password := &basev0.ConfigurationValue{Key: "password", Value: "s3cret", Secret: true}
+	url := &basev1.ConfigurationValue{Key: "url", Value: "redis://cache:6379"}
+	password := &basev1.ConfigurationValue{Key: "password", Value: "s3cret", Secret: true}
 
 	require.NoError(t, cache.ValidateConfiguration(connection(url, password)), "the optional key may be absent")
 
 	require.ErrorContains(t, cache.ValidateConfiguration(connection(url)), `required key "password" is missing`)
-	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, &basev0.ConfigurationValue{Key: "password", Value: "s3cret"})),
+	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, &basev1.ConfigurationValue{Key: "password", Value: "s3cret"})),
 		`key "password" must have secret=true`)
-	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev0.ConfigurationValue{Key: "host", Value: "cache"})),
+	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev1.ConfigurationValue{Key: "host", Value: "cache"})),
 		`key "host" is not part of the interface`)
-	require.ErrorContains(t, cache.ValidateConfiguration(&basev0.Configuration{Origin: "platform/redis"}), `has no "connection" group`)
-	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev0.ConfigurationValue{Key: "url", Value: "redis://other:6379"})),
+	require.ErrorContains(t, cache.ValidateConfiguration(&basev1.Configuration{Origin: "platform/redis"}), `has no "connection" group`)
+	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev1.ConfigurationValue{Key: "url", Value: "redis://other:6379"})),
 		`key "url" is emitted more than once`)
 
 	widgets := loadDefinition(t, widgetsDefinitionDir)

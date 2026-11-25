@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -93,12 +93,12 @@ type ProducerLookup func(unique string) (*resources.Service, bool)
 // resources.InterpolateConfigurationEndpoints with WithRunProducers, which fails
 // when a producer the run DOES contain was not handed to a consumer. Neither
 // half subsumes the other, and a reference is silently dropped by neither.
-func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consumers []*resources.Service, profile resources.RunProfile, producer ProducerLookup) error {
+func CheckEndpointReferences(provided []*basev1.ConfigurationInformation, consumers []*resources.Service, profile resources.RunProfile, producer ProducerLookup) error {
 	excluded := make(map[string]bool, len(profile.ExcludeWorkspaceConfigurations))
 	for _, group := range profile.ExcludeWorkspaceConfigurations {
 		excluded[group] = true
 	}
-	byGroup := make(map[string][]*basev0.ConfigurationInformation)
+	byGroup := make(map[string][]*basev1.ConfigurationInformation)
 	for _, info := range provided {
 		byGroup[info.GetName()] = append(byGroup[info.GetName()], info)
 	}

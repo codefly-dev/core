@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strconv"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // PnpmWithOptions audits the committed pnpm dependency graph without installing
@@ -74,7 +74,7 @@ type pnpmAuditReport struct {
 	Error json.RawMessage `json:"error"`
 }
 
-func parsePnpmAudit(data []byte) ([]*builderv0.AuditFinding, error) {
+func parsePnpmAudit(data []byte) ([]*builderv1.AuditFinding, error) {
 	var report pnpmAuditReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, fmt.Errorf("parse pnpm audit JSON: %w", err)
@@ -85,10 +85,10 @@ func parsePnpmAudit(data []byte) ([]*builderv0.AuditFinding, error) {
 	if report.Advisories == nil || report.Metadata == nil || report.Metadata.Vulnerabilities == nil {
 		return nil, fmt.Errorf("pnpm audit returned no complete advisory report")
 	}
-	var findings []*builderv0.AuditFinding
+	var findings []*builderv1.AuditFinding
 	for key, advisory := range report.Advisories {
 		severity := npmSeverity(advisory.Severity)
-		if advisory.Package == "" || len(advisory.Findings) == 0 || severity == builderv0.AuditFinding_UNKNOWN {
+		if advisory.Package == "" || len(advisory.Findings) == 0 || severity == builderv1.AuditFinding_UNKNOWN {
 			return nil, fmt.Errorf("pnpm advisory %s is incomplete", key)
 		}
 		id := advisory.GithubID
@@ -107,7 +107,7 @@ func parsePnpmAudit(data []byte) ([]*builderv0.AuditFinding, error) {
 				continue
 			}
 			seen[finding.Version] = true
-			findings = append(findings, &builderv0.AuditFinding{
+			findings = append(findings, &builderv1.AuditFinding{
 				Id: id, Package: advisory.Package, CurrentVersion: finding.Version,
 				FixedVersion: advisory.Patched, Severity: severity, Summary: advisory.Title, Url: advisory.URL,
 			})
@@ -135,7 +135,7 @@ func parsePnpmAudit(data []byte) ([]*builderv0.AuditFinding, error) {
 
 // pnpm outdated may omit current when node_modules is absent. Resolve current
 // from pnpm's lockfile-only listing, never from an ambient installation.
-func pnpmOutdated(ctx context.Context, dir string, includeDev bool) ([]*builderv0.OutdatedDep, error) {
+func pnpmOutdated(ctx context.Context, dir string, includeDev bool) ([]*builderv1.OutdatedDep, error) {
 	listArgs := []string{"list", "--lockfile-only", "--depth", "0", "--json"}
 	outdatedArgs := []string{"outdated", "--json"}
 	if !includeDev {
@@ -163,7 +163,7 @@ func pnpmOutdated(ctx context.Context, dir string, includeDev bool) ([]*builderv
 	return outdated, nil
 }
 
-func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) {
+func parsePnpmOutdated(locked, output []byte) ([]*builderv1.OutdatedDep, error) {
 	type dependency struct {
 		Version string `json:"version"`
 	}
@@ -191,7 +191,7 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 	if entries == nil {
 		return nil, fmt.Errorf("pnpm outdated returned no report")
 	}
-	var result []*builderv0.OutdatedDep
+	var result []*builderv1.OutdatedDep
 	for name, entry := range entries {
 		if entry.Wanted == "" && entry.Latest == "" {
 			return nil, fmt.Errorf("pnpm outdated entry %s has no version evidence", name)
@@ -204,7 +204,7 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 		if entry.Latest == "" || entry.Latest == version {
 			continue
 		}
-		result = append(result, &builderv0.OutdatedDep{Package: name, Current: version, LatestSafe: entry.Wanted, LatestMajor: entry.Latest})
+		result = append(result, &builderv1.OutdatedDep{Package: name, Current: version, LatestSafe: entry.Wanted, LatestMajor: entry.Latest})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Package < result[j].Package })
 	return result, nil

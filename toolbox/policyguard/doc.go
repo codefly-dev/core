@@ -1,4 +1,4 @@
-// Package policyguard wraps a toolboxv0.ToolboxServer with policy
+// Package policyguard wraps a toolboxv1.ToolboxServer with policy
 // decision point (PDP) enforcement. Every CallTool request hits the
 // PDP first; a deny short-circuits with the PDP's reason as a tool-
 // level error (NOT a transport error — the model should be able to

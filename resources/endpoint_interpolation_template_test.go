@@ -4,21 +4,21 @@ import (
 	"context"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
-func templatedConnectionConfiguration(literal string) *basev0.Configuration {
-	return &basev0.Configuration{
+func templatedConnectionConfiguration(literal string) *basev1.Configuration {
+	return &basev1.Configuration{
 		Origin: "mod/store",
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name: "postgres",
-			ConfigurationValues: []*basev0.ConfigurationValue{
+			ConfigurationValues: []*basev1.ConfigurationValue{
 				{Key: "POSTGRES_PASSWORD", Value: "hunter2", Secret: true},
-				{Key: "CONNECTION", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-					Segments: []*basev0.ConfigurationValueTemplateSegment{
+				{Key: "CONNECTION", Secret: true, Template: &basev1.ConfigurationValueTemplate{
+					Segments: []*basev1.ConfigurationValueTemplateSegment{
 						templateLiteral("postgresql://reader:"),
 						templateReference("postgres", "POSTGRES_PASSWORD",
-							basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
+							basev1.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO),
 						templateLiteral(literal),
 					},
 				}},
@@ -37,9 +37,9 @@ func TestInterpolateConfigurationEndpointsResolvesTemplateLiterals(t *testing.T)
 	if !configurationHasEndpointReference(conf) {
 		t.Fatal("a reference in a template literal must be seen by the pass")
 	}
-	mappings := []*basev0.NetworkMapping{{
-		Endpoint: &basev0.Endpoint{Module: "mod", Service: "store", Name: "postgres"},
-		Instances: []*basev0.NetworkInstance{{
+	mappings := []*basev1.NetworkMapping{{
+		Endpoint: &basev1.Endpoint{Module: "mod", Service: "store", Name: "postgres"},
+		Instances: []*basev1.NetworkInstance{{
 			Access:  NewContainerNetworkAccess(),
 			Address: "store.svc:5432",
 		}},
@@ -82,12 +82,12 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 	outsideTheRun := WithRunProducers(func(string) bool { return false })
 	for _, c := range []struct {
 		name        string
-		interpolate func() (*basev0.Configuration, error)
+		interpolate func() (*basev1.Configuration, error)
 	}{
-		{"strict", func() (*basev0.Configuration, error) {
+		{"strict", func() (*basev1.Configuration, error) {
 			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()), outsideTheRun)
 		}},
-		{"run-wide", func() (*basev0.Configuration, error) {
+		{"run-wide", func() (*basev1.Configuration, error) {
 			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()), outsideTheRun)
 		}},
 	} {

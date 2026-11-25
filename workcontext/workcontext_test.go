@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/workcontext"
 )
 
@@ -121,8 +121,8 @@ func (h *harness) mustVerify(aud, token string) *workcontext.Verified {
 	return verified
 }
 
-func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
-	return &basev0.WorkScopeV1{ResourceKind: kind, Actions: actions, ResourceIds: ids}
+func scope(kind string, actions []string, ids []string) *basev1.WorkScopeV1 {
+	return &basev1.WorkScopeV1{ResourceKind: kind, Actions: actions, ResourceIds: ids}
 }
 
 // ownerSession is step 1: the human starts a task holding read and write on
@@ -137,7 +137,7 @@ func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 		OrganizationID:     organization,
 		TaskID:             taskID,
 		Audience:           aud,
-		AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)},
+		AuthorityScopes:    []*basev1.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)},
 		TTL:                time.Hour,
 	})
 	require.NoError(h.t, err)
@@ -152,7 +152,7 @@ func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 		Audience:      aud,
 		TTL:           30 * time.Minute,
 	})
@@ -163,7 +163,7 @@ func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string
 // resign signs an arbitrary claims message with the harness key. It is how a
 // test presents a capability the minting API would refuse to produce, so the
 // verifier is checked on its own and not merely through the minter.
-func (h *harness) resign(wc *basev0.WorkContextV1) string {
+func (h *harness) resign(wc *basev1.WorkContextV1) string {
 	h.t.Helper()
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
 	require.NoError(h.t, err)
@@ -211,7 +211,7 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
 		TTL:           10 * time.Hour,
 	})
@@ -226,7 +226,7 @@ func TestChild_RejectsWidening(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 
-	for name, widened := range map[string]*basev0.WorkScopeV1{
+	for name, widened := range map[string]*basev1.WorkScopeV1{
 		"an action the parent does not hold":  scope("repo", []string{"write"}, []string{"codefly/core"}),
 		"a resource the parent does not name": scope("repo", []string{"read"}, []string{"codefly/other"}),
 		"every resource of the kind":          scope("repo", []string{"read"}, nil),
@@ -238,7 +238,7 @@ func TestChild_RejectsWidening(t *testing.T) {
 				PrincipalKind: "agent",
 				AgentID:       "codefly.dev/sub:1.0.0",
 				DelegationID:  "d-2",
-				GrantedScopes: []*basev0.WorkScopeV1{widened},
+				GrantedScopes: []*basev1.WorkScopeV1{widened},
 				Audience:      audience,
 				TTL:           time.Minute,
 			})
@@ -257,13 +257,13 @@ func TestVerify_RejectsAWideningHopThatWasSignedAnyway(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 
-	forged := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
+	forged := proto.Clone(agent.Context()).(*basev1.WorkContextV1)
 	forged.Nonce = "forged-nonce"
-	forged.ActorChain = append(forged.ActorChain, &basev0.WorkActorV1{
+	forged.ActorChain = append(forged.ActorChain, &basev1.WorkActorV1{
 		PrincipalId:   "a-sub",
 		PrincipalKind: "agent",
 		DelegationId:  "d-2",
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"write"}, []string{"codefly/core"})},
+		GrantedScopes: []*basev1.WorkScopeV1{scope("repo", []string{"write"}, []string{"codefly/core"})},
 		// A current epoch, so the refusal below is the WIDENING and not the
 		// schema's now-required epoch. A forged hop would carry one.
 		PrincipalEpoch: 1,
@@ -288,7 +288,7 @@ func TestVerify_RejectsATamperedPayload(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	tampered := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	tampered := proto.Clone(owner.Context()).(*basev1.WorkContextV1)
 	tampered.OwnerPrincipalId = "u-someone-else"
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(tampered)
 	require.NoError(t, err)

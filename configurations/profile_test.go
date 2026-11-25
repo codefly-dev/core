@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/configurations"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 )
@@ -344,10 +344,10 @@ environments:
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
 	require.NoError(t, err)
 
-	mappings := func(address string) []*basev0.NetworkMapping {
-		return []*basev0.NetworkMapping{{
-			Endpoint:  &basev0.Endpoint{Module: "saas", Service: "auth", Name: "http", Api: standards.HTTP},
-			Instances: []*basev0.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}},
+	mappings := func(address string) []*basev1.NetworkMapping {
+		return []*basev1.NetworkMapping{{
+			Endpoint:  &basev1.Endpoint{Module: "saas", Service: "auth", Name: "http", Api: standards.HTTP},
+			Instances: []*basev1.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}},
 		}}
 	}
 	inRun := func(unique string) bool { return unique == "saas/auth" }
@@ -421,7 +421,7 @@ modules:
 	require.NoError(t, err)
 	require.Len(t, provided.Unsupplied, 2, "both offers of the vendored group collect the requirement")
 
-	owed := configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev0.ConfigurationInformation {
+	owed := configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev1.ConfigurationInformation {
 		return provided.Infos
 	})
 	require.Len(t, owed, 1, "one value, one line to fix")

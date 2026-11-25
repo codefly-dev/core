@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	providerv0 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	providerv1 "github.com/codefly-dev/core/generated/go/codefly/services/provider/v1"
 	"github.com/codefly-dev/core/provider/canonical"
 	"github.com/codefly-dev/core/provider/configuration"
 	providerstate "github.com/codefly-dev/core/provider/state"
@@ -16,11 +16,11 @@ import (
 )
 
 type Base struct {
-	providerv0.UnimplementedProviderServer
-	information *providerv0.GetProviderInformationResponse
+	providerv1.UnimplementedProviderServer
+	information *providerv1.GetProviderInformationResponse
 }
 
-func NewBase(information *providerv0.GetProviderInformationResponse) (*Base, error) {
+func NewBase(information *providerv1.GetProviderInformationResponse) (*Base, error) {
 	if information == nil || information.GetArtifact() == nil || information.GetCatalog() == nil {
 		return nil, fmt.Errorf("provider information requires artifact and runtime catalog")
 	}
@@ -28,21 +28,21 @@ func NewBase(information *providerv0.GetProviderInformationResponse) (*Base, err
 		information.GetCatalog().GetDigest() == "" {
 		return nil, fmt.Errorf("provider information digests are required")
 	}
-	return &Base{information: proto.Clone(information).(*providerv0.GetProviderInformationResponse)}, nil
+	return &Base{information: proto.Clone(information).(*providerv1.GetProviderInformationResponse)}, nil
 }
 
-func (b *Base) GetProviderInformation(_ context.Context, request *providerv0.GetProviderInformationRequest) (*providerv0.GetProviderInformationResponse, error) {
+func (b *Base) GetProviderInformation(_ context.Context, request *providerv1.GetProviderInformationRequest) (*providerv1.GetProviderInformationResponse, error) {
 	if b == nil || b.information == nil {
 		return nil, status.Error(codes.FailedPrecondition, "provider information is not configured")
 	}
 	if request == nil || !proto.Equal(request.GetArtifact(), b.information.GetArtifact()) {
 		return nil, status.Error(codes.FailedPrecondition, "provider artifact identity mismatch")
 	}
-	return proto.Clone(b.information).(*providerv0.GetProviderInformationResponse), nil
+	return proto.Clone(b.information).(*providerv1.GetProviderInformationResponse), nil
 }
 
-func Diagnostic(severity basev0.FailureDiagnostic_Severity, namespace, code, message string) (*basev0.FailureDiagnostic, error) {
-	if severity == basev0.FailureDiagnostic_SEVERITY_UNSPECIFIED {
+func Diagnostic(severity basev1.FailureDiagnostic_Severity, namespace, code, message string) (*basev1.FailureDiagnostic, error) {
+	if severity == basev1.FailureDiagnostic_SEVERITY_UNSPECIFIED {
 		return nil, fmt.Errorf("diagnostic severity is required")
 	}
 	if namespace == "" || !strings.HasSuffix(namespace, ".") || code == "" || strings.Contains(code, ".") {
@@ -51,70 +51,70 @@ func Diagnostic(severity basev0.FailureDiagnostic_Severity, namespace, code, mes
 	if len(message) == 0 || len(message) > 2048 {
 		return nil, fmt.Errorf("diagnostic message must contain 1 to 2048 bytes")
 	}
-	return &basev0.FailureDiagnostic{Severity: severity, Code: namespace + code, Message: message}, nil
+	return &basev1.FailureDiagnostic{Severity: severity, Code: namespace + code, Message: message}, nil
 }
 
-func Observation(material *providerv0.MaterialObservation, volatile *providerv0.VolatileObservation) (*providerv0.ObserveResponse, error) {
+func Observation(material *providerv1.MaterialObservation, volatile *providerv1.VolatileObservation) (*providerv1.ObserveResponse, error) {
 	if _, err := canonical.MaterialObservationDigest(material); err != nil {
 		return nil, err
 	}
-	response := &providerv0.ObserveResponse{Material: proto.Clone(material).(*providerv0.MaterialObservation)}
+	response := &providerv1.ObserveResponse{Material: proto.Clone(material).(*providerv1.MaterialObservation)}
 	if volatile != nil {
-		response.Volatile = proto.Clone(volatile).(*providerv0.VolatileObservation)
+		response.Volatile = proto.Clone(volatile).(*providerv1.VolatileObservation)
 	}
 	return response, nil
 }
 
-func Plan(plan *providerv0.OrderedPlan) (*providerv0.OrderedPlan, error) {
+func Plan(plan *providerv1.OrderedPlan) (*providerv1.OrderedPlan, error) {
 	return canonical.BindOrderedPlanDigest(plan)
 }
 
-func PlannedRequest(request *providerv0.PlannedRequest) (*providerv0.PlannedRequest, error) {
+func PlannedRequest(request *providerv1.PlannedRequest) (*providerv1.PlannedRequest, error) {
 	return canonical.BindPlannedRequestDigest(request)
 }
 
-func NewCreateAction(id string, position uint32, resourceType, prospectiveRemoteID string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_CREATE, resourceType, prospectiveRemoteID)
+func NewCreateAction(id string, position uint32, resourceType, prospectiveRemoteID string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_CREATE, resourceType, prospectiveRemoteID)
 }
 
-func NewUpdateAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_UPDATE, resourceType, "")
+func NewUpdateAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_UPDATE, resourceType, "")
 }
 
-func NewReplaceAction(id string, position uint32, resourceType, prospectiveRemoteID string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_REPLACE, resourceType, prospectiveRemoteID)
+func NewReplaceAction(id string, position uint32, resourceType, prospectiveRemoteID string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_REPLACE, resourceType, prospectiveRemoteID)
 }
 
-func NewDeleteAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_DELETE, resourceType, "")
+func NewDeleteAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_DELETE, resourceType, "")
 }
 
-func NewImportAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_IMPORT, resourceType, "")
+func NewImportAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_IMPORT, resourceType, "")
 }
 
-func NewManualAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_MANUAL, resourceType, "")
+func NewManualAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_MANUAL, resourceType, "")
 }
 
-func NewBlockedAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_BLOCKED, resourceType, "")
+func NewBlockedAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_BLOCKED, resourceType, "")
 }
 
-func NewNoOpAction(id string, position uint32, resourceType string) (*providerv0.PlanAction, error) {
-	return newAction(id, position, providerv0.ActionType_ACTION_TYPE_NO_OP, resourceType, "")
+func NewNoOpAction(id string, position uint32, resourceType string) (*providerv1.PlanAction, error) {
+	return newAction(id, position, providerv1.ActionType_ACTION_TYPE_NO_OP, resourceType, "")
 }
 
 // NewProjectOutputAction returns a validation-ready PROJECT_OUTPUT action.
 // A project-output action must carry a bound output proposal (canonical
 // validation rejects one without it), so the proposal is a required argument
 // and is digest-bound here rather than left for the caller to attach.
-func NewProjectOutputAction(id string, position uint32, proposal *providerv0.OutputProposal) (*providerv0.PlanAction, error) {
+func NewProjectOutputAction(id string, position uint32, proposal *providerv1.OutputProposal) (*providerv1.PlanAction, error) {
 	bound, err := BindOutputProposal(proposal)
 	if err != nil {
 		return nil, err
 	}
-	action, err := newAction(id, position, providerv0.ActionType_ACTION_TYPE_PROJECT_OUTPUT, "project-output", "")
+	action, err := newAction(id, position, providerv1.ActionType_ACTION_TYPE_PROJECT_OUTPUT, "project-output", "")
 	if err != nil {
 		return nil, err
 	}
@@ -122,11 +122,11 @@ func NewProjectOutputAction(id string, position uint32, proposal *providerv0.Out
 	return action, nil
 }
 
-func BindOutputProposal(proposal *providerv0.OutputProposal) (*providerv0.OutputProposal, error) {
+func BindOutputProposal(proposal *providerv1.OutputProposal) (*providerv1.OutputProposal, error) {
 	if proposal == nil || proposal.GetContract() == "" || proposal.GetTargetGeneration() == 0 {
 		return nil, fmt.Errorf("output proposal contract and target generation are required")
 	}
-	clone := proto.Clone(proposal).(*providerv0.OutputProposal)
+	clone := proto.Clone(proposal).(*providerv1.OutputProposal)
 	computed, err := canonical.OutputProposalDigest(clone)
 	if err != nil {
 		return nil, err
@@ -138,25 +138,25 @@ func BindOutputProposal(proposal *providerv0.OutputProposal) (*providerv0.Output
 	return clone, nil
 }
 
-func DecodeFilteredResponse(response *providerv0.ExecuteRequestResponse) (map[string]*providerv0.PublicValue, error) {
+func DecodeFilteredResponse(response *providerv1.ExecuteRequestResponse) (map[string]*providerv1.PublicValue, error) {
 	if response == nil {
 		return nil, fmt.Errorf("broker response is required")
 	}
 	switch response.GetDelivery() {
-	case providerv0.DeliveryState_DELIVERY_STATE_NOT_SENT,
-		providerv0.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
-		providerv0.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
+	case providerv1.DeliveryState_DELIVERY_STATE_NOT_SENT,
+		providerv1.DeliveryState_DELIVERY_STATE_SENT_OUTCOME_UNKNOWN,
+		providerv1.DeliveryState_DELIVERY_STATE_RESPONSE_RECEIVED:
 	default:
 		return nil, fmt.Errorf("broker response delivery is unknown")
 	}
 	switch response.GetCertainty() {
-	case providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
-		providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_PARTIAL,
-		providerv0.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN:
+	case providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_COMPLETE,
+		providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_PARTIAL,
+		providerv1.OutcomeCertainty_OUTCOME_CERTAINTY_UNCERTAIN:
 	default:
 		return nil, fmt.Errorf("broker response certainty is unknown")
 	}
-	fields := make(map[string]*providerv0.PublicValue, len(response.GetForwarded()))
+	fields := make(map[string]*providerv1.PublicValue, len(response.GetForwarded()))
 	for i, field := range response.GetForwarded() {
 		if field.GetSelector() == "" || field.GetValue() == nil {
 			return nil, fmt.Errorf("broker response forwarded[%d] is incomplete", i)
@@ -167,12 +167,12 @@ func DecodeFilteredResponse(response *providerv0.ExecuteRequestResponse) (map[st
 		if _, err := canonical.Digest(field.GetValue()); err != nil {
 			return nil, fmt.Errorf("broker response forwarded[%d]: %w", i, err)
 		}
-		fields[field.GetSelector()] = proto.Clone(field.GetValue()).(*providerv0.PublicValue)
+		fields[field.GetSelector()] = proto.Clone(field.GetValue()).(*providerv1.PublicValue)
 	}
 	return fields, nil
 }
 
-func HandleCaptureResult(result *providerv0.CaptureResult) (*providerv0.OpaqueReference, error) {
+func HandleCaptureResult(result *providerv1.CaptureResult) (*providerv1.OpaqueReference, error) {
 	if result == nil || result.GetCaptureId() == "" {
 		return nil, fmt.Errorf("capture result identity is required")
 	}
@@ -187,17 +187,17 @@ func HandleCaptureResult(result *providerv0.CaptureResult) (*providerv0.OpaqueRe
 		return nil, fmt.Errorf("capture %q: %w", result.GetCaptureId(), err)
 	}
 	switch reference.GetPurpose() {
-	case providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
-		providerv0.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
+	case providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_MANAGEMENT,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_RUNTIME,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_BUILD,
+		providerv1.CredentialPurpose_CREDENTIAL_PURPOSE_WEBHOOK_VERIFICATION:
 	default:
 		return nil, fmt.Errorf("capture %q has unknown credential purpose", result.GetCaptureId())
 	}
-	return proto.Clone(reference).(*providerv0.OpaqueReference), nil
+	return proto.Clone(reference).(*providerv1.OpaqueReference), nil
 }
 
-func ValidateUpgrade(response *providerv0.UpgradeStateResponse, fromVersion, toVersion uint32) error {
+func ValidateUpgrade(response *providerv1.UpgradeStateResponse, fromVersion, toVersion uint32) error {
 	if response == nil || response.GetState() == nil || response.GetRecord() == nil {
 		return fmt.Errorf("state upgrade response is incomplete")
 	}
@@ -211,14 +211,14 @@ func ValidateUpgrade(response *providerv0.UpgradeStateResponse, fromVersion, toV
 	return providerstate.ValidateUpgradeRecord(response.GetRecord())
 }
 
-func newAction(id string, position uint32, actionType providerv0.ActionType, resourceType, prospectiveRemoteID string) (*providerv0.PlanAction, error) {
+func newAction(id string, position uint32, actionType providerv1.ActionType, resourceType, prospectiveRemoteID string) (*providerv1.PlanAction, error) {
 	if id == "" || resourceType == "" {
 		return nil, fmt.Errorf("action id and resource type are required")
 	}
-	if (actionType == providerv0.ActionType_ACTION_TYPE_CREATE || actionType == providerv0.ActionType_ACTION_TYPE_REPLACE) && prospectiveRemoteID == "" {
+	if (actionType == providerv1.ActionType_ACTION_TYPE_CREATE || actionType == providerv1.ActionType_ACTION_TYPE_REPLACE) && prospectiveRemoteID == "" {
 		return nil, fmt.Errorf("create and replace actions require prospective remote identity")
 	}
-	return &providerv0.PlanAction{
+	return &providerv1.PlanAction{
 		ActionId:            id,
 		Position:            position,
 		Type:                actionType,

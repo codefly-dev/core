@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 )
 
 // writeEvent captures one call to the WriteListener so tests can
@@ -66,9 +66,9 @@ func newListenerServer(t *testing.T) (*DefaultCodeServer, func() []writeEvent, s
 func TestWriteListener_WriteFile(t *testing.T) {
 	s, drain, dir := newListenerServer(t)
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{
-			WriteFile: &codev0.WriteFileRequest{Path: "foo.txt", Content: "hello"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_WriteFile{
+			WriteFile: &codev1.WriteFileRequest{Path: "foo.txt", Content: "hello"},
 		},
 	})
 	if err != nil {
@@ -104,9 +104,9 @@ func TestWriteListener_WriteFile(t *testing.T) {
 func TestWriteListener_CreateFile(t *testing.T) {
 	s, drain, _ := newListenerServer(t)
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_CreateFile{
-			CreateFile: &codev0.CreateFileRequest{Path: "new.go", Content: "package x"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_CreateFile{
+			CreateFile: &codev1.CreateFileRequest{Path: "new.go", Content: "package x"},
 		},
 	})
 	if err != nil {
@@ -132,9 +132,9 @@ func TestWriteListener_DeleteFile(t *testing.T) {
 	// Seed a file, then delete it via the dispatcher.
 	_ = os.WriteFile(filepath.Join(dir, "victim.txt"), []byte("bye"), 0o644)
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DeleteFile{
-			DeleteFile: &codev0.DeleteFileRequest{Path: "victim.txt"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DeleteFile{
+			DeleteFile: &codev1.DeleteFileRequest{Path: "victim.txt"},
 		},
 	})
 	if err != nil {
@@ -161,9 +161,9 @@ func TestWriteListener_MoveFile(t *testing.T) {
 	s, drain, dir := newListenerServer(t)
 	_ = os.WriteFile(filepath.Join(dir, "old.txt"), []byte("payload"), 0o644)
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_MoveFile{
-			MoveFile: &codev0.MoveFileRequest{OldPath: "old.txt", NewPath: "renamed.txt"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_MoveFile{
+			MoveFile: &codev1.MoveFileRequest{OldPath: "old.txt", NewPath: "renamed.txt"},
 		},
 	})
 	if err != nil {
@@ -189,9 +189,9 @@ func TestWriteListener_ApplyEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ApplyEdit{
-			ApplyEdit: &codev0.ApplyEditRequest{File: "edit.txt", Find: "before", Replace: "after"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ApplyEdit{
+			ApplyEdit: &codev1.ApplyEditRequest{File: "edit.txt", Find: "before", Replace: "after"},
 		},
 	})
 	if err != nil {
@@ -216,9 +216,9 @@ func TestWriteListener_NotFiredOnFailedDelete(t *testing.T) {
 
 	// Delete a file that doesn't exist. Should return an error inside
 	// the response (not a go error), and should NOT fire the listener.
-	resp, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_DeleteFile{
-			DeleteFile: &codev0.DeleteFileRequest{Path: "nope.txt"},
+	resp, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_DeleteFile{
+			DeleteFile: &codev1.DeleteFileRequest{Path: "nope.txt"},
 		},
 	})
 	if err != nil {
@@ -241,9 +241,9 @@ func TestWriteListener_NilListenerIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	s := NewDefaultCodeServer(dir) // no listener installed
 
-	_, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{
-			WriteFile: &codev0.WriteFileRequest{Path: "x.txt", Content: "y"},
+	_, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_WriteFile{
+			WriteFile: &codev1.WriteFileRequest{Path: "x.txt", Content: "y"},
 		},
 	})
 	if err != nil {
@@ -267,9 +267,9 @@ func TestWriteListener_ErrorsDoNotFailMutation(t *testing.T) {
 		return fmt.Errorf("simulated LSP not ready")
 	})
 
-	resp, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{
-			WriteFile: &codev0.WriteFileRequest{Path: "a.txt", Content: "ok"},
+	resp, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_WriteFile{
+			WriteFile: &codev1.WriteFileRequest{Path: "a.txt", Content: "ok"},
 		},
 	})
 	if err != nil {
@@ -296,9 +296,9 @@ func TestWriteListener_PanicsDoNotBreakMutation(t *testing.T) {
 		panic("buggy listener")
 	})
 
-	resp, err := s.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{
-			WriteFile: &codev0.WriteFileRequest{Path: "panic.txt", Content: "ok"},
+	resp, err := s.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_WriteFile{
+			WriteFile: &codev1.WriteFileRequest{Path: "panic.txt", Content: "ok"},
 		},
 	})
 	if err != nil {

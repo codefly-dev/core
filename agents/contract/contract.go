@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"slices"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -80,17 +80,17 @@ var release = func() releaseManifest {
 	return value
 }()
 
-var current = &agentv0.AgentContract{ProtocolVersion: release.ProtocolVersion, Capabilities: release.Capabilities, StartupProtocolVersion: release.StartupProtocolVersion}
+var current = &agentv1.AgentContract{ProtocolVersion: release.ProtocolVersion, Capabilities: release.Capabilities, StartupProtocolVersion: release.StartupProtocolVersion}
 
 // SupportedOperationContracts reports host support, not executor adoption.
 // Executors advertise only contracts they implement on their operation probes.
 func SupportedOperationContracts() []string { return slices.Clone(release.OperationContracts) }
 
-func Current() *agentv0.AgentContract {
-	return proto.Clone(current).(*agentv0.AgentContract)
+func Current() *agentv1.AgentContract {
+	return proto.Clone(current).(*agentv1.AgentContract)
 }
 
-func Check(advertised *agentv0.AgentContract, required ...string) error {
+func Check(advertised *agentv1.AgentContract, required ...string) error {
 	if advertised.GetProtocolVersion() == 0 {
 		return fmt.Errorf("%w: agent does not declare a CLI-agent protocol version; host requires version %d", ErrIncompatible, current.ProtocolVersion)
 	}

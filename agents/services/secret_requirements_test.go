@@ -5,22 +5,22 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/services"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
-const restricted = builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
-const localApply = builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1
+const restricted = builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
+const localApply = builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1
 
-func declaring(required ...*builderv0.RequiredSecretConfiguration) *builderv0.BuildCapabilitiesResponse {
-	return &builderv0.BuildCapabilitiesResponse{
+func declaring(required ...*builderv1.RequiredSecretConfiguration) *builderv1.BuildCapabilitiesResponse {
+	return &builderv1.BuildCapabilitiesResponse{
 		ExecutionContracts:           []string{services.SecretRequirementsContract},
 		RequiredSecretConfigurations: required,
 	}
 }
 
-func postgresGroup(profiles ...builderv0.KubernetesOutputProfile) *builderv0.RequiredSecretConfiguration {
-	return &builderv0.RequiredSecretConfiguration{
+func postgresGroup(profiles ...builderv1.KubernetesOutputProfile) *builderv1.RequiredSecretConfiguration {
+	return &builderv1.RequiredSecretConfiguration{
 		Configuration: "postgres",
 		Keys:          []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_READ_ONLY_PASSWORD", "POSTGRES_READ_WRITE_PASSWORD"},
 		Profiles:      profiles,
@@ -38,12 +38,12 @@ func TestSecretRequirementsIsASupportedOperationContract(t *testing.T) {
 // nothing: silence and "requires none" are the same empty field on the wire,
 // and conflating them is the false green this exists to remove.
 func TestSilenceIsNotACleanBill(t *testing.T) {
-	_, err := services.MissingServiceSecretConfigurations("org-directory/store", restricted, &builderv0.BuildCapabilitiesResponse{}, nil)
+	_, err := services.MissingServiceSecretConfigurations("org-directory/store", restricted, &builderv1.BuildCapabilitiesResponse{}, nil)
 	require.ErrorContains(t, err, services.SecretRequirementsContract)
 
 	_, err = services.MissingServiceSecretConfigurations(
 		"org-directory/store", restricted,
-		&builderv0.BuildCapabilitiesResponse{RequiredSecretConfigurations: []*builderv0.RequiredSecretConfiguration{postgresGroup()}},
+		&builderv1.BuildCapabilitiesResponse{RequiredSecretConfigurations: []*builderv1.RequiredSecretConfiguration{postgresGroup()}},
 		nil,
 	)
 	require.ErrorContains(t, err, services.SecretRequirementsContract)
@@ -107,8 +107,8 @@ func TestAProfileScopedRequirementOnlyAppliesToThatProfile(t *testing.T) {
 
 func TestGroupsAreReportedInAStableOrder(t *testing.T) {
 	capabilities := declaring(
-		&builderv0.RequiredSecretConfiguration{Configuration: "second", Keys: []string{"KEY"}},
-		&builderv0.RequiredSecretConfiguration{Configuration: "first", Keys: []string{"KEY"}},
+		&builderv1.RequiredSecretConfiguration{Configuration: "second", Keys: []string{"KEY"}},
+		&builderv1.RequiredSecretConfiguration{Configuration: "first", Keys: []string{"KEY"}},
 	)
 	missing, err := services.MissingServiceSecretConfigurations("a/b", restricted, capabilities, nil)
 	require.NoError(t, err)
@@ -120,12 +120,12 @@ func TestGroupsAreReportedInAStableOrder(t *testing.T) {
 func TestADeclarationAHostCannotActOnIsRefused(t *testing.T) {
 	require.NoError(t, services.ValidateRequiredSecretConfiguration(postgresGroup()))
 	require.ErrorContains(t,
-		services.ValidateRequiredSecretConfiguration(&builderv0.RequiredSecretConfiguration{Keys: []string{"KEY"}}),
+		services.ValidateRequiredSecretConfiguration(&builderv1.RequiredSecretConfiguration{Keys: []string{"KEY"}}),
 		"must name its group")
 	require.ErrorContains(t,
-		services.ValidateRequiredSecretConfiguration(&builderv0.RequiredSecretConfiguration{Configuration: "postgres"}),
+		services.ValidateRequiredSecretConfiguration(&builderv1.RequiredSecretConfiguration{Configuration: "postgres"}),
 		"must name its keys")
 	require.ErrorContains(t,
-		services.ValidateRequiredSecretConfiguration(&builderv0.RequiredSecretConfiguration{Configuration: "postgres", Keys: []string{" "}}),
+		services.ValidateRequiredSecretConfiguration(&builderv1.RequiredSecretConfiguration{Configuration: "postgres", Keys: []string{" "}}),
 		"empty key")
 }

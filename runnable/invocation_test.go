@@ -10,28 +10,28 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/runnable"
 )
 
 var issued = time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC)
 
-func sampleInvocation(pkg *basev0.RunnablePackage) *basev0.RunnableInvocation {
-	return &basev0.RunnableInvocation{
+func sampleInvocation(pkg *basev1.RunnablePackage) *basev1.RunnableInvocation {
+	return &basev1.RunnableInvocation{
 		Protocol:     runnable.ServedProtocolV1,
-		Runnable:     proto.Clone(pkg.GetIdentity()).(*basev0.RunnableIdentity),
+		Runnable:     proto.Clone(pkg.GetIdentity()).(*basev1.RunnableIdentity),
 		InvocationId: "inv-1",
 		IntentId:     "intent-1",
 		IssuedAt:     timestamppb.New(issued),
 		Deadline:     timestamppb.New(issued.Add(2 * time.Minute)),
 		Input:        []byte(`{"text":"the quick brown fox"}`),
-		Identity: &basev0.RunnableInvocationIdentity{
-			Carrier: &basev0.RunnableInvocationIdentity_WorkContext{WorkContext: "eyJ0eXAiOiJjb2RlZmx5LndvcmstY29udGV4dC92MSJ9.signed"},
+		Identity: &basev1.RunnableInvocationIdentity{
+			Carrier: &basev1.RunnableInvocationIdentity_WorkContext{WorkContext: "eyJ0eXAiOiJjb2RlZmx5LndvcmstY29udGV4dC92MSJ9.signed"},
 		},
 	}
 }
 
-func resultDocument(t *testing.T, result *basev0.RunnableResult) []byte {
+func resultDocument(t *testing.T, result *basev1.RunnableResult) []byte {
 	t.Helper()
 	document, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(result)
 	require.NoError(t, err)
@@ -40,10 +40,10 @@ func resultDocument(t *testing.T, result *basev0.RunnableResult) []byte {
 
 func succeededDocument(t *testing.T) []byte {
 	t.Helper()
-	return resultDocument(t, &basev0.RunnableResult{
+	return resultDocument(t, &basev1.RunnableResult{
 		Protocol:     runnable.ServedProtocolV1,
 		InvocationId: "inv-1",
-		Status:       basev0.RunnableResult_SUCCEEDED,
+		Status:       basev1.RunnableResult_SUCCEEDED,
 		Output:       []byte(`{"count":4,"longest":"quick"}`),
 	})
 }
@@ -52,28 +52,28 @@ func TestPrepareInvocationRejectsWhatCannotBeCalled(t *testing.T) {
 	pkg := preparedPackage(t)
 	for _, tc := range []struct {
 		name   string
-		mutate func(*basev0.RunnableInvocation)
+		mutate func(*basev1.RunnableInvocation)
 		want   string
 	}{
-		{"other protocol", func(i *basev0.RunnableInvocation) { i.Protocol = "codefly.runnable.served/v2" }, "is not the package's"},
+		{"other protocol", func(i *basev1.RunnableInvocation) { i.Protocol = "codefly.runnable.served/v2" }, "is not the package's"},
 		// The framing this replaces. A package built for the served protocol
 		// and an invocation still written in the launcher's is the one
 		// combination the transition could leave behind, and it is refused by
 		// name rather than half-read.
-		{"the deleted launcher framing", func(i *basev0.RunnableInvocation) { i.Protocol = "codefly.runnable/v1" }, "is not the package's"},
-		{"other release", func(i *basev0.RunnableInvocation) { i.Runnable.Version = "0.2.0" }, "names another release"},
-		{"no invocation id", func(i *basev0.RunnableInvocation) { i.InvocationId = "" }, "invocation_id"},
-		{"no intent id", func(i *basev0.RunnableInvocation) { i.IntentId = "" }, "intent_id"},
-		{"no deadline", func(i *basev0.RunnableInvocation) { i.Deadline = nil }, "deadline"},
-		{"deadline before issue", func(i *basev0.RunnableInvocation) { i.Deadline = timestamppb.New(issued.Add(-time.Second)) }, "not after the instant it was issued"},
-		{"no identity", func(i *basev0.RunnableInvocation) { i.Identity = nil }, "identity"},
-		{"no input", func(i *basev0.RunnableInvocation) { i.Input = nil }, "input"},
-		{"input over bound", func(i *basev0.RunnableInvocation) {
+		{"the deleted launcher framing", func(i *basev1.RunnableInvocation) { i.Protocol = "codefly.runnable/v1" }, "is not the package's"},
+		{"other release", func(i *basev1.RunnableInvocation) { i.Runnable.Version = "0.2.0" }, "names another release"},
+		{"no invocation id", func(i *basev1.RunnableInvocation) { i.InvocationId = "" }, "invocation_id"},
+		{"no intent id", func(i *basev1.RunnableInvocation) { i.IntentId = "" }, "intent_id"},
+		{"no deadline", func(i *basev1.RunnableInvocation) { i.Deadline = nil }, "deadline"},
+		{"deadline before issue", func(i *basev1.RunnableInvocation) { i.Deadline = timestamppb.New(issued.Add(-time.Second)) }, "not after the instant it was issued"},
+		{"no identity", func(i *basev1.RunnableInvocation) { i.Identity = nil }, "identity"},
+		{"no input", func(i *basev1.RunnableInvocation) { i.Input = nil }, "input"},
+		{"input over bound", func(i *basev1.RunnableInvocation) {
 			i.Input = []byte(`{"text":"` + strings.Repeat("x", 65536) + `"}`)
 		}, "over the declared bound"},
-		{"input is not an object", func(i *basev0.RunnableInvocation) { i.Input = []byte(`["text"]`) }, "must be one JSON object"},
-		{"input is not JSON", func(i *basev0.RunnableInvocation) { i.Input = []byte(`{text}`) }, "must be one JSON object"},
-		{"deadline beyond the declared timeout", func(i *basev0.RunnableInvocation) {
+		{"input is not an object", func(i *basev1.RunnableInvocation) { i.Input = []byte(`["text"]`) }, "must be one JSON object"},
+		{"input is not JSON", func(i *basev1.RunnableInvocation) { i.Input = []byte(`{text}`) }, "must be one JSON object"},
+		{"deadline beyond the declared timeout", func(i *basev1.RunnableInvocation) {
 			i.Deadline = timestamppb.New(issued.Add(2*time.Minute + time.Second))
 		}, "the package declares a timeout of"},
 	} {
@@ -116,7 +116,7 @@ func TestDeadlineHonorsTheDeclaredTimeout(t *testing.T) {
 // identity everywhere; only a receipt-recovery package requires one.
 func TestEffectIdentityIsCarriedOnRecomputePackages(t *testing.T) {
 	pkg := preparedPackage(t)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
+	require.Equal(t, basev1.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
 
 	invocation := sampleInvocation(pkg)
 	invocation.EffectId = "task-1"
@@ -127,7 +127,7 @@ func TestEffectIdentityIsCarriedOnRecomputePackages(t *testing.T) {
 
 func TestReceiptRecoveryRequiresTheEffectIdentity(t *testing.T) {
 	effectful := samplePackage(t)
-	effectful.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	effectful.Execution.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
 	pkg, err := runnable.PreparePackage(effectful)
 	require.NoError(t, err)
 
@@ -148,13 +148,13 @@ func TestParseResultAcceptsOnlyThisInvocationsAnswer(t *testing.T) {
 
 	result, err := runnable.ParseResult(succeededDocument(t), invocation, pkg)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableResult_SUCCEEDED, result.GetStatus())
+	require.Equal(t, basev1.RunnableResult_SUCCEEDED, result.GetStatus())
 
-	failed := resultDocument(t, &basev0.RunnableResult{
+	failed := resultDocument(t, &basev1.RunnableResult{
 		Protocol:     runnable.ServedProtocolV1,
 		InvocationId: "inv-1",
-		Status:       basev0.RunnableResult_FAILED,
-		Error:        &basev0.RunnableError{Code: "empty_text", Message: "text has no words"},
+		Status:       basev1.RunnableResult_FAILED,
+		Error:        &basev1.RunnableError{Code: "empty_text", Message: "text has no words"},
 	})
 	result, err = runnable.ParseResult(failed, invocation, pkg)
 	require.NoError(t, err)
@@ -166,34 +166,34 @@ func TestParseResultAcceptsOnlyThisInvocationsAnswer(t *testing.T) {
 		want     string
 	}{
 		{"malformed", []byte("not json at all"), "is not a codefly.runnable.served/v1 document"},
-		{"another invocation", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-0", Status: basev0.RunnableResult_SUCCEEDED,
+		{"another invocation", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-0", Status: basev1.RunnableResult_SUCCEEDED,
 			Output: []byte(`{"count":4}`),
 		}), "belongs to invocation \"inv-0\""},
-		{"another protocol", resultDocument(t, &basev0.RunnableResult{
-			Protocol: "codefly.runnable.served/v2", InvocationId: "inv-1", Status: basev0.RunnableResult_SUCCEEDED,
+		{"another protocol", resultDocument(t, &basev1.RunnableResult{
+			Protocol: "codefly.runnable.served/v2", InvocationId: "inv-1", Status: basev1.RunnableResult_SUCCEEDED,
 			Output: []byte(`{"count":4}`),
 		}), "is not the invocation's"},
-		{"no status", resultDocument(t, &basev0.RunnableResult{
+		{"no status", resultDocument(t, &basev1.RunnableResult{
 			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Output: []byte(`{"count":4}`),
 		}), "is not a completion an implementation can report"},
-		{"no output", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_SUCCEEDED,
+		{"no output", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_SUCCEEDED,
 		}), "output must be one JSON object"},
-		{"output over bound", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_SUCCEEDED,
+		{"output over bound", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_SUCCEEDED,
 			Output: []byte(`{"count":"` + strings.Repeat("x", int(pkg.GetExecution().GetMaxOutputBytes())) + `"}`),
 		}), "over the declared bound"},
-		{"succeeded with an error", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_SUCCEEDED,
-			Output: []byte(`{"count":4}`), Error: &basev0.RunnableError{Code: "nope"},
+		{"succeeded with an error", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_SUCCEEDED,
+			Output: []byte(`{"count":4}`), Error: &basev1.RunnableError{Code: "nope"},
 		}), "succeeded result carries no error"},
-		{"failed with output", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_FAILED,
-			Output: []byte(`{"count":4}`), Error: &basev0.RunnableError{Code: "nope"},
+		{"failed with output", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_FAILED,
+			Output: []byte(`{"count":4}`), Error: &basev1.RunnableError{Code: "nope"},
 		}), "failed result carries no output"},
-		{"failed without a code", resultDocument(t, &basev0.RunnableResult{
-			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_FAILED,
+		{"failed without a code", resultDocument(t, &basev1.RunnableResult{
+			Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_FAILED,
 		}), "requires the handler's failure code"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -209,26 +209,26 @@ func TestParseResultAcceptsOnlyThisInvocationsAnswer(t *testing.T) {
 // claim a failure, which reads as proof the effect did not happen.
 func TestInterruptedInvocationCarriesNoOutput(t *testing.T) {
 	effectful := samplePackage(t)
-	effectful.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	effectful.Execution.Recovery = basev1.RunnableExecution_RECOVERY_RECEIPT
 	pkg, err := runnable.PreparePackage(effectful)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_CANCELLATION_SIGNAL, pkg.GetExecution().GetCancellation())
+	require.Equal(t, basev1.RunnableExecution_CANCELLATION_SIGNAL, pkg.GetExecution().GetCancellation())
 
 	invocation := sampleInvocation(pkg)
 	invocation.EffectId = "effect-1"
 
 	// It is a report about a stopped handler, so it carries no output. The
 	// explanatory error is optional.
-	withOutput := &basev0.RunnableResult{
+	withOutput := &basev1.RunnableResult{
 		Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1",
-		Status: basev0.RunnableResult_INTERRUPTED, Output: []byte(`{"count":4}`),
+		Status: basev1.RunnableResult_INTERRUPTED, Output: []byte(`{"count":4}`),
 	}
 	_, err = runnable.ParseResult(resultDocument(t, withOutput), invocation, pkg)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "an interrupted result carries no output")
 
-	bare := &basev0.RunnableResult{
-		Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev0.RunnableResult_INTERRUPTED,
+	bare := &basev1.RunnableResult{
+		Protocol: runnable.ServedProtocolV1, InvocationId: "inv-1", Status: basev1.RunnableResult_INTERRUPTED,
 	}
 	_, err = runnable.ParseResult(resultDocument(t, bare), invocation, pkg)
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestParseResultToleratesANewerImplementation(t *testing.T) {
 		`"output":"eyJjb3VudCI6NH0=","duration_ms":42}`)
 	result, err := runnable.ParseResult(document, invocation, pkg)
 	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableResult_SUCCEEDED, result.GetStatus())
+	require.Equal(t, basev1.RunnableResult_SUCCEEDED, result.GetStatus())
 }
 
 // An empty answer is a document, not a missing one: a caller that read zero

@@ -169,7 +169,7 @@ var breakingAgainst = regexp.MustCompile(`(?m)^.*breaking --against.*$`)
 // comparison. Point the local check at main's tip instead and that same package
 // is missing from the branch alone, so buf calls it a deletion: `make
 // buf-breaking` shipped exiting 100 with `Previously present package
-// "codefly.runnable.receipts.v0" was deleted` on a branch that changed no
+// "codefly.runnable.receipts.v1" was deleted` on a branch that changed no
 // .proto at all, while CI on the same commit was green.
 //
 // That is the failure this whole file exists to prevent, one axis over: a local

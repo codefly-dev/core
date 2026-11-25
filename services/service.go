@@ -20,12 +20,12 @@ import (
 
 	"github.com/codefly-dev/core/agents/communicate"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -41,7 +41,7 @@ type Instance struct {
 	Identity *resources.ServiceIdentity
 
 	Agent          *services.ServiceAgent
-	Info           *agentv0.AgentInformation
+	Info           *agentv1.AgentInformation
 	agentSelection resources.Agent
 	// ContainerRecoveryScope is the agent's authenticated gRPC acknowledgement,
 	// not a claim inferred from the CLI's own Core version.
@@ -51,7 +51,7 @@ type Instance struct {
 	Runtime *RuntimeInstance
 
 	ProcessInfo
-	Capabilities []*agentv0.Capability
+	Capabilities []*agentv1.Capability
 }
 
 type BuilderInstance struct {
@@ -70,14 +70,14 @@ type RuntimeInstance struct {
 
 // Builder methods
 
-func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv0.LoadRequest, error) {
+func (instance *BuilderInstance) loadRequest(ctx context.Context) (*builderv1.LoadRequest, error) {
 	w := wool.Get(ctx).In("BuilderInstance::loadRequest", wool.NameField(instance.Identity.Unique()))
 	relativeToWorkspace, err := instance.Workspace.RelativeDir(instance.Service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compute relative dir")
 	}
-	req := &builderv0.LoadRequest{
-		Identity: &basev0.ServiceIdentity{
+	req := &builderv1.LoadRequest{
+		Identity: &basev1.ServiceIdentity{
 			Name:                instance.Service.Name,
 			Module:              instance.Module.Name,
 			Version:             instance.Service.Version,
@@ -105,7 +105,7 @@ func ForSync(opt *BuilderLoadOptions) {
 	opt.sync = true
 }
 
-func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOption) (*builderv0.LoadResponse, error) {
+func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOption) (*builderv1.LoadResponse, error) {
 	opt := &BuilderLoadOptions{}
 	for _, o := range opts {
 		o(opt)
@@ -117,33 +117,33 @@ func (instance *BuilderInstance) Load(ctx context.Context, opts ...BuilderLoadOp
 		return nil, w.Wrapf(err, "cannot create load request")
 	}
 	if opt.create {
-		req.CreationMode = &builderv0.CreationMode{Communicate: true}
+		req.CreationMode = &builderv1.CreationMode{Communicate: true}
 	}
 	if opt.sync {
-		req.SyncMode = &builderv0.SyncMode{Communicate: true}
+		req.SyncMode = &builderv1.SyncMode{Communicate: true}
 	}
 	resp, err := instance.Builder.Load(ctx, req)
 	if err != nil {
 		return resp, err
 	}
-	if resp != nil && resp.State != nil && resp.State.State == builderv0.LoadStatus_ERROR {
+	if resp != nil && resp.State != nil && resp.State.State == builderv1.LoadStatus_ERROR {
 		return resp, operationStatusFailure("builder load", resp.State.Message, resp.State.Failure)
 	}
 	return resp, nil
 }
 
-func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.CreateRequest, handler communicate.AnswerProvider) (*builderv0.CreateResponse, error) {
+func (instance *BuilderInstance) Create(ctx context.Context, req *builderv1.CreateRequest, handler communicate.AnswerProvider) (*builderv1.CreateResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Create", wool.NameField(instance.Identity.Unique()))
 
 	// Run interactive Q&A via bidirectional streaming
 	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
-		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
+		return &builderv1.CreateResponse{State: &builderv1.CreateStatus{State: builderv1.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
 			w.Wrapf(err, "cannot open communicate stream")
 	}
 	err = communicate.Do(ctx, stream, handler)
 	if err != nil {
-		return &builderv0.CreateResponse{State: &builderv0.CreateStatus{State: builderv0.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
+		return &builderv1.CreateResponse{State: &builderv1.CreateStatus{State: builderv1.CreateStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.create", err)}},
 			w.Wrapf(err, "communicate failed")
 	}
 
@@ -151,24 +151,24 @@ func (instance *BuilderInstance) Create(ctx context.Context, req *builderv0.Crea
 	if err != nil {
 		return resp, err
 	}
-	if resp != nil && resp.State != nil && resp.State.State == builderv0.CreateStatus_ERROR {
+	if resp != nil && resp.State != nil && resp.State.State == builderv1.CreateStatus_ERROR {
 		return resp, operationStatusFailure("builder create", resp.State.Message, resp.State.Failure)
 	}
 	return resp, nil
 }
 
-func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRequest, handler communicate.AnswerProvider) (*builderv0.SyncResponse, error) {
+func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv1.SyncRequest, handler communicate.AnswerProvider) (*builderv1.SyncResponse, error) {
 	w := wool.Get(ctx).In("BuilderInstance::Sync", wool.NameField(instance.Identity.Unique()))
 
 	// Run interactive Q&A via bidirectional streaming
 	stream, err := instance.Builder.Communicate(ctx)
 	if err != nil {
-		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
+		return &builderv1.SyncResponse{State: &builderv1.SyncStatus{State: builderv1.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
 			w.Wrapf(err, "cannot open communicate stream")
 	}
 	err = communicate.Do(ctx, stream, handler)
 	if err != nil {
-		return &builderv0.SyncResponse{State: &builderv0.SyncStatus{State: builderv0.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
+		return &builderv1.SyncResponse{State: &builderv1.SyncStatus{State: builderv1.SyncStatus_ERROR, Message: err.Error(), Failure: failures.FromError("builder.sync", err)}},
 			w.Wrapf(err, "communicate failed")
 	}
 
@@ -178,9 +178,9 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 	}
 	if resp != nil && resp.State != nil {
 		switch resp.State.State {
-		case builderv0.SyncStatus_ERROR:
+		case builderv1.SyncStatus_ERROR:
 			return resp, operationStatusFailure("builder sync", resp.State.Message, resp.State.Failure)
-		case builderv0.SyncStatus_UNSUPPORTED:
+		case builderv1.SyncStatus_UNSUPPORTED:
 			return resp, operationStatusFailure("builder sync unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
@@ -189,17 +189,17 @@ func (instance *BuilderInstance) Sync(ctx context.Context, req *builderv0.SyncRe
 
 // Delegations to the gRPC BuilderClient
 
-func (instance *BuilderInstance) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
+func (instance *BuilderInstance) Init(ctx context.Context, req *builderv1.InitRequest) (*builderv1.InitResponse, error) {
 	resp, err := instance.Builder.Init(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.InitStatus_ERROR {
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv1.InitStatus_ERROR {
 		err = operationStatusFailure("builder init", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (instance *BuilderInstance) Build(ctx context.Context, req *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	resp, err := instance.Builder.Build(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.BuildStatus_ERROR {
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv1.BuildStatus_ERROR {
 		err = operationStatusFailure("builder build", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
@@ -212,7 +212,7 @@ func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.Build
 // a module, never reaches the deployment. The builder agent on the far side
 // judges them again, with the workspace above the directory it was loaded
 // from.
-func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv1.DeploymentRequest) (*builderv1.DeploymentResponse, error) {
 	if len(req.GetDependenciesNetworkMappings()) > 0 {
 		if err := instance.judgesHandouts(); err != nil {
 			return nil, err
@@ -221,67 +221,67 @@ func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.Depl
 		if err != nil {
 			return nil, err
 		}
-		filtered := proto.Clone(req).(*builderv0.DeploymentRequest)
+		filtered := proto.Clone(req).(*builderv1.DeploymentRequest)
 		filtered.DependenciesNetworkMappings = mappings
 		req = filtered
 	}
 	resp, err := instance.Builder.Deploy(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.DeploymentStatus_ERROR {
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv1.DeploymentStatus_ERROR {
 		err = operationStatusFailure("builder deploy", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+func (instance *BuilderInstance) Audit(ctx context.Context, req *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 	resp, err := instance.Builder.Audit(ctx, req)
 	if err == nil && resp != nil && resp.State != nil {
 		switch resp.State.State {
-		case builderv0.AuditStatus_ERROR:
+		case builderv1.AuditStatus_ERROR:
 			err = operationStatusFailure("builder audit", resp.State.Message, resp.State.Failure)
-		case builderv0.AuditStatus_UNSUPPORTED:
+		case builderv1.AuditStatus_UNSUPPORTED:
 			err = operationStatusFailure("builder audit unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) SBOM(ctx context.Context, req *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+func (instance *BuilderInstance) SBOM(ctx context.Context, req *builderv1.SBOMRequest) (*builderv1.SBOMResponse, error) {
 	resp, err := instance.Builder.SBOM(ctx, req)
 	if err == nil && resp != nil && resp.State != nil {
 		switch resp.State.State {
-		case builderv0.SBOMStatus_ERROR:
+		case builderv1.SBOMStatus_ERROR:
 			err = operationStatusFailure("builder SBOM", resp.State.Message, resp.State.Failure)
-		case builderv0.SBOMStatus_UNSUPPORTED:
+		case builderv1.SBOMStatus_UNSUPPORTED:
 			err = operationStatusFailure("builder SBOM unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) Package(ctx context.Context, req *builderv0.PackageRequest) (*builderv0.PackageResponse, error) {
+func (instance *BuilderInstance) Package(ctx context.Context, req *builderv1.PackageRequest) (*builderv1.PackageResponse, error) {
 	resp, err := instance.Builder.Package(ctx, req)
 	if err == nil && resp != nil && resp.State != nil {
 		switch resp.State.State {
-		case builderv0.PackageStatus_ERROR:
+		case builderv1.PackageStatus_ERROR:
 			err = operationStatusFailure("builder package", resp.State.Message, resp.State.Failure)
-		case builderv0.PackageStatus_UNSUPPORTED:
+		case builderv1.PackageStatus_UNSUPPORTED:
 			err = operationStatusFailure("builder package unsupported", resp.State.Message, resp.State.Failure)
 		}
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv0.UpgradeRequest) (*builderv0.UpgradeResponse, error) {
+func (instance *BuilderInstance) Upgrade(ctx context.Context, req *builderv1.UpgradeRequest) (*builderv1.UpgradeResponse, error) {
 	resp, err := instance.Builder.Upgrade(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpgradeStatus_ERROR {
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv1.UpgradeStatus_ERROR {
 		err = operationStatusFailure("builder upgrade", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
 }
 
-func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
+func (instance *BuilderInstance) Update(ctx context.Context, req *builderv1.UpdateRequest) (*builderv1.UpdateResponse, error) {
 	resp, err := instance.Builder.Update(ctx, req)
-	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.UpdateStatus_ERROR {
+	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv1.UpdateStatus_ERROR {
 		err = operationStatusFailure("builder update", resp.State.Message, resp.State.Failure)
 	}
 	return resp, err
@@ -289,16 +289,16 @@ func (instance *BuilderInstance) Update(ctx context.Context, req *builderv0.Upda
 
 // Runtime methods
 
-func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environment) (*runtimev0.LoadResponse, error) {
+func (instance *RuntimeInstance) Load(ctx context.Context, env *basev1.Environment) (*runtimev1.LoadResponse, error) {
 	w := wool.Get(ctx).In("RuntimeInstance::Load", wool.NameField(instance.Identity.Unique()))
 	w.Trace("sending load request")
 	relativeToWorkspace, err := instance.Workspace.RelativeDir(instance.Service)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compute relative dir")
 	}
-	req := &runtimev0.LoadRequest{
+	req := &runtimev1.LoadRequest{
 		DeveloperDebug: wool.IsDebug(),
-		Identity: &basev0.ServiceIdentity{
+		Identity: &basev1.ServiceIdentity{
 			Name:                instance.Service.Name,
 			Version:             instance.Service.Version,
 			Module:              instance.Module.Name,
@@ -314,7 +314,7 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 		return nil, w.Wrapf(err, "invalid request")
 	}
 	resp, err := instance.Runtime.Load(ctx, req)
-	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.LoadStatus_ERROR {
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev1.LoadStatus_ERROR {
 		err = operationStatusFailure("runtime load", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
@@ -322,7 +322,7 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 
 // Delegations to the gRPC RuntimeClient
 
-func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
 	if len(req.GetDependenciesNetworkMappings()) > 0 {
 		// The CLI is the provider of a service's dependency addresses, and it
 		// holds the composition: the hand-out is judged with its provenance.
@@ -333,18 +333,18 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 		if err != nil {
 			return nil, err
 		}
-		filtered := proto.Clone(req).(*runtimev0.InitRequest)
+		filtered := proto.Clone(req).(*runtimev1.InitRequest)
 		filtered.DependenciesNetworkMappings = mappings
 		req = filtered
 	}
 	resp, err := instance.Runtime.Init(ctx, req)
-	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.InitStatus_ERROR {
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev1.InitStatus_ERROR {
 		err = operationStatusFailure("runtime init", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
 
-func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
 	if len(req.GetDependenciesNetworkMappings()) > 0 {
 		if err := instance.judgesHandouts(); err != nil {
 			return nil, err
@@ -353,40 +353,40 @@ func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.Start
 		if err != nil {
 			return nil, err
 		}
-		filtered := proto.Clone(req).(*runtimev0.StartRequest)
+		filtered := proto.Clone(req).(*runtimev1.StartRequest)
 		filtered.DependenciesNetworkMappings = mappings
 		req = filtered
 	}
 	resp, err := instance.Runtime.Start(ctx, req)
-	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StartStatus_ERROR {
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev1.StartStatus_ERROR {
 		err = operationStatusFailure("runtime start", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
 
-func (instance *RuntimeInstance) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
+func (instance *RuntimeInstance) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
 	resp, err := instance.Runtime.Stop(ctx, req)
-	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.StopStatus_ERROR {
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev1.StopStatus_ERROR {
 		err = operationStatusFailure("runtime stop", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
 
-func (instance *RuntimeInstance) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+func (instance *RuntimeInstance) Test(ctx context.Context, req *runtimev1.TestRequest) (*runtimev1.TestResponse, error) {
 	// Test failures carry structured suites/counts that callers render. Preserve
 	// the response-level status here instead of collapsing it into a Go error.
 	return instance.Runtime.Test(ctx, req)
 }
 
-func (instance *RuntimeInstance) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
+func (instance *RuntimeInstance) Destroy(ctx context.Context, req *runtimev1.DestroyRequest) (*runtimev1.DestroyResponse, error) {
 	resp, err := instance.Runtime.Destroy(ctx, req)
-	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.DestroyStatus_ERROR {
+	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev1.DestroyStatus_ERROR {
 		err = operationStatusFailure("runtime destroy", resp.Status.Message, resp.Status.Failure)
 	}
 	return resp, err
 }
 
-func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+func (instance *RuntimeInstance) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
 	return instance.Runtime.Information(ctx, req)
 }
 
@@ -394,7 +394,7 @@ func operationStatusError(operation, message string) error {
 	return operationStatusFailure(operation, message, nil)
 }
 
-func operationStatusFailure(operation, message string, failure *basev0.Failure) error {
+func operationStatusFailure(operation, message string, failure *basev1.Failure) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		message = "agent returned an error status"
@@ -467,7 +467,7 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	instance.ProcessInfo.AgentPID = agent.ProcessInfo.PID
 
 	var headers metadata.MD
-	info, err := agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
+	info, err := agent.GetAgentInformation(ctx, &agentv1.AgentInformationRequest{}, grpc.Header(&headers))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get agent information: %v", service.Agent)
 	}
@@ -503,7 +503,7 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 // LoadBuilder creates a BuilderAgent from the shared connection.
 func (instance *Instance) LoadBuilder(ctx context.Context) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadBuilder", wool.NameField(instance.Identity.Unique()))
-	err := instance.CheckCapabilities(agentv0.Capability_BUILDER)
+	err := instance.CheckCapabilities(agentv1.Capability_BUILDER)
 	if err != nil {
 		return w.Wrapf(err, "missing builder capability")
 	}
@@ -518,7 +518,7 @@ func (instance *Instance) LoadBuilder(ctx context.Context) error {
 // LoadRuntime creates a RuntimeAgent from the shared connection.
 func (instance *Instance) LoadRuntime(ctx context.Context, withRuntimeCheck bool) error {
 	w := wool.Get(ctx).In("ServiceInstance::LoadRuntime", wool.NameField(instance.Identity.Unique()))
-	err := instance.CheckCapabilities(agentv0.Capability_RUNTIME)
+	err := instance.CheckCapabilities(agentv1.Capability_RUNTIME)
 	if err != nil {
 		return w.Wrapf(err, "missing runtime capability")
 	}
@@ -535,7 +535,7 @@ func (instance *Instance) LoadRuntime(ctx context.Context, withRuntimeCheck bool
 	// native hot-reload
 	var hotReload bool
 	for _, c := range instance.Capabilities {
-		if c.Type == agentv0.Capability_HOT_RELOAD {
+		if c.Type == agentv1.Capability_HOT_RELOAD {
 			hotReload = true
 			break
 		}
@@ -544,7 +544,7 @@ func (instance *Instance) LoadRuntime(ctx context.Context, withRuntimeCheck bool
 	return nil
 }
 
-func (instance *Instance) CheckCapabilities(capability agentv0.Capability_Type) error {
+func (instance *Instance) CheckCapabilities(capability agentv1.Capability_Type) error {
 	for _, c := range instance.Capabilities {
 		if c.Type == capability {
 			return nil

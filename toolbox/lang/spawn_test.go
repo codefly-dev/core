@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/agents/manager"
-	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	toolboxv1 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/lang"
 	"github.com/codefly-dev/core/toolbox/launch"
@@ -83,7 +83,7 @@ func TestSpawn_LangBridge_RoundTrip(t *testing.T) {
 	defer plugin.Close()
 
 	// --- Direct Toolbox call ---
-	id, err := plugin.Client.Identity(ctx, &toolboxv0.IdentityRequest{})
+	id, err := plugin.Client.Identity(ctx, &toolboxv1.IdentityRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "fake-lang", id.Name)
 	require.Equal(t, "spawn-test", id.Version,
@@ -95,7 +95,7 @@ func TestSpawn_LangBridge_RoundTrip(t *testing.T) {
 	// Test counters — int32 values must not lose precision through
 	// the structpb (float64 internally) round-trip. protojson handles
 	// the cast.
-	testResp, err := typed.Test(ctx, &toolingv0.TestRequest{Path: "pkg/fake"})
+	testResp, err := typed.Test(ctx, &toolingv1.TestRequest{Path: "pkg/fake"})
 	require.NoError(t, err)
 	require.True(t, testResp.Success)
 	require.EqualValues(t, 3, testResp.TestsRun)

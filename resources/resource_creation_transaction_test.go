@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	actionsv1 "github.com/codefly-dev/core/generated/go/codefly/actions/v1"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 )
 
-func testResourceAgent(kind basev0.Agent_Kind) *basev0.Agent {
-	return &basev0.Agent{
+func testResourceAgent(kind basev1.Agent_Kind) *basev1.Agent {
+	return &basev1.Agent{
 		Kind:      kind,
 		Name:      "test-agent",
 		Publisher: "codefly.dev",
@@ -24,7 +24,7 @@ func TestCreateWorkspaceRemovesPartialDirectoryOnFailure(t *testing.T) {
 	root := t.TempDir()
 	workspaceDir := filepath.Join(root, "workspace")
 
-	_, err := CreateWorkspace(ctx, &actionsv0.NewWorkspace{
+	_, err := CreateWorkspace(ctx, &actionsv1.NewWorkspace{
 		Name:   "workspace",
 		Path:   root,
 		Layout: "invalid-layout",
@@ -57,7 +57,7 @@ func TestNewModuleDoesNotPersistReferenceForExistingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := workspace.NewModule(ctx, &actionsv0.NewModule{Name: "module"}); err == nil {
+	if _, err := workspace.NewModule(ctx, &actionsv1.NewModule{Name: "module"}); err == nil {
 		t.Fatal("existing module directory returned success")
 	}
 	if len(workspace.Modules) != 0 {
@@ -87,7 +87,7 @@ func TestNewModuleRollsBackWhenWorkspaceSaveFails(t *testing.T) {
 	}
 	workspace := &Workspace{Name: "workspace", Layout: LayoutKindModules, dir: root, layout: layout}
 
-	if _, err := workspace.NewModule(ctx, &actionsv0.NewModule{Name: "module"}); err == nil {
+	if _, err := workspace.NewModule(ctx, &actionsv1.NewModule{Name: "module"}); err == nil {
 		t.Fatal("workspace save conflict returned success")
 	}
 	if len(workspace.Modules) != 0 {
@@ -106,9 +106,9 @@ func TestNewServiceRollsBackDirectoryAndReferenceWhenModuleSaveFails(t *testing.
 	}
 	mod := &Module{Kind: ModuleKind, Name: "module", dir: root}
 
-	_, err := mod.NewService(ctx, &actionsv0.AddService{
+	_, err := mod.NewService(ctx, &actionsv1.AddService{
 		Name:  "service",
-		Agent: testResourceAgent(basev0.Agent_SERVICE),
+		Agent: testResourceAgent(basev1.Agent_SERVICE),
 	})
 	if err == nil {
 		t.Fatal("module save conflict returned success")
@@ -129,9 +129,9 @@ func TestNewApplicationRollsBackDirectoryAndReferenceWhenModuleSaveFails(t *test
 	}
 	mod := &Module{Kind: ModuleKind, Name: "module", dir: root}
 
-	_, err := mod.NewApplication(ctx, &actionsv0.AddApplication{
+	_, err := mod.NewApplication(ctx, &actionsv1.AddApplication{
 		Name:  "application",
-		Agent: testResourceAgent(basev0.Agent_APPLICATION),
+		Agent: testResourceAgent(basev1.Agent_APPLICATION),
 	})
 	if err == nil {
 		t.Fatal("module save conflict returned success")
@@ -148,9 +148,9 @@ func TestResourceCreationRejectsWrongAgentKind(t *testing.T) {
 	ctx := context.Background()
 	mod := &Module{Kind: ModuleKind, Name: "module", dir: t.TempDir()}
 
-	_, err := mod.NewService(ctx, &actionsv0.AddService{
+	_, err := mod.NewService(ctx, &actionsv1.AddService{
 		Name:  "service",
-		Agent: testResourceAgent(basev0.Agent_PROVIDER),
+		Agent: testResourceAgent(basev1.Agent_PROVIDER),
 	})
 	if err == nil {
 		t.Fatal("provider agent was accepted as a service agent")
@@ -159,9 +159,9 @@ func TestResourceCreationRejectsWrongAgentKind(t *testing.T) {
 		t.Fatalf("service directory was created before rejecting provider agent: %v", statErr)
 	}
 
-	_, err = mod.NewApplication(ctx, &actionsv0.AddApplication{
+	_, err = mod.NewApplication(ctx, &actionsv1.AddApplication{
 		Name:  "application",
-		Agent: testResourceAgent(basev0.Agent_SERVICE),
+		Agent: testResourceAgent(basev1.Agent_SERVICE),
 	})
 	if err == nil {
 		t.Fatal("service agent was accepted as an application agent")
@@ -180,9 +180,9 @@ func TestNewResourcesDoNotClobberUnreferencedDirectories(t *testing.T) {
 		"service": {
 			dir: filepath.Join("services", "service"),
 			run: func(mod *Module) error {
-				_, err := mod.NewService(ctx, &actionsv0.AddService{
+				_, err := mod.NewService(ctx, &actionsv1.AddService{
 					Name:  "service",
-					Agent: testResourceAgent(basev0.Agent_SERVICE),
+					Agent: testResourceAgent(basev1.Agent_SERVICE),
 				})
 				return err
 			},
@@ -190,9 +190,9 @@ func TestNewResourcesDoNotClobberUnreferencedDirectories(t *testing.T) {
 		"application": {
 			dir: filepath.Join("applications", "application"),
 			run: func(mod *Module) error {
-				_, err := mod.NewApplication(ctx, &actionsv0.AddApplication{
+				_, err := mod.NewApplication(ctx, &actionsv1.AddApplication{
 					Name:  "application",
-					Agent: testResourceAgent(basev0.Agent_APPLICATION),
+					Agent: testResourceAgent(basev1.Agent_APPLICATION),
 				})
 				return err
 			},

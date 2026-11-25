@@ -1,8 +1,8 @@
 """The generated value carries acquisition evidence through the existing wire."""
 import unittest
 from google.protobuf import json_format
-from codefly.base.v0 import configuration_pb2 as configuration
-from codefly.base.v0 import source_pb2 as source
+from codefly.base.v1 import configuration_pb2 as configuration
+from codefly.base.v1 import source_pb2 as source
 
 
 class ConfigurationArtifactContract(unittest.TestCase):

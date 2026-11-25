@@ -6,19 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
-func artifactConfiguration(value string) *basev0.Configuration {
+func artifactConfiguration(value string) *basev1.Configuration {
 	sum := sha256.Sum256([]byte(value))
-	return &basev0.Configuration{Origin: ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{Name: "test-group", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "MY_KEY", Value: value, ResolvedModuleArtifact: &basev0.ResolvedConfigurationModuleArtifact{Reference: &basev0.ConfigurationModuleArtifactReference{Module: "documents", Path: "public/install.json"}, ArtifactIdentity: &basev0.SourceIdentity{Algorithm: basev0.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, Digest: fmt.Sprintf("%x", sum), SizeBytes: int64(len(value))}}}}}}}
+	return &basev1.Configuration{Origin: ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{Name: "test-group", ConfigurationValues: []*basev1.ConfigurationValue{{Key: "MY_KEY", Value: value, ResolvedModuleArtifact: &basev1.ResolvedConfigurationModuleArtifact{Reference: &basev1.ConfigurationModuleArtifactReference{Module: "documents", Path: "public/install.json"}, ArtifactIdentity: &basev1.SourceIdentity{Algorithm: basev1.SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256, Digest: fmt.Sprintf("%x", sum), SizeBytes: int64(len(value))}}}}}}}
 }
 
 func TestModuleArtifactDeliveryProtectsEveryOccurrence(t *testing.T) {
 	baseline := artifactConfiguration("A")
-	require.NoError(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline}, nil, nil))
+	require.NoError(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline}, nil, nil))
 	for _, text := range []string{"A", "B"} {
 		for _, annotated := range []bool{false, true} {
 			additional := artifactConfiguration(text)
@@ -27,19 +27,19 @@ func TestModuleArtifactDeliveryProtectsEveryOccurrence(t *testing.T) {
 			if !annotated {
 				additional.Infos[0].ConfigurationValues[0].ResolvedModuleArtifact = nil
 			}
-			require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline}, []*basev0.Configuration{additional}, nil))
-			require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline, additional}, nil, nil))
+			require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline}, []*basev1.Configuration{additional}, nil))
+			require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline, additional}, nil, nil))
 		}
 	}
-	require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline, baseline}, nil, nil))
-	other := proto.Clone(baseline).(*basev0.Configuration)
+	require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline, baseline}, nil, nil))
+	other := proto.Clone(baseline).(*basev1.Configuration)
 	other.Origin = "m/service"
-	require.NoError(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline}, []*basev0.Configuration{other}, nil))
-	ordinary := proto.Clone(baseline).(*basev0.Configuration)
+	require.NoError(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline}, []*basev1.Configuration{other}, nil))
+	ordinary := proto.Clone(baseline).(*basev1.Configuration)
 	ordinary.Infos[0].ConfigurationValues[0].ResolvedModuleArtifact = nil
-	require.NoError(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{ordinary, ordinary}, nil, nil))
-	document := &basev0.Configuration{Origin: ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{{Name: "test_group", Data: &basev0.ConfigurationData{Content: []byte("{}")}}}}
-	require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline}, []*basev0.Configuration{document}, nil))
+	require.NoError(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{ordinary, ordinary}, nil, nil))
+	document := &basev1.Configuration{Origin: ConfigurationWorkspace, Infos: []*basev1.ConfigurationInformation{{Name: "test_group", Data: &basev1.ConfigurationData{Content: []byte("{}")}}}}
+	require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline}, []*basev1.Configuration{document}, nil))
 }
 
 func TestModuleArtifactCarrierAliases(t *testing.T) {
@@ -60,26 +60,26 @@ func TestModuleArtifactCarrierAliases(t *testing.T) {
 					if file {
 						key = FileCarrierKey(key)
 					}
-					require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{conf}, nil, map[string]string{key: "A"}), key)
+					require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{conf}, nil, map[string]string{key: "A"}), key)
 				}
 			}
 		}
-		require.NoError(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{conf}, nil, map[string]string{"CODEFLY__OTHER": "A"}))
+		require.NoError(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{conf}, nil, map[string]string{"CODEFLY__OTHER": "A"}))
 	}
 }
 
 func TestModuleArtifactEmittersValidateBeforeFiltering(t *testing.T) {
-	for _, mutate := range []func(*basev0.ConfigurationValue){
-		func(v *basev0.ConfigurationValue) { v.Value = "B" },
-		func(v *basev0.ConfigurationValue) { v.Secret = true },
-		func(v *basev0.ConfigurationValue) { v.Template = &basev0.ConfigurationValueTemplate{} },
-		func(v *basev0.ConfigurationValue) { v.ModuleArtifact = v.ResolvedModuleArtifact.Reference },
-		func(v *basev0.ConfigurationValue) { v.ResolvedModuleArtifact.ArtifactIdentity = nil },
-		func(v *basev0.ConfigurationValue) { v.ResolvedModuleArtifact.ArtifactIdentity.SizeBytes++ },
-		func(v *basev0.ConfigurationValue) {
+	for _, mutate := range []func(*basev1.ConfigurationValue){
+		func(v *basev1.ConfigurationValue) { v.Value = "B" },
+		func(v *basev1.ConfigurationValue) { v.Secret = true },
+		func(v *basev1.ConfigurationValue) { v.Template = &basev1.ConfigurationValueTemplate{} },
+		func(v *basev1.ConfigurationValue) { v.ModuleArtifact = v.ResolvedModuleArtifact.Reference },
+		func(v *basev1.ConfigurationValue) { v.ResolvedModuleArtifact.ArtifactIdentity = nil },
+		func(v *basev1.ConfigurationValue) { v.ResolvedModuleArtifact.ArtifactIdentity.SizeBytes++ },
+		func(v *basev1.ConfigurationValue) {
 			v.ResolvedModuleArtifact.ArtifactIdentity.Digest = strings.Repeat("A", 64)
 		},
-		func(v *basev0.ConfigurationValue) { v.ResolvedModuleArtifact.Reference.Path = "../escape" },
+		func(v *basev1.ConfigurationValue) { v.ResolvedModuleArtifact.Reference.Path = "../escape" },
 	} {
 		conf := artifactConfiguration("A")
 		mutate(conf.Infos[0].ConfigurationValues[0])
@@ -93,7 +93,7 @@ func TestModuleArtifactEmittersValidateBeforeFiltering(t *testing.T) {
 	for _, n := range []int{9406, FileCarrierThreshold} {
 		value := "{\n" + strings.Repeat(" ", n-3) + "}"
 		conf := artifactConfiguration(value)
-		cloned := proto.Clone(conf).(*basev0.Configuration)
+		cloned := proto.Clone(conf).(*basev1.Configuration)
 		env, err := ConfigurationAsEnvironmentVariables(cloned, "local", false)
 		require.NoError(t, err)
 		require.False(t, env[0].File)
@@ -107,6 +107,6 @@ func TestModuleArtifactEmittersValidateBeforeFiltering(t *testing.T) {
 func TestModuleArtifactExplicitRawCarrierContribution(t *testing.T) {
 	baseline := artifactConfiguration("A")
 	key := ConfigurationValueEnvironmentKey(baseline, "test-group", baseline.Infos[0].ConfigurationValues[0])
-	raw := &basev0.Configuration{Origin: "other/service", Infos: []*basev0.ConfigurationInformation{{Name: "explicit", ConfigurationValues: []*basev0.ConfigurationValue{{Key: key, Value: "B"}}}}}
-	require.Error(t, ValidateModuleArtifactDelivery([]*basev0.Configuration{baseline}, []*basev0.Configuration{raw}, nil))
+	raw := &basev1.Configuration{Origin: "other/service", Infos: []*basev1.ConfigurationInformation{{Name: "explicit", ConfigurationValues: []*basev1.ConfigurationValue{{Key: key, Value: "B"}}}}}
+	require.Error(t, ValidateModuleArtifactDelivery([]*basev1.Configuration{baseline}, []*basev1.Configuration{raw}, nil))
 }
