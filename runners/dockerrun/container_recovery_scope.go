@@ -12,13 +12,18 @@ import (
 	"github.com/codefly-dev/core/runners/recoveryscope"
 )
 
+const disposableStorageScopeEnv = "CODEFLY_DISPOSABLE_STORAGE_SCOPE"
+
 const LabelCodeflyRecoveryScope = "codefly.recovery-scope"
 const LabelCodeflyRecoveryNamespace = "codefly.recovery-namespace"
 
 // ContainerRecoveryScope binds cleanup to a home, workspace and resolved naming
 // scope; namespace is the durable canonical host/home/workspace identity that
 // survives a run choosing an entirely fresh naming scope.
-type ContainerRecoveryScope struct{ id, namespace string }
+type ContainerRecoveryScope struct {
+	id, namespace     string
+	disposableStorage bool
+}
 
 func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRecoveryScope, error) {
 	hostID, err := containerRecoveryHostID()
@@ -86,5 +91,10 @@ func inheritedContainerRecoveryScope() (ContainerRecoveryScope, error) {
 	if err != nil {
 		return ContainerRecoveryScope{}, err
 	}
-	return ContainerRecoveryScope{id: id, namespace: namespace}, nil
+	scope := ContainerRecoveryScope{id: id, namespace: namespace}
+	if marker := os.Getenv(disposableStorageScopeEnv); id != "" && marker != "" {
+		scope.disposableStorage = marker == recoveryscope.Marker(os.Getpid(), id, namespace) ||
+			marker == recoveryscope.Marker(recoveryscope.LaunchingParentPID(), id, namespace)
+	}
+	return scope, nil
 }

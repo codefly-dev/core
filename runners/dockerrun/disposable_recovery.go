@@ -55,7 +55,7 @@ func ReapDisposableContainers(ctx context.Context, scope ContainerRecoveryScope)
 			continue
 		}
 		removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := cli.ContainerRemove(removeCtx, c.ID, client.ContainerRemoveOptions{Force: true})
+		err := removeRecoveredContainer(removeCtx, cli, c)
 		removeCancel()
 		if err != nil && !errdefs.IsNotFound(err) {
 			failures = append(failures, fmt.Errorf("recover disposable container %s: %w", c.ID, err))

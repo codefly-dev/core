@@ -1,0 +1,9 @@
+schema: codefly/usage/v1
+summary: Start work through the task interface and let the owner retry it.
+rules:
+  - id: TASKS-RETRY-001
+    title: Do not retry a task the owner is already retrying
+    severity: warn
+    since: 0.4.0
+    rationale: The owner recovers the original effect; a second attempt of yours is a second effect.
+    do: Read the task's outcome and act on that.

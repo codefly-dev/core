@@ -431,6 +431,10 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 	containerConfig := docker.createContainerConfig(ctx)
 	if scope.id != "" {
 		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
+		if scope.disposableStorage {
+			containerConfig.Labels[labelDisposableStorage] = labelTrue
+			containerConfig.Labels[LabelCodeflyEphemeral] = labelTrue
+		}
 		// The durable host/home/workspace namespace is what lets a successor run
 		// recover this container after choosing an entirely fresh naming scope.
 		if scope.namespace != "" {
@@ -484,6 +488,8 @@ type containerRuntimeFingerprint struct {
 	Mounts       []mount.Mount                     `json:"mounts"`
 	PortBindings []containerPortBindingFingerprint `json:"port_bindings"`
 	Ephemeral    bool                              `json:"ephemeral"`
+
+	DisposableStorage bool `json:"disposableStorage,omitempty"`
 }
 
 func containerConfigFingerprint(containerConfig *container.Config, hostConfig *container.HostConfig) (string, error) {
@@ -529,6 +535,8 @@ func containerConfigFingerprint(containerConfig *container.Config, hostConfig *c
 		Mounts:       append([]mount.Mount(nil), hostConfig.Mounts...),
 		PortBindings: portBindings,
 		Ephemeral:    containerConfig.Labels[LabelCodeflyEphemeral] == "true",
+
+		DisposableStorage: containerConfig.Labels[labelDisposableStorage] == labelTrue,
 	}
 	encoded, err := json.Marshal(spec)
 	if err != nil {

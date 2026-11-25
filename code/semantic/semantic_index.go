@@ -94,9 +94,10 @@ var semanticDeclarationKinds = map[string]map[string]basev0.SemanticSymbolKind{
 // response that a caller could mistake for complete coverage.
 func (a *Analyzer) SemanticIndex(ctx context.Context, sourceDir string, fs code.VFS) (*basev0.SemanticIndex, error) {
 	index := &basev0.SemanticIndex{
-		State:           basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED,
-		Analyzer:        "codefly-core/tree-sitter",
-		AnalyzerVersion: semanticcontract.Version,
+		State:              basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED,
+		Analyzer:           "codefly-core/tree-sitter",
+		AnalyzerVersion:    semanticcontract.Version,
+		FileCallsProjected: true,
 	}
 	err := fs.WalkDir(sourceDir, func(filename string, entry osfs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -210,6 +211,7 @@ func projectSemanticFile(ctx context.Context, definition semanticLanguage, path 
 	if root.HasError() {
 		return file, nil, fmt.Errorf("%s", treeSitterSyntaxDiagnostic(root))
 	}
+	file.Calls = semanticFileCalls(definition.name, path, root, body)
 	packageName := semanticPackage(definition.name, path, root, body)
 	var symbols []*basev0.SemanticSymbol
 	projectSemanticDeclarations(definition.name, path, packageName, "", false, root, body, &symbols, nil)
@@ -574,6 +576,33 @@ func semanticUses(language, path string, declaration *sitter.Node, body []byte, 
 		}
 		return result[i].GetName() < result[j].GetName()
 	})
+	return result
+}
+
+// semanticFileCalls projects the call sites that sit outside every function
+// and method: a module's top-level statements, a package-level variable's
+// initializer, a class body. A callable's own calls are on its symbol
+// (semanticUses), so its subtree is left alone here and no call is projected
+// twice. A function literal is no declaration, so the calls inside one
+// assigned at file level are the file's.
+func semanticFileCalls(language, path string, root *sitter.Node, body []byte) []*basev0.SemanticUse {
+	var result []*basev0.SemanticUse
+	var visit func(*sitter.Node)
+	visit = func(node *sitter.Node) {
+		if node == nil {
+			return
+		}
+		if kind, declared := semanticDeclarationKind(language, node.Kind()); declared && semanticCallable(kind) {
+			return
+		}
+		if name := semanticCallName(node, body); name != "" {
+			result = append(result, &basev0.SemanticUse{Name: name, Location: semanticLocation(path, node)})
+		}
+		for index := uint(0); index < node.NamedChildCount(); index++ {
+			visit(node.NamedChild(index))
+		}
+	}
+	visit(root)
 	return result
 }
 

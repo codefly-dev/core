@@ -168,6 +168,13 @@ each container that mounts from it. For a run that is not disposable it removes
 nothing. A container bound to a session ledger, one another host labelled, and a
 named volume are left.
 
+When a run exits before normal teardown, the exact-scope and cross-scope
+sweeps remove storage from an orphan carrying `codefly.disposable-storage=true`.
+Core stamps this label when the CLI declares storage disposable for the
+container's validated recovery scope. Older containers keep their storage under
+recovery. Docker removes anonymous volumes, and Core checks the bind mount
+against its own runtime-cache directory before removing it.
+
 An agent needs no code for this: its `Stop` and `Destroy` stay as they are. It
 needs its containers created through `dockerrun` (which labels them with the
 scope the run projects), on a Core that has the label, and its data kept either
