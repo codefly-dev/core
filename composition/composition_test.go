@@ -456,7 +456,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 	reportJSON, err := dryRun.Report.JSON()
 	require.NoError(t, err)
-	require.Contains(t, string(reportJSON), `"schema": "codefly/module-update-report/v2"`)
+	require.Contains(t, string(reportJSON), `"schema": "codefly/module-update-report/v1"`)
 	require.Contains(t, dryRun.Report.String(), "Result: projection ready; deployment qualification is separate")
 
 	applied, err := engine.Update(ctx, moduleDir, "0.1.0", true)
@@ -925,7 +925,7 @@ func newPackageRoot(t *testing.T, version string) string {
 	t.Helper()
 	root := t.TempDir()
 	manifest := fmt.Sprintf(`kind: module-package
-schema: codefly/module-package/v2
+schema: codefly/module-package/v1
 id: %s
 version: %s
 minimum-codefly-version: ">=0.3.32"

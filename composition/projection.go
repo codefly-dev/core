@@ -79,7 +79,7 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 		return nil, nil, err
 	}
 	input := CompositionInput{
-		Schema:       "codefly/composition-input/v2",
+		Schema:       compositionInputSchema,
 		Module:       descriptor.Name,
 		Package:      manifest.ID,
 		Version:      manifest.Version,

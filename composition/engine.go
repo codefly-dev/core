@@ -157,7 +157,7 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 			if err != nil {
 				return nil, err
 			}
-			report := &SemanticReport{Schema: "codefly/module-update-report/v2", Module: descriptor.Name, Package: candidate.Package, BeforeVersion: current.Version, AfterVersion: candidate.Version,
+			report := &SemanticReport{Schema: updateReportSchema, Module: descriptor.Name, Package: candidate.Package, BeforeVersion: current.Version, AfterVersion: candidate.Version,
 				ConsumerCompatibility: consumerCompatibility, LockDiff: diff, BlockedReasons: []string{"consumer compatibility: " + consumerCompatibility.Verdict.String()}}
 			if baselineManifest != nil {
 				report = newSemanticReport(descriptor, current, candidate, baselineManifest, verified.manifest, nil, nil, nil)
@@ -665,7 +665,7 @@ func writeProjectionMetadata(projection string, lock *Lock, catalog *Catalog) er
 	if err != nil {
 		return err
 	}
-	markerData, err := json.Marshal(projectionMarker{Schema: "codefly/composed-projection/v2", Digest: digest})
+	markerData, err := json.Marshal(projectionMarker{Schema: projectionMarkerSchema, Digest: digest})
 	if err != nil {
 		return err
 	}
@@ -690,7 +690,7 @@ func projectionMatchesMode(projection string, lock *Lock, requireReadOnly bool) 
 		return false
 	}
 	var marker projectionMarker
-	if err := decodeStrictJSON(markerData, &marker); err != nil || marker.Schema != "codefly/composed-projection/v2" || !digestPattern.MatchString(marker.Digest) {
+	if err := decodeStrictJSON(markerData, &marker); err != nil || marker.Schema != projectionMarkerSchema || !digestPattern.MatchString(marker.Digest) {
 		return false
 	}
 	digest, err := projectionContentDigest(projection)

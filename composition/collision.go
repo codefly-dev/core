@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-const catalogSchema = "codefly/composition-catalog/v2"
-
 func ValidateCollisions(claims []Claim, reservedNamespaces []string) error {
 	ordered := append([]Claim(nil), claims...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -58,7 +56,7 @@ func LoadCatalog(projection string) (*Catalog, error) {
 		return nil, fmt.Errorf("decode composition catalog: %w", err)
 	}
 	if catalog.Schema != catalogSchema {
-		return nil, fmt.Errorf("composition catalog schema must be %q", catalogSchema)
+		return nil, unknownSchema("composition catalog", catalog.Schema, catalogSchema)
 	}
 	for _, claim := range catalog.Claims {
 		if err := claim.validate(); err != nil {

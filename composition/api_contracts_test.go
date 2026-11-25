@@ -296,7 +296,7 @@ func TestPackageManifestValidateAPIContracts(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	manifest := func(endpoint string) string {
 		return `kind: module-package
-schema: codefly/module-package/v2
+schema: codefly/module-package/v1
 id: ` + testPackage + `
 version: 0.1.0
 minimum-codefly-version: ">=0.1.0"

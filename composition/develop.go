@@ -60,7 +60,7 @@ func SetDevelopOverride(ctx context.Context, projectRoot, moduleDir, source stri
 		}
 	}
 	override := &DevelopOverride{
-		Schema: "codefly/module-develop/v2", Module: descriptor.Name, Package: manifest.ID,
+		Schema: developOverrideSchema, Module: descriptor.Name, Package: manifest.ID,
 		Source: source, Contracts: maps.Clone(lock.Contracts),
 	}
 	data, err := json.MarshalIndent(override, "", "  ")
@@ -96,7 +96,10 @@ func LoadDevelopOverride(projectRoot, module string) (*DevelopOverride, error) {
 	if err := decodeStrictJSON(data, &override); err != nil {
 		return nil, err
 	}
-	if override.Schema != "codefly/module-develop/v2" || override.Module != module || override.Package == "" || !filepath.IsAbs(override.Source) {
+	if override.Schema != developOverrideSchema {
+		return nil, unknownSchema("local module develop override", override.Schema, developOverrideSchema)
+	}
+	if override.Module != module || override.Package == "" || !filepath.IsAbs(override.Source) {
 		return nil, errors.New("local module develop override is invalid")
 	}
 	return &override, nil

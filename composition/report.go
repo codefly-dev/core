@@ -111,7 +111,7 @@ func (report *SemanticReport) String() string {
 
 func newSemanticReport(descriptor *Descriptor, before *Lock, after *Lock, beforeManifest, afterManifest *PackageManifest, beforeCatalog, afterCatalog *Catalog, validations []ValidationResult) *SemanticReport {
 	report := &SemanticReport{
-		Schema: "codefly/module-update-report/v2", Module: descriptor.Name, Package: after.Package,
+		Schema: updateReportSchema, Module: descriptor.Name, Package: after.Package,
 		AfterVersion: after.Version, Deltas: make(map[CollisionKind]Delta), Validations: validations,
 	}
 	if before != nil {

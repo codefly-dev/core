@@ -54,7 +54,7 @@ func (materializer *Materializer) Materialize(ctx context.Context, release *Veri
 		return "", err
 	}
 	expected := &cacheMarker{
-		Schema:            "codefly/module-cache/v2",
+		Schema:            cacheMarkerSchema,
 		Package:           release.manifest.ID,
 		Version:           release.manifest.Version,
 		ArtifactDigest:    release.digest,
@@ -121,7 +121,7 @@ func (materializer *Materializer) Cached(lock *Lock) (string, error) {
 		return "", err
 	}
 	expected := &cacheMarker{
-		Schema:            "codefly/module-cache/v2",
+		Schema:            cacheMarkerSchema,
 		Package:           lock.Package,
 		Version:           lock.Version,
 		ArtifactDigest:    lock.Artifact.Digest,

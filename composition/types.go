@@ -12,16 +12,34 @@ import (
 	"github.com/codefly-dev/core/moduleupdate"
 )
 
+// Every schema and media type this package writes or reads has one version, v1,
+// and it names the current format. A document stating any other is refused by
+// name and its author told to state this one; nothing dispatches on the label.
+const (
+	cacheMarkerSchema      = "codefly/module-cache/v1"
+	developOverrideSchema  = "codefly/module-develop/v1"
+	projectionMarkerSchema = "codefly/composed-projection/v1"
+	updateReportSchema     = "codefly/module-update-report/v1"
+	compositionInputSchema = "codefly/composition-input/v1"
+	catalogSchema          = "codefly/composition-catalog/v1"
+)
+
+// unknownSchema is the refusal a document stating any schema other than the
+// one its reader reads receives.
+func unknownSchema(document, stated, schema string) error {
+	return fmt.Errorf("%s schema is %q, which is unknown; this Codefly reads %s and no other: state the schema as %s", document, stated, schema, schema)
+}
+
 const (
 	DescriptorFileName       = "module.codefly.yaml"
 	LockFileName             = "module.codefly.lock"
 	PackageManifestFileName  = "module.package.codefly.yaml"
 	DescriptorKind           = "composed-module"
 	PackageKind              = "module-package"
-	PackageSchema            = "codefly/module-package/v2"
-	LockSchema               = "codefly/module-lock/v2"
-	ProvenanceSchema         = "codefly/module-provenance/v2"
-	ArtifactMediaType        = "application/vnd.codefly.module.v2+tar"
+	PackageSchema            = "codefly/module-package/v1"
+	LockSchema               = "codefly/module-lock/v1"
+	ProvenanceSchema         = "codefly/module-provenance/v1"
+	ArtifactMediaType        = "application/vnd.codefly.module.v1+tar"
 	CompositionCatalogName   = ".codefly/composition.catalog.json"
 	CompositionInputName     = ".codefly/composition.input.json"
 	DevelopOverrideDirectory = ".codefly/develop"

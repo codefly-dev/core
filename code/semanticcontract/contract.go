@@ -4,6 +4,6 @@
 package semanticcontract
 
 // Version is the one semantic-index contract emitted and accepted by the
-// current Codefly stack. A format or interpretation change must advance this
-// value and update producer and consumer behavior in the same release train.
-const Version = "codefly.semantic-index/v4"
+// current Codefly stack. There is one version, v1, and it names the current
+// format: producer and consumer change together, in the same release train.
+const Version = "codefly.semantic-index/v1"

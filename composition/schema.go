@@ -343,8 +343,11 @@ func (manifest *PackageManifest) Validate() error {
 	if manifest == nil {
 		return errors.New("module package manifest is required")
 	}
-	if manifest.Kind != PackageKind || manifest.Schema != PackageSchema {
-		return fmt.Errorf("module package manifest must have kind %q and schema %q", PackageKind, PackageSchema)
+	if manifest.Kind != PackageKind {
+		return fmt.Errorf("module package manifest must have kind %q", PackageKind)
+	}
+	if manifest.Schema != PackageSchema {
+		return unknownSchema("module package manifest", manifest.Schema, PackageSchema)
 	}
 	if err := manifest.validateSelections(); err != nil {
 		return err
@@ -549,7 +552,7 @@ func (lock *Lock) Validate() error {
 		return errors.New("module lock is required")
 	}
 	if lock.Schema != LockSchema {
-		return fmt.Errorf("module lock schema must be %q", LockSchema)
+		return unknownSchema("module lock", lock.Schema, LockSchema)
 	}
 	if err := validateIdentifier("module", lock.Module); err != nil {
 		return err
@@ -563,8 +566,11 @@ func (lock *Lock) Validate() error {
 	if strings.TrimSpace(lock.Source.Repository) == "" || strings.TrimSpace(lock.Source.Ref) == "" || !commitPattern.MatchString(lock.Source.Commit) {
 		return errors.New("module lock source requires repository, ref, and a peeled commit")
 	}
-	if lock.Artifact.MediaType != ArtifactMediaType || !digestPattern.MatchString(lock.Artifact.Digest) || strings.TrimSpace(lock.Artifact.Signature) == "" {
-		return errors.New("module lock artifact media type, SHA-256 digest, and signature identity are required")
+	if lock.Artifact.MediaType != ArtifactMediaType {
+		return fmt.Errorf("module lock artifact media type is %q, which is unknown; this Codefly reads %s and no other: state the media type as %s", lock.Artifact.MediaType, ArtifactMediaType, ArtifactMediaType)
+	}
+	if !digestPattern.MatchString(lock.Artifact.Digest) || strings.TrimSpace(lock.Artifact.Signature) == "" {
+		return errors.New("module lock artifact SHA-256 digest and signature identity are required")
 	}
 	if !digestPattern.MatchString(lock.CompositionDigest) {
 		return errors.New("module lock composition digest must be a SHA-256 digest")
@@ -588,9 +594,15 @@ func ParseProvenance(data []byte) (*Provenance, error) {
 	if err := decodeStrictJSON(data, &provenance); err != nil {
 		return nil, fmt.Errorf("decode module provenance: %w", err)
 	}
-	if provenance.Schema != ProvenanceSchema || provenance.Package == "" || provenance.Version == "" ||
+	if provenance.Schema != ProvenanceSchema {
+		return nil, unknownSchema("module provenance", provenance.Schema, ProvenanceSchema)
+	}
+	if provenance.ArtifactMediaType != ArtifactMediaType {
+		return nil, fmt.Errorf("module provenance artifact media type is %q, which is unknown; this Codefly reads %s and no other: state the media type as %s", provenance.ArtifactMediaType, ArtifactMediaType, ArtifactMediaType)
+	}
+	if provenance.Package == "" || provenance.Version == "" ||
 		provenance.Repository == "" || provenance.Ref == "" || !commitPattern.MatchString(provenance.Commit) ||
-		provenance.ArtifactMediaType != ArtifactMediaType || !digestPattern.MatchString(provenance.ArtifactDigest) ||
+		!digestPattern.MatchString(provenance.ArtifactDigest) ||
 		provenance.SignatureIdentity == "" {
 		return nil, errors.New("module provenance is incomplete or invalid")
 	}
