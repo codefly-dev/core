@@ -894,7 +894,7 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 		// Under local resolution the record is not consulted, so one that
 		// cannot be read is no reason to refuse. It is cleared if it can be;
 		// a remote load that still finds it refuses with the remedy above.
-		if rmErr := os.Remove(releaseDigestFile(bin)); rmErr != nil && !os.IsNotExist(rmErr) {
+		if rmErr := removeReleaseDigest(bin); rmErr != nil {
 			w.Warn(fmt.Sprintf("cached agent %s has an unreadable release record that cannot be removed: %v", p.Identifier(), rmErr))
 		}
 		w.Debug("cached agent has an unreadable release record; CODEFLY_AGENT_SOURCE=local admits it", wool.Field("digest", digest))
@@ -909,7 +909,7 @@ func admitCachedRelease(ctx context.Context, p *resources.Agent, bin, digest str
 		// these bytes, so it goes: the next remote load then sees an entry with
 		// no record and fetches the release, instead of trusting a stale one.
 		if recorded != "" {
-			if err := os.Remove(releaseDigestFile(bin)); err != nil {
+			if err := removeReleaseDigest(bin); err != nil {
 				return "", nil, fmt.Errorf("%w: cached agent %s was rebuilt locally over its release but the release record beside it cannot be removed: %v", ErrAgentAdmission, bin, err)
 			}
 			w.Debug("cached agent was rebuilt over its release; CODEFLY_AGENT_SOURCE=local admits it and the release record is removed", wool.Field("digest", digest), wool.Field("recorded", recorded))

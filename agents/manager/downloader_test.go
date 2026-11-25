@@ -404,6 +404,18 @@ func TestReleaseDigestSidecarIsInvisibleToCacheScans(t *testing.T) {
 	require.Len(t, installed, 1)
 }
 
+func TestReleaseDigestRemovalIsIdempotent(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "agent")
+	require.NoError(t, writeReleaseDigest(bin, strings.Repeat("a", 64)))
+	require.NoError(t, removeReleaseDigest(bin))
+	require.NoError(t, removeReleaseDigest(bin), "another loader already removed the same stale record")
+
+	record := releaseDigestFile(bin)
+	require.NoError(t, os.Mkdir(record, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(record, "unexpected"), nil, 0o600))
+	require.Error(t, removeReleaseDigest(bin), "other filesystem failures still surface")
+}
+
 // TestAdmitCachedReleaseHoldsTheCacheToItsRecord covers the four states a cached
 // executable can be in: installed from a release and unchanged; installed from
 // a release and replaced since; never installed from a release under local

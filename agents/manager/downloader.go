@@ -122,6 +122,15 @@ func releaseDigestFile(executable string) string {
 	return filepath.Join(filepath.Dir(executable), "."+filepath.Base(executable)+".sha256")
 }
 
+// removeReleaseDigest can race with another process reconciling the same record.
+func removeReleaseDigest(executable string) error {
+	err := os.Remove(releaseDigestFile(executable))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 // InstalledReleaseDigest reads the digest an agent was installed from its
 // release with: the hex SHA-256 of its executable at install time. It is ""
 // with no error when the agent is cached but was never installed from a release
@@ -220,7 +229,7 @@ func installRecordedExecutable(staged, target, digest string) error {
 		return err
 	}
 	defer os.Remove(record)
-	if err := os.Remove(releaseDigestFile(target)); err != nil && !os.IsNotExist(err) {
+	if err := removeReleaseDigest(target); err != nil {
 		return err
 	}
 	if err := os.Rename(staged, target); err != nil {
