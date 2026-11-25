@@ -31,7 +31,7 @@ func TestInspectAgentChecksTheRunningProtocolNotIdentityOrRelease(t *testing.T) 
 		{name: "unsupported", version: "99.0.0", declaration: "future", wantError: "host requires version"},
 		{name: "undeclared", version: "99.0.0", declaration: "undeclared", wantError: "does not declare"},
 		{name: "server-declared", version: "1.0.0", declaration: "absent"},
-		{name: "future-startup", version: "1.0.0", declaration: "future-startup", wantError: "startup protocol version 3"},
+		{name: "future-startup", version: "1.0.0", declaration: "future-startup", wantError: "startup protocol version 2"},
 		{name: "undeclared-startup", version: "1.0.0", declaration: "undeclared-startup", wantError: "startup protocol version 0"},
 		{name: "optional-features", version: "1.0.0", declaration: "no-recovery"},
 	} {

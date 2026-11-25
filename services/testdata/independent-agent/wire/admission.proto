@@ -1,0 +1,16 @@
+// Independent peer's subset of the public admission contract.
+syntax = "proto3";
+package codefly.services.agent.v1;
+option go_package = "example.test/independent-agent/wire";
+
+message AgentInformationRequest {}
+message AgentContract {
+  uint32 protocol_version = 1;
+  uint32 startup_protocol_version = 3;
+}
+message AgentInformation {
+  AgentContract contract = 12;
+}
+service Agent {
+  rpc GetAgentInformation(AgentInformationRequest) returns (AgentInformation);
+}

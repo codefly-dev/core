@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	agentv1 "example.test/independent-agent/wire"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -33,7 +33,7 @@ func (server) GetAgentInformation(context.Context, *agentv1.AgentInformationRequ
 	case "undeclared-startup":
 		declaration.StartupProtocolVersion = 0
 	case "future-startup":
-		declaration.StartupProtocolVersion = 3
+		declaration.StartupProtocolVersion = 2
 	}
 	return &agentv1.AgentInformation{Contract: declaration}, nil
 }
@@ -69,7 +69,7 @@ func main() {
 	if network == "unix" {
 		endpoint = "unix:" + address
 	}
-	fmt.Printf("2|%s\n", endpoint)
+	fmt.Printf("1|%s\n", endpoint)
 	if err := rpc.Serve(listener); err != nil {
 		panic(err)
 	}
