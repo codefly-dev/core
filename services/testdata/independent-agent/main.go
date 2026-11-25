@@ -22,7 +22,7 @@ type server struct {
 }
 
 func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
-	declaration := &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 2}
+	declaration := &agentv0.AgentContract{ProtocolVersion: 1, StartupProtocolVersion: 1}
 	switch os.Getenv("TEST_AGENT_CONTRACT") {
 	case "unimplemented":
 		return nil, status.Error(codes.Unimplemented, "agent information is unavailable")

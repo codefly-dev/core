@@ -9,8 +9,8 @@ Codefly already had two ownership mechanisms, and neither answers the question
 cleanup actually asks.
 
 - **Process groups** (`runners/base`) persist an authenticated record per spawned
-  group under `~/.codefly/runs/authenticated-v2/` (with explicit reads of the
-  earlier `authenticated-v1` contract). It is PID-reuse safe and
+  group under `~/.codefly/runs/workspace-authenticated-v1/` (with explicit reads of the
+  earlier `authenticated-v2` and `authenticated-v1` contracts). It is PID-reuse safe and
   proves which groups a dead CLI left behind — but it knows nothing about
   containers, volumes, data, or whether a resource was ours to begin with.
 - **Docker containers** carried the spawning CLI's PID in a
@@ -302,13 +302,12 @@ whose working directories live outside the workspace need durable attribution:
 Redis, for example, can rewrite the process metadata that exposes the marker.
 
 New tracked spawns persist the current parent marker as `launch_workspace` in
-`~/.codefly/runs/authenticated-v2/<pgid>.pgid` before releasing the start gate.
+`~/.codefly/runs/workspace-authenticated-v1/<pgid>.pgid` before releasing the start gate.
 The record carries the same leader/owner birth identities and group credential.
 `ListProcessGroups` discovers registrations without consumer format knowledge.
-`LookupProcessGroup` reads v2 and v1, refusing duplicate registrations across
+`LookupProcessGroup` reads current and legacy registrations, refusing duplicate registrations across
 namespaces. Discovery errors return no partial list and do not modify evidence. `InspectOwnership` returns `LaunchWorkspace` only when the group
-authenticates; an empty value means no recorded attribution, including all v1
-records. Scope selection and refusal policy remain with the CLI. Metadata never
+authenticates; an empty value means no recorded attribution, including all records from the original non-workspace namespace. Scope selection and refusal policy remain with the CLI. Metadata never
 authorizes signaling: callers must use the existing identity-checking methods.
 
 The process-group registry is an explicit exception to the default generated
@@ -494,7 +493,7 @@ refusing it would strand every pre-upgrade container permanently and refuse to
 reuse retained databases. Cross-scope authority is withheld from them, since
 outside the exact scope the hash proves nothing about home, workspace or host.
 
-The process marker is tagged with its field layout (`pid:v2:scope:namespace`). A
+The process marker is tagged with its field layout (`pid:v1:scope:namespace`). A
 marker written before the tag existed is honored only for the exact scope, and
 one carrying untagged trailing fields is refused: two revisions gave the field
 after the scope different meanings, and a reader that guesses wrong stamps a

@@ -54,7 +54,7 @@ const DeploymentCompositionProvenance = "deployment-composition-provenance/v1"
 // behavior is named here rather than inferred from a Core version.
 const ConfigurationValueTemplate = "configuration-value-template/v1"
 
-const StartupProtocolVersion = 2
+const StartupProtocolVersion = 1
 
 // ErrIncompatible means the peer's runtime advertisement cannot satisfy the
 // requested protocol. It is distinct from an unreachable or failed process.

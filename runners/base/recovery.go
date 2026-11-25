@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/codefly-dev/core/wire"
@@ -200,7 +201,7 @@ func RecoverProcessGroup(ctx context.Context, expected ProcessGroupRecoveryExpec
 
 func lockRecoveryRegistries(ctx context.Context) (func() error, error) {
 	// acquireRegistryLock also holds the package-wide in-process mutex. Take it
-	// once, then lock the second namespace file in the same fixed order.
+	// once, then lock the remaining namespace files in the same fixed order.
 	currentDir, err := pgidNamespaceDir(pgidRegistryNamespace)
 	if err != nil {
 		return nil, err
@@ -209,16 +210,27 @@ func lockRecoveryRegistries(ctx context.Context) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
-	previousDir, err := pgidNamespaceDir(pgidPreviousNamespace)
-	if err != nil {
-		return nil, errors.Join(err, releaseRegistryLock(current))
+	var held []*flock.Flock
+	release := func() error {
+		var failures []error
+		for _, lock := range slices.Backward(held) {
+			failures = append(failures, lock.Unlock(), lock.Close())
+		}
+		return errors.Join(append(failures, releaseRegistryLock(current))...)
 	}
-	previous := flock.New(filepath.Join(previousDir, pgidLockName), flock.SetPermissions(0600))
-	locked, err := previous.TryLockContext(ctx, pgidLockRetry)
-	if err != nil || !locked {
-		return nil, errors.Join(errors.New("lock previous recovery namespace"), err, previous.Close(), releaseRegistryLock(current))
+	for _, namespace := range pgidNamespaces[1:] {
+		dir, err := pgidNamespaceDir(namespace)
+		if err != nil {
+			return nil, errors.Join(err, release())
+		}
+		lock := flock.New(filepath.Join(dir, pgidLockName), flock.SetPermissions(0600))
+		locked, err := lock.TryLockContext(ctx, pgidLockRetry)
+		if err != nil || !locked {
+			return nil, errors.Join(fmt.Errorf("lock recovery namespace %s", namespace), err, lock.Close(), release())
+		}
+		held = append(held, lock)
 	}
-	return func() error { return errors.Join(previous.Unlock(), previous.Close(), releaseRegistryLock(current)) }, nil
+	return release, nil
 }
 
 func readRecoveryRegistration(pgid int) (*TrackedProcessGroup, recordSnapshot, error) {
@@ -364,7 +376,7 @@ func (expected ProcessGroupRecoveryExpectation) validate() error {
 		return errors.New("recovery expectation is too large")
 	}
 	digest, err := hex.DecodeString(expected.RecordSHA256)
-	if err != nil || len(digest) != 32 || expected.RecordSHA256 != strings.ToLower(expected.RecordSHA256) || expected.PGID <= 1 || (expected.Namespace != pgidRegistryNamespace && expected.Namespace != pgidPreviousNamespace) || len(expected.Members) == 0 {
+	if err != nil || len(digest) != 32 || expected.RecordSHA256 != strings.ToLower(expected.RecordSHA256) || expected.PGID <= 1 || !slices.Contains(pgidNamespaces, expected.Namespace) || len(expected.Members) == 0 {
 		return errors.New("recovery expectation is incomplete or malformed")
 	}
 	for _, identity := range append([]ProcessIdentity{expected.Leader, expected.Owner}, expected.Members...) {

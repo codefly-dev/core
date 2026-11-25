@@ -48,7 +48,7 @@ func InspectProcess(pid int) (ProcessIdentity, error) {
 	}, nil
 }
 
-// LookupProcessGroup reads authenticated-v2 and authenticated-v1 registrations.
+// LookupProcessGroup reads current and legacy authenticated registrations.
 // It refuses ambiguous duplicate registrations. It returns the group for pgid, or
 // ErrProcessGroupNotRegistered. The returned handle carries the record's
 // authentication, so signalling through it reaches only processes that prove
@@ -56,7 +56,7 @@ func InspectProcess(pid int) (ProcessIdentity, error) {
 // happens to hold the number.
 func LookupProcessGroup(pgid int) (*TrackedProcessGroup, error) {
 	var found *TrackedProcessGroup
-	for _, namespace := range []string{pgidRegistryNamespace, pgidPreviousNamespace} {
+	for _, namespace := range pgidNamespaces {
 		dir, err := pgidNamespaceDir(namespace)
 		if err != nil {
 			return nil, err
@@ -87,7 +87,7 @@ func LookupProcessGroup(pgid int) (*TrackedProcessGroup, error) {
 func ListProcessGroups(ctx context.Context) ([]*TrackedProcessGroup, error) {
 	var groups []*TrackedProcessGroup
 	seen := make(map[int]bool)
-	for _, namespace := range []string{pgidRegistryNamespace, pgidPreviousNamespace} {
+	for _, namespace := range pgidNamespaces {
 		dir, err := pgidNamespaceDir(namespace)
 		if err != nil {
 			return nil, err

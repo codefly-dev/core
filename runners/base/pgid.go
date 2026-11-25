@@ -88,14 +88,15 @@ func forwardLines(r io.Reader, w io.Writer) {
 // group is preserved regardless of which agent wrote it.
 
 const (
-	pgidRootDirName       = "runs"
-	pgidRegistryNamespace = "authenticated-v2"
-	pgidPreviousNamespace = "authenticated-v1"
-	pgidLockName          = ".reaper.lock"
-	pgidLockRetry         = 25 * time.Millisecond
-	sigtermGrace          = 3 * time.Second
-	sigkillGrace          = time.Second
-	killSweeps            = 2
+	pgidRootDirName              = "runs"
+	pgidRegistryNamespace        = "workspace-authenticated-v1"
+	pgidLegacyWorkspaceNamespace = "authenticated-v2" // version-guard:allow existing process registrations
+	pgidPreviousNamespace        = "authenticated-v1"
+	pgidLockName                 = ".reaper.lock"
+	pgidLockRetry                = 25 * time.Millisecond
+	sigtermGrace                 = 3 * time.Second
+	sigkillGrace                 = time.Second
+	killSweeps                   = 2
 	// killSweepInterval is how long the first SIGKILL sweep waits before
 	// re-sweeping. A member that forked between enumeration and delivery is
 	// already running when the sweep lands, so the re-sweep only has to
@@ -134,6 +135,9 @@ var errProcessGroupNotSignalable = errors.New("process group has no signalable m
 // let the second case retire as a completed teardown.
 var errProcessGroupNotCredentialed = errors.New("process group members do not carry the start credential")
 
+// Keep the two historical directories in their original recovery lock order.
+var pgidNamespaces = []string{pgidRegistryNamespace, pgidLegacyWorkspaceNamespace, pgidPreviousNamespace}
+
 type recordedProcessIdentity struct {
 	PID        int    `json:"pid"`
 	BootID     string `json:"boot_id"`
@@ -142,7 +146,7 @@ type recordedProcessIdentity struct {
 }
 
 // pgidRecord retains the exact v1 wire shape. LaunchWorkspace is serialized
-// only by the v2 envelope, never as an additive field in authenticated-v1.
+// only by the workspace-bearing envelope, never as an additive field in authenticated-v1.
 type pgidRecord struct {
 	LaunchWorkspace string                  `json:"-"`
 	PGID            int                     `json:"pgid"`
@@ -151,7 +155,7 @@ type pgidRecord struct {
 	Authentication  string                  `json:"authentication"`
 }
 
-type pgidRecordV2 struct {
+type workspacePGIDRecord struct {
 	pgidRecord
 	Workspace string `json:"launch_workspace"`
 }
@@ -519,7 +523,7 @@ func (group *TrackedProcessGroup) persist() (returnErr error) {
 		return fmt.Errorf("inspect process-group record: %w", err)
 	}
 
-	content, err := json.Marshal(pgidRecordV2{pgidRecord: rec, Workspace: rec.LaunchWorkspace})
+	content, err := json.Marshal(workspacePGIDRecord{pgidRecord: rec, Workspace: rec.LaunchWorkspace})
 	if err != nil {
 		return fmt.Errorf("encode process-group record: %w", err)
 	}
@@ -775,8 +779,8 @@ func readPgidRecord(path string) (pgidRecord, recordSnapshot, error) {
 	decoder.DisallowUnknownFields()
 	var rec pgidRecord
 	switch filepath.Base(filepath.Dir(path)) {
-	case pgidRegistryNamespace:
-		var envelope pgidRecordV2
+	case pgidRegistryNamespace, pgidLegacyWorkspaceNamespace:
+		var envelope workspacePGIDRecord
 		if err := decoder.Decode(&envelope); err != nil {
 			return pgidRecord{}, snapshot, err
 		}
@@ -907,7 +911,7 @@ func IsProcessAlive(pid int) bool {
 // so their groups cannot leak across an upgrade.
 func ReapStaleProcessGroups(ctx context.Context) error {
 	var failures []error
-	for _, namespace := range []string{pgidRegistryNamespace, pgidPreviousNamespace} {
+	for _, namespace := range pgidNamespaces {
 		failures = append(failures, reapProcessGroupNamespace(ctx, namespace))
 	}
 	return errors.Join(failures...)

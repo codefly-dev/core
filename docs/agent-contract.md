@@ -253,7 +253,7 @@ the live `AgentContract` through the existing capability check when relying on
 the handoff. An agent advertises it only after implementing selection and
 refusals; linking generated bindings or Core's shared server does not advertise
 adoption. The release manifest records the operation contract while wire
-protocol 1, startup protocol 2 and shared server capabilities remain unchanged.
+protocol 1, startup protocol 1 and shared server capabilities remain unchanged.
 
 This is the Core transport for
 [core#748](https://github.com/codefly-dev/core/issues/748), not a completed local
@@ -293,7 +293,7 @@ the role needed for that refusal and the owning workspaces in its diagnostic.
 The CLI requires the live `AgentContract` capability when relying on the
 handoff. Agents advertise it only when their deployment path implements these
 semantics; the shared server does not automatically advertise adoption.
-Wire protocol 1 and startup protocol 2 are unchanged. No version roster or
+Wire protocol 1 and startup protocol 1 are unchanged. No version roster or
 fleet repin substitutes for live adoption.
 
 A design proposal preceded the proto edit for
@@ -349,7 +349,7 @@ which a consumer digests rather than refuses.
 host support here: a runtime advertises it in its own capabilities only once
 it calls `ReportStartedArtifact`, and the shared contract never advertises it
 for every agent built on this Core — that would be the false promise a
-consumer then trusts. Wire protocol 1 and startup protocol 2 are unchanged.
+consumer then trusts. Wire protocol 1 and startup protocol 1 are unchanged.
 Core tests do not qualify any agent's adoption.
 
 A Go runtime built on `runners/golang` names its executable with

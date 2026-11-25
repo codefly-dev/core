@@ -37,8 +37,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ProtocolVersion is the strict stdout handshake contract. Version 2 removes
-// the ambiguous numeric-port endpoint used by pre-UDS agents.
+// ProtocolVersion is the strict stdout handshake contract. It requires an explicit
+// transport endpoint and rejects bare numeric ports.
 const ProtocolVersion = contract.StartupProtocolVersion
 
 // WorkDirEnvironment is the manager-to-agent source attachment boundary.
