@@ -2,7 +2,11 @@ name: codefly core
 
 on:
   push:
-    branches: [ main ]
+    # feature/revenge is a long-lived integration branch with no pull request
+    # open, so without it here nothing on the branch is ever checked. The
+    # main-only jobs below (notify, the released-tree record) test the ref
+    # themselves and stay main-only.
+    branches: [ main, feature/revenge ]
   pull_request:
     branches: [ main ]
 

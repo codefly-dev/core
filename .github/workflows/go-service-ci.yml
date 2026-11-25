@@ -19,14 +19,38 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Go module and build caches, restored BEFORE setup-go and owned by
+      # this step rather than by setup-go's built-in cache, for two reasons.
+      #
+      # Order: when a go.mod pins a `toolchain` newer than its `go` line,
+      # setup-go's first `go` call downloads the toolchain module into the
+      # module cache, and a restore that lands afterwards collides with those
+      # read-only files (tar: .../toolchain@.../*: File exists) and leaves a
+      # toolchain that fails with "package … is not in std". Restoring onto the
+      # clean runner first means there is nothing to collide with; a restore
+      # that fails anyway costs a cold build, never the job.
+      #
+      # Fallback: setup-go keys on the exact go.sum hash, so any branch that
+      # moves a dependency compiles everything from nothing. `restore-keys`
+      # hands such a run the newest cache of the same job instead, and Go
+      # rebuilds only what the change invalidated.
+      #
+      # One key per job: the two jobs compile different things (packages, and
+      # test binaries), and a shared key would keep whichever finished first.
+      - name: Restore the Go module and build caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-service-ci-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-service-ci-build-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
-          # downloads the toolchain module into the cache; setup-go's cache tar
-          # then corrupts it on restore (tar: .../toolchain@.../*: File exists),
-          # and generated-service builds fail with "package … is not in std".
-          # Skip the cache so every build uses an intact toolchain.
+          # The step above owns the cache; see its note.
           cache: false
       - name: Build
         run: go build ./...
@@ -42,14 +66,38 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Go module and build caches, restored BEFORE setup-go and owned by
+      # this step rather than by setup-go's built-in cache, for two reasons.
+      #
+      # Order: when a go.mod pins a `toolchain` newer than its `go` line,
+      # setup-go's first `go` call downloads the toolchain module into the
+      # module cache, and a restore that lands afterwards collides with those
+      # read-only files (tar: .../toolchain@.../*: File exists) and leaves a
+      # toolchain that fails with "package … is not in std". Restoring onto the
+      # clean runner first means there is nothing to collide with; a restore
+      # that fails anyway costs a cold build, never the job.
+      #
+      # Fallback: setup-go keys on the exact go.sum hash, so any branch that
+      # moves a dependency compiles everything from nothing. `restore-keys`
+      # hands such a run the newest cache of the same job instead, and Go
+      # rebuilds only what the change invalidated.
+      #
+      # One key per job: the two jobs compile different things (packages, and
+      # test binaries), and a shared key would keep whichever finished first.
+      - name: Restore the Go module and build caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-service-ci-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-service-ci-test-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # go.mod pins a `toolchain` newer than the `go` line, so GOTOOLCHAIN
-          # downloads the toolchain module into the cache; setup-go's cache tar
-          # then corrupts it on restore (tar: .../toolchain@.../*: File exists),
-          # and generated-service builds fail with "package … is not in std".
-          # Skip the cache so every build uses an intact toolchain.
+          # The step above owns the cache; see its note.
           cache: false
       - name: Setup
         if: inputs.setup-run != ''
@@ -61,4 +109,8 @@ jobs:
           SETUP_RUN: ${{ inputs.setup-run }}
         run: eval "$SETUP_RUN"
       - name: Test
-        run: go test -v ./...
+        # -count=1: the restored build cache also holds test RESULTS, and Go
+        # would replay a recorded pass for a package whose inputs it believes
+        # unchanged. These suites reach outside what Go tracks (images, the
+        # Docker daemon, tools on PATH), so every run executes every test.
+        run: go test -count=1 -v ./...
