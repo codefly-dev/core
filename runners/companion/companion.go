@@ -35,6 +35,11 @@ type CompanionRunner interface {
 	// Docker: bind mount. Nix/Local: no-op (already on host).
 	WithMount(hostPath, targetPath string)
 
+	// WithReadOnlyMount makes a host directory visible inside the companion
+	// without letting the companion change it.
+	// Docker: read-only bind mount. Nix/Local: no-op (already on host).
+	WithReadOnlyMount(hostPath, targetPath string)
+
 	// WithPortMapping maps a companion port to a host port.
 	// Docker: Docker port mapping. Nix/Local: no-op (same network).
 	WithPortMapping(ctx context.Context, hostPort, companionPort uint16)
@@ -159,6 +164,10 @@ func (d *dockerCompanion) WithMount(hostPath, targetPath string) {
 	d.inner.WithMount(hostPath, targetPath)
 }
 
+func (d *dockerCompanion) WithReadOnlyMount(hostPath, targetPath string) {
+	d.inner.WithReadOnlyMount(hostPath, targetPath)
+}
+
 func (d *dockerCompanion) WithEntrypoint(command ...string) {
 	d.inner.WithEntrypoint(command...)
 }
@@ -219,6 +228,9 @@ func (l *localCompanion) WithEntrypoint(_ ...string) {}
 // WithMount is a no-op for local runners -- host filesystem is already visible.
 func (l *localCompanion) WithMount(_, _ string) {}
 
+// WithReadOnlyMount is a no-op for local runners -- host filesystem is already visible.
+func (l *localCompanion) WithReadOnlyMount(_, _ string) {}
+
 // WithPortMapping is a no-op for local runners -- same network namespace.
 func (l *localCompanion) WithPortMapping(_ context.Context, _, _ uint16) {}
 
@@ -278,6 +290,9 @@ func (n *nixCompanion) WithEntrypoint(_ ...string) {}
 
 // WithMount is a no-op for Nix runners -- host filesystem is already visible.
 func (n *nixCompanion) WithMount(_, _ string) {}
+
+// WithReadOnlyMount is a no-op for Nix runners -- host filesystem is already visible.
+func (n *nixCompanion) WithReadOnlyMount(_, _ string) {}
 
 // WithPortMapping is a no-op for Nix runners -- same network namespace.
 func (n *nixCompanion) WithPortMapping(_ context.Context, _, _ uint16) {}

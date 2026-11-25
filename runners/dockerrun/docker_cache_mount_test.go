@@ -3,6 +3,7 @@ package dockerrun
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -141,5 +142,35 @@ func TestContainerConfigFingerprintDetectsReusableRuntimeDrift(t *testing.T) {
 	}
 	if clearedEntrypoint == original {
 		t.Fatal("clearing the image entrypoint did not change the fingerprint")
+	}
+}
+
+// Source composed from outside the workspace is the owner's checkout or a
+// module-cache entry: the container reads it and cannot change it, and the
+// printed `docker create` says so rather than showing a writable mount.
+func TestWithReadOnlyMountIsReadOnlyInTheHostConfigAndTheCommand(t *testing.T) {
+	env := &DockerEnvironment{name: "codefly-workspace-service"}
+	env.WithMount("/workspace", "/workspace")
+	env.WithReadOnlyMount("/checkout/service", "/checkout/service")
+
+	hostConfig := env.createHostConfig(context.Background())
+	want := []mount.Mount{
+		{Type: mount.TypeBind, Source: "/workspace", Target: "/workspace"},
+		{Type: mount.TypeBind, Source: "/checkout/service", Target: "/checkout/service", ReadOnly: true},
+	}
+	if len(hostConfig.Mounts) != len(want) {
+		t.Fatalf("mounts = %#v, want %#v", hostConfig.Mounts, want)
+	}
+	for i := range want {
+		if hostConfig.Mounts[i] != want[i] {
+			t.Fatalf("mount %d = %#v, want %#v", i, hostConfig.Mounts[i], want[i])
+		}
+	}
+	command := generateDockerCreateCommand(&container.Config{Image: "golang"}, hostConfig, env.name)
+	if !strings.Contains(command, "type=bind,source=/checkout/service,target=/checkout/service,readonly") {
+		t.Fatalf("the read-only mount is not printed as one: %s", command)
+	}
+	if strings.Contains(command, "target=/workspace,readonly") {
+		t.Fatalf("the workspace mount is printed read-only: %s", command)
 	}
 }

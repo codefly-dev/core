@@ -94,6 +94,12 @@ func CreateRunner(ctx context.Context, runtimeCtx *basev0.RuntimeContext, cfg Ru
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot create docker runner")
 		}
+		// The service directory holds what the code reads beside itself
+		// (configurations, contract surfaces); a composed service's lies
+		// outside the workspace mount like its code does.
+		if err := env.WithSourceRoot(path.Join(cfg.WorkspacePath, cfg.RelativeSource)); err != nil {
+			return nil, w.Wrapf(err, "cannot give the container the service directory")
+		}
 		// Mount service.codefly.yaml into the container root.
 		env.WithFile(path.Join(cfg.WorkspacePath, cfg.RelativeSource, "service.codefly.yaml"), "/service.codefly.yaml")
 	case resources.RuntimeContextNix:

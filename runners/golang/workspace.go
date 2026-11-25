@@ -19,6 +19,10 @@ type sourceGoWorkspace struct {
 	root           string
 	moduleDirs     []string
 	packageTargets []string
+	// externalDirs are the directories the go.work names outside the source
+	// root: sibling modules it uses and its own local replacements. Nothing is
+	// executed in them, but the toolchain reads them, so a container needs them.
+	externalDirs []string
 }
 
 // loadSourceGoWorkspace parses a go.work owned by sourceDir and resolves its
@@ -66,6 +70,7 @@ func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 			// The Go tool may resolve imports from an explicitly declared
 			// sibling module, but the attached project's unscoped test/build/
 			// lint request must not execute that sibling's packages.
+			result.externalDirs = append(result.externalDirs, moduleDir)
 			continue
 		}
 		if _, duplicate := seen[moduleDir]; duplicate {
@@ -82,6 +87,11 @@ func loadSourceGoWorkspace(sourceDir string) (*sourceGoWorkspace, bool, error) {
 		seen[moduleDir] = struct{}{}
 		result.moduleDirs = append(result.moduleDirs, moduleDir)
 		result.packageTargets = append(result.packageTargets, target)
+	}
+	for _, replace := range work.Replace {
+		if dir, ok := replacementDir(root, replace); ok {
+			result.externalDirs = append(result.externalDirs, dir)
+		}
 	}
 	if len(result.moduleDirs) == 0 {
 		return nil, true, fmt.Errorf("go.work at %s declares no modules inside the attached source root", workPath)

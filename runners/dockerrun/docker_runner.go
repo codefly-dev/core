@@ -307,7 +307,11 @@ func generateDockerCreateCommand(containerConfig *container.Config, hostConfig *
 
 	// Add mounts
 	for _, mount := range hostConfig.Mounts {
-		cmd = append(cmd, "--mount", fmt.Sprintf("type=%s,source=%s,target=%s", mount.Type, mount.Source, mount.Target))
+		spec := fmt.Sprintf("type=%s,source=%s,target=%s", mount.Type, mount.Source, mount.Target)
+		if mount.ReadOnly {
+			spec += ",readonly"
+		}
+		cmd = append(cmd, "--mount", spec)
 	}
 
 	// Add port bindings
@@ -770,6 +774,21 @@ func (docker *DockerEnvironment) WithMount(sourceDir string, targetDir string) {
 		Type:   mount.TypeBind,
 		Source: sourceDir,
 		Target: targetDir,
+	})
+}
+
+// WithReadOnlyMount binds a host directory the container may read and must
+// not change: source a composition resolved from outside its workspace (a
+// sibling checkout, the module cache) belongs to its owner, and a build inside
+// the container has no business writing there.
+func (docker *DockerEnvironment) WithReadOnlyMount(sourceDir string, targetDir string) {
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
+	docker.mounts = append(docker.mounts, mount.Mount{
+		Type:     mount.TypeBind,
+		Source:   sourceDir,
+		Target:   targetDir,
+		ReadOnly: true,
 	})
 }
 

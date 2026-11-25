@@ -67,6 +67,35 @@ type GoRunnerEnvironment struct {
 	// Source directory
 	sourceDir string
 	moduleDir string
+
+	// sourceRoots are the directories a container must carry for the source
+	// to exist inside it (see container_source.go); sourceMounted records
+	// that Setup has mounted them, since Setup runs on every Init.
+	sourceRoots   []string
+	sourceMounted bool
+}
+
+// WithSourceRoot names another directory the source needs inside a container,
+// such as the service directory around its code. It is mounted read-only at
+// its own path when the workspace mount does not already carry it, and is a
+// no-op on a host backend, where the directory is simply there.
+func (r *GoRunnerEnvironment) WithSourceRoot(dir string) error {
+	if r.companion == nil {
+		return nil
+	}
+	dir = containerSourceDir(r.dir, dir)
+	if _, err := sourceMounts(r.dir, []string{dir}); err != nil {
+		return err
+	}
+	r.sourceRoots = append(r.sourceRoots, dir)
+	return nil
+}
+
+// ContainerSourceMounts are the host directories a container backend mounts,
+// read-only and at their own paths, so the service's source exists inside it.
+// Empty for a source the workspace mount already carries.
+func (r *GoRunnerEnvironment) ContainerSourceMounts() ([]string, error) {
+	return sourceMounts(r.dir, r.sourceRoots)
 }
 
 func (r *GoRunnerEnvironment) LocalCacheDir(ctx context.Context) string {
@@ -203,17 +232,9 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	runnerName := fmt.Sprintf("goland-%s", name)
 	w.Trace("creating docker go runner", wool.Field("image", image), wool.Field("dir", dir), wool.Field("name", runnerName))
 
-	companion, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
-		Name:      runnerName,
-		SourceDir: dir,
-		Image:     image,
-	})
-	if err != nil {
-		return nil, w.Wrapf(err, "cannot create companion runner")
-	}
-	companion.WithPause()
-
-	sourceDir := path.Join(dir, relativeSource)
+	// The container carries the workspace at its own path. A source composed
+	// from outside it is named by its real path, and mounted below.
+	sourceDir := containerSourceDir(dir, path.Join(dir, relativeSource))
 	goModDir, withGoModules := findGoModuleDir(ctx, dir, sourceDir)
 	workspace, ownsWorkspace, err := loadSourceGoWorkspace(sourceDir)
 	if err != nil {
@@ -226,10 +247,34 @@ func NewDockerGoRunner(ctx context.Context, image *resources.DockerImage, dir st
 	if !withGoModules {
 		w.Warn("running without go modules: not encouraged at all")
 	}
+	moduleRoot := ""
+	if withGoModules {
+		moduleRoot = goModDir
+	}
+	sourceRoots, err := sourceDirectories(sourceDir, moduleRoot, workspace)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot determine what the source needs inside the container")
+	}
+	if _, err := sourceMounts(dir, sourceRoots); err != nil {
+		return nil, w.Wrap(err)
+	}
+
+	// Created last: everything above can refuse, and a companion that was
+	// never returned has nobody to shut it down.
+	companion, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
+		Name:      runnerName,
+		SourceDir: dir,
+		Image:     image,
+	})
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot create companion runner")
+	}
+	companion.WithPause()
 
 	return &GoRunnerEnvironment{
 		dir:               dir,
 		companion:         companion,
+		sourceRoots:       sourceRoots,
 		withGoModules:     withGoModules,
 		ownsGoWorkspace:   ownsWorkspace,
 		goWorkspaceFile:   workspaceFile(workspace),
@@ -330,6 +375,15 @@ func (r *GoRunnerEnvironment) Setup(ctx context.Context) {
 		r.Env().WithEnvironmentVariables(ctx, resources.Env("GOWORK", r.goWorkspaceFile))
 	}
 	if r.companion != nil {
+		if !r.sourceMounted {
+			// Validated when each root was named, so an error here cannot
+			// happen; mounting nothing is the safe reading of one anyway.
+			mounts, _ := r.ContainerSourceMounts()
+			for _, dir := range mounts {
+				r.companion.WithReadOnlyMount(dir, dir)
+			}
+			r.sourceMounted = true
+		}
 		r.companion.WithMount(r.LocalCacheDir(ctx), "/build")
 		if r.goModCache != "" {
 			w.Focus("using go mod cache", wool.Field("dir", r.goModCache))
