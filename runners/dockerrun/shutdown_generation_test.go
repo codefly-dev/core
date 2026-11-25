@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -132,5 +133,91 @@ func TestShutdownAfterFailedStartupRollback(t *testing.T) {
 			}
 			require.Equal(t, expected, requests)
 		})
+	}
+}
+
+func TestShutdownJoinsConcurrentRemovalOfAcquiredGeneration(t *testing.T) {
+	for _, state := range []string{"removing", "gone before inspect", "gone before wait", "unrelated conflict", "wait failed"} {
+		t.Run(state, func(t *testing.T) {
+			var requests []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path := strings.TrimPrefix(r.URL.Path, "/v1.47")
+				requests = append(requests, r.Method+" "+path)
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodPost && path == "/containers/acquired/stop":
+					w.WriteHeader(http.StatusNoContent)
+				case r.Method == http.MethodDelete && path == "/containers/acquired":
+					w.WriteHeader(http.StatusConflict)
+					fmt.Fprint(w, `{"message":"operation conflicts"}`)
+				case r.Method == http.MethodGet && path == "/containers/acquired/json":
+					if state == "gone before inspect" {
+						w.WriteHeader(http.StatusNotFound)
+						fmt.Fprint(w, `{"message":"gone"}`)
+						return
+					}
+					status := "removing"
+					if state == "unrelated conflict" {
+						status = "running"
+					}
+					fmt.Fprintf(w, `{"Id":"acquired","State":{"Status":%q}}`, status)
+				case r.Method == http.MethodPost && path == "/containers/acquired/wait":
+					if r.URL.Query().Get("condition") != "removed" {
+						t.Error("wait did not require removal")
+					}
+					if state == "gone before wait" {
+						w.WriteHeader(http.StatusNotFound)
+						fmt.Fprint(w, `{"message":"gone"}`)
+						return
+					}
+					if state == "wait failed" {
+						fmt.Fprint(w, `{"StatusCode":-1,"Error":{"Message":"removal failed"}}`)
+						return
+					}
+					fmt.Fprint(w, `{"StatusCode":0}`)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, path)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer server.Close()
+			cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.47"))
+			require.NoError(t, err)
+			env := &DockerEnvironment{client: cli, instance: &DockerContainerInstance{ID: "acquired"}}
+			err = env.Shutdown(context.Background())
+			if state == "unrelated conflict" || state == "wait failed" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			expected := []string{"POST /containers/acquired/stop", "DELETE /containers/acquired", "GET /containers/acquired/json"}
+			if state != "gone before inspect" && state != "unrelated conflict" {
+				expected = append(expected, "POST /containers/acquired/wait")
+			}
+			require.Equal(t, expected, requests)
+		})
+	}
+}
+
+func TestContainerCleanupContextKeepsLiveDeadlineAndBoundsFallback(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	parent, cancel := context.WithDeadline(context.Background(), deadline)
+	ctx, release := containerCleanupContext(parent)
+	got, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.Equal(t, deadline, got)
+	cancel()
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+	release()
+
+	for _, parent := range []context.Context{parent, context.Background()} {
+		before := time.Now()
+		ctx, release := containerCleanupContext(parent)
+		require.NoError(t, ctx.Err())
+		got, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.False(t, got.Before(before.Add(10*time.Second)))
+		require.False(t, got.After(time.Now().Add(10*time.Second)))
+		release()
 	}
 }

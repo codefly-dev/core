@@ -1098,10 +1098,7 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	// Use a fresh bounded context so shutdown still runs when the caller
-	// is already cancelled, but can't hang forever if the docker daemon
-	// is unresponsive.
-	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopCtx, cancel := containerCleanupContext(ctx)
 	defer cancel()
 	_, err := docker.client.ContainerStop(stopCtx, docker.instance.ID, client.ContainerStopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
@@ -1149,24 +1146,58 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 		if err := docker.Stop(ctx); err != nil {
 			w.Warn("stop failed; falling back to force remove", wool.ErrField(err))
 		}
-		if err := docker.remove(); err != nil && !errdefs.IsNotFound(err) {
+		if err := docker.remove(ctx); err != nil && !errdefs.IsNotFound(err) {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}
 	return nil
 }
 
-func (docker *DockerEnvironment) remove() error {
+// Use the caller's remaining budget for a live, bounded shutdown. Teardown
+// also runs after cancellation, so give it a bounded last chance in that case.
+func containerCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, 10*time.Second)
+}
+
+func (docker *DockerEnvironment) remove(ctx context.Context) error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	rmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	id := docker.instance.ID
+	rmCtx, cancel := containerCleanupContext(ctx)
 	defer cancel()
-	_, err := docker.client.ContainerRemove(rmCtx, docker.instance.ID, client.ContainerRemoveOptions{Force: true})
-	if err != nil {
+	_, err := docker.client.ContainerRemove(rmCtx, id, client.ContainerRemoveOptions{Force: true})
+	if !errdefs.IsConflict(err) {
 		return err
 	}
-	return nil
+
+	// A previous removal can continue on the daemon after its client times out.
+	// Confirm this exact generation is disappearing before joining that removal.
+	inspection, inspectErr := docker.client.ContainerInspect(rmCtx, id, client.ContainerInspectOptions{})
+	if inspectErr != nil {
+		return inspectErr
+	}
+	if inspection.Container.State == nil || inspection.Container.State.Status != container.StateRemoving {
+		return err
+	}
+	wait := docker.client.ContainerWait(rmCtx, id, client.ContainerWaitOptions{Condition: container.WaitConditionRemoved})
+	select {
+	case err := <-wait.Error:
+		return err
+	case result := <-wait.Result:
+		if result.Error != nil {
+			return fmt.Errorf("wait for removal of %s: %s", id, result.Error.Message)
+		}
+		return nil
+	case <-rmCtx.Done():
+		return rmCtx.Err()
+	}
 }
 
 /*
