@@ -111,13 +111,15 @@ func TestRecipePathsStillRejectEscapes(t *testing.T) {
 	}
 }
 
-// A plan emitted by an older core carries an older contract version and must be
-// reported as a contract mismatch, not silently verified or read as tampering.
-func TestVerifyRejectsSupersededContractVersion(t *testing.T) {
+// A plan stating another contract must be refused by name, not silently
+// verified or read as tampering.
+func TestVerifyRejectsAnotherContractVersion(t *testing.T) {
 	dir, emitted := writeRecipeTree(t, true)
 	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms(), emitted)
 	require.NoError(t, err)
-	require.Equal(t, "codefly.dev/docker-build-recipe/v3", plan.GetContractVersion())
-	plan.ContractVersion = "codefly.dev/docker-build-recipe/v2"
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "contract")
+	require.Equal(t, "codefly.dev/docker-build-recipe/v1", plan.GetContractVersion())
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/earlier"
+	err = VerifyDockerBuildPlan(dir, plan)
+	require.ErrorContains(t, err, `contract is "codefly.dev/docker-build-recipe/earlier", which is unknown`)
+	require.ErrorContains(t, err, "states the contract as codefly.dev/docker-build-recipe/v1")
 }

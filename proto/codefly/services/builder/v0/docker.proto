@@ -89,29 +89,29 @@ message DockerBuildRecipe {
   map<string, string> build_args = 7;
   // target is the optional Dockerfile stage to build.
   string target = 8;
-  // context_root explicitly selects where context is rooted. A non-default
-  // value requires the v4 recipe contract and participates in its digest;
-  // older hosts must reject that contract rather than silently build source.
+  // context_root explicitly selects where context is rooted. It always
+  // participates in the plan digest, so a root cannot be changed or cleared
+  // without the plan being refused rather than silently building source.
   RecipeContextRoot context_root = 9;
   // go_module_downloads are the Go modules whose dependency graph this recipe
   // downloads while it builds. Declaring them moves the download out of the
   // build: the caller fetches each graph once, before it builds any image, with
   // the credentials of the machine running the build, and supplies it to the
   // build as a module proxy. A recipe that declares its downloads therefore
-  // needs no credential inside the build, and none is mounted into it. A
-  // non-empty list requires the v5 recipe contract and participates in its
-  // digest; older hosts reject v5 rather than build without supplying it.
+  // needs no credential inside the build, and none is mounted into it. The
+  // list always participates in the plan digest, so a declaration cannot be
+  // dropped and the build run without the caller supplying it.
   repeated GoModuleDownload go_module_downloads = 10;
   // git_source_downloads are the git commits this recipe's dependency
   // resolution fetches while it builds, as its lockfile pins them. Declaring
   // them moves the fetch out of the build: the caller fetches each commit once,
   // before it builds any image, with the credentials of the machine running the
   // build, and supplies it to the build as a bare repository mirror. A recipe
-  // that declares them therefore needs no credential inside the build. A
-  // non-empty list requires the v6 recipe contract and participates in its
-  // digest, in order; older hosts reject v6 rather than build without
-  // supplying it. A host accepts a v6 plan only after it has fetched every
-  // declared source, and refuses a declaration it did not fetch.
+  // that declares them therefore needs no credential inside the build. The
+  // list always participates in the plan digest, in order, so a declaration
+  // cannot be dropped and the build run without the caller supplying it. A
+  // host accepts a plan only after it has fetched every declared source, and
+  // refuses a declaration it did not fetch.
   repeated GitSourceDownload git_source_downloads = 11;
 }
 
@@ -189,6 +189,8 @@ message DockerBuildPlan {
   // "sha256:<hex>". Identical recipe trees yield an identical digest.
   string digest = 3;
   // contract_version identifies the recipe contract the caller validates.
+  // There is one, "codefly.dev/docker-build-recipe/v1"; a plan stating any
+  // other is refused by name.
   string contract_version = 4;
   // scope states what the files inventory covers. It is part of the aggregate
   // digest, so a plan cannot be downgraded to a weaker verification by

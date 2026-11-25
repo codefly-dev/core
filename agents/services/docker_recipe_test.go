@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -237,11 +238,10 @@ func TestBuildDockerBuildPlanRejectsSymlinkInTree(t *testing.T) {
 	require.Contains(t, err.Error(), "symlinks are not permitted")
 }
 
-// A plan emitted by an older core carries the previous contract version. It is
-// rejected as a contract mismatch — a clear, actionable error — rather than
-// slipping into the digest comparison where a version-driven algorithm change
-// would surface as an indistinguishable "tamper" failure.
-func TestVerifyDockerBuildPlanRejectsStaleContractVersion(t *testing.T) {
+// A plan stating any contract but the one there is carries a label this host
+// does not know. It is refused by name — a clear, actionable error — rather
+// than slipping into the digest comparison.
+func TestVerifyDockerBuildPlanRejectsAnotherContractByName(t *testing.T) {
 	destination := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
 	recipes := []*builderv0.DockerBuildRecipe{
@@ -250,10 +250,84 @@ func TestVerifyDockerBuildPlanRejectsStaleContractVersion(t *testing.T) {
 
 	plan, err := BuildDockerBuildPlan(destination, recipes)
 	require.NoError(t, err)
-	plan.ContractVersion = "codefly.dev/docker-build-recipe/v1"
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
 
+	for _, stated := range []string{
+		"codefly.dev/docker-build-recipe/later",
+		"codefly.dev/docker-build-recipe/v3", // version-guard:allow a label the contract used to state, refused by name
+		"codefly.dev/docker-build-recipe/v6", // version-guard:allow a label the contract used to state, refused by name
+		"",
+	} {
+		plan.ContractVersion = stated
+		err = VerifyDockerBuildPlan(destination, plan)
+		require.Error(t, err, stated)
+		require.Contains(t, err.Error(), "which is unknown", stated)
+		require.Contains(t, err.Error(), "states the contract as "+DockerBuildRecipeContractVersion, stated)
+		require.NotContains(t, err.Error(), "does not match plan digest", stated)
+	}
+}
+
+// A plan whose digest was computed the way an earlier recipe format did covers
+// less than a plan must. Stating the current contract does not make it one: it
+// is refused for what it carries, and the refusal names the cause instead of
+// reporting a digest mismatch, which reads as tampering.
+func TestVerifyDockerBuildPlanRefusesAnEarlierDigestByContent(t *testing.T) {
+	destination := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "Dockerfile"), []byte("FROM alpine\n"), 0o644))
+	recipes := []*builderv0.DockerBuildRecipe{{
+		Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1",
+		ContextRoot:        builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT,
+		GoModuleDownloads:  []*builderv0.GoModuleDownload{{ModuleRoot: "code", ProxyContext: "gomodproxy"}},
+		GitSourceDownloads: []*builderv0.GitSourceDownload{gitSource()},
+	}}
+	plan, err := BuildDockerBuildPlan(destination, recipes)
+	require.NoError(t, err)
+	require.NoError(t, VerifyDockerBuildPlan(destination, plan))
+	current := plan.GetDigest()
+
+	earlier := map[string]string{
+		"file paths and content":      pathsAndContentRecipeDigest(plan.GetFiles()),
+		"not the inventory scope":     recipeDigestCovering(recipeCoversRecipesAndFiles, recipes, plan.GetFiles(), plan.GetScope()),
+		"not the context root":        recipeDigestCovering(recipeCoversScope, recipes, plan.GetFiles(), plan.GetScope()),
+		"not the Go module downloads": recipeDigestCovering(recipeCoversContextRoot, recipes, plan.GetFiles(), plan.GetScope()),
+		"and not the git sources":     recipeDigestCovering(recipeCoversGoModules, recipes, plan.GetFiles(), plan.GetScope()),
+	}
+	seen := map[string]bool{current: true}
+	for names, digest := range earlier {
+		require.False(t, seen[digest], "an earlier digest must differ from the current one and from each other: %s", names)
+		seen[digest] = true
+
+		plan.Digest = digest
+		err := VerifyDockerBuildPlan(destination, plan)
+		require.Error(t, err, names)
+		require.Contains(t, err.Error(), "an earlier recipe format", names)
+		require.Contains(t, err.Error(), names)
+		require.Contains(t, err.Error(), "whatever contract the plan states", names)
+		require.NotContains(t, err.Error(), "does not match plan digest", names)
+	}
+
+	// The same holds for a recipe that declares nothing an earlier format
+	// lacked: its earlier digest is still not the current one.
+	plain := []*builderv0.DockerBuildRecipe{{Name: "app", Dockerfile: "Dockerfile", Context: ".", Image: "repo/app:v1"}}
+	plainPlan, err := BuildDockerBuildPlan(destination, plain)
+	require.NoError(t, err)
+	plainPlan.Digest = recipeDigestCovering(recipeCoversScope, plain, plainPlan.GetFiles(), plainPlan.GetScope())
+	require.ErrorContains(t, VerifyDockerBuildPlan(destination, plainPlan), "an earlier recipe format")
+
+	// A digest that is no format's digest stays what it is: a mismatch.
+	plan.Digest = "sha256:" + strings.Repeat("0", 64)
 	err = VerifyDockerBuildPlan(destination, plan)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "contract")
-	require.NotContains(t, err.Error(), "does not match plan digest")
+	require.ErrorContains(t, err, "does not match plan digest")
+	require.NotContains(t, err.Error(), "an earlier recipe format")
+
+	// The format before plans declared their inventory scope is refused for
+	// that, before its contract is read.
+	plan.Digest = current
+	plan.Scope = builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/later"
+	err = VerifyDockerBuildPlan(destination, plan)
+	require.ErrorContains(t, err, "declares no inventory scope")
+	require.ErrorContains(t, err, "whatever contract the plan states")
+	require.NotContains(t, err.Error(), "which is unknown")
 }

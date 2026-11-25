@@ -21,55 +21,19 @@ import (
 )
 
 // DockerBuildRecipeContractVersion identifies the recipe contract a caller
-// validates before building from an emitted plan. The version is bumped whenever
-// the aggregate-digest algorithm changes, so a digest produced by an older core
-// is reported as a contract mismatch (a clear, actionable error) rather than as
-// a digest mismatch (indistinguishable from tampering). v2 covers the recipes
-// and per-file mode in the digest; v1 covered only file paths and content. v3
-// makes each plan declare what its inventory covers (RecipeInventoryScope) and
-// digests that declaration, so a plan rendered into a directory shared with the
-// repository is not failed by unrelated content while a plan covering a whole
-// assembled build context still rejects files added to it.
-const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v3"
-
-// DockerBuildRecipeContextContractVersion adds an explicit context root to the
-// recipe digest. Unchanged recipes still emit v3 so existing agents need no
-// coordinated rebuild; old hosts reject v4 before executing its new semantics.
-const DockerBuildRecipeContextContractVersion = "codefly.dev/docker-build-recipe/v4"
-
-// DockerBuildRecipeGoModulesContractVersion adds declared Go module downloads
-// (DockerBuildRecipe.go_module_downloads) to the recipe digest, on top of v4's
-// explicit context root. A recipe that declares downloads expects the caller to
-// fetch them before the build and supply them as a module proxy; an older host
-// that does not know the field would build without supplying it, so the plan
-// carries v5 and such a host rejects it instead. Recipes without downloads keep
-// emitting v3 or v4, so existing agents need no coordinated rebuild.
-const DockerBuildRecipeGoModulesContractVersion = "codefly.dev/docker-build-recipe/v5"
-
-// DockerBuildRecipeGitSourcesContractVersion adds declared git source downloads
-// (DockerBuildRecipe.git_source_downloads) to the recipe digest, on top of v5's
-// Go module downloads and v4's explicit context root. A host that does not know
-// the field would build without supplying the mirrors, so the plan carries v6
-// and such a host rejects it instead. Recipes without git sources keep v3 to v5.
-const DockerBuildRecipeGitSourcesContractVersion = "codefly.dev/docker-build-recipe/v6"
-
-func recipeContractVersion(recipes []*builderv0.DockerBuildRecipe) string {
-	version := DockerBuildRecipeContractVersion
-	for _, recipe := range recipes {
-		if len(recipe.GetGitSourceDownloads()) > 0 {
-			return DockerBuildRecipeGitSourcesContractVersion
-		}
-	}
-	for _, recipe := range recipes {
-		if len(recipe.GetGoModuleDownloads()) > 0 {
-			return DockerBuildRecipeGoModulesContractVersion
-		}
-		if recipe.GetContextRoot() != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED {
-			version = DockerBuildRecipeContextContractVersion
-		}
-	}
-	return version
-}
+// validates before building from an emitted plan. There is one, v1, and it
+// names the current format: every plan declares what its inventory covers
+// (RecipeInventoryScope), and its digest always covers that declaration, the
+// recipes with their context root, their declared Go module downloads and
+// their declared git sources, and each file's path, content and mode.
+//
+// Nothing dispatches on the label. A plan stating any other contract is
+// refused by name, and its emitter told to state this one. A plan in an
+// earlier format is refused for what it carries, whatever contract it states:
+// one that declares no inventory scope, or one whose digest was computed the
+// way an earlier contract did, which is reported as that and never as a bare
+// digest mismatch, since a mismatch is indistinguishable from tampering.
+const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v1"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
 // contract: when set, the destination must be an absolute path the caller owns.
@@ -167,7 +131,7 @@ func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.Docker
 		Recipes:         recipes,
 		Files:           files,
 		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED),
-		ContractVersion: recipeContractVersion(recipes),
+		ContractVersion: DockerBuildRecipeContractVersion,
 		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED,
 	}, nil
 }
@@ -199,7 +163,7 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 		Recipes:         recipes,
 		Files:           files,
 		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE),
-		ContractVersion: recipeContractVersion(recipes),
+		ContractVersion: DockerBuildRecipeContractVersion,
 		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE,
 	}, nil
 }
@@ -248,7 +212,7 @@ type RecipeOption func(*builderv0.DockerBuildRecipe)
 // builds (DockerBuildRecipe.go_module_downloads): each module root, relative to
 // the recipe's build context, is read from the named proxy build context. The
 // caller fetches them before any image build and supplies them, so the build
-// needs no credential. A recipe carrying a download emits the v5 contract.
+// needs no credential. The declaration is covered by the plan digest.
 func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOption {
 	return func(recipe *builderv0.DockerBuildRecipe) {
 		recipe.GoModuleDownloads = append(recipe.GoModuleDownloads, downloads...)
@@ -259,9 +223,9 @@ func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOptio
 // while it builds (DockerBuildRecipe.git_source_downloads). The caller fetches
 // each into a bare mirror at GitSourceMirrorPath(repository), under
 // GitSourceMirrorRef(commit), inside the named mirror context before any image
-// build, so the build needs no credential. A recipe carrying one emits the v6
-// contract, and a host must fetch every declared source, and refuse a
-// declaration it did not fetch, before it accepts a v6 plan. Declarations are
+// build, so the build needs no credential. A host must fetch every declared
+// source, and refuse a declaration it did not fetch, before it accepts the
+// plan. Declarations are
 // digested in the order given and an exact duplicate is refused, so declare
 // them sorted and de-duplicated.
 func WithGitSourceDownloads(downloads ...*builderv0.GitSourceDownload) RecipeOption {
@@ -395,8 +359,15 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 	if plan == nil {
 		return fmt.Errorf("build plan is nil")
 	}
-	if expected := recipeContractVersion(plan.GetRecipes()); plan.GetContractVersion() != expected {
-		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), expected)
+	// The earlier format first, whatever contract the plan states: a plan from
+	// before plans declared their inventory scope cannot be verified at all.
+	if plan.GetScope() == builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_UNSPECIFIED {
+		return fmt.Errorf("build plan declares no inventory scope (%s); it cannot be verified: that is the format plans had before they declared what their inventory covers, and it is not read whatever contract the plan states, so rebuild the agent that emitted it on a core that states the contract as %s",
+			plan.GetScope(), DockerBuildRecipeContractVersion)
+	}
+	if stated := plan.GetContractVersion(); stated != DockerBuildRecipeContractVersion {
+		return fmt.Errorf("build plan contract is %q, which is unknown; this host reads %s and no other: rebuild the agent that emitted the plan on a core that states the contract as %s",
+			stated, DockerBuildRecipeContractVersion, DockerBuildRecipeContractVersion)
 	}
 
 	var files []*builderv0.RecipeFile
@@ -411,7 +382,7 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 		}
 		files, err = inventoryRecipePaths(destination, declared)
 	default:
-		return fmt.Errorf("build plan declares no inventory scope (%s); it cannot be verified", scope)
+		return fmt.Errorf("build plan declares an inventory scope this host does not know (%s); it cannot be verified", scope)
 	}
 	if err != nil {
 		return fmt.Errorf("inventory recipe files: %w", err)
@@ -421,6 +392,10 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 		return err
 	}
 	if digest := aggregateRecipeDigest(plan.GetRecipes(), files, plan.GetScope()); digest != plan.GetDigest() {
+		if covered := earlierRecipeDigestCoverage(plan.GetRecipes(), files, plan.GetScope(), plan.GetDigest()); covered != "" {
+			return fmt.Errorf("build plan digest %s is the digest an earlier recipe format computed, which covers only %s; that format is not read whatever contract the plan states: rebuild the agent that emitted the plan on a core that states the contract as %s",
+				plan.GetDigest(), covered, DockerBuildRecipeContractVersion)
+		}
 		return fmt.Errorf("recipe tree digest %s does not match plan digest %s", digest, plan.GetDigest())
 	}
 	return nil
@@ -702,6 +677,27 @@ func fileDigest(path string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
+// recipeDigestCoverage is how much of a plan a recipe digest covers. Only
+// recipeCoversAll is the format: the narrower ones are what earlier formats
+// computed, kept for one purpose, which is to recognise such a digest and
+// refuse it saying so (earlierRecipeDigestCoverage). Nothing verifies against
+// one, and nothing selects one from a plan's stated contract.
+type recipeDigestCoverage int
+
+const (
+	// recipeCoversRecipesAndFiles: the recipes and each file's path, content
+	// and mode, with no inventory scope.
+	recipeCoversRecipesAndFiles recipeDigestCoverage = iota
+	// recipeCoversScope adds the inventory scope.
+	recipeCoversScope
+	// recipeCoversContextRoot adds each recipe's context root.
+	recipeCoversContextRoot
+	// recipeCoversGoModules adds each recipe's declared Go module downloads.
+	recipeCoversGoModules
+	// recipeCoversAll adds each recipe's declared git sources: the format.
+	recipeCoversAll
+)
+
 // aggregateRecipeDigest is a deterministic digest over both the recipes and the
 // file inventory. Every string is written length-prefixed (netstring form) so no
 // field value — including a path that contains a separator or newline — can be
@@ -711,28 +707,67 @@ func fileDigest(path string) (string, error) {
 // its digest even when the on-disk files are byte-identical. Each file's Unix
 // permission bits are covered too, so flipping a file's executable bit — which
 // buildx carries into the image — is detected even when its content is
-// unchanged.
+// unchanged. The context root, the Go module downloads and the git sources of
+// every recipe are always covered, declared or not, so no declaration can be
+// dropped from a plan without moving its digest.
 func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
+	return recipeDigestCovering(recipeCoversAll, recipes, files, scope)
+}
+
+// earlierRecipeDigestCoverage reports what stated is a digest of, when it is the
+// digest an earlier recipe format computed over this plan, and "" when it is
+// not. An earlier digest covers less than the format does, so a plan carrying
+// one is refused naming that, rather than as a mismatch a reader would take for
+// tampering.
+func earlierRecipeDigestCoverage(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope, stated string) string {
+	if stated == pathsAndContentRecipeDigest(files) {
+		return "file paths and content"
+	}
+	for _, earlier := range []struct {
+		coverage recipeDigestCoverage
+		covers   string
+	}{
+		{recipeCoversRecipesAndFiles, "the recipes and files, and not the inventory scope, the context root, the Go module downloads or the git sources"},
+		{recipeCoversScope, "the inventory scope, recipes and files, and not the context root, the Go module downloads or the git sources"},
+		{recipeCoversContextRoot, "the inventory scope, recipes with their context root and files, and not the Go module downloads or the git sources"},
+		{recipeCoversGoModules, "the inventory scope, recipes with their context root and Go module downloads and files, and not the git sources"},
+	} {
+		if stated == recipeDigestCovering(earlier.coverage, recipes, files, scope) {
+			return earlier.covers
+		}
+	}
+	return ""
+}
+
+// pathsAndContentRecipeDigest is the first recipe digest: file paths and
+// content, and nothing of the recipes.
+func pathsAndContentRecipeDigest(files []*builderv0.RecipeFile) string {
 	hasher := sha256.New()
-	version := recipeContractVersion(recipes)
-	gitSources := version == DockerBuildRecipeGitSourcesContractVersion
-	goModules := gitSources || version == DockerBuildRecipeGoModulesContractVersion
-	explicitRoots := goModules || version == DockerBuildRecipeContextContractVersion
+	for _, file := range files {
+		fmt.Fprintf(hasher, "%s\x00%s\n", file.GetPath(), file.GetDigest())
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+func recipeDigestCovering(coverage recipeDigestCoverage, recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
+	hasher := sha256.New()
 	// The scope decides how strictly the inventory is verified, so it is covered
 	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop
 	// added files from being detected without disturbing the digest.
-	hashField(hasher, "scope")
-	hashField(hasher, scope.String())
+	if coverage >= recipeCoversScope {
+		hashField(hasher, "scope")
+		hashField(hasher, scope.String())
+	}
 	hashField(hasher, "recipes")
 	hashCount(hasher, len(recipes))
 	for _, recipe := range recipes {
 		hashField(hasher, recipe.GetName())
 		hashField(hasher, recipe.GetDockerfile())
 		hashField(hasher, recipe.GetContext())
-		if explicitRoots {
+		if coverage >= recipeCoversContextRoot {
 			hashField(hasher, recipe.GetContextRoot().String())
 		}
-		if goModules {
+		if coverage >= recipeCoversGoModules {
 			downloads := recipe.GetGoModuleDownloads()
 			hashCount(hasher, len(downloads))
 			for _, download := range downloads {
@@ -740,7 +775,7 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 				hashField(hasher, download.GetProxyContext())
 			}
 		}
-		if gitSources {
+		if coverage >= recipeCoversAll {
 			sources := recipe.GetGitSourceDownloads()
 			hashCount(hasher, len(sources))
 			for _, source := range sources {

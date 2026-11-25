@@ -37,13 +37,13 @@ func TestRecipeGitSourceDownloadsVersionAndIntegrity(t *testing.T) {
 	recipe := gitSourceRecipe()
 	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, plan.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// A host that predates the field expects v3 for these recipes and refuses.
-	plan.ContractVersion = DockerBuildRecipeContractVersion
+	// There is one contract: a plan stating another is refused by name.
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/other"
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "contract")
-	plan.ContractVersion = DockerBuildRecipeGitSourcesContractVersion
+	plan.ContractVersion = DockerBuildRecipeContractVersion
 
 	// Every field of the declaration is covered by the digest.
 	source := recipe.GitSourceDownloads[0]
@@ -53,19 +53,18 @@ func TestRecipeGitSourceDownloadsVersionAndIntegrity(t *testing.T) {
 		func(s *builderv0.GitSourceDownload) { s.MirrorContext = "elsewhere" },
 	} {
 		mutate(source)
-		require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+		require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 		recipe.GitSourceDownloads[0] = gitSource()
 		source = recipe.GitSourceDownloads[0]
 	}
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// Adding a second source, or dropping the declaration and the version, is detected.
+	// Adding a second source, or dropping the declaration, is detected.
 	recipe.GitSourceDownloads = append(recipe.GitSourceDownloads, &builderv0.GitSourceDownload{
 		Repository: "ssh://git@git.example.com/team/tool.git", Commit: lockedCommit, MirrorContext: "gitsources"})
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 	recipe.GitSourceDownloads = nil
-	plan.ContractVersion = DockerBuildRecipeContractVersion
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 }
 
 func TestRecipeGitSourceDownloadsWithGoModules(t *testing.T) {
@@ -75,19 +74,17 @@ func TestRecipeGitSourceDownloadsWithGoModules(t *testing.T) {
 	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT
 	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, plan.GetContractVersion())
-
-	// A host that knows only v5 expects v5 for these recipes and refuses.
-	plan.ContractVersion = DockerBuildRecipeGoModulesContractVersion
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "contract")
-	plan.ContractVersion = DockerBuildRecipeGitSourcesContractVersion
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// v6 still digests what v4 and v5 introduced.
+	// The Go module downloads and the context root are digested beside the
+	// git sources.
 	recipe.GoModuleDownloads[0].ModuleRoot = "other"
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 	recipe.GoModuleDownloads[0].ModuleRoot = "code"
+	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
 
 	// One build context cannot be both a module proxy and a mirror set.
@@ -255,7 +252,7 @@ func TestSingleImageBuildPlanDeclaresGitSourceDownloads(t *testing.T) {
 	plan, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"},
 		WithGitSourceDownloads(gitSource()))
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, plan.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.Equal(t, lockedCommit, plan.GetRecipes()[0].GetGitSourceDownloads()[0].GetCommit())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
@@ -265,7 +262,7 @@ func TestSingleImageBuildPlanDeclaresGitSourceDownloads(t *testing.T) {
 	resp, err := builder.SingleImageBuildResponse(&builderv0.BuildRequest{OutputDirectory: dir}, "example/app:v1", []string{"Dockerfile"},
 		WithGitSourceDownloads(gitSource()))
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, resp.GetResult().GetDockerBuildPlan().GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, resp.GetResult().GetDockerBuildPlan().GetContractVersion())
 }
 
 func TestGitSourceChecksAreExportedForAgents(t *testing.T) {

@@ -23,29 +23,28 @@ func TestRecipeGoModuleDownloadsVersionAndIntegrity(t *testing.T) {
 	recipe := goModuleRecipe()
 	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGoModulesContractVersion, plan.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// A host that predates the field would expect v3 for these recipes: the
-	// declared version, not the field it cannot see, is what refuses the plan.
-	plan.ContractVersion = DockerBuildRecipeContractVersion
+	// There is one contract: a plan stating another is refused by name.
+	plan.ContractVersion = "codefly.dev/docker-build-recipe/other"
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "contract")
-	plan.ContractVersion = DockerBuildRecipeGoModulesContractVersion
+	plan.ContractVersion = DockerBuildRecipeContractVersion
 
 	// The declaration is covered by the digest: moving the module root or
 	// renaming the proxy context is detected.
 	recipe.GoModuleDownloads[0].ModuleRoot = "other"
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 	recipe.GoModuleDownloads[0].ModuleRoot = "code"
 	recipe.GoModuleDownloads[0].ProxyContext = "elsewhere"
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 	recipe.GoModuleDownloads[0].ProxyContext = "gomodproxy"
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// Dropping the declaration AND the version cannot downgrade the claim.
+	// Dropping the declaration cannot downgrade the claim: the downloads are
+	// always digested, so a plan that declared one no longer matches.
 	recipe.GoModuleDownloads = nil
-	plan.ContractVersion = DockerBuildRecipeContractVersion
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 }
 
 func TestRecipeGoModuleDownloadsKeepAnExplicitContextRoot(t *testing.T) {
@@ -55,11 +54,11 @@ func TestRecipeGoModuleDownloadsKeepAnExplicitContextRoot(t *testing.T) {
 	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT
 	plan, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGoModulesContractVersion, plan.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 
-	// v5 still digests the context root v4 introduced.
+	// The context root is digested beside the downloads.
 	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE
-	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "does not match plan digest")
 }
 
 func TestRecipeGoModuleDownloadsAreValidated(t *testing.T) {
@@ -93,12 +92,15 @@ func TestSingleImageBuildPlanDeclaresGoModuleDownloads(t *testing.T) {
 	plan, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"},
 		WithGoModuleDownloads(&builderv0.GoModuleDownload{ModuleRoot: "code", ProxyContext: "gomodproxy"}))
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeGoModulesContractVersion, plan.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, plan.GetContractVersion())
 	require.Equal(t, "code", plan.GetRecipes()[0].GetGoModuleDownloads()[0].GetModuleRoot())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 
-	// Without the option the helper emits exactly what it always did.
-	legacy, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"})
+	// Without the option the helper declares no download, under the same
+	// contract and with another digest.
+	without, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"})
 	require.NoError(t, err)
-	require.Equal(t, DockerBuildRecipeContractVersion, legacy.GetContractVersion())
+	require.Equal(t, DockerBuildRecipeContractVersion, without.GetContractVersion())
+	require.Empty(t, without.GetRecipes()[0].GetGoModuleDownloads())
+	require.NotEqual(t, plan.GetDigest(), without.GetDigest())
 }

@@ -164,11 +164,12 @@ outside the caller-owned directory.
 
 Recipe path bases differ and the distinction is load-bearing: `dockerfile` and
 `dockerignore` are relative to `output_directory`. By default `context` is
-relative to the **service** directory, so existing v3 recipes keep their meaning.
+relative to the **service** directory.
 An agent assembling rewritten inputs must set `context_root=OUTPUT`, making
-`"."` select its emitted tree. Explicit roots use recipe contract v4, with the
-root covered by the digest; older hosts reject v4 rather than silently build the
-wrong sources. Unchanged/default-root plans retain their v3 contract and digest.
+`"."` select its emitted tree. The root is always covered by the plan digest,
+explicit or not, so a host cannot be made to build the wrong sources by
+changing or clearing it. There is one recipe contract,
+`codefly.dev/docker-build-recipe/v1`.
 Inventory scope never selects a context root. Core checks paths lexically; the
 executor resolves them and rejects symlink escapes from the selected root.
 

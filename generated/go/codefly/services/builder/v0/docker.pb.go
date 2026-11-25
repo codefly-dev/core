@@ -433,29 +433,29 @@ type DockerBuildRecipe struct {
 	BuildArgs map[string]string `protobuf:"bytes,7,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// target is the optional Dockerfile stage to build.
 	Target string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
-	// context_root explicitly selects where context is rooted. A non-default
-	// value requires the v4 recipe contract and participates in its digest;
-	// older hosts must reject that contract rather than silently build source.
+	// context_root explicitly selects where context is rooted. It always
+	// participates in the plan digest, so a root cannot be changed or cleared
+	// without the plan being refused rather than silently building source.
 	ContextRoot RecipeContextRoot `protobuf:"varint,9,opt,name=context_root,json=contextRoot,proto3,enum=codefly.services.builder.v0.RecipeContextRoot" json:"context_root,omitempty"`
 	// go_module_downloads are the Go modules whose dependency graph this recipe
 	// downloads while it builds. Declaring them moves the download out of the
 	// build: the caller fetches each graph once, before it builds any image, with
 	// the credentials of the machine running the build, and supplies it to the
 	// build as a module proxy. A recipe that declares its downloads therefore
-	// needs no credential inside the build, and none is mounted into it. A
-	// non-empty list requires the v5 recipe contract and participates in its
-	// digest; older hosts reject v5 rather than build without supplying it.
+	// needs no credential inside the build, and none is mounted into it. The
+	// list always participates in the plan digest, so a declaration cannot be
+	// dropped and the build run without the caller supplying it.
 	GoModuleDownloads []*GoModuleDownload `protobuf:"bytes,10,rep,name=go_module_downloads,json=goModuleDownloads,proto3" json:"go_module_downloads,omitempty"`
 	// git_source_downloads are the git commits this recipe's dependency
 	// resolution fetches while it builds, as its lockfile pins them. Declaring
 	// them moves the fetch out of the build: the caller fetches each commit once,
 	// before it builds any image, with the credentials of the machine running the
 	// build, and supplies it to the build as a bare repository mirror. A recipe
-	// that declares them therefore needs no credential inside the build. A
-	// non-empty list requires the v6 recipe contract and participates in its
-	// digest, in order; older hosts reject v6 rather than build without
-	// supplying it. A host accepts a v6 plan only after it has fetched every
-	// declared source, and refuses a declaration it did not fetch.
+	// that declares them therefore needs no credential inside the build. The
+	// list always participates in the plan digest, in order, so a declaration
+	// cannot be dropped and the build run without the caller supplying it. A
+	// host accepts a plan only after it has fetched every declared source, and
+	// refuses a declaration it did not fetch.
 	GitSourceDownloads []*GitSourceDownload `protobuf:"bytes,11,rep,name=git_source_downloads,json=gitSourceDownloads,proto3" json:"git_source_downloads,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -723,6 +723,8 @@ type DockerBuildPlan struct {
 	// "sha256:<hex>". Identical recipe trees yield an identical digest.
 	Digest string `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
 	// contract_version identifies the recipe contract the caller validates.
+	// There is one, "codefly.dev/docker-build-recipe/v1"; a plan stating any
+	// other is refused by name.
 	ContractVersion string `protobuf:"bytes,4,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
 	// scope states what the files inventory covers. It is part of the aggregate
 	// digest, so a plan cannot be downgraded to a weaker verification by
