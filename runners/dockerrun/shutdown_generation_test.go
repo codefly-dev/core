@@ -221,3 +221,29 @@ func TestContainerCleanupContextKeepsLiveDeadlineAndBoundsFallback(t *testing.T)
 		release()
 	}
 }
+
+func TestShutdownKeepsTimeForRemoveWhenGracefulStopStalls(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	removed := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			<-r.Context().Done()
+		case http.MethodDelete:
+			if ctx.Err() != nil {
+				t.Error("graceful stop exhausted the caller deadline before removal")
+			}
+			removed <- struct{}{}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected Docker operation %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.47"))
+	require.NoError(t, err)
+	env := &DockerEnvironment{client: cli, instance: &DockerContainerInstance{ID: "acquired"}}
+	require.NoError(t, env.Shutdown(ctx))
+	require.Len(t, removed, 1)
+}

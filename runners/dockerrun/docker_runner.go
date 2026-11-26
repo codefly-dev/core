@@ -1098,7 +1098,12 @@ func (docker *DockerEnvironment) Stop(ctx context.Context) error {
 	if docker.instance == nil || docker.instance.ID == "" {
 		return nil
 	}
-	stopCtx, cancel := containerCleanupContext(ctx)
+	// Reserve the remaining shutdown budget for forced removal if the
+	// graceful stop stalls. Cleanup can still run after caller cancellation.
+	if ctx.Err() != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
+	stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_, err := docker.client.ContainerStop(stopCtx, docker.instance.ID, client.ContainerStopOptions{Timeout: shared.Pointer(3)})
 	if err != nil {
