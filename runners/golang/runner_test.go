@@ -9,14 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/internal/testgit"
-	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/golang"
-
-	"github.com/codefly-dev/core/wool"
 
 	"github.com/stretchr/testify/require"
 
@@ -29,18 +27,11 @@ import (
 // mode and the legacy GOPATH path was dropped — see
 // TestDockerRunNoMod removal).
 func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) {
-
-	cacheDir, _ := os.MkdirTemp("", "cache")
+	t.Helper()
+	cacheDir := t.TempDir()
 	env.WithLocalCacheDir(cacheDir)
-	goModDir, _ := os.MkdirTemp("", "mod")
-	env.WithGoModDir(goModDir)
-
-	defer func() {
-		err := env.Shutdown(ctx)
-		require.NoError(t, err)
-		err = os.RemoveAll(cacheDir)
-		require.NoError(t, err)
-	}()
+	env.WithGoModDir(t.TempDir())
+	t.Cleanup(func() { require.NoError(t, env.Shutdown(context.Background())) })
 
 	// Init
 	err := env.Init(ctx)
@@ -67,14 +58,23 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 	err = proc.Start(ctx)
 	require.NoError(t, err)
 
-	time.Sleep(1 * time.Second)
+	require.Eventually(t, func() bool {
+		for _, line := range data.Snapshot() {
+			if strings.Contains(line, "running") {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 20*time.Millisecond, "runner did not report readiness")
 	require.True(t, shared.Must(proc.IsRunning(ctx)))
 
 	err = proc.Stop(ctx)
 	require.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
-
+	require.Eventually(t, func() bool {
+		lines := data.Snapshot()
+		return len(lines) > 0 && strings.Contains(lines[len(lines)-1], "signal received")
+	}, 10*time.Second, 20*time.Millisecond, "runner did not report its stop")
 	testOutput(t, data)
 
 	require.False(t, shared.Must(proc.IsRunning(ctx)))
@@ -172,10 +172,19 @@ func TestGoRunnerInitDoesNotResolveOrMutateProjectDependencies(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "environment initialization created go.sum: %v", statErr)
 }
 
+// Each backend gets its own workspace so builders can run concurrently
+// without sharing a mutable Go module or a Nix flake checkout.
+func copyRunnerTestdata(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS("testdata")))
+	return dir
+}
+
 func TestNativeRunWithMod(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod")
+	t.Parallel()
+	ctx := t.Context()
+	env, err := golang.NewNativeGoRunner(ctx, copyRunnerTestdata(t), "mod")
 	require.NoError(t, err)
 	testGo(t, ctx, env)
 }
@@ -215,9 +224,9 @@ func main() {
 }
 
 func TestNativeRunWithModAndCGO(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	env, err := golang.NewNativeGoRunner(ctx, shared.MustSolvePath("testdata"), "mod_cgo")
+	t.Parallel()
+	ctx := t.Context()
+	env, err := golang.NewNativeGoRunner(ctx, copyRunnerTestdata(t), "mod_cgo")
 	require.NoError(t, err)
 	env.WithCGO(true)
 	testGo(t, ctx, env)
@@ -251,15 +260,13 @@ func TestNixRunWithMod(t *testing.T) {
 		t.Fatal("nix >= 2.18 required (current nixpkgs needs it); upgrade Nix or run with -tags skip_infra")
 	}
 
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
+	t.Parallel()
+	ctx := t.Context()
 
 	// Copy testdata to a temp dir so nix can see the flake.nix
 	// (nix flakes only see git-tracked files, and testdata/flake.nix
 	// may not be tracked in core's repo)
-	tmpDir := t.TempDir()
-	cpCmd := exec.Command("cp", "-r", shared.MustSolvePath("testdata")+"/.", tmpDir)
-	require.NoError(t, cpCmd.Run())
+	tmpDir := copyRunnerTestdata(t)
 
 	// Initialize a git repo so nix can see the flake
 	for _, args := range [][]string{{"init"}, {"add", "-A"}} {
@@ -273,36 +280,28 @@ func TestNixRunWithMod(t *testing.T) {
 }
 
 func TestDockerRunWithMod(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
+	ctx := t.Context()
+	name := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
 	env, err := golang.NewDockerGoRunner(ctx,
 		resources.NewDockerImage("golang:1.26-alpine"),
-		shared.MustSolvePath("testdata"), "mod",
+		copyRunnerTestdata(t), "mod",
 		name)
 	require.NoError(t, err)
 
 	testGo(t, ctx, env)
-
-	err = env.Shutdown(ctx)
-	require.NoError(t, err)
 }
 
 func TestDockerRunWithModAndCGO(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	name := fmt.Sprintf("test-mod-%d", time.Now().UnixMilli())
+	ctx := t.Context()
+	name := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
 	env, err := golang.NewDockerGoRunner(ctx,
 		resources.NewDockerImage("golang:1.26"),
-		shared.MustSolvePath("testdata"), "mod_cgo",
+		copyRunnerTestdata(t), "mod_cgo",
 		name)
 	require.NoError(t, err)
 
 	env.WithCGO(true)
 	testGo(t, ctx, env)
-
-	err = env.Shutdown(ctx)
-	require.NoError(t, err)
 }
 
 // A service whose go.mod replaces a module with a local directory compiles that

@@ -2,6 +2,7 @@
 # Prints the packages test shard INDEX of TOTAL runs, one per line.
 #
 #   ./scripts/test_shard.sh 2 6
+#   ./scripts/test_shard.sh --all 6  # one tab-separated shard/package row per package
 #
 # The split is deterministic: every shard computes the same partition from the
 # same `go list`, so the shards together run every package exactly once
@@ -16,9 +17,13 @@
 # slowest packages in their step summary) when one shard dominates.
 set -euo pipefail
 
-index="${1:?usage: test_shard.sh INDEX TOTAL}"
-total="${2:?usage: test_shard.sh INDEX TOTAL}"
-if ! [[ "$index" =~ ^[0-9]+$ && "$total" =~ ^[0-9]+$ ]] || ((index < 1 || index > total)); then
+index="${1:?usage: test_shard.sh INDEX|--all TOTAL}"
+total="${2:?usage: test_shard.sh INDEX|--all TOTAL}"
+if ! [[ "$total" =~ ^[1-9][0-9]*$ ]]; then
+	echo "test_shard.sh: TOTAL must be a positive integer (got $total)" >&2
+	exit 2
+fi
+if [[ "$index" != "--all" ]] && { ! [[ "$index" =~ ^[1-9][0-9]*$ ]] || ((index > total)); }; then
 	echo "test_shard.sh: INDEX must be in 1..TOTAL (got $index of $total)" >&2
 	exit 2
 fi
@@ -29,25 +34,27 @@ tags="${TEST_TAGS:-sandbox_e2e,nix_required}"
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Seconds per package under -race and coverage on a warm build cache, from the
-# shards' own timings (core#901). Several of these build Go fixture binaries in
-# the test itself, so they also compete for CPU: spreading them is the point.
+# Approximate package seconds under race detection and coverage. The
+# v0.19.38 shard timings are the baseline, adjusted for fixture reuse and
+# bounded concurrency in the runner and SDK tests. Refresh with CI artifacts.
 weights='
-github.com/codefly-dev/core/runners/dockerrun 155
-github.com/codefly-dev/core/runners/base 130
-github.com/codefly-dev/core/runners/golang 110
-github.com/codefly-dev/core/internal/ciguard 90
-github.com/codefly-dev/core/agents/manager 80
-github.com/codefly-dev/core/sdk/dependencies 76
-github.com/codefly-dev/core/runners/python 70
-github.com/codefly-dev/core/agents 60
-github.com/codefly-dev/core/toolbox/launch 34
-github.com/codefly-dev/core/contracts/module 20
-github.com/codefly-dev/core/services 19
-github.com/codefly-dev/core/agents/services 14
-github.com/codefly-dev/core/code 13
-github.com/codefly-dev/core/resources 11
-github.com/codefly-dev/core/composition 8
+github.com/codefly-dev/core/runners/base 124
+github.com/codefly-dev/core/runners/golang 115
+github.com/codefly-dev/core/runners/dockerrun 105
+github.com/codefly-dev/core/sdk/dependencies 85
+github.com/codefly-dev/core/agents/manager 47
+github.com/codefly-dev/core/internal/ciguard 40
+github.com/codefly-dev/core/toolbox/launch 39
+github.com/codefly-dev/core/runners/python 38
+github.com/codefly-dev/core/toolbox/session 31
+github.com/codefly-dev/core/agents 29
+github.com/codefly-dev/core/agents/services 29
+github.com/codefly-dev/core/services 26
+github.com/codefly-dev/core/code 25
+github.com/codefly-dev/core/runners/rust 20
+github.com/codefly-dev/core/contracts/module 19
+github.com/codefly-dev/core/composition 18
+github.com/codefly-dev/core/resources 12
 '
 
 go list -tags "$tags" ./... | WEIGHTS="$weights" awk -v index_="$index" -v total="$total" '
@@ -73,7 +80,8 @@ go list -tags "$tags" ./... | WEIGHTS="$weights" awk -v index_="$index" -v total
 			best = 1
 			for (s = 2; s <= total; s++) if (load[s] < load[best]) best = s
 			load[best] += w(pkgs[order[i]])
-			if (best == index_) print pkgs[order[i]]
+			if (index_ == "--all") printf "%d\t%s\n", best, pkgs[order[i]]
+			else if (best == index_) print pkgs[order[i]]
 		}
 	}
 	function w(p) { return (p in weight) ? weight[p] : 1 }

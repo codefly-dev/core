@@ -73,8 +73,8 @@ func TestSharedControlChannelStaysOnTheWorkspacePort(t *testing.T) {
 // process environment, so the second would overwrite the first — which means
 // an in-process test cannot reproduce what the audit describes.
 func TestIndependentProcessesInSameNamedWorkspacesAreIsolated(t *testing.T) {
-	controlServer := buildFixture(t, "./testdata/controlserver")
-	driver := buildFixture(t, "./testdata/sessiondriver")
+	controlServer := buildControlServer(t)
+	driver := buildSessionDriver(t)
 
 	first := startSessionProcess(t, driver, controlServer, copyWorkspace(t))
 	second := startSessionProcess(t, driver, controlServer, copyWorkspace(t))
@@ -417,21 +417,6 @@ func enterSessionWorkspace(t *testing.T) {
 	t.Setenv("CODEFLY__RUNTIME_CONTEXT", "native")
 }
 
-func buildControlServer(t *testing.T) string {
-	t.Helper()
-	return buildFixture(t, "./testdata/controlserver")
-}
-
-func buildFixture(t *testing.T, pkg string) string {
-	t.Helper()
-	binary := filepath.Join(t.TempDir(), filepath.Base(pkg))
-	build := exec.Command("go", "build", "-o", binary, pkg)
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build %s fixture: %v\n%s", pkg, err, output)
-	}
-	return binary
-}
-
 // countControlDirectories counts the private directories disposable sessions
 // create, so a test can prove an error path released the one it made.
 func countControlDirectories(t *testing.T) int {
@@ -594,7 +579,7 @@ func readRecord(t *testing.T, path string) string {
 // and four that each spawned their own report four.
 func TestConcurrentProcessesShareOneWarmStack(t *testing.T) {
 	binary := testCLI(t)
-	driver := buildFixture(t, "./testdata/sessiondriver")
+	driver := buildSessionDriver(t)
 	service := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
 	home := warmCacheHome(t)
 	pids := filepath.Join(home, "pids")

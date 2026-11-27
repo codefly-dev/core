@@ -7,7 +7,6 @@ import (
 	"context"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
@@ -52,14 +51,11 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			// Publish only the completed fixture: shell redirection creates an
 			// empty file before echo writes it, so existence alone otherwise
 			// lets the ownership assertion race the writer and read no content.
-			command := []string{"sh", "-c", "echo retained > /retained.tmp && mv /retained.tmp /retained && exec sleep 300"}
+			command := gracefulWorkload("echo retained > /retained.tmp && mv /retained.tmp /retained")
 			first.WithCommand(command...)
 			require.NoError(t, first.Init(ctx))
 			originalID := first.instance.ID
-			require.Eventually(t, func() bool {
-				_, err := first.client.ContainerStatPath(ctx, originalID, client.ContainerStatPathOptions{Path: "/retained"})
-				return err == nil
-			}, 5*time.Second, 10*time.Millisecond)
+			waitForWorkload(t, first.client, originalID)
 
 			t.Setenv(recoveryscope.EnvironmentVariable, "")
 			if tc.second.id != "" {
@@ -75,6 +71,7 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			err = second.Init(ctx)
 			if !tc.rejected {
 				require.NoError(t, err)
+				waitForWorkload(t, second.client, second.instance.ID)
 				if tc.changed {
 					require.NotEqual(t, originalID, second.instance.ID)
 				} else {

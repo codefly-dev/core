@@ -158,7 +158,7 @@ jobs:
         continue-on-error: true
         with:
           path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.4-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.4-${{ hashFiles('**/go.sum', 'scripts/test_shard.sh') }}
           restore-keys: |
             ${{ runner.os }}-go-build-test-${{ matrix.shard }}-1.27.4-
 
@@ -175,8 +175,12 @@ jobs:
         # (azure.archive.ubuntu.com periodically hiccups for ~5-10
         # minutes); sustained outages still fail loud as intended.
         run: |
+          missing=()
+          command -v bwrap >/dev/null || missing+=(bubblewrap)
+          command -v rg >/dev/null || missing+=(ripgrep)
+          if (( ${#missing[@]} == 0 )); then exit 0; fi
           for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep && exit 0
+            sudo apt-get update && sudo apt-get install -y "${missing[@]}" && exit 0
             echo "apt failed (attempt $i / 3); waiting 30s before retry"
             sleep 30
           done
@@ -218,9 +222,11 @@ jobs:
         # carries the package lines, and the failures are printed in full after.
         run: |
           set -euo pipefail
-          mapfile -t pkgs < <(./scripts/test_shard.sh "${{ matrix.shard }}" "$SHARDS")
+          packages=$(./scripts/test_shard.sh "${{ matrix.shard }}" "$SHARDS")
+          test -n "$packages"
+          mapfile -t pkgs <<< "$packages"
           echo "shard ${{ matrix.shard }}/$SHARDS: ${#pkgs[@]} packages"
-          go test -race -count=1 -covermode=atomic -coverprofile=cover.out \
+          go test -race -count=1 -parallel=4 -covermode=atomic -coverprofile=cover.out \
             -tags=sandbox_e2e,nix_required -json "${pkgs[@]}" \
             | tee test.json \
             | jq -rj --unbuffered 'select(.Test == null and .Action == "output") | .Output'

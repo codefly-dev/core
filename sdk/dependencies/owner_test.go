@@ -1,29 +1,28 @@
 package dependencies
 
 import (
-	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/codefly-dev/core/runners/runstate"
 )
 
-// startStalledSession starts a dependency session against a control server
-// whose flow never becomes ready, and returns what that server recorded: the
-// session fails, and the server has by then said what it was started with.
-func startStalledSession(t *testing.T, opts ...OptionFunc) string {
+// recordSessionOwner starts a real control session and reads the owner
+// declaration the child saw. A failed flow makes the SDK reap the child.
+func recordSessionOwner(t *testing.T, binary string, opts ...OptionFunc) string {
 	t.Helper()
-	binary := buildControlServer(t)
 	enterSessionWorkspace(t)
 	records := t.TempDir()
 	t.Setenv("CODEFLY_BINARY", binary)
 	t.Setenv("FAKE_CONTROL_RECORD_DIR", records)
-	t.Setenv("FAKE_CONTROL_MODE", "stalled-dependency")
+	t.Setenv("FAKE_CONTROL_MODE", "failed-dependency")
 
-	if _, err := WithDependencies(context.Background(), append(opts, WithTimeout(2*time.Second))...); err == nil {
-		t.Fatal("WithDependencies() accepted a flow that never became ready")
+	_, err := WithDependencies(t.Context(), opts...)
+	var failed *ReadinessFailure
+	if !errors.As(err, &failed) {
+		t.Fatalf("WithDependencies() error = %v, want an explicit readiness failure", err)
 	}
 	return readRecord(t, onlyRecord(t, records))
 }
@@ -37,7 +36,7 @@ func TestADependencyRunIsToldWhoOwnsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := startStalledSession(t)
+	record := recordSessionOwner(t, buildControlServer(t))
 	if want := "owner=" + self.String() + "\n"; !strings.Contains(record, want) {
 		t.Fatalf("the run was started with:\n%s\nwant it told %q", record, want)
 	}
@@ -46,8 +45,10 @@ func TestADependencyRunIsToldWhoOwnsIt(t *testing.T) {
 // A stack kept running is meant to outlive the process that started it, and a
 // later process attaches to it: it is nobody's.
 func TestAStackKeptRunningHasNoOwner(t *testing.T) {
+	// Build before isolating runtime HOME so Go can use its normal caches.
+	binary := buildControlServer(t)
 	t.Setenv("HOME", warmCacheHome(t))
-	record := startStalledSession(t, WithKeepRunning())
+	record := recordSessionOwner(t, binary, WithKeepRunning())
 	if !strings.Contains(record, "owner=\n") {
 		t.Fatalf("the run was started with:\n%s\nwant no owner", record)
 	}
@@ -56,9 +57,11 @@ func TestAStackKeptRunningHasNoOwner(t *testing.T) {
 // An inherited declaration names somebody else's run. A stack kept running
 // must not end with that process either.
 func TestAStackKeptRunningDoesNotInheritAnOwner(t *testing.T) {
+	// Build before isolating runtime HOME so Go can use its normal caches.
+	binary := buildControlServer(t)
 	t.Setenv("HOME", warmCacheHome(t))
 	t.Setenv(runstate.OwnerEnvironment, "4242:1:boot")
-	record := startStalledSession(t, WithKeepRunning())
+	record := recordSessionOwner(t, binary, WithKeepRunning())
 	if !strings.Contains(record, "owner=\n") {
 		t.Fatalf("the run was started with:\n%s\nwant no owner", record)
 	}
