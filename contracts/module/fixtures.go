@@ -285,21 +285,25 @@ func Run(t TestingT, read func(document []byte) error) {
 		return
 	}
 	for _, fixture := range all {
-		err := read(fixture.Document)
-		switch fixture.Outcome {
-		case OutcomeAccepted:
-			if err != nil {
-				t.Errorf("module contract fixture %s must be accepted, got: %v", fixture.Name, err)
-			}
-		case OutcomeRefused:
-			switch {
-			case err == nil:
-				t.Errorf("module contract fixture %s must be refused with %v (rule %s)", fixture.Name, fixture.Sentinel, fixture.Rule)
-			case !errors.Is(err, fixture.Sentinel):
-				t.Errorf("module contract fixture %s must be refused with %v (rule %s), got: %v", fixture.Name, fixture.Sentinel, fixture.Rule, err)
-			case !strings.Contains(err.Error(), fixture.Message):
-				t.Errorf("module contract fixture %s must be refused naming %q (rule %s), got: %v", fixture.Name, fixture.Message, fixture.Rule, err)
-			}
+		runFixture(t, fixture, read)
+	}
+}
+
+func runFixture(t TestingT, fixture Fixture, read func(document []byte) error) {
+	err := read(fixture.Document)
+	switch fixture.Outcome {
+	case OutcomeAccepted:
+		if err != nil {
+			t.Errorf("module contract fixture %s must be accepted, got: %v", fixture.Name, err)
+		}
+	case OutcomeRefused:
+		switch {
+		case err == nil:
+			t.Errorf("module contract fixture %s must be refused with %v (rule %s)", fixture.Name, fixture.Sentinel, fixture.Rule)
+		case !errors.Is(err, fixture.Sentinel):
+			t.Errorf("module contract fixture %s must be refused with %v (rule %s), got: %v", fixture.Name, fixture.Sentinel, fixture.Rule, err)
+		case !strings.Contains(err.Error(), fixture.Message):
+			t.Errorf("module contract fixture %s must be refused naming %q (rule %s), got: %v", fixture.Name, fixture.Message, fixture.Rule, err)
 		}
 	}
 }

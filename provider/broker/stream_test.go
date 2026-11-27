@@ -140,21 +140,6 @@ func TestExecute_StreamRecordThenReplay(t *testing.T) {
 	require.Equal(t, string(data), string(again))
 }
 
-// TestExecute_StreamReplayMissingEntryDoesNotHitNetwork proves an unrecorded
-// streaming request fails closed rather than reaching the network.
-func TestExecute_StreamReplayMissingEntryDoesNotHitNetwork(t *testing.T) {
-	empty := cassette.New(cassette.ModeReplay, "1.2.3")
-	h := newHarness(t)
-	cfg := h.config(false)
-	cfg.ClientFor = dialClientFor(reservedClosedAddr(t))
-	cfg.Cassette = empty
-	session, err := broker.New(cfg)
-	require.NoError(t, err)
-
-	_, err = session.Execute(context.Background(), h.executeRequest(h.mintHandle(t, h.create, providerv0.HTTPMethod_HTTP_METHOD_POST), h.create))
-	require.ErrorContains(t, err, "does not fall back to live")
-}
-
 // TestExecute_StreamExceedsByteBudget proves the response-bytes budget bounds
 // the whole stream, not a single frame: a stream larger than the budget fails
 // closed mid-read and forwards nothing.

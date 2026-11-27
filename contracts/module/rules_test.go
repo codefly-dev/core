@@ -1,6 +1,7 @@
 package module
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 	"sort"
@@ -43,17 +44,18 @@ func TestEveryRuleIsProtectedByAFixture(t *testing.T) {
 		if r.inherent {
 			continue
 		}
-		// Each deletion is its own whole run of the kit and shares nothing with
-		// the others, so they run in parallel: serially, under the race
-		// detector, this one test took two minutes of CI.
+		// Each rule has its own witnesses. The full kit runs separately
+		// against the reference reader and representative broken readers.
 		t.Run(r.name, func(t *testing.T) {
 			t.Parallel()
-			// The kit, run against this reader with the rule deleted, must fail.
+			// The kit must catch this deleted rule on a fixture that names it.
 			recorder := &recordingT{}
-			Run(recorder, func(document []byte) error {
-				_, err := parse(document, r.name)
-				return err
-			})
+			for _, fixture := range fixtures {
+				runFixture(recorder, fixture, func(document []byte) error {
+					_, err := parse(document, r.name)
+					return err
+				})
+			}
 			if recorder.failures == 0 {
 				t.Errorf("rule %s can be deleted and the kit still passes: %d fixture(s) name it but none notices", r.name, len(fixtures))
 			}
@@ -205,4 +207,29 @@ func (r *recordingT) failedNaming(role string) bool {
 		}
 	}
 	return false
+}
+
+func TestKitRejectsWrongRefusalReason(t *testing.T) {
+	fixtures, err := Fixtures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range fixtures {
+		if fixture.Name != "tenancy" {
+			continue
+		}
+		recorder := &recordingT{}
+		Run(recorder, func(document []byte) error {
+			if bytes.Equal(document, fixture.Document) {
+				return fmt.Errorf("%w: unrelated reason", fixture.Sentinel)
+			}
+			_, err := Parse(document)
+			return err
+		})
+		if recorder.failures != 1 || !strings.Contains(recorder.messages, "fixture tenancy must be refused naming") {
+			t.Fatalf("kit did not reject the wrong refusal reason:\n%s", recorder.messages)
+		}
+		return
+	}
+	t.Fatal("missing tenancy fixture")
 }

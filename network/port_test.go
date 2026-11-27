@@ -41,39 +41,24 @@ func TestPortGeneration(t *testing.T) {
 	}
 }
 
-func TestPortDifferentAPIName(t *testing.T) {
-	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "", "guestbook", "redis", standards.TCP, "read", network.PortModeHost)
-	two := network.ToNamedPort(ctx, "", "guestbook", "redis", standards.GRPC, "write", network.PortModeHost)
-	require.NotEqual(t, one, two)
-}
-
-func TestPortDifferentApp(t *testing.T) {
-	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "", "counter-python-nextjs-postgres", "store", standards.TCP, "tpc", network.PortModeHost)
-	two := network.ToNamedPort(ctx, "", "customers", "store", standards.TCP, "tpc", network.PortModeHost)
-	require.NotEqual(t, one, two)
-}
-
-func TestPortDifferentService(t *testing.T) {
-	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "", "customers", "other-store", standards.TCP, "tpc", network.PortModeHost)
-	two := network.ToNamedPort(ctx, "", "customers", "store", standards.TCP, "tpc", network.PortModeHost)
-	require.NotEqual(t, one, two)
-}
-
-func TestPortDifferentServiceOther(t *testing.T) {
-	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "codefly-platform", "customers", "backend", standards.GRPC, "grpc", network.PortModeHost)
-	two := network.ToNamedPort(ctx, "codefly-platform", "workspace", "workspace", standards.GRPC, "grpc", network.PortModeHost)
-	require.NotEqual(t, one, two)
-}
-
-func TestPortDifferent(t *testing.T) {
-	ctx := context.Background()
-	one := network.ToNamedPort(ctx, "other-", "customers", "store", standards.TCP, "tpc", network.PortModeHost)
-	two := network.ToNamedPort(ctx, "", "customers", "store", standards.TCP, "tpc", network.PortModeHost)
-	require.NotEqual(t, one, two)
+func TestNamedPortUsesEachIdentityComponent(t *testing.T) {
+	ctx := t.Context()
+	baseline := network.ToNamedPort(ctx, "workspace", "module", "service", "read", standards.TCP, network.PortModeHost)
+	for _, tc := range []struct {
+		name                                      string
+		workspace, module, service, endpoint, api string
+	}{
+		{"workspace", "other", "module", "service", "read", standards.TCP},
+		{"module", "workspace", "other", "service", "read", standards.TCP},
+		{"service", "workspace", "module", "other", "read", standards.TCP},
+		{"endpoint", "workspace", "module", "service", "write", standards.TCP},
+		{"api", "workspace", "module", "service", "read", standards.GRPC},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := network.ToNamedPort(ctx, tc.workspace, tc.module, tc.service, tc.endpoint, tc.api, network.PortModeHost)
+			require.NotEqual(t, baseline, got)
+		})
+	}
 }
 
 // TestPortHostModeMatchesLegacy pins the guarantee that host mode reproduces
@@ -85,8 +70,10 @@ func TestPortHostModeMatchesLegacy(t *testing.T) {
 	host := network.ToNamedPort(ctx, "mind-server", "mind", "mind", "grpc", standards.GRPC, network.PortModeHost)
 	native := network.ToNamedPort(ctx, "mind-server", "mind", "mind", "grpc", standards.GRPC, network.PortModeFor(resources.RuntimeContextNative))
 	nix := network.ToNamedPort(ctx, "mind-server", "mind", "mind", "grpc", standards.GRPC, network.PortModeFor(resources.RuntimeContextNix))
-	require.Equal(t, host, native, "native folds to host mode")
-	require.Equal(t, host, nix, "nix folds to host mode")
+	const legacyPort uint16 = 50843
+	require.Equal(t, legacyPort, host)
+	require.Equal(t, legacyPort, native, "native folds to host mode")
+	require.Equal(t, legacyPort, nix, "nix folds to host mode")
 }
 
 // TestPortContainerModeDiffersFromHost is the core guarantee: a container run
