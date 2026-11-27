@@ -11,23 +11,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestLoadingFromPathFlat(t *testing.T) {
-	testLoadingFromPath(t, "testdata/workspaces/flat-layout")
+func TestLoadingFromPath(t *testing.T) {
+	for _, layout := range []string{"flat-layout", "module-layout"} {
+		t.Run(layout, func(t *testing.T) {
+			t.Chdir(path.Join("testdata", "workspaces", layout))
+			testLoadingFromPath(t)
+		})
+	}
 }
 
-func TestLoadingFromPathModule(t *testing.T) {
-	testLoadingFromPath(t, "testdata/workspaces/module-layout")
-}
-
-func testLoadingFromPath(t *testing.T, dir string) {
-	ctx := context.Background()
-
-	cur, err := os.Getwd()
-	require.NoError(t, err)
-
-	err = os.Chdir(path.Join(cur, dir))
-	require.NoError(t, err)
-	defer os.Chdir(cur)
+func testLoadingFromPath(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
 
 	workspace, err := resources.FindWorkspaceUp(ctx)
 	require.NoError(t, err)

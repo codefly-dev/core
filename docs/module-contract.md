@@ -733,9 +733,10 @@ actually reads the file with — the renderer's load, the publisher's merge,
 the loader's parse — never this package's `Parse`, which proves nothing about
 the consumer. The package's self-check (`TestEveryRuleIsProtectedByAFixture`)
 proves the kit protects every rule: every rule is named by at least one
-refused fixture, and the kit is run with each rule deleted in turn and must
-fail on a fixture naming it — a rule that could be dropped silently is a rule
-the kit does not protect.
+refused fixture. For each rule deletion, the self-check applies the kit’s
+outcome assertion to the fixtures naming that rule. Separate full-kit runs
+check the reference reader and detect representative readers that skip a
+rule or give the wrong refusal reason.
 
 **Adoption is a requirement, not yet a fact.** Nothing in this repository
 drives a consumer through either kit, and until each consumer's own commit
