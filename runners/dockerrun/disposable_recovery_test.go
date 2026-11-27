@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/require"
 )
@@ -70,4 +71,24 @@ func TestDisposableRecoveryUsesDurableNamespaceAndEphemeralOwnership(t *testing.
 		require.NoError(t, ReapDisposableContainers(t.Context(), degraded))
 		require.Error(t, ReapDisposableContainers(t.Context(), ContainerRecoveryScope{}))
 	})
+}
+
+func TestEphemeralContainerLabelsRecoverAnAbandonedHelper(t *testing.T) {
+	t.Setenv(recoveryscope.EnvironmentVariable, "")
+	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "probe")
+	require.NoError(t, err)
+	require.NoError(t, SetContainerRecoveryScope(scope))
+	labels, err := EphemeralContainerLabels("probe")
+	require.NoError(t, err)
+	require.Equal(t, "probe", labels[LabelCodeflyName])
+	require.Equal(t, strconv.Itoa(os.Getpid()), labels[LabelCodeflySession])
+	helper := container.Summary{Labels: labels, State: "created"}
+	require.False(t, disposableContainerInNamespace(helper, scope))
+	owner := exec.Command("true")
+	require.NoError(t, owner.Run())
+	labels[LabelCodeflySession] = strconv.Itoa(owner.Process.Pid)
+	for _, state := range []container.ContainerState{"created", "running", "exited"} {
+		helper.State = state
+		require.True(t, disposableContainerInNamespace(helper, scope))
+	}
 }

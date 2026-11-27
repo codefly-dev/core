@@ -429,18 +429,7 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 		return nil, nil, err
 	}
 	containerConfig := docker.createContainerConfig(ctx)
-	if scope.id != "" {
-		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
-		if scope.disposableStorage {
-			containerConfig.Labels[labelDisposableStorage] = labelTrue
-			containerConfig.Labels[LabelCodeflyEphemeral] = labelTrue
-		}
-		// The durable host/home/workspace namespace is what lets a successor run
-		// recover this container after choosing an entirely fresh naming scope.
-		if scope.namespace != "" {
-			containerConfig.Labels[LabelCodeflyRecoveryNamespace] = scope.namespace
-		}
-	}
+	scope.labelContainer(containerConfig.Labels)
 	hostConfig := docker.createHostConfig(ctx)
 	if err = docker.deliverCarriers(containerConfig, hostConfig); err != nil {
 		return nil, nil, err
@@ -570,11 +559,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 		// pgid file mechanism for native processes. Cheaper than running
 		// a ryuk sidecar and matches codefly's "startup cleanup, not
 		// runtime reaper" existing posture.
-		Labels: map[string]string{
-			LabelCodeflyOwner:   "true",
-			LabelCodeflySession: strconv.Itoa(os.Getpid()),
-			LabelCodeflyName:    docker.name,
-		},
+		Labels: containerOwnerLabels(docker.name),
 	}
 	// Ephemeral (SDK / `codefly run --cli-server`) containers are per-test
 	// throwaways with unique naming scopes — they are NEVER reused by name, so

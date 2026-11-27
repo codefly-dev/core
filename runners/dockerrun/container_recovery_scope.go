@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/codefly-dev/core/runners/recoveryscope"
 )
@@ -97,4 +98,41 @@ func inheritedContainerRecoveryScope() (ContainerRecoveryScope, error) {
 			marker == recoveryscope.Marker(recoveryscope.LaunchingParentPID(), id, namespace)
 	}
 	return scope, nil
+}
+
+func containerOwnerLabels(name string) map[string]string {
+	return map[string]string{
+		LabelCodeflyOwner:   labelTrue,
+		LabelCodeflySession: strconv.Itoa(os.Getpid()),
+		LabelCodeflyName:    name,
+	}
+}
+
+// EphemeralContainerLabels records ownership when an agent creates a temporary
+// helper directly through the Docker API. Attach these labels at creation so
+// the recovery sweep can clean up even if the agent dies before starting it.
+func EphemeralContainerLabels(name string) (map[string]string, error) {
+	scope, err := inheritedContainerRecoveryScope()
+	if err != nil {
+		return nil, err
+	}
+	labels := containerOwnerLabels(name)
+	labels[LabelCodeflyEphemeral] = labelTrue
+	scope.labelContainer(labels)
+	return labels, nil
+}
+
+func (scope ContainerRecoveryScope) labelContainer(labels map[string]string) {
+	if scope.id != "" {
+		labels[LabelCodeflyRecoveryScope] = scope.id
+		if scope.disposableStorage {
+			labels[labelDisposableStorage] = labelTrue
+			labels[LabelCodeflyEphemeral] = labelTrue
+		}
+		// The durable host/home/workspace namespace is what lets a successor run
+		// recover this container after choosing an entirely fresh naming scope.
+		if scope.namespace != "" {
+			labels[LabelCodeflyRecoveryNamespace] = scope.namespace
+		}
+	}
 }
