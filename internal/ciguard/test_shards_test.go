@@ -39,6 +39,7 @@ func TestTestShardsPartitionEveryPackage(t *testing.T) {
 
 	total, err := strconv.Atoi(job.Env["SHARDS"])
 	require.NoError(t, err, "go.yml's test job must set SHARDS to the matrix size")
+	require.Positive(t, total)
 	want := make([]int, total)
 	for i := range want {
 		want[i] = i + 1
@@ -86,18 +87,33 @@ func TestTestShardsPartitionEveryPackage(t *testing.T) {
 	all := strings.Fields(string(out))
 	require.NotEmpty(t, all)
 
+	script := filepath.Join(root, "scripts", "test_shard.sh")
+	matrix := exec.Command("bash", script, "--all", strconv.Itoa(total))
+	matrix.Dir = root
+	matrixOutput, err := matrix.Output()
+	require.NoError(t, err)
 	seen := map[string]int{}
-	for shard := 1; shard <= total; shard++ {
-		cmd := exec.Command("bash", filepath.Join(root, "scripts", "test_shard.sh"), strconv.Itoa(shard), strconv.Itoa(total))
-		cmd.Dir = root
-		got, err := cmd.Output()
-		require.NoError(t, err, "shard %d", shard)
-		pkgs := strings.Fields(string(got))
-		require.NotEmpty(t, pkgs, "shard %d runs no package", shard)
-		for _, pkg := range pkgs {
-			seen[pkg]++
-		}
+	byShard := map[int][]string{}
+	for _, row := range strings.Split(strings.TrimSpace(string(matrixOutput)), "\n") {
+		fields := strings.Split(row, "\t")
+		require.Len(t, fields, 2, "malformed shard row %q", row)
+		index, err := strconv.Atoi(fields[0])
+		require.NoError(t, err)
+		require.Contains(t, want, index)
+		byShard[index] = append(byShard[index], fields[1])
+		seen[fields[1]]++
 	}
+	for _, shard := range want {
+		require.NotEmpty(t, byShard[shard], "shard %d runs no package", shard)
+	}
+
+	// Each CI job uses the single-shard entry point. Verify its adapter once.
+	shard := want[len(want)-1]
+	cmd := exec.Command("bash", script, strconv.Itoa(shard), strconv.Itoa(total))
+	cmd.Dir = root
+	got, err := cmd.Output()
+	require.NoError(t, err)
+	require.Equal(t, byShard[shard], strings.Fields(string(got)))
 
 	var missing, twice []string
 	for _, pkg := range all {

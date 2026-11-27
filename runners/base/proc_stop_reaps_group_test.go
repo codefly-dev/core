@@ -86,6 +86,7 @@ func reapTreeOnCleanup(t *testing.T, pgid func() int, descendant *int) {
 }
 
 func TestNativeProcStopReapsTheWholeProcessGroup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	for _, variant := range []struct {
 		name        string
 		detachStdio bool
@@ -94,7 +95,7 @@ func TestNativeProcStopReapsTheWholeProcessGroup(t *testing.T) {
 		{name: "descendant holds stdio", detachStdio: false},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			t.Parallel()
 			ctx := context.Background()
 			env, err := NewNativeEnvironment(ctx, t.TempDir())
 			if err != nil {
@@ -135,6 +136,7 @@ func TestNativeProcStopReapsTheWholeProcessGroup(t *testing.T) {
 }
 
 func TestNixProcStopReapsTheWholeProcessGroup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	shell, err := exec.LookPath("sh")
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +149,7 @@ func TestNixProcStopReapsTheWholeProcessGroup(t *testing.T) {
 		{name: "descendant holds stdio", detachStdio: false},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			t.Parallel()
 			ctx := context.Background()
 			env := &NixEnvironment{
 				dir:          t.TempDir(),

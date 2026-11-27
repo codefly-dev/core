@@ -74,12 +74,13 @@ func startLedgeredContainer(
 	env, err := NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("alpine:latest"), name)
 	require.NoError(t, err)
 	env.WithInvocation(handle.InvocationID())
-	env.WithPause()
+	env.WithCommand(gracefulWorkload("")...)
 	t.Cleanup(func() {
 		_ = backend.Delete(context.Background(), resource)
 		_ = env.Shutdown(context.Background())
 	})
 	require.NoError(t, env.Init(ctx))
+	waitForWorkload(t, env.client, env.instance.ID)
 
 	witness, err := backend.ContainerWitness(ctx, name)
 	require.NoError(t, err)

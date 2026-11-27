@@ -19,46 +19,51 @@ import (
 	"github.com/codefly-dev/core/solution/manifest"
 )
 
-// These tests drive the ordinary WithDependencies spawn path against a real
-// Codefly control server (sdk/internal/testcli) over a real socket: the session
-// resolves its identity, calls the CLI contract, and publishes an endpoint the
-// test then connects to.
-
+// Each fixture is an immutable executable. The tests still create their
+// own processes, sockets and workspaces.
 var (
-	testCLIOnce sync.Once
-	testCLIDir  string
-	testCLIPath string
-	testCLIErr  error
+	fixtureBuildDir string
+	fixtureRoot     = sync.OnceValues(func() (string, error) {
+		dir, err := os.MkdirTemp("", "codefly-sdk-fixtures-*")
+		fixtureBuildDir = dir
+		return dir, err
+	})
+	testCLI            = testExecutable("./testdata/testcli", "codefly")
+	buildControlServer = testExecutable("./testdata/controlserver", "controlserver")
+	buildSessionDriver = testExecutable("./testdata/sessiondriver", "sessiondriver")
 )
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	if testCLIDir != "" {
-		_ = os.RemoveAll(testCLIDir)
+	if fixtureBuildDir != "" {
+		_ = os.RemoveAll(fixtureBuildDir)
 	}
 	os.Exit(code)
 }
 
-func testCLI(t *testing.T) string {
-	t.Helper()
-	testCLIOnce.Do(func() {
-		testCLIDir, testCLIErr = os.MkdirTemp("", "codefly-testcli-*")
-		if testCLIErr != nil {
-			return
+func testExecutable(pkg, name string) func(*testing.T) string {
+	build := sync.OnceValues(func() (string, error) {
+		dir, err := fixtureRoot()
+		if err != nil {
+			return "", err
 		}
-		testCLIPath = filepath.Join(testCLIDir, "codefly")
-		build := exec.Command("go", "build", "-o", testCLIPath, "./testdata/testcli")
-		// Pin the build directory: a test that has changed the working
-		// directory must not decide where this package is compiled from.
-		build.Dir = packageDir
-		if output, err := build.CombinedOutput(); err != nil {
-			testCLIErr = fmt.Errorf("build test CLI: %w: %s", err, output)
+		path := filepath.Join(dir, name)
+		cmd := exec.Command("go", "build", "-o", path, pkg)
+		// A test that changes directory must still build the same fixture.
+		cmd.Dir = packageDir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("build %s fixture: %w: %s", pkg, err, output)
 		}
+		return path, nil
 	})
-	if testCLIErr != nil {
-		t.Fatalf("test CLI unavailable: %v", testCLIErr)
+	return func(t *testing.T) string {
+		t.Helper()
+		path, err := build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path
 	}
-	return testCLIPath
 }
 
 // uniqueScope keeps a test run off every other run's control port.

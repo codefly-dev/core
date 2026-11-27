@@ -62,6 +62,18 @@ job succeeded, those shards together run `go test` over every package, and
 `internal/ciguard` is a required check on every change to `.github/`. The guard
 suite cannot be skipped.
 
+The test jobs use Go's runner-sized package worker pool and cap parallel tests
+inside each package at four. Keep package membership disjoint so coverage
+profiles can be combined directly. `scripts/test_shard.sh --all 6` prints
+one shard/package row per package from a single discovery pass. The numeric
+entry point prints the package list for an individual job. Refresh weights from
+several successful workflow timing artifacts when large packages change.
+
+Parallel tests need independent mutable state. Use private workspaces, sockets,
+and Docker identities. A serial parent can establish one environment for its
+parallel subtests when every subtest can keep it read-only. Keep cases that
+mutate process environment or daemon-wide state serial.
+
 ## Why the set below matters
 
 #447 merged with `Build: FAILURE` visible on the pull request; auto-merge was

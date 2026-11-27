@@ -31,13 +31,15 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 		{name: "legacy exact reuse without attribution", legacy: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each case owns its container. The parent scope stays fixed.
+			t.Parallel()
 			name := uniqueName(t)
 			newEnvironment := func() *DockerEnvironment {
 				t.Helper()
 				env, err := NewDockerHeadlessEnvironment(t.Context(), resources.NewDockerImage("alpine:latest"), name)
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = env.client.Close() })
-				env.WithPause()
+				env.WithCommand(gracefulWorkload("")...)
 				return env
 			}
 			producer := newEnvironment()
@@ -47,6 +49,7 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 			require.NoError(t, producer.Init(t.Context()))
 			id := producer.instance.ID
 			t.Cleanup(func() { _ = producer.Shutdown(context.Background()) })
+			waitForWorkload(t, producer.client, id)
 			inspect, err := inspectContainer(t.Context(), producer.client, id)
 			require.NoError(t, err)
 			require.Equal(t, "web/gateway", inspect.Config.Labels[LabelCodeflyService])
@@ -85,6 +88,7 @@ func TestContainerParentServiceCreationAndReuse(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			waitForWorkload(t, reuser.client, reuser.instance.ID)
 			if tc.changed {
 				require.NotEqual(t, id, reuser.instance.ID)
 			} else {

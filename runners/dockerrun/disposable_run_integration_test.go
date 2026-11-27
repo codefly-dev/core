@@ -42,12 +42,13 @@ func leaveStoppedRun(t *testing.T, backend *SessionBackend, home, workspace, nam
 
 	store, err := NewDockerHeadlessEnvironment(t.Context(), resources.NewDockerImage("alpine:latest"), uniqueName(t)+"-store")
 	require.NoError(t, err)
-	store.WithPause()
+	store.WithCommand(gracefulWorkload("")...)
 	left.dataDir, err = store.WithPersistentCacheMount(t.Context(), "data", "/var/lib/store")
 	require.NoError(t, err)
 	require.NoError(t, store.Init(t.Context()))
 	left.store = store.instance.ID
 	t.Cleanup(func() { _ = store.Shutdown(context.Background()) })
+	waitForWorkload(t, store.client, left.store)
 	require.NoError(t, os.WriteFile(filepath.Join(left.dataDir, "PG_VERSION"), []byte("17\n"), 0o600))
 	require.NoError(t, store.Stop(t.Context()))
 
@@ -56,7 +57,7 @@ func leaveStoppedRun(t *testing.T, backend *SessionBackend, home, workspace, nam
 	name := uniqueName(t) + "-server"
 	labels[LabelCodeflyName] = name
 	created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Name: name,
-		Config:     &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels, Volumes: map[string]struct{}{"/data": {}}},
+		Config:     &container.Config{Image: "alpine:latest", Cmd: gracefulWorkload(""), Labels: labels, Volumes: map[string]struct{}{"/data": {}}},
 		HostConfig: &container.HostConfig{NetworkMode: "none"}})
 	require.NoError(t, err)
 	left.server = created.ID
@@ -65,6 +66,7 @@ func leaveStoppedRun(t *testing.T, backend *SessionBackend, home, workspace, nam
 	})
 	_, err = backend.client.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{})
 	require.NoError(t, err)
+	waitForWorkload(t, backend.client, created.ID)
 	inspect, err := inspectContainer(t.Context(), backend.client, created.ID)
 	require.NoError(t, err)
 	for _, point := range inspect.Mounts {
@@ -198,7 +200,7 @@ func TestADisposableRunsEndLeavesWhatIsNotItsOwn(t *testing.T) {
 			labels[LabelCodeflyInvocation] = invocation
 		}
 		created, err := backend.client.ContainerCreate(t.Context(), client.ContainerCreateOptions{Name: uniqueName(t),
-			Config: &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels},
+			Config: &container.Config{Image: "alpine:latest", Cmd: gracefulWorkload(""), Labels: labels},
 			HostConfig: &container.HostConfig{NetworkMode: "none",
 				Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: named.Volume.Name, Target: "/named"}}}})
 		require.NoError(t, err)
